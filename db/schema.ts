@@ -61,7 +61,6 @@ export const customers = pgTable("customers", {
 export const contacts = pgTable("contacts", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   customerId: uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   title: varchar("title", { length: 255 }),
@@ -81,7 +80,6 @@ export const contacts = pgTable("contacts", {
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   customerId: uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   code: varchar("code", { length: 64 }).notNull(),
@@ -116,7 +114,6 @@ export const invoices = pgTable("invoices", {
   disputeDate: varchar("dispute_date", { length: 16 }),
   promiseDate: varchar("promise_date", { length: 16 }),
   lastFollowupDate: varchar("last_followup_date", { length: 16 }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   // QBO reconciliation fields
   qboId: varchar("qbo_id", { length: 64 }),           // QBO internal ID
   qboBalance: real("qbo_balance"),                      // Balance as reported by QBO
@@ -133,7 +130,6 @@ export const invoices = pgTable("invoices", {
 export const communications = pgTable("communications", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   customerId: uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
   contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
@@ -155,7 +151,6 @@ export const communications = pgTable("communications", {
 export const tasks = pgTable("tasks", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
   invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 512 }).notNull(),
