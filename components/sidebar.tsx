@@ -14,6 +14,9 @@ export function Sidebar() {
   const { data: session } = useSession();
   const { invoices, communications, tasks } = useData();
 
+  const role = (session?.user as any)?.role;
+  const isAdmin = role === "super_admin" || role === "company_admin";
+
   const counts = {
     inbox: communications.filter(c => c.direction === "Inbound").length,
     invoices: invoices.filter(i => i.paymentStatus !== "Paid").length,
@@ -45,8 +48,6 @@ export function Sidebar() {
     ]},
   ];
 
-  const role = (session?.user as any)?.role;
-  const isAdmin = role === "super_admin" || role === "company_admin";
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
