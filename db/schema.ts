@@ -266,6 +266,22 @@ export type Task = typeof tasks.$inferSelect;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 
 // =========================================================================
+// ORG SMTP SETTINGS — per-org email configuration
+// =========================================================================
+export const orgSmtpSettings = pgTable("org_smtp_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orgId: uuid("org_id").notNull().unique().references(() => organisations.id, { onDelete: "cascade" }),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: integer("port").notNull().default(2525),
+  user: varchar("user", { length: 255 }).notNull(),
+  pass: text("pass").notNull(),
+  fromEmail: varchar("from_email", { length: 255 }).notNull(),
+  fromName: varchar("from_name", { length: 255 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// =========================================================================
 // QBO INTEGRATION — stores OAuth tokens per user
 // =========================================================================
 export const qboTokens = pgTable("qbo_tokens", {
