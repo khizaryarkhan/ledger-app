@@ -31,8 +31,8 @@ async function qboFetchAllSafe(accessToken: string, realmId: string, entity: str
 // ============================================================
 // TOKEN MANAGEMENT
 // ============================================================
-async function getValidToken(userId: string) {
-  const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId!)).limit(1);
+async function getValidToken(orgId: string, userId: string) {
+  const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
   if (!token) return null;
   const now = Date.now();
   if (new Date(token.accessTokenExpiresAt).getTime() - now < 10 * 60 * 1000) {
@@ -47,7 +47,7 @@ async function getValidToken(userId: string) {
     if (!res.ok) return token;
     const d = await res.json();
     const updated = { ...token, accessToken: d.access_token, refreshToken: d.refresh_token || token.refreshToken, accessTokenExpiresAt: new Date(now + d.expires_in * 1000), refreshTokenExpiresAt: new Date(now + (d.x_refresh_token_expires_in || 8726400) * 1000) };
-    await db.update(qboTokens).set({ accessToken: updated.accessToken, refreshToken: updated.refreshToken, accessTokenExpiresAt: updated.accessTokenExpiresAt, refreshTokenExpiresAt: updated.refreshTokenExpiresAt, updatedAt: new Date() }).where(eq(qboTokens.userId, userId));
+    await db.update(qboTokens).set({ accessToken: updated.accessToken, refreshToken: updated.refreshToken, accessTokenExpiresAt: updated.accessTokenExpiresAt, refreshTokenExpiresAt: updated.refreshTokenExpiresAt, updatedAt: new Date() }).where(eq(qboTokens.orgId, orgId));
     return updated;
   }
   return token;
@@ -98,7 +98,7 @@ export async function POST() {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
   const userId = (session!.user as any).id;
-  const token = await getOrgToken(orgId!);
+  const token = await getValidToken(orgId!, userId);
   if (!token) return bad("QuickBooks not connected. Go to Settings to connect.", 400);
   const { accessToken, realmId } = token;
 
