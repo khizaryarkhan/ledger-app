@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { height: 100%; }
+body {
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #1c1917;
+  background: #ffffff;
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+@keyframes slide-in-bottom {
+  from { transform: translateY(0.75rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-toast { animation: slide-in-bottom 200ms ease-out; }
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(40%);
+  cursor: pointer;
+}

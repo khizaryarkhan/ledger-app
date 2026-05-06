@@ -1,0 +1,464 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useData } from "@/components/data-provider";
+import { Card, Button, Badge } from "@/components/ui";
+import { User, Database, RefreshCw, Link2, Unlink, Check, AlertTriangle, Loader, Mail, Clock, CheckCircle, XCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { fmt } from "@/lib/format";
+
+export default function SettingsPage() {
+  const { data: session } = useSession();
+  const { refresh, toast, customers, invoices } = useData();
+  const searchParams = useSearchParams();
+
+  const [seeding, setSeeding] = useState(false);
+  const [qboStatus, setQboStatus] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
+  const [syncHistory, setSyncHistory] = useState<any[]>([]);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [smtpStatus, setSmtpStatus] = useState<any>(null);
+  const [showSmtpForm, setShowSmtpForm] = useState(false);
+  const [savingSmtp, setSavingSmtp] = useState(false);
+  const [smtpForm, setSmtpForm] = useState({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "" });
+
+  const isAdmin = (session?.user as any)?.role === "Admin";
+  const userName = session?.user?.name || "";
+  const userEmail = session?.user?.email || "";
+  const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+
+  useEffect(() => {
+    fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
+    fetch("/api/org/smtp").then(r => r.json()).then(setSmtpStatus).catch(() => setSmtpStatus({ configured: false }));
+    fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const qbo = searchParams.get("qbo");
+    if (qbo === "connected") { toast("QuickBooks connected!"); fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus); }
+    else if (qbo === "error") toast(`QBO error: ${searchParams.get("reason")}`, "error");
+
+  }, [searchParams]);
+
+  const handleSync = async () => {
+    setSyncing(true); setSyncResult(null);
+    try {
+      const res = await fetch("/api/qbo/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast(data.error || "Sync failed", "error"); }
+      else {
+        setSyncResult(data.synced);
+        const diff = data.synced.difference || 0;
+        if (diff < 1) toast("Sync complete — AR reconciled ✓");
+        else toast(`Sync complete — €${diff.toFixed(2)} variance, check reconciliation`, "info");
+        await refresh();
+        fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+      }
+    } catch (e) { toast("Sync failed", "error"); }
+    finally { setSyncing(false); }
+  };
+
+  const handleQboDisconnect = async () => {
+    setDisconnecting(true);
+    try { await fetch("/api/qbo/disconnect", { method: "POST" }); setQboStatus({ connected: false }); setSyncResult(null); toast("QuickBooks disconnected"); }
+    finally { setDisconnecting(false); }
+  };
+
+  const handleGmailDisconnect = async () => {
+    setGmailDisconnecting(true);
+    try { await fetch("/api/gmail/disconnect", { method: "POST" }); setGmailStatus({ connected: false }); toast("Gmail disconnected"); }
+    finally { setGmailDisconnecting(false); }
+  };
+
+  const handleSmtpSave = async () => {
+    setSavingSmtp(true);
+    try {
+      // If editing and password left blank, fetch existing password from server
+      const payload: any = { ...smtpForm, port: parseInt(smtpForm.port) };
+      if (!smtpForm.pass && smtpStatus?.configured) {
+        // Don't send empty password — server will keep existing
+        delete payload.pass;
+        payload.keepExistingPass = true;
+      }
+      const res = await fetch("/api/org/smtp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast(data.error || "Failed to save", "error"); return; }
+      toast("Email settings saved");
+      setShowSmtpForm(false);
+      const r = await fetch("/api/org/smtp");
+      if (r.ok) setSmtpStatus(await r.json());
+    } finally { setSavingSmtp(false); }
+  };
+
+  const handleSmtpDelete = async () => {
+    await fetch("/api/org/smtp", { method: "DELETE" });
+    setSmtpStatus({ configured: false, settings: null });
+    setSmtpForm({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "" });
+    toast("Email settings removed");
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: userEmail,
+          subject: "Ledger — SMTP Test Email",
+          body: "This is a test email from your Ledger AR Collections CRM. SMTP2Go is configured correctly.",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) setTestResult({ ok: true, message: `Test email sent to ${userEmail}` });
+      else setTestResult({ ok: false, message: data.error || "Send failed" });
+    } catch (e) {
+      setTestResult({ ok: false, message: "Request failed" });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      const res = await fetch("/api/seed", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) toast(data.error || "Seed failed", "error");
+      else { toast(`Loaded ${data.customers} customers, ${data.invoices} invoices`); await refresh(); }
+    } catch (e) { toast("Seed failed", "error"); }
+    finally { setSeeding(false); }
+  };
+
+  const isReconciled = syncResult && Math.abs(syncResult.difference || 0) < 1;
+
+  return (
+    <div className="p-6 max-w-[900px] mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Settings</h1>
+        <p className="text-sm text-stone-500 mt-1">Profile, integrations and data</p>
+      </div>
+
+      {/* Profile */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4"><User size={16} className="text-stone-600" /><h3 className="text-sm font-semibold text-stone-900">Your profile</h3></div>
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-lg font-semibold">{initials}</div>
+          <div className="flex-1">
+            <div className="text-base font-medium text-stone-900">{userName}</div>
+            <div className="text-sm text-stone-500">{userEmail}</div>
+            <div className="mt-1"><Badge variant={isAdmin ? "purple" : "neutral"} size="sm">{(session?.user as any)?.role || "User"}</Badge></div>
+          </div>
+        </div>
+      </Card>
+
+      {/* QuickBooks */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Link2 size={16} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">QuickBooks Online</h3>
+          {qboStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+        </div>
+
+        {qboStatus === null ? (
+          <div className="flex items-center gap-2 text-sm text-stone-500"><Loader size={14} className="animate-spin" /> Checking...</div>
+        ) : qboStatus.connected ? (
+          <div className="space-y-4">
+            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-emerald-600" />
+              <div>
+                <div className="text-sm font-medium text-emerald-900">Connected to {qboStatus.companyName}</div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">Realm ID: {qboStatus.realmId}</div>
+              </div>
+            </div>
+
+            <div className="text-sm text-stone-600">
+              Sync pulls all open invoices (Balance &gt; 0) and unapplied credits from QBO. Invoices paid in QBO auto-close in Ledger. Your collection notes, stages and tasks are never overwritten.
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button onClick={handleSync} disabled={syncing}>
+                {syncing ? (
+                  <span className="flex items-center gap-2"><Loader size={14} className="animate-spin" />Syncing from QuickBooks…</span>
+                ) : (
+                  <span className="flex items-center gap-2"><RefreshCw size={14} />Sync from QuickBooks</span>
+                )}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleQboDisconnect} disabled={disconnecting}>
+                <Unlink size={14} className="mr-1.5" />{disconnecting ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </div>
+
+            {/* Reconciliation panel */}
+            {syncResult && (
+              <div className="space-y-3">
+                {/* AR Reconciliation */}
+                <div className={`rounded-lg p-4 ring-1 ${isReconciled ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    {isReconciled
+                      ? <CheckCircle size={16} className="text-emerald-600" />
+                      : <AlertTriangle size={16} className="text-amber-600" />}
+                    <span className="text-sm font-semibold">
+                      {isReconciled ? "AR Reconciled ✓" : "AR Variance — investigation needed"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-white/60 rounded-md p-3">
+                      <div className="text-[11px] text-stone-500 mb-1">QBO Total AR</div>
+                      <div className="text-lg font-semibold tabular-nums">{fmt.money(syncResult.qboTotalAR)}</div>
+                      <div className="text-[10px] text-stone-400 mt-0.5">From QBO open invoices</div>
+                    </div>
+                    <div className="bg-white/60 rounded-md p-3">
+                      <div className="text-[11px] text-stone-500 mb-1">Ledger Total AR</div>
+                      <div className="text-lg font-semibold tabular-nums">{fmt.money(syncResult.ledgerTotalAR)}</div>
+                      <div className="text-[10px] text-stone-400 mt-0.5">Invoices in Ledger</div>
+                    </div>
+                    <div className="bg-white/60 rounded-md p-3">
+                      <div className="text-[11px] text-stone-500 mb-1">Difference</div>
+                      <div className={`text-lg font-semibold tabular-nums ${isReconciled ? "text-emerald-700" : "text-amber-700"}`}>
+                        {fmt.money(syncResult.difference || 0)}
+                      </div>
+                      <div className="text-[10px] text-stone-400 mt-0.5">
+                        {isReconciled ? "Fully reconciled" : "Check credits/JEs"}
+                      </div>
+                    </div>
+                  </div>
+                  {!isReconciled && (
+                    <div className="mt-3 text-xs text-amber-800 bg-amber-100 rounded p-2">
+                      A variance may be caused by: Journal Entries hitting AR, retainer deposits, write-offs, or invoices in a currency not yet synced. Check QBO AR Aging report and compare to Ledger Reports.
+                    </div>
+                  )}
+                </div>
+
+                {/* Sync stats */}
+                <div className="bg-stone-50 ring-1 ring-stone-200 rounded-md p-3">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">This sync</div>
+                  <div className="grid grid-cols-5 gap-2 text-center">
+                    {[
+                      { label: "Customers", value: syncResult.customers },
+                      { label: "Contacts", value: syncResult.contacts },
+                      { label: "New invoices", value: syncResult.invoicesCreated },
+                      { label: "Updated", value: syncResult.invoicesUpdated },
+                      { label: "Auto-closed", value: syncResult.invoicesClosed },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <div className="text-xl font-semibold text-stone-900">{value}</div>
+                        <div className="text-[10px] text-stone-500">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sync history */}
+            {syncHistory.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">Sync history</div>
+                <div className="space-y-1.5">
+                  {syncHistory.slice(0, 5).map((log: any) => {
+                    const reconciled = Math.abs(log.difference || 0) < 1;
+                    return (
+                      <div key={log.id} className="flex items-center gap-3 text-sm py-1.5 border-b border-stone-100 last:border-0">
+                        {log.status === "success"
+                          ? <CheckCircle size={14} className={reconciled ? "text-emerald-500" : "text-amber-500"} />
+                          : <XCircle size={14} className="text-rose-500" />}
+                        <span className="text-stone-500 text-[12px] w-36">{new Date(log.syncedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                        {log.status === "success" ? (
+                          <>
+                            <span className="text-stone-600 text-[12px]">{log.invoicesCreated} new · {log.invoicesUpdated} updated · {log.invoicesClosed} closed</span>
+                            <span className={`ml-auto text-[12px] font-medium tabular-nums ${reconciled ? "text-emerald-700" : "text-amber-700"}`}>
+                              {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0)}`}
+                            </span>
+                            <span className="text-stone-400 text-[11px]">{log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : ""}</span>
+                          </>
+                        ) : (
+                          <span className="text-rose-600 text-[12px] truncate">{log.errorMessage}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-stone-600">Connect QuickBooks Online to sync customers and outstanding invoices automatically.</div>
+            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
+              <div className="font-medium mb-1">Required Vercel env vars:</div>
+              <div className="font-mono text-[12px] space-y-0.5">
+                <div>QBO_CLIENT_ID</div><div>QBO_CLIENT_SECRET</div>
+                <div>QBO_REDIRECT_URI = https://ledger-app-alpha-roan.vercel.app/api/qbo/callback</div>
+              </div>
+            </div>
+            <Button icon={Link2} onClick={() => window.location.href = "/api/qbo"}>Connect QuickBooks Online</Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Per-org SMTP Settings */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Mail size={16} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Email settings</h3>
+          {smtpStatus?.configured
+            ? <Badge variant="green" size="sm">Configured</Badge>
+            : <Badge variant="neutral" size="sm">Not configured</Badge>}
+        </div>
+
+        {/* Configured state — show summary */}
+        {smtpStatus?.configured && !showSmtpForm ? (
+          <div className="space-y-3">
+            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Check size={14} className="text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-900">Email configured</span>
+              </div>
+              <div className="text-[11px] text-emerald-700 space-y-0.5 ml-5">
+                <div>Server: {smtpStatus.settings?.host}:{smtpStatus.settings?.port}</div>
+                <div>From: {smtpStatus.settings?.fromEmail}{smtpStatus.settings?.fromName ? ` (${smtpStatus.settings.fromName})` : ""}</div>
+                <div>Username: {smtpStatus.settings?.user}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="secondary" size="sm" onClick={handleTestEmail} disabled={testingEmail}>
+                {testingEmail ? "Sending…" : "Send test email"}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => {
+                setSmtpForm({
+                  host: smtpStatus.settings?.host || "mail-eu.smtp2go.com",
+                  port: String(smtpStatus.settings?.port || "2525"),
+                  user: smtpStatus.settings?.user || "",
+                  pass: "",
+                  fromEmail: smtpStatus.settings?.fromEmail || "",
+                  fromName: smtpStatus.settings?.fromName || "",
+                });
+                setShowSmtpForm(true);
+              }}>Edit</Button>
+              <Button variant="ghost" size="sm" onClick={handleSmtpDelete} className="text-rose-600 hover:text-rose-700">Remove</Button>
+            </div>
+            {testResult && (
+              <div className={`text-xs px-3 py-2 rounded ${testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                {testResult.message}
+              </div>
+            )}
+          </div>
+
+        ) : (
+          /* Not configured or editing — show form */
+          <div className="space-y-3">
+            {!smtpStatus?.configured && (
+              <div className="text-sm text-stone-600">
+                Configure your organisation's SMTP settings to send reminder emails. Each organisation has its own email configuration.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Host</label>
+                <input
+                  value={smtpForm.host}
+                  onChange={e => setSmtpForm(p => ({ ...p, host: e.target.value }))}
+                  placeholder="mail-eu.smtp2go.com"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Port</label>
+                <input
+                  value={smtpForm.port}
+                  onChange={e => setSmtpForm(p => ({ ...p, port: e.target.value }))}
+                  placeholder="2525"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Username</label>
+              <input
+                value={smtpForm.user}
+                onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
+                placeholder="your-smtp2go-username"
+                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                SMTP Password {smtpStatus?.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
+              </label>
+              <input
+                type="password"
+                value={smtpForm.pass}
+                onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
+                placeholder={smtpStatus?.configured ? "••••••••" : "your-smtp2go-password"}
+                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Email *</label>
+                <input
+                  value={smtpForm.fromEmail}
+                  onChange={e => setSmtpForm(p => ({ ...p, fromEmail: e.target.value }))}
+                  placeholder="ar@yourcompany.ie"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Name (optional)</label>
+                <input
+                  value={smtpForm.fromName}
+                  onChange={e => setSmtpForm(p => ({ ...p, fromName: e.target.value }))}
+                  placeholder="Accounts Receivable"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="bg-stone-50 ring-1 ring-stone-200 rounded-md p-3 text-[11px] text-stone-600 space-y-0.5">
+              <div className="font-medium text-stone-700 mb-1">SMTP2Go quick reference:</div>
+              <div>Host: <span className="font-mono">mail-eu.smtp2go.com</span> · Port: <span className="font-mono">2525</span></div>
+              <div>Get your username and password from <span className="font-mono">smtp2go.com</span> → Settings → SMTP Users</div>
+              <div>Make sure your From Email is verified in SMTP2Go → Sender Domains</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleSmtpSave}
+                disabled={savingSmtp || !smtpForm.host || !smtpForm.user || !smtpForm.fromEmail || (!smtpForm.pass && !smtpStatus?.configured)}>
+                {savingSmtp ? "Saving…" : "Save email settings"}
+              </Button>
+              {smtpStatus?.configured && (
+                <Button variant="ghost" size="sm" onClick={() => setShowSmtpForm(false)}>Cancel</Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Demo data */}
+      {isAdmin && (
+        <Card>
+          <div className="flex items-center gap-2 mb-4"><Database size={16} className="text-stone-600" /><h3 className="text-sm font-semibold text-stone-900">Demo data</h3></div>
+          <div className="text-sm text-stone-600 mb-3">Currently <strong>{customers.length}</strong> customers and <strong>{invoices.length}</strong> invoices.</div>
+          <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-2.5 text-xs text-amber-800 mb-3 flex items-start gap-2">
+            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> Only click once — calling twice creates duplicates.
+          </div>
+          <Button onClick={handleSeed} disabled={seeding}>{seeding ? "Loading…" : "Load demo data"}</Button>
+        </Card>
+      )}
+    </div>
+  );
+}
