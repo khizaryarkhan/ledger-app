@@ -52,11 +52,13 @@ export default function LoginPage() {
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Email</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
+                autoComplete="username"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Password</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
+                autoComplete="current-password"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
             {error && <div className="text-sm text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-md p-2.5">{error}</div>}
