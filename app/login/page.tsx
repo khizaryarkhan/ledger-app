@@ -6,15 +6,16 @@ import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+    const data = new FormData(e.currentTarget);
+    const email = (data.get("email") as string)?.trim();
+    const password = data.get("password") as string;
     try {
       const res = await signIn("credentials", { email, password, redirect: false });
       if (res?.error) {
@@ -23,7 +24,7 @@ export default function LoginPage() {
         router.push("/dashboard");
         router.refresh();
       }
-    } catch (e) {
+    } catch {
       setError("Login failed. Please try again.");
     } finally {
       setLoading(false);
@@ -51,13 +52,13 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
+              <input type="email" name="email" required
                 autoComplete="username"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
+              <input type="password" name="password" required
                 autoComplete="current-password"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
