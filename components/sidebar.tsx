@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
-  CheckSquare, BarChart3, Upload, Zap, FileEdit, Settings, LogOut
+  CheckSquare, BarChart3, Upload, Zap, FileEdit, Settings, LogOut, Shield
 } from "lucide-react";
 import { useData } from "./data-provider";
 
@@ -41,9 +41,12 @@ export function Sidebar() {
       { href: "/automations", label: "Automations", icon: Zap },
       { href: "/templates", label: "Email Templates", icon: FileEdit },
       { href: "/settings", label: "Settings", icon: Settings },
+      ...(isAdmin ? [{ href: "/admin", label: "Admin Portal", icon: Shield }] : []),
     ]},
   ];
 
+  const role = (session?.user as any)?.role;
+  const isAdmin = role === "super_admin" || role === "company_admin";
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 

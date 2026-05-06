@@ -4,15 +4,14 @@ import { qboTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(req: Request) {
+  const base = req.headers.get("origin") || process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const realmId = searchParams.get("realmId");
   const stateParam = searchParams.get("state") || "";
-  // state = "orgId:userId"
   const [orgId, userId] = stateParam.includes(":") ? stateParam.split(":") : [stateParam, stateParam];
 
-  if (!code || !realmId || !userId) {
-    const base = req.headers.get("origin") || process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
+  if (!code || !realmId || !orgId || !userId) {
     return NextResponse.redirect(new URL("/settings?qbo=error&reason=missing_params", base));
   }
 
@@ -21,30 +20,23 @@ export async function GET(req: Request) {
     const clientSecret = process.env.QBO_CLIENT_SECRET!;
     const redirectUri = process.env.QBO_REDIRECT_URI!;
 
-    // Exchange code for tokens
     const tokenRes = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-      }),
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
     });
 
     if (!tokenRes.ok) {
-      const err = await tokenRes.text();
-      console.error("QBO token exchange failed:", err);
+      console.error("QBO token exchange failed:", await tokenRes.text());
       return NextResponse.redirect(new URL("/settings?qbo=error&reason=token_exchange", base));
     }
 
     const tokenData = await tokenRes.json();
     const { access_token, refresh_token, expires_in, x_refresh_token_expires_in } = tokenData;
 
-    // Get company name
     let companyName = "";
     try {
       const companyRes = await fetch(
@@ -62,11 +54,7 @@ export async function GET(req: Request) {
     const now = Date.now();
     const accessTokenExpiresAt = new Date(now + (parseInt(expires_in) || 3600) * 1000);
     const refreshTokenExpiresAt = new Date(now + (parseInt(x_refresh_token_expires_in) || 8726400) * 1000);
-    console.log("Token expires at:", accessTokenExpiresAt, "Refresh expires at:", refreshTokenExpiresAt);
 
-    // Upsert token — one token record per user
-
-    // Upsert by orgId — one QBO connection per org
     const [existing] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
     if (existing) {
       await db.update(qboTokens).set({
@@ -76,7 +64,7 @@ export async function GET(req: Request) {
       }).where(eq(qboTokens.orgId, orgId));
     } else {
       await db.insert(qboTokens).values({
-        orgId, connectedByUserId: userId, realmId,
+        orgId, userId, connectedByUserId: userId, realmId,
         accessToken: access_token, refreshToken: refresh_token,
         accessTokenExpiresAt, refreshTokenExpiresAt, companyName,
       });

@@ -20,7 +20,7 @@ export async function requireOrgAuth() {
 }
 
 export function isSuperAdmin(session: any) {
-  return (session?.user as any)?.role === "SuperAdmin";
+  return (session?.user as any)?.role === "super_admin";
 }
 
 // Returns orgId from session — throws if missing
