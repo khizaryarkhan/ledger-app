@@ -5,7 +5,7 @@ export default auth((req) => {
   const isAuth = !!req.auth;
   const path = req.nextUrl.pathname;
 
-  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback";
+  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/debug-auth";
   const isCron = path.startsWith("/api/cron");
   const isApi = path.startsWith("/api/");
 
