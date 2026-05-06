@@ -19,7 +19,7 @@ export async function GET() {
     const [user] = await db.select({
       id: users.id, email: users.email, role: users.role,
       status: users.status, hasHash: users.passwordHash,
-    }).from(users).where(eq(users.email, "wajahat.khan86@yahoo.com")).limit(1);
+    }).from(users).where(eq(users.email, "accountant786@yahoo.com")).limit(1);
 
     checks.user = user ? {
       found: true, role: user.role, status: user.status,
