@@ -1,21 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const data = new FormData(e.currentTarget);
-    const email = (data.get("email") as string)?.trim();
-    const password = data.get("password") as string;
+    const email = (emailRef.current?.value ?? "").trim();
+    const password = passwordRef.current?.value ?? "";
     try {
       const res = await signIn("credentials", { email, password, redirect: false });
       if (res?.error) {
@@ -52,13 +53,13 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Email</label>
-              <input type="email" name="email" required
-                autoComplete="username"
+              <input ref={emailRef} type="email" required
+                autoComplete="email"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-700 block mb-1">Password</label>
-              <input type="password" name="password" required
+              <input ref={passwordRef} type="password" required
                 autoComplete="current-password"
                 className="w-full h-10 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
             </div>
