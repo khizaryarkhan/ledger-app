@@ -164,8 +164,8 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {selected.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg">
+      <div className={selected.size > 0 ? "mb-3" : "h-0 overflow-hidden"}>
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg">
           <span className="text-sm font-medium">{selected.size} selected</span>
           <div className="flex-1" />
           <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded"><X size={14} /></button>
@@ -180,7 +180,7 @@ export default function ProjectsPage() {
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {filtered.length === 0 ? (
         <Card>
