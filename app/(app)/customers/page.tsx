@@ -236,6 +236,7 @@ export default function CustomersPage() {
             action={customers.length === 0 ? <Button icon={Plus} onClick={() => setShowCreate(true)}>New customer</Button> : undefined} />
         </Card>
       ) : (
+        <>
         <div className="grid grid-cols-3 gap-3">
           {visible.map((c: any) => (
             <CustomerCard key={c.id} c={c} isSelected={selected.has(c.id)} onToggle={toggleOne} />
@@ -256,6 +257,7 @@ export default function CustomersPage() {
             </div>
           </div>
         )}
+        </>
       )}
 
       {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}
