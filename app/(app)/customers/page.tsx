@@ -154,12 +154,14 @@ export default function CustomersPage() {
         <Select value={riskFilter} onChange={(e: any) => setRiskFilter(e.target.value)} placeholder="All risk levels" options={["Low", "Medium", "High"]} />
         <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Active", "On Hold", "Inactive"]} />
         <select value={repFilter} onChange={(e: any) => setRepFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
+          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
           <option value="">All reps</option>
           {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
+          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
           <option value="">All regions</option>
           {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>

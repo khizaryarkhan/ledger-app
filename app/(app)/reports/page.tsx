@@ -361,7 +361,7 @@ function ActivityReport({ communications }: any) {
 // ============================================================
 // REGIONAL AR REPORT — Management view
 // ============================================================
-function RegionalReport({ invoices, customers, projects }: any) {
+function RegionalReport({ invoices, customers, projects, regions, regionFilter }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -381,6 +381,9 @@ function RegionalReport({ invoices, customers, projects }: any) {
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
       const cust3 = customers.find((c: any) => c.id === inv.customerId);
+      if (regionFilter) {
+        if (cust3?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
+      }
       const regionId = cust3?.regionId || proj?.regionId || null;
       const regionLabel = (regions ?? []).find((r: any) => r.id === regionId)?.name || "Other";
 
@@ -514,6 +517,126 @@ function RegionalReport({ invoices, customers, projects }: any) {
   );
 }
 
+// ============================================================
+// BY REP REPORT
+// ============================================================
+function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const data = useMemo(() => {
+    const repMap: Record<string, { rep: any; invoices: any[]; buckets: any; custSet: Set<string>; overdueCount: number }> = {};
+
+    for (const inv of invoices) {
+      if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      const out = inv.total - (inv.paid || 0);
+      if (out <= 0) continue;
+
+      const cust = customers.find((c: any) => c.id === inv.customerId);
+      const proj = projects.find((p: any) => p.id === inv.projectId);
+
+      if (regionFilter) {
+        if (cust?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
+      }
+
+      const repId = cust?.repId || proj?.repId || "unassigned";
+      const rep = reps.find((r: any) => r.id === repId) || { id: "unassigned", name: "Unassigned" };
+
+      if (!repMap[repId]) repMap[repId] = { rep, invoices: [], buckets: emptyBuckets(), custSet: new Set(), overdueCount: 0 };
+      repMap[repId].invoices.push(inv);
+      repMap[repId].buckets = addBuckets(repMap[repId].buckets, invBuckets(inv));
+      repMap[repId].custSet.add(inv.customerId);
+      if (daysOverdue(inv.dueDate) > 0) repMap[repId].overdueCount++;
+    }
+
+    return Object.values(repMap).sort((a, b) => b.buckets.total - a.buckets.total);
+  }, [invoices, customers, projects, reps, regionFilter]);
+
+  const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Summary table */}
+      <div className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+              <th className="text-left font-semibold px-4 py-3">Rep</th>
+              <th className="text-right font-semibold px-3 py-3">Customers</th>
+              <th className="text-right font-semibold px-3 py-3">Invoices</th>
+              {BUCKETS.map(b => <th key={b} className="text-right font-semibold px-3 py-3">{BUCKET_LABELS[b]}</th>)}
+              <th className="text-right font-semibold px-4 py-3">Total</th>
+              <th className="text-right font-semibold px-4 py-3">% of AR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(r => (
+              <tr key={r.rep.id} className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer" onClick={() => toggle(r.rep.id)}>
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    {expanded.has(r.rep.id) ? <ChevronDown size={14} className="text-stone-400" /> : <ChevronRight size={14} className="text-stone-400" />}
+                    <span className="font-semibold text-stone-900">{r.rep.name}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
+                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} highlight />)}
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total)}</td>
+                <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
+              </tr>
+            ))}
+            <tr className="bg-stone-900 text-white">
+              <td className="px-4 py-3 font-bold">TOTAL</td>
+              <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
+              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
+              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b]) : "—"}</td>)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total)}</td>
+              <td className="px-4 py-3 text-right font-bold">100%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Expanded detail per rep */}
+      {data.map(r => expanded.has(r.rep.id) && (
+        <div key={r.rep.id} className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+            <div className="font-semibold text-stone-900">{r.rep.name} — Detail</div>
+            <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total)}</div>
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+              <th className="text-left font-semibold px-4 py-2">Customer</th>
+              <th className="text-left font-semibold px-3 py-2">Project</th>
+              <th className="text-left font-semibold px-3 py-2">Invoice</th>
+              <th className="text-left font-semibold px-3 py-2">Due</th>
+              {BUCKETS.map(b => <th key={b} className="text-right font-semibold px-3 py-2">{BUCKET_LABELS[b]}</th>)}
+              <th className="text-right font-semibold px-4 py-2">Total</th>
+            </tr></thead>
+            <tbody>
+              {r.invoices.sort((a: any, b: any) => (b.total - (b.paid||0)) - (a.total - (a.paid||0))).map((inv: any) => {
+                const cust = customers.find((c: any) => c.id === inv.customerId);
+                const proj = projects.find((p: any) => p.id === inv.projectId);
+                const ib = invBuckets(inv);
+                return (
+                  <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
+                    <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
+                    <td className="px-3 py-2 text-[11px] text-stone-500 font-mono">{proj?.code || "—"}</td>
+                    <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
+                    <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
+                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const AGING_COLORS_REG = [
   { key: "Current", color: "bg-emerald-500" },
   { key: "1-30", color: "bg-amber-400" },
@@ -526,14 +649,15 @@ const AGING_COLORS_REG = [
 // MAIN PAGE
 // ============================================================
 export default function ReportsPage() {
-  const { invoices, customers, projects, regions, communications } = useData() as any;
-  const [report, setReport] = useState<"aging-customer" | "aging-project" | "regional" | "activity">("aging-customer");
+  const { invoices, customers, projects, regions, reps, communications } = useData() as any;
+  const [report, setReport] = useState<"aging-customer" | "aging-project" | "regional" | "by-rep" | "activity">("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
 
   const tabs = [
     { id: "aging-customer", label: "AR Aging by Customer" },
     { id: "aging-project", label: "AR Aging by Project" },
     { id: "regional", label: "Regional AR" },
+    { id: "by-rep", label: "AR by Rep" },
     { id: "activity", label: "Activity" },
   ];
 
@@ -569,7 +693,7 @@ export default function ReportsPage() {
         {/* Report header */}
         <div className="px-4 py-4 border-b border-stone-200 text-center">
           <div className="text-lg font-semibold text-stone-900">
-            {report === "aging-customer" ? "A/R Ageing Summary Report" : report === "aging-project" ? "A/R Ageing by Project" : report === "regional" ? "Regional AR Analysis" : "Email Activity"}
+            {report === "aging-customer" ? "A/R Ageing Summary Report" : report === "aging-project" ? "A/R Ageing by Project" : report === "regional" ? "Regional AR Analysis" : report === "by-rep" ? "AR by Sales Rep" : "Email Activity"}
           </div>
           <div className="text-sm text-stone-500 mt-0.5">EDC - Engineering Design Consultants Limited</div>
           <div className="text-xs text-stone-400 mt-0.5">As of {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}</div>
@@ -581,7 +705,8 @@ export default function ReportsPage() {
         {report === "aging-project" && <AgingByProject
           invoices={invoices}
           customers={customers} projects={projects} regionFilter={regionFilter} />}
-        {report === "regional" && <RegionalReport invoices={regionFilter ? invoices.filter((i: any) => getInvoiceRegionId(i, projects) === regionFilter) : invoices} customers={customers} projects={projects} />}
+        {report === "regional" && <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} />}
+        {report === "by-rep" && <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} />}
         {report === "activity" && <div className="p-4"><ActivityReport communications={communications} /></div>}
       </Card>
     </div>

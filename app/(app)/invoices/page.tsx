@@ -140,10 +140,12 @@ export default function InvoicesPage() {
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
           <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages" options={["New", "Reminder Scheduled", "Reminder Sent", "Awaiting Reply", "Promise to Pay", "Disputed", "Escalated", "On Hold", "Closed"]} />
           <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
-          <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)} className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
-  <option value="">All regions</option>
-  {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-</select>
+          <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
+            className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
+            <option value="">All regions</option>
+            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
           {(search || statusFilter || stageFilter || customerFilter || regionFilter) && (
             <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); }}>Clear</Button>
           )}
