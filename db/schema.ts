@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // =========================================================================
@@ -135,7 +135,7 @@ export const projects = pgTable("projects", {
 export const invoices = pgTable("invoices", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull().unique(),
+  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull(),
   customerId: uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   invoiceDate: varchar("invoice_date", { length: 16 }).notNull(),
