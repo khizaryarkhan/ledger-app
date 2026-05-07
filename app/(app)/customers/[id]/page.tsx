@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
-import { CustomerModal, ProjectModal, AddContactModal } from "@/components/forms";
+import { CustomerModal, ProjectModal } from "@/components/forms";
+import { Timeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
 import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase } from "lucide-react";
 
@@ -17,6 +18,7 @@ export default function CustomerDetailPage() {
   const [showAddContact, setShowAddContact] = useState(false);
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
 
   const customer = customers.find(c => c.id === id);
   if (!customer) {
@@ -48,6 +50,7 @@ export default function CustomerDetailPage() {
 
       <div className="flex items-start justify-between mb-6">
         <div className="flex items-start gap-4">
+
           <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center text-stone-700 text-lg font-semibold flex-shrink-0">
             {customer.name.split(" ").slice(0, 2).map(w => w[0]).join("")}
           </div>
@@ -69,6 +72,7 @@ export default function CustomerDetailPage() {
             </div>
           </div>
         </div>
+        <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
       </div>
 
       <div className="grid grid-cols-4 gap-3 mb-6">
@@ -248,6 +252,7 @@ export default function CustomerDetailPage() {
       {showAddContact && <AddContactModal customerId={id} onClose={() => setShowAddContact(false)} />}
       {showEditCustomer && <CustomerModal customer={customer} onClose={() => setShowEditCustomer(false)} />}
       {showAddProject && <ProjectModal preCustomerId={id} onClose={() => setShowAddProject(false)} />}
+      {showCompose && <EmailComposer context={{ customerId: id }} onClose={() => setShowCompose(false)} />}
     </div>
   );
 }

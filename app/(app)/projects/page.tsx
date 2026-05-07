@@ -70,7 +70,7 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(p.id)} className="rounded border-stone-300 cursor-pointer" />
       </td>
       <td className="px-4 py-3">
-        <div className="font-medium text-stone-900">{p.name}</div>
+        <Link href={`/projects/${p.id}`} className="font-medium text-stone-900 hover:text-blue-700 hover:underline block">{p.name}</Link>
         <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
       </td>
       <td className="px-4 py-3">

@@ -87,8 +87,15 @@ export function EmailComposer({ context, onClose }: any) {
 
   const customer = customers.find((c: any) => c.id === context.customerId);
   const invoice = context.invoiceId ? invoices.find((i: any) => i.id === context.invoiceId) : null;
-  const customerContacts = contacts.filter((c: any) => c.customerId === context.customerId);
-  const primaryContact = customerContacts.find((c: any) => c.isPrimary) || customerContacts[0];
+  // Project contacts first (if projectId context), then customer-level contacts as fallback
+  const projectContacts = context.projectId
+    ? contacts.filter((c: any) => c.projectId === context.projectId)
+    : [];
+  const customerContacts = contacts.filter((c: any) => c.customerId === context.customerId && !c.projectId);
+  const allContacts = context.projectId
+    ? [...projectContacts, ...customerContacts]
+    : customerContacts;
+  const primaryContact = projectContacts.find((c: any) => c.isPrimary) || customerContacts.find((c: any) => c.isPrimary) || allContacts[0];
 
   // All open invoices for this customer (for attachment selection)
   const customerOpenInvoices = invoices.filter((i: any) =>
@@ -234,6 +241,7 @@ ${senderName}`;
       // Log to timeline (includes ref number + stage-at-send)
       await sendEmail({
         customerId: context.customerId,
+        projectId: context.projectId || null,
         invoiceId: context.invoiceId || null,
         contactId: primaryContact?.id || null,
         subject, body,
@@ -279,13 +287,14 @@ ${senderName}`;
           <input value={toValue} onChange={e => setToValue(e.target.value)}
             placeholder="email@example.com, another@example.com"
             className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-          {customerContacts.length > 0 && (
+          {allContacts.length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Quick add:</span>
-              {customerContacts.map((c: any) => (
+              {allContacts.map((c: any) => (
                 <button key={c.id} onClick={() => addEmailToTo(c.email)}
                   className="text-[11px] px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 transition-colors flex items-center gap-1">
                   {c.isPrimary && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />}
+                  {c.projectId && <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" title="Project contact" />}
                   {c.name} &lt;{c.email}&gt;
                 </button>
               ))}
@@ -299,10 +308,10 @@ ${senderName}`;
           <input value={ccValue} onChange={e => setCcValue(e.target.value)}
             placeholder="Optional"
             className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-          {customerContacts.filter((c: any) => c.isEscalation).length > 0 && (
+          {allContacts.filter((c: any) => c.isEscalation).length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Escalation:</span>
-              {customerContacts.filter((c: any) => c.isEscalation).map((c: any) => (
+              {allContacts.filter((c: any) => c.isEscalation).map((c: any) => (
                 <button key={c.id} onClick={() => addEmailToCc(c.email)}
                   className="text-[11px] px-2 py-0.5 bg-rose-50 hover:bg-rose-100 rounded text-rose-700 transition-colors">
                   {c.name} &lt;{c.email}&gt;
@@ -517,7 +526,7 @@ export function TaskModal({ invoiceId, customerId, onClose }: any) {
 // =====================
 // ADD CONTACT MODAL
 // =====================
-export function AddContactModal({ customerId, onClose }: any) {
+export function AddContactModal({ customerId, projectId, onClose }: any) {
   const { addContact } = useData();
   const [form, setForm] = useState<any>({ name: "", title: "", email: "", phone: "", type: "Billing", isPrimary: false, isEscalation: false, receivesAuto: true });
   const [submitting, setSubmitting] = useState(false);
@@ -525,7 +534,7 @@ export function AddContactModal({ customerId, onClose }: any) {
   const handle = async () => {
     setSubmitting(true);
     try {
-      await addContact({ ...form, customerId });
+      await addContact({ ...form, customerId, projectId: projectId || null });
       onClose();
     } finally { setSubmitting(false); }
   };

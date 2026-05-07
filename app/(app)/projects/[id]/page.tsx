@@ -5,21 +5,21 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
-import { EmailComposer } from "@/components/feature";
+import { EmailComposer, AddContactModal } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
-import { ArrowLeft, FileText, Mail, Download, Loader, ArrowUpRight, FileEdit, Link2, MessageSquare } from "lucide-react";
+import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, MessageSquare, Users, Plus, Phone } from "lucide-react";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { projects, customers, invoices, contacts, communications, regions, updateInvoice } = useData() as any;
-  const [tab, setTab] = useState<"invoices" | "timeline">("invoices");
+  const { projects, customers, invoices, contacts, communications, regions } = useData() as any;
+  const [tab, setTab] = useState<"invoices" | "timeline" | "contacts">("invoices");
   const [showCompose, setShowCompose] = useState(false);
+  const [showAddContact, setShowAddContact] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const project = projects.find((p: any) => p.id === id);
   const customer = project ? customers.find((c: any) => c.id === project.customerId) : null;
-  const custContacts = customer ? contacts.filter((c: any) => c.customerId === customer.id) : [];
 
   if (!project || !customer) {
     return (
@@ -38,12 +38,22 @@ export default function ProjectDetailPage() {
 
   const projInvoiceIds = useMemo(() => new Set(projInvoices.map((i: any) => i.id)), [projInvoices]);
 
-  // All communications linked to any invoice in this project
+  // Communications: anything with this projectId OR linked to one of this project's invoices
   const projComms = useMemo(() =>
     (communications as any[])
-      .filter(c => c.invoiceId && projInvoiceIds.has(c.invoiceId))
+      .filter(c => c.projectId === id || (c.invoiceId && projInvoiceIds.has(c.invoiceId)))
       .sort((a: any, b: any) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()),
-    [communications, projInvoiceIds]
+    [communications, id, projInvoiceIds]
+  );
+
+  // Project-specific contacts + customer-level contacts as fallback
+  const projectContacts = useMemo(() =>
+    contacts.filter((c: any) => c.projectId === id),
+    [contacts, id]
+  );
+  const customerContacts = useMemo(() =>
+    contacts.filter((c: any) => c.customerId === customer.id && !c.projectId),
+    [contacts, customer.id]
   );
 
   const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
@@ -65,6 +75,8 @@ export default function ProjectDetailPage() {
       URL.revokeObjectURL(url);
     } finally { setDownloadingId(null); }
   };
+
+  const totalContacts = projectContacts.length + customerContacts.length;
 
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
@@ -106,6 +118,7 @@ export default function ProjectDetailPage() {
         {[
           { id: "invoices", label: `Invoices (${projInvoices.length})` },
           { id: "timeline", label: `Timeline (${projComms.length})` },
+          { id: "contacts", label: `Contacts (${totalContacts})` },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
@@ -174,7 +187,7 @@ export default function ProjectDetailPage() {
         projComms.length === 0 ? (
           <Card>
             <EmptyState icon={MessageSquare} title="No activity yet"
-              description="Emails sent from any invoice in this project will appear here."
+              description="Emails sent for this project will appear here with their reference numbers."
               action={<Button icon={Mail} onClick={() => setShowCompose(true)}>Send first email</Button>} />
           </Card>
         ) : (
@@ -184,14 +197,10 @@ export default function ProjectDetailPage() {
               const inv = c.invoiceId ? projInvoices.find((i: any) => i.id === c.invoiceId) : null;
               return (
                 <div key={c.id} className="bg-white ring-1 ring-stone-200 rounded-lg px-4 py-3.5 flex items-start gap-3">
-                  {/* Icon */}
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isNote ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
                     {isNote ? <FileEdit size={13} /> : <ArrowUpRight size={13} />}
                   </div>
-
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
-                    {/* Ref badge + stage */}
                     {!isNote && c.refNumber && (
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         <span className="font-mono text-[11px] font-semibold bg-stone-900 text-white px-2 py-0.5 rounded">
@@ -199,18 +208,14 @@ export default function ProjectDetailPage() {
                         </span>
                         {c.stageAtSend && (
                           <span className="text-[11px] text-stone-400">
-                            stage at send: <span className="font-medium text-stone-600">{c.stageAtSend}</span>
+                            stage: <span className="font-medium text-stone-600">{c.stageAtSend}</span>
                           </span>
                         )}
                       </div>
                     )}
-
-                    {/* Subject / title */}
                     <div className="text-sm font-medium text-stone-900 truncate">
                       {isNote ? "Internal note" : (c.subject || "Email")}
                     </div>
-
-                    {/* Meta row */}
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                       {!isNote && c.recipients && (
                         <span className="text-[11px] text-stone-500">To: {c.recipients}</span>
@@ -221,13 +226,9 @@ export default function ProjectDetailPage() {
                           <Link href={`/invoices/${inv.id}`} className="font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link>
                         </span>
                       )}
-                      {isNote && c.body && (
-                        <span className="text-[12px] text-stone-600">{c.body}</span>
-                      )}
+                      {isNote && c.body && <span className="text-[12px] text-stone-600">{c.body}</span>}
                     </div>
                   </div>
-
-                  {/* Timestamp */}
                   <div className="text-[11px] text-stone-400 whitespace-nowrap flex-shrink-0 mt-0.5">
                     {fmt.relative(c.sentAt)}
                   </div>
@@ -238,13 +239,83 @@ export default function ProjectDetailPage() {
         )
       )}
 
-      {/* EmailComposer modal */}
+      {/* Contacts tab */}
+      {tab === "contacts" && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-stone-500">Project-specific contacts appear first; customer contacts shown as fallback.</p>
+            <Button size="sm" icon={Plus} onClick={() => setShowAddContact(true)}>Add project contact</Button>
+          </div>
+
+          {totalContacts === 0 ? (
+            <Card><EmptyState icon={Users} title="No contacts yet" description="Add contacts specific to this project."
+              action={<Button size="sm" icon={Plus} onClick={() => setShowAddContact(true)}>Add contact</Button>} /></Card>
+          ) : (
+            <div className="space-y-4">
+              {projectContacts.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" />
+                    Project contacts
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {projectContacts.map((c: any) => <ContactCard key={c.id} c={c} />)}
+                  </div>
+                </div>
+              )}
+              {customerContacts.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                    Customer contacts
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {customerContacts.map((c: any) => <ContactCard key={c.id} c={c} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {showCompose && (
         <EmailComposer
-          context={{ customerId: customer.id }}
+          context={{ customerId: customer.id, projectId: id }}
           onClose={() => setShowCompose(false)}
         />
       )}
+      {showAddContact && (
+        <AddContactModal
+          customerId={customer.id}
+          projectId={id}
+          onClose={() => setShowAddContact(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function ContactCard({ c }: { c: any }) {
+  return (
+    <Card>
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-full bg-stone-100 flex items-center justify-center text-stone-600 text-xs font-semibold flex-shrink-0">
+          {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
+            {c.isPrimary && <Badge variant="blue" size="sm">Primary</Badge>}
+            {c.isEscalation && <Badge variant="red" size="sm">Escalation</Badge>}
+          </div>
+          {c.title && <div className="text-[11px] text-stone-500 truncate">{c.title}</div>}
+          <div className="flex items-center gap-1 text-xs text-stone-600 mt-1.5">
+            <Mail size={11} /> <a href={`mailto:${c.email}`} className="hover:underline truncate">{c.email}</a>
+          </div>
+          {c.phone && <div className="flex items-center gap-1 text-xs text-stone-600 mt-1"><Phone size={11} /> {c.phone}</div>}
+        </div>
+      </div>
+    </Card>
   );
 }

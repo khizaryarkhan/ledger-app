@@ -2,10 +2,11 @@ import { db } from "@/db";
 import { contacts } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid(),
+  projectId: z.string().uuid().nullable().optional(),
   name: z.string().min(1).max(255),
   title: z.string().optional(),
   email: z.string().email(),
@@ -21,6 +22,8 @@ export async function GET(req: Request) {
   if (error) return error;
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
+  const projectId = searchParams.get("projectId");
+  if (projectId) return ok(await db.select().from(contacts).where(and(eq(contacts.orgId, orgId!), eq(contacts.projectId, projectId))));
   if (customerId) return ok(await db.select().from(contacts).where(and(eq(contacts.orgId, orgId!), eq(contacts.customerId, customerId))));
   return ok(await db.select().from(contacts).where(eq(contacts.orgId, orgId!)));
 }
@@ -32,8 +35,8 @@ export async function POST(req: Request) {
     const data = Schema.parse(await req.json());
     const [created] = await db.insert(contacts).values({
       orgId: orgId!,
-      orgId: orgId!,
       customerId: data.customerId,
+      projectId: data.projectId ?? null,
       name: data.name,
       title: data.title,
       email: data.email,

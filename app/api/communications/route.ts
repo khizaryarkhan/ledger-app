@@ -18,6 +18,7 @@ const Schema = z.object({
   isDraft: z.boolean().default(false),
   refNumber: z.string().optional(),
   stageAtSend: z.string().optional(),
+  projectId: z.string().uuid().nullable().optional(),
 });
 
 // Stages that should never be auto-overridden (manual-only)
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
     const [created] = await db.insert(communications).values({
       orgId: orgId!,
       customerId: data.customerId,
+      projectId: data.projectId ?? null,
       invoiceId: data.invoiceId ?? null,
       contactId: data.contactId ?? null,
       direction: data.direction,
