@@ -516,9 +516,10 @@ export async function syncTargetedEntities(
     const isPaid = qboBalance === 0;
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
 
-    const existing = ledgerInvByQboId.get(qi.Id);
+    // Check by QBO ID first, then by invoice number (handles invoices synced without qboId)
+    const existing = ledgerInvByQboId.get(qi.Id) || allLedgerInvoices.find(i => i.invoiceNumber === invoiceNumber);
     if (existing) {
-      // Update: balance, paid, status — never touch collection stage unless paying off
+      // Update: balance, paid, status — also stamp qboId if missing
       updatePromises.push(
         db
           .update(invoices)
@@ -526,6 +527,7 @@ export async function syncTargetedEntities(
             total,
             paid,
             amount: total,
+            qboId: qi.Id,
             qboBalance,
             qboSyncedAt: new Date(),
             updatedAt: new Date(),
