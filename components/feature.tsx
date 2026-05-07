@@ -87,6 +87,7 @@ export function EmailComposer({ context, onClose }: any) {
 
   const customer = customers.find((c: any) => c.id === context.customerId);
   const invoice = context.invoiceId ? invoices.find((i: any) => i.id === context.invoiceId) : null;
+  const contextProject = context.projectId ? projects.find((p: any) => p.id === context.projectId) : null;
   // Project contacts first (if projectId context), then customer-level contacts as fallback
   const projectContacts = context.projectId
     ? contacts.filter((c: any) => c.projectId === context.projectId)
@@ -111,9 +112,13 @@ export function EmailComposer({ context, onClose }: any) {
   );
   const [toValue, setToValue] = useState(primaryContact?.email || "");
   const [ccValue, setCcValue] = useState("");
-  const [subject, setSubject] = useState(
-    invoice ? `Outstanding Invoice ${invoice.invoiceNumber} — ${customer?.name}` : `Outstanding Invoices — ${customer?.name}`
-  );
+  const [subject, setSubject] = useState(() => {
+    const base = invoice
+      ? `Outstanding Invoice ${invoice.invoiceNumber} — ${customer?.name}`
+      : `Outstanding Invoices — ${customer?.name}`;
+    const proj = context.projectId ? projects.find((p: any) => p.id === context.projectId) : null;
+    return proj ? `${base} — ${proj.name}` : base;
+  });
   const [body, setBody] = useState(() => {
     const senderName = session?.user?.name || "";
     const contactName = primaryContact?.name?.split(" ")[0] || "there";
@@ -153,7 +158,7 @@ ${senderName}`;
       .then(d => {
         if (d.refNumber) {
           setRefNumber(d.refNumber);
-          setSubject(prev => `[${d.refNumber}] ${prev}`);
+          setSubject(prev => `${prev} [${d.refNumber}]`);
           setBody(prev =>
             `${prev}\n\nPlease quote reference ${d.refNumber} in all future correspondence regarding this matter.`
           );
@@ -349,7 +354,11 @@ ${senderName}`;
                     <input type="checkbox" checked={selectedInvIds.has(inv.id)} onChange={() => toggleInv(inv.id)}
                       className="rounded border-stone-300 cursor-pointer flex-shrink-0" />
                     <span className="font-mono text-[12px] text-stone-700 flex-shrink-0">{inv.invoiceNumber}</span>
-                    {proj && <span className="text-[11px] text-stone-400 truncate flex-1">{proj.name}</span>}
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {proj && <span className="text-[11px] text-stone-400 truncate">{proj.name}</span>}
+                      <span className="text-[11px] text-stone-400 flex-shrink-0">Inv: {fmt.shortDate(inv.invoiceDate)}</span>
+                      <span className={`text-[11px] flex-shrink-0 ${daysOverdue(inv.dueDate) > 0 ? "text-rose-500 font-medium" : "text-stone-400"}`}>Due: {fmt.shortDate(inv.dueDate)}</span>
+                    </div>
                     <span className="text-[12px] font-medium tabular-nums text-stone-700 flex-shrink-0">{fmt.money(out, inv.currency)}</span>
                     <button onClick={() => handleDownloadPdf(inv)}
                       className="p-1 rounded hover:bg-stone-200 text-stone-400 hover:text-stone-700 flex-shrink-0"
