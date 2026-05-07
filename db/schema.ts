@@ -1,5 +1,5 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, sql } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
 // ORGANISATIONS
