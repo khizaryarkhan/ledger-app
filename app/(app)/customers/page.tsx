@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
@@ -156,6 +156,12 @@ export default function CustomersPage() {
     return next;
   }), []);
 
+  const PAGE_SIZE = 48;
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [search, riskFilter, statusFilter, repFilter, regionFilter]);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const visible = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
+
   const allSelected = filtered.length > 0 && filtered.every((c: any) => selected.has(c.id));
   const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((c: any) => c.id)));
 
@@ -231,10 +237,25 @@ export default function CustomersPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-3 gap-3">
-          {filtered.map((c: any) => (
+          {visible.map((c: any) => (
             <CustomerCard key={c.id} c={c} isSelected={selected.has(c.id)} onToggle={toggleOne} />
           ))}
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-1 mt-4">
+            <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button key={i} onClick={() => setPage(i)}
+                  className={`px-3 py-1.5 text-xs rounded-md ring-1 ${page === i ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-200 hover:bg-stone-50"}`}>{i + 1}</button>
+              ))}
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
+                className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Next</button>
+            </div>
+          </div>
+        )}
       )}
 
       {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}

@@ -518,7 +518,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter }
 }
 
 // ============================================================
-// BY REP REPORT
+// BY REP REPORT — matches RegionalReport style
 // ============================================================
 function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -553,55 +553,46 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) 
   }, [invoices, customers, projects, reps, regionFilter]);
 
   const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
+  const maxTotal = Math.max(...data.map(r => r.buckets.total), 1);
 
   return (
     <div className="p-4 space-y-4">
-      {/* Summary table */}
-      <div className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-              <th className="text-left font-semibold px-4 py-3">Rep</th>
-              <th className="text-right font-semibold px-3 py-3">Customers</th>
-              <th className="text-right font-semibold px-3 py-3">Invoices</th>
-              {BUCKETS.map(b => <th key={b} className="text-right font-semibold px-3 py-3">{BUCKET_LABELS[b]}</th>)}
-              <th className="text-right font-semibold px-4 py-3">Total</th>
-              <th className="text-right font-semibold px-4 py-3">% of AR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map(r => (
-              <tr key={r.rep.id} className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer" onClick={() => toggle(r.rep.id)}>
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    {expanded.has(r.rep.id) ? <ChevronDown size={14} className="text-stone-400" /> : <ChevronRight size={14} className="text-stone-400" />}
-                    <span className="font-semibold text-stone-900">{r.rep.name}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
-                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} highlight />)}
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total)}</td>
-                <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
-              </tr>
-            ))}
-            <tr className="bg-stone-900 text-white">
-              <td className="px-4 py-3 font-bold">TOTAL</td>
-              <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
-              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b]) : "—"}</td>)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total)}</td>
-              <td className="px-4 py-3 text-right font-bold">100%</td>
-            </tr>
-          </tbody>
-        </table>
+      {/* Summary cards — same layout as RegionalReport */}
+      <div className="grid grid-cols-5 gap-3">
+        {data.map(r => {
+          const overduePct = r.buckets.total > 0 ? ((r.buckets["1-30"] + r.buckets["31-60"] + r.buckets["61-90"] + r.buckets["90+"]) / r.buckets.total * 100) : 0;
+          return (
+            <div key={r.rep.id} className="bg-white rounded-lg ring-1 ring-stone-200 p-4 cursor-pointer hover:ring-stone-300"
+              onClick={() => toggle(r.rep.id)}>
+              <div className="flex items-start justify-between mb-2">
+                <div className="text-sm font-semibold text-stone-900">{r.rep.name}</div>
+                {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">High risk</span>}
+                {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">Watch</span>}
+              </div>
+              <div className="text-xl font-bold text-stone-900 tabular-nums mb-1">{fmt.money(r.buckets.total)}</div>
+              <div className="text-[11px] text-stone-500 mb-3">{r.custSet.size} customers · {r.invoices.length} invoices</div>
+              <div className="h-1.5 rounded-full overflow-hidden flex gap-px mb-2">
+                {AGING_COLORS_REG.map(({ key, color }) => {
+                  const pct = r.buckets.total > 0 ? (r.buckets[key] || 0) / r.buckets.total * 100 : 0;
+                  if (pct === 0) return null;
+                  return <div key={key} className={`${color} h-full`} style={{ width: `${pct}%` }} />;
+                })}
+              </div>
+              <div className="text-[10px] text-stone-500">{overduePct.toFixed(0)}% overdue · {r.overdueCount} invoices</div>
+              <div className="mt-2 h-1 bg-stone-100 rounded-full">
+                <div className="h-full bg-stone-700 rounded-full" style={{ width: `${r.buckets.total / maxTotal * 100}%` }} />
+              </div>
+              <div className="text-[10px] text-stone-400 mt-1">{(r.buckets.total / grandTotal.total * 100).toFixed(1)}% of total AR</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Expanded detail per rep */}
       {data.map(r => expanded.has(r.rep.id) && (
         <div key={r.rep.id} className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
-            <div className="font-semibold text-stone-900">{r.rep.name} — Detail</div>
+            <div className="font-semibold text-stone-900">{r.rep.name} — Detailed Aging</div>
             <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total)}</div>
           </div>
           <table className="w-full text-sm">
@@ -633,6 +624,41 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) 
           </table>
         </div>
       ))}
+
+      {/* Rep Summary table */}
+      <div className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 font-semibold text-stone-900">Rep Summary</div>
+        <table className="w-full text-sm">
+          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+            <th className="text-left font-semibold px-4 py-2.5">Rep</th>
+            <th className="text-right font-semibold px-3 py-2.5">Customers</th>
+            <th className="text-right font-semibold px-3 py-2.5">Invoices</th>
+            {BUCKETS.map(b => <th key={b} className="text-right font-semibold px-3 py-2.5">{BUCKET_LABELS[b]}</th>)}
+            <th className="text-right font-semibold px-4 py-2.5">Total</th>
+            <th className="text-right font-semibold px-4 py-2.5">% of AR</th>
+          </tr></thead>
+          <tbody>
+            {data.map(r => (
+              <tr key={r.rep.id} className="border-b border-stone-100 hover:bg-stone-50">
+                <td className="px-4 py-2.5 font-medium text-stone-900">{r.rep.name}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
+                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} />)}
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total)}</td>
+                <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
+              </tr>
+            ))}
+            <tr className="bg-stone-900 text-white">
+              <td className="px-4 py-3 font-bold">TOTAL</td>
+              <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
+              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
+              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b]) : "—"}</td>)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total)}</td>
+              <td className="px-4 py-3 text-right font-bold">100%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

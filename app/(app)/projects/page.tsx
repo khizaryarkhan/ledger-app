@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
@@ -118,6 +118,12 @@ export default function ProjectsPage() {
     return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
   }, [enriched, repFilter, regionFilter]);
 
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [repFilter, regionFilter]);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const visible = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
+
   const allSelected = filtered.length > 0 && filtered.every((p: any) => selected.has(p.id));
   const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((p: any) => p.id)));
   const toggleOne = useCallback((id: string) => setSelected(prev => {
@@ -207,11 +213,26 @@ export default function ProjectsPage() {
               <th className="text-right font-semibold px-4 py-2.5">Overdue</th>
             </tr></thead>
             <tbody>
-              {filtered.map((p: any) => (
+              {visible.map((p: any) => (
                 <ProjectRow key={p.id} p={p} isSelected={selected.has(p.id)} onToggle={toggleOne} statusColor={statusColor} />
               ))}
             </tbody>
           </table>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-stone-100">
+              <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                  className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Prev</button>
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <button key={i} onClick={() => setPage(i)}
+                    className={`px-3 py-1.5 text-xs rounded-md ring-1 ${page === i ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-200 hover:bg-stone-50"}`}>{i + 1}</button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
+                  className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Next</button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
