@@ -299,7 +299,8 @@ export async function runQboSync(orgId: string, userId: string) {
     const qboBalance = parseFloat(qi.Balance) || 0;
     const total = parseFloat(qi.TotalAmt) || 0;
     const paid = Math.max(0, total - qboBalance);
-    const existing = ledgerInvByQboId.get(qi.Id) || ledgerInvByNumber.get(invoiceNumber);
+    // QBO Id is the unique source of truth — invoice numbers are display only
+    const existing = ledgerInvByQboId.get(qi.Id);
 
     const syncData = {
       total,
@@ -516,17 +517,8 @@ export async function syncTargetedEntities(
     const isPaid = qboBalance === 0;
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
 
-    // Check by QBO ID first, then by invoice number scoped to the QBO customer
-    // (invoice numbers can repeat across customers so we must also match customerId)
-    const existingByQboId = ledgerInvByQboId.get(qi.Id);
-    const existingByNumber = !existingByQboId
-      ? allLedgerInvoices.find(i =>
-          i.invoiceNumber === invoiceNumber &&
-          i.orgId === orgId &&
-          (i.qboCustomerId === qi.CustomerRef?.value || !i.qboId)
-        )
-      : null;
-    const existing = existingByQboId || existingByNumber;
+    // QBO's internal Id is the unique source of truth — never use invoice number for lookup
+    const existing = ledgerInvByQboId.get(qi.Id);
     if (existing) {
       // Update: balance, paid, status — also stamp qboId if missing
       updatePromises.push(

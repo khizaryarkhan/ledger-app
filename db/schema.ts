@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, sql } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // =========================================================================
@@ -135,7 +135,7 @@ export const projects = pgTable("projects", {
 export const invoices = pgTable("invoices", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull(),
+  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull(), // display only — not unique
   customerId: uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   invoiceDate: varchar("invoice_date", { length: 16 }).notNull(),
@@ -155,14 +155,19 @@ export const invoices = pgTable("invoices", {
   disputeDate: varchar("dispute_date", { length: 16 }),
   promiseDate: varchar("promise_date", { length: 16 }),
   lastFollowupDate: varchar("last_followup_date", { length: 16 }),
-  qboId: varchar("qbo_id", { length: 64 }),
+  qboId: varchar("qbo_id", { length: 64 }), // QBO internal transaction ID — unique source of truth
   qboBalance: real("qbo_balance"),
   qboCustomerId: varchar("qbo_customer_id", { length: 64 }),
   qboSyncedAt: timestamp("qbo_synced_at"),
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  // qboId is unique per org — prevents duplicate QBO invoices on re-sync
+  orgQboIdUnique: uniqueIndex("invoices_org_qbo_id_unique")
+    .on(t.orgId, t.qboId)
+    .where(sql`${t.qboId} IS NOT NULL`),
+}));
 
 // =========================================================================
 // COMMUNICATIONS (emails + notes)
