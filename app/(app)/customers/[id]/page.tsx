@@ -175,22 +175,29 @@ export default function CustomerDetailPage() {
         custProjects.length === 0 ? <Card><EmptyState icon={Briefcase} title="No projects" description="No projects for this customer yet." /></Card> : (
           <div className="grid grid-cols-2 gap-3">
             {custProjects.map(p => {
-              const projInvoices = invoices.filter(i => i.projectId === p.id);
-              const projOut = projInvoices.filter(i => i.paymentStatus !== "Paid").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+              const projInvoices = invoices.filter((i: any) => i.projectId === p.id);
+              const projOpen = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+              const projOut = projOpen.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+              const projOverdue = projOpen.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
               return (
-                <Card key={p.id}>
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <div className="text-sm font-semibold text-stone-900">{p.name}</div>
-                      <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+                <Link key={p.id} href={`/projects/${p.id}`} className="block group">
+                  <Card className="group-hover:ring-stone-300 transition-colors cursor-pointer">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-stone-900 group-hover:text-blue-700 transition-colors truncate">{p.name}</div>
+                        <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+                      </div>
+                      <Badge variant={p.status === "Active" ? "blue" : "neutral"} size="sm">{p.status}</Badge>
                     </div>
-                    <Badge variant={p.status === "Active" ? "blue" : "neutral"} size="sm">{p.status}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-stone-100 mt-3">
-                    <span className="text-xs text-stone-500">{projInvoices.length} invoices</span>
-                    <span className="text-sm font-semibold tabular-nums">{fmt.money(projOut, customer.currency)}</span>
-                  </div>
-                </Card>
+                    <div className="flex items-center justify-between pt-3 border-t border-stone-100 mt-3">
+                      <span className="text-xs text-stone-500">{projInvoices.length} invoice{projInvoices.length !== 1 ? "s" : ""}</span>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold tabular-nums">{fmt.money(projOut, customer.currency)}</div>
+                        {projOverdue > 0 && <div className="text-[11px] text-rose-600 font-medium tabular-nums">{fmt.money(projOverdue, customer.currency)} overdue</div>}
+                      </div>
+                    </div>
+                  </Card>
+                </Link>
               );
             })}
           </div>

@@ -5,25 +5,21 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
+import { EmailComposer } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
-import { ArrowLeft, FileText, Mail, Download, Loader } from "lucide-react";
+import { ArrowLeft, FileText, Mail, Download, Loader, ArrowUpRight, FileEdit, Link2, MessageSquare } from "lucide-react";
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { projects, customers, invoices, contacts, regions, updateInvoice } = useData() as any;
-  const [tab, setTab] = useState<"invoices" | "compose">("invoices");
-  const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set());
+  const { projects, customers, invoices, contacts, communications, regions, updateInvoice } = useData() as any;
+  const [tab, setTab] = useState<"invoices" | "timeline">("invoices");
+  const [showCompose, setShowCompose] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [composeTo, setComposeTo] = useState("");
-  const [composeCc, setComposeCc] = useState("");
-  const [composeSubject, setComposeSubject] = useState("");
-  const [composeBody, setComposeBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [attachingPdfs, setAttachingPdfs] = useState(false);
 
-  const project = projects.find(p => p.id === id);
-  const customer = project ? customers.find(c => c.id === project.customerId) : null;
-  const custContacts = customer ? contacts.filter(c => c.customerId === customer.id) : [];
+  const project = projects.find((p: any) => p.id === id);
+  const customer = project ? customers.find((c: any) => c.id === project.customerId) : null;
+  const custContacts = customer ? contacts.filter((c: any) => c.customerId === customer.id) : [];
 
   if (!project || !customer) {
     return (
@@ -35,21 +31,25 @@ export default function ProjectDetailPage() {
   }
 
   const projInvoices = useMemo(() =>
-    invoices.filter(i => i.projectId === id)
-      .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()),
+    invoices.filter((i: any) => i.projectId === id)
+      .sort((a: any, b: any) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()),
     [invoices, id]
   );
 
-  const open = projInvoices.filter(i => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
-  const outstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;
+  const projInvoiceIds = useMemo(() => new Set(projInvoices.map((i: any) => i.id)), [projInvoices]);
 
-  const toggleInv = (invId: string) => setSelectedInvIds(prev => {
-    const n = new Set(prev);
-    n.has(invId) ? n.delete(invId) : n.add(invId);
-    return n;
-  });
+  // All communications linked to any invoice in this project
+  const projComms = useMemo(() =>
+    (communications as any[])
+      .filter(c => c.invoiceId && projInvoiceIds.has(c.invoiceId))
+      .sort((a: any, b: any) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()),
+    [communications, projInvoiceIds]
+  );
+
+  const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
+  const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+  const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+  const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;
 
   const handleDownloadPdf = async (e: React.MouseEvent, inv: any) => {
     e.preventDefault();
@@ -66,45 +66,6 @@ export default function ProjectDetailPage() {
     } finally { setDownloadingId(null); }
   };
 
-  const startCompose = () => {
-    const primaryContact = custContacts.find(c => c.isPrimary) || custContacts[0];
-    setComposeTo(primaryContact?.email || "");
-    setComposeSubject(`Outstanding Invoices — ${project.name}`);
-    const selectedInvs = open.filter(i => selectedInvIds.has(i.id));
-    const invList = (selectedInvs.length > 0 ? selectedInvs : open)
-      .map(i => `• Invoice ${i.invoiceNumber} — ${fmt.money(i.total - (i.paid || 0), customer.currency)} — Due ${i.dueDate}`)
-      .join("\n");
-    setComposeBody(
-      `Dear ${primaryContact?.name || customer.name},\n\nPlease find below a summary of outstanding invoices for ${project.name}:\n\n${invList}\n\nTotal outstanding: ${fmt.money(outstanding, customer.currency)}\n\nKind regards`
-    );
-    setTab("compose");
-  };
-
-  const handleSend = async () => {
-    setSending(true);
-    try {
-      const selectedIds = selectedInvIds.size > 0 ? Array.from(selectedInvIds) : open.map(i => i.id);
-      const res = await fetch("/api/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: composeTo,
-          cc: composeCc || undefined,
-          subject: composeSubject,
-          body: composeBody,
-          attachInvoiceIds: selectedIds,
-        }),
-      });
-      if (res.ok) {
-        alert("Email sent successfully!");
-        setTab("invoices");
-      } else {
-        const d = await res.json();
-        alert(d.error || "Failed to send");
-      }
-    } finally { setSending(false); }
-  };
-
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
       <Link href={`/customers/${customer.id}`} className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 mb-4">
@@ -118,11 +79,10 @@ export default function ProjectDetailPage() {
             <span className="font-mono text-xs">{project.code}</span>
             <span>·</span>
             <Link href={`/customers/${customer.id}`} className="hover:text-stone-900">{customer.name}</Link>
-            <span>·</span>
-            <span>{region}</span>
+            {region && <><span>·</span><span>{region}</span></>}
           </div>
         </div>
-        <Button icon={Mail} onClick={startCompose}>Send email</Button>
+        <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
       </div>
 
       {/* KPIs */}
@@ -145,7 +105,7 @@ export default function ProjectDetailPage() {
       <div className="border-b border-stone-200 mb-5 flex items-center gap-1">
         {[
           { id: "invoices", label: `Invoices (${projInvoices.length})` },
-          { id: "compose", label: "Compose email" },
+          { id: "timeline", label: `Timeline (${projComms.length})` },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
@@ -157,25 +117,9 @@ export default function ProjectDetailPage() {
       {/* Invoices tab */}
       {tab === "invoices" && (
         <Card padding="none">
-          {selectedInvIds.size > 0 && (
-            <div className="px-4 py-2.5 bg-stone-900 text-white flex items-center gap-3">
-              <span className="text-sm font-medium">{selectedInvIds.size} selected</span>
-              <div className="flex-1" />
-              <Button size="sm" icon={Mail} onClick={startCompose}>Compose email with selected</Button>
-            </div>
-          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-                <th className="w-10 px-4 py-2.5">
-                  <input type="checkbox"
-                    checked={open.length > 0 && open.every(i => selectedInvIds.has(i.id))}
-                    onChange={() => {
-                      if (open.every(i => selectedInvIds.has(i.id))) setSelectedInvIds(new Set());
-                      else setSelectedInvIds(new Set(open.map(i => i.id)));
-                    }}
-                    className="rounded border-stone-300 cursor-pointer" />
-                </th>
                 <th className="text-left font-semibold px-4 py-2.5">Invoice</th>
                 <th className="text-left font-semibold px-4 py-2.5">Due date</th>
                 <th className="text-left font-semibold px-4 py-2.5">Status</th>
@@ -185,18 +129,12 @@ export default function ProjectDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {projInvoices.map(inv => {
+              {projInvoices.map((inv: any) => {
                 const out = inv.total - (inv.paid || 0);
                 const dueStatus = getDueStatus(inv);
                 const isPaid = inv.paymentStatus === "Paid" || inv.collectionStage === "Closed";
                 return (
-                  <tr key={inv.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selectedInvIds.has(inv.id) ? "bg-blue-50/50" : ""}`}>
-                    <td className="px-4 py-3 w-10">
-                      {!isPaid && (
-                        <input type="checkbox" checked={selectedInvIds.has(inv.id)} onChange={() => toggleInv(inv.id)}
-                          className="rounded border-stone-300 cursor-pointer" />
-                      )}
-                    </td>
+                  <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-4 py-3">
                       <Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-blue-600 hover:underline">{inv.invoiceNumber}</Link>
                     </td>
@@ -231,77 +169,81 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Compose email tab */}
-      {tab === "compose" && (
-        <Card>
-          <div className="space-y-3">
-            {/* To field */}
-            <div>
-              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
-              <input value={composeTo} onChange={e => setComposeTo(e.target.value)}
-                placeholder="email@example.com, another@example.com"
-                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-              {custContacts.length > 0 && (
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="text-[11px] text-stone-400">Quick add:</span>
-                  {custContacts.map(c => (
-                    <button key={c.id} onClick={() => {
-                      const emails = composeTo.split(",").map(e => e.trim()).filter(Boolean);
-                      if (!emails.includes(c.email)) setComposeTo([...emails, c.email].join(", "));
-                    }} className="text-[11px] px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 transition-colors">
-                      {c.name} &lt;{c.email}&gt;
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+      {/* Timeline tab */}
+      {tab === "timeline" && (
+        projComms.length === 0 ? (
+          <Card>
+            <EmptyState icon={MessageSquare} title="No activity yet"
+              description="Emails sent from any invoice in this project will appear here."
+              action={<Button icon={Mail} onClick={() => setShowCompose(true)}>Send first email</Button>} />
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {projComms.map((c: any) => {
+              const isNote = c.channel === "Note";
+              const inv = c.invoiceId ? projInvoices.find((i: any) => i.id === c.invoiceId) : null;
+              return (
+                <div key={c.id} className="bg-white ring-1 ring-stone-200 rounded-lg px-4 py-3.5 flex items-start gap-3">
+                  {/* Icon */}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isNote ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
+                    {isNote ? <FileEdit size={13} /> : <ArrowUpRight size={13} />}
+                  </div>
 
-            {/* CC field */}
-            <div>
-              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">CC</label>
-              <input value={composeCc} onChange={e => setComposeCc(e.target.value)}
-                placeholder="Optional — cc@example.com"
-                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-            </div>
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    {/* Ref badge + stage */}
+                    {!isNote && c.refNumber && (
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <span className="font-mono text-[11px] font-semibold bg-stone-900 text-white px-2 py-0.5 rounded">
+                          {c.refNumber}
+                        </span>
+                        {c.stageAtSend && (
+                          <span className="text-[11px] text-stone-400">
+                            stage at send: <span className="font-medium text-stone-600">{c.stageAtSend}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
 
-            {/* Subject */}
-            <div>
-              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
-              <input value={composeSubject} onChange={e => setComposeSubject(e.target.value)}
-                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-            </div>
-
-            {/* Selected invoices as attachments */}
-            {selectedInvIds.size > 0 && (
-              <div className="bg-blue-50 ring-1 ring-blue-200 rounded-md p-3">
-                <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wider mb-2">Invoice attachments ({selectedInvIds.size})</div>
-                <div className="space-y-1">
-                  {projInvoices.filter(i => selectedInvIds.has(i.id)).map(inv => (
-                    <div key={inv.id} className="flex items-center justify-between text-[12px] text-blue-800">
-                      <span className="font-mono">{inv.invoiceNumber}</span>
-                      <span>{fmt.money(inv.total - (inv.paid || 0), customer.currency)}</span>
+                    {/* Subject / title */}
+                    <div className="text-sm font-medium text-stone-900 truncate">
+                      {isNote ? "Internal note" : (c.subject || "Email")}
                     </div>
-                  ))}
+
+                    {/* Meta row */}
+                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                      {!isNote && c.recipients && (
+                        <span className="text-[11px] text-stone-500">To: {c.recipients}</span>
+                      )}
+                      {inv && (
+                        <span className="flex items-center gap-1 text-[11px] text-stone-500">
+                          <Link2 size={10} />
+                          <Link href={`/invoices/${inv.id}`} className="font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link>
+                        </span>
+                      )}
+                      {isNote && c.body && (
+                        <span className="text-[12px] text-stone-600">{c.body}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Timestamp */}
+                  <div className="text-[11px] text-stone-400 whitespace-nowrap flex-shrink-0 mt-0.5">
+                    {fmt.relative(c.sentAt)}
+                  </div>
                 </div>
-                <div className="text-[10px] text-blue-600 mt-2">PDF links will be included in the email body. Direct attachment coming soon.</div>
-              </div>
-            )}
-
-            {/* Body */}
-            <div>
-              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
-              <textarea value={composeBody} onChange={e => setComposeBody(e.target.value)}
-                rows={12} className="w-full px-3 py-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none resize-none font-mono" />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <Button onClick={handleSend} disabled={sending || !composeTo}>
-                {sending ? <span className="flex items-center gap-2"><Loader size={14} className="animate-spin" />Sending…</span> : <span className="flex items-center gap-2"><Mail size={14} />Send email</span>}
-              </Button>
-              <Button variant="secondary" onClick={() => setTab("invoices")}>Cancel</Button>
-            </div>
+              );
+            })}
           </div>
-        </Card>
+        )
+      )}
+
+      {/* EmailComposer modal */}
+      {showCompose && (
+        <EmailComposer
+          context={{ customerId: customer.id }}
+          onClose={() => setShowCompose(false)}
+        />
       )}
     </div>
   );
