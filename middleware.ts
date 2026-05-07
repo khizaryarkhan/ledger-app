@@ -6,7 +6,7 @@ export default auth((req) => {
   const path = req.nextUrl.pathname;
 
   const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/debug-auth";
-  const isCron = path.startsWith("/api/cron");
+  const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
 
   if (isCron) return NextResponse.next();
