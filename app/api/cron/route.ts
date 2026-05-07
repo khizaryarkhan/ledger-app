@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const today = new Date().toISOString().slice(0, 10);
 
   // Find invoices that need stage transitions
-  // For now: just promote 'New' -> 'Reminder Scheduled' for invoices due in 3 days
+  // Auto-schedule: promote 'New' -> 'Scheduled' for invoices due in 3 days
   const all = await db.select().from(invoices);
   let updated = 0;
 
@@ -23,8 +23,9 @@ export async function GET(req: Request) {
     const dueDate = new Date(inv.dueDate);
     const daysUntilDue = Math.floor((dueDate.getTime() - Date.now()) / 86400000);
 
-    // Auto-escalate: 30+ days overdue, not disputed, not already escalated
-    if (daysUntilDue < -30 && inv.collectionStage !== "Disputed" && inv.collectionStage !== "Escalated" && inv.collectionStage !== "On Hold") {
+    // Auto-escalate: 30+ days overdue, not in a manual/protected stage
+    const PROTECTED_STAGES = ["Disputed", "Escalated", "On Hold", "Promised", "Promise to Pay", "Final Notice"];
+    if (daysUntilDue < -30 && !PROTECTED_STAGES.includes(inv.collectionStage)) {
       await db.update(invoices).set({ collectionStage: "Escalated", updatedAt: new Date() }).where(eq(invoices.id, inv.id));
       updated++;
     }

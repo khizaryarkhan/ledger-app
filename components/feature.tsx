@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { fmt, daysOverdue, today, daysFromNow, emailTemplates } from "@/lib/format";
 import { useData } from "./data-provider";
@@ -135,6 +135,26 @@ ${senderName}`;
   const [submitting, setSubmitting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  // Collections reference number — generated once when the composer opens
+  const [refNumber, setRefNumber] = useState<string | null>(null);
+  const refFetched = useRef(false);
+  useEffect(() => {
+    if (refFetched.current) return;
+    refFetched.current = true;
+    fetch("/api/org/colref", { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.refNumber) {
+          setRefNumber(d.refNumber);
+          setSubject(prev => `[${d.refNumber}] ${prev}`);
+          setBody(prev =>
+            `${prev}\n\nPlease quote reference ${d.refNumber} in all future correspondence regarding this matter.`
+          );
+        }
+      })
+      .catch(console.error);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const addEmailToTo = (email: string) => {
     const emails = toValue.split(",").map(e => e.trim()).filter(Boolean);
     if (!emails.includes(email)) setToValue([...emails, email].join(", "));
@@ -171,6 +191,7 @@ ${senderName}`;
       dueDate: invoice?.dueDate || "",
       daysOverdue: invoice ? String(Math.max(0, daysOverdue(invoice.dueDate))) : "0",
       senderName,
+      referenceNumber: refNumber || "",
     };
     return Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), tpl);
   };
@@ -210,7 +231,7 @@ ${senderName}`;
           console.log(`Sent with ${result.attachments.length} PDF attachment(s)`);
         }
       }
-      // Log to timeline
+      // Log to timeline (includes ref number + stage-at-send)
       await sendEmail({
         customerId: context.customerId,
         invoiceId: context.invoiceId || null,
@@ -220,6 +241,8 @@ ${senderName}`;
         recipients: toValue,
         matchedBy: "Manual",
         isDraft: asDraft,
+        refNumber: refNumber || undefined,
+        stageAtSend: invoice?.collectionStage || undefined,
       });
       onClose();
     } catch (e) { console.error(e); }
@@ -236,6 +259,19 @@ ${senderName}`;
         <Button icon={Send} onClick={() => handleSend(false)} disabled={!subject || !body || !toValue || submitting}>{submitting ? "Sending…" : "Send now"}</Button>
       </>}>
       <div className="p-5 space-y-3">
+
+        {/* Reference number badge */}
+        {refNumber ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
+            <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Ref</span>
+            <span className="font-mono text-[12px] font-semibold text-stone-700">{refNumber}</span>
+            <span className="text-[11px] text-stone-400 ml-1">· auto-injected into subject & body</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
+            <span className="text-[11px] text-stone-400">Generating reference number…</span>
+          </div>
+        )}
 
         {/* TO field */}
         <div>
@@ -421,7 +457,7 @@ export function PromiseModal({ invoice, onClose }: any) {
   const handle = async () => {
     setSubmitting(true);
     try {
-      await updateInvoice(invoice.id, { collectionStage: "Promise to Pay", promiseDate: date });
+      await updateInvoice(invoice.id, { collectionStage: "Promised", promiseDate: date });
       onClose();
     } finally { setSubmitting(false); }
   };

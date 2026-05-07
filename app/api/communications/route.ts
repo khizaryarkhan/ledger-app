@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { communications, invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid(),
@@ -16,7 +16,12 @@ const Schema = z.object({
   body: z.string().optional(),
   matchedBy: z.string().optional(),
   isDraft: z.boolean().default(false),
+  refNumber: z.string().optional(),
+  stageAtSend: z.string().optional(),
 });
+
+// Stages that should never be auto-overridden (manual-only)
+const MANUAL_STAGES = new Set(["Disputed", "Promised", "Promise to Pay", "On Hold", "Escalated"]);
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -37,8 +42,38 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
+
+    // If this is an outbound email for an invoice, count previous emails to determine auto-stage
+    let autoStage: string | null = null;
+    let currentStageForLog: string | null = null;
+
+    if (data.invoiceId && !data.isDraft && data.channel === "Email" && data.direction === "Outbound") {
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, data.invoiceId)).limit(1);
+      if (inv) {
+        currentStageForLog = inv.collectionStage;
+
+        if (!MANUAL_STAGES.has(inv.collectionStage)) {
+          // Count previous outbound emails for this invoice (before this one)
+          const prevEmails = await db
+            .select({ id: communications.id })
+            .from(communications)
+            .where(and(
+              eq(communications.invoiceId, data.invoiceId),
+              eq(communications.channel, "Email"),
+              eq(communications.direction, "Outbound"),
+              eq(communications.isDraft, false),
+              eq(communications.orgId, orgId!),
+            ));
+
+          const prevCount = prevEmails.length; // 0 = this is 1st email, 1 = 2nd, 2 = 3rd+
+          if (prevCount === 0) autoStage = "Reminder Sent";
+          else if (prevCount === 1) autoStage = "Second Notice";
+          else autoStage = "Final Notice";
+        }
+      }
+    }
+
     const [created] = await db.insert(communications).values({
-      orgId: orgId!,
       orgId: orgId!,
       customerId: data.customerId,
       invoiceId: data.invoiceId ?? null,
@@ -52,16 +87,16 @@ export async function POST(req: Request) {
       matchedBy: data.matchedBy,
       isDraft: data.isDraft ?? false,
       authorId: (session!.user as any).id,
+      refNumber: data.refNumber ?? null,
+      stageAtSend: data.stageAtSend ?? currentStageForLog ?? null,
     }).returning();
 
-    if (data.invoiceId && !data.isDraft && data.channel === "Email" && data.direction === "Outbound") {
-      const [inv] = await db.select().from(invoices).where(eq(invoices.id, data.invoiceId)).limit(1);
-      if (inv) {
-        const today = new Date().toISOString().slice(0, 10);
-        const newStage = (inv.collectionStage === "New" || inv.collectionStage === "Reminder Scheduled")
-          ? "Reminder Sent" : inv.collectionStage;
-        await db.update(invoices).set({ lastFollowupDate: today, collectionStage: newStage, updatedAt: new Date() }).where(eq(invoices.id, data.invoiceId));
-      }
+    // Apply auto-stage to invoice
+    if (autoStage && data.invoiceId) {
+      const today = new Date().toISOString().slice(0, 10);
+      await db.update(invoices)
+        .set({ lastFollowupDate: today, collectionStage: autoStage, updatedAt: new Date() })
+        .where(eq(invoices.id, data.invoiceId));
     }
 
     return ok(created);

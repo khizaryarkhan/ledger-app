@@ -19,9 +19,17 @@ export const Badge = ({ children, variant = "neutral", size = "sm" }: { children
 
 export const stageBadge = (stage: string) => {
   const map: Record<string, string> = {
-    "New": "neutral", "Reminder Scheduled": "blue", "Reminder Sent": "blue",
-    "Awaiting Reply": "purple", "Promise to Pay": "yellow", "Disputed": "red",
-    "Escalated": "red", "On Hold": "orange", "Closed": "green",
+    "New": "neutral",
+    "Scheduled": "blue", "Reminder Scheduled": "blue",
+    "Reminder Sent": "blue",
+    "Second Notice": "purple",
+    "Final Notice": "purple",
+    "Awaiting": "purple", "Awaiting Reply": "purple",
+    "Promised": "yellow", "Promise to Pay": "yellow",
+    "Disputed": "red",
+    "Escalated": "red",
+    "On Hold": "orange",
+    "Closed": "green",
   };
   return map[stage] || "neutral";
 };

@@ -54,7 +54,16 @@ export default function InvoicesPage() {
       res = res.filter((i: any) => i.invoiceNumber.toLowerCase().includes(s) || i.customer?.name.toLowerCase().includes(s) || (i.poNumber || "").toLowerCase().includes(s));
     }
     if (statusFilter) res = res.filter((i: any) => i.dueStatus === statusFilter);
-    if (stageFilter) res = res.filter((i: any) => i.collectionStage === stageFilter);
+    if (stageFilter) {
+      // Handle both new stage names and old legacy DB values
+      const STAGE_ALIASES: Record<string, string[]> = {
+        "Scheduled": ["Scheduled", "Reminder Scheduled"],
+        "Awaiting":  ["Awaiting", "Awaiting Reply"],
+        "Promised":  ["Promised", "Promise to Pay"],
+      };
+      const aliases = STAGE_ALIASES[stageFilter] || [stageFilter];
+      res = res.filter((i: any) => aliases.includes(i.collectionStage));
+    }
     if (customerFilter) res = res.filter((i: any) => i.customerId === customerFilter);
     if (regionFilter) res = res.filter((i: any) => {
       const cust = customers.find((c: any) => c.id === i.customerId);
@@ -64,7 +73,7 @@ export default function InvoicesPage() {
     });
     res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
-  }, [invoices, customers, projects, search, statusFilter, stageFilter, customerFilter]);
+  }, [invoices, customers, projects, search, statusFilter, stageFilter, customerFilter, regionFilter]);
 
   const allSelected = filtered.length > 0 && filtered.every((i: any) => selected.has(i.id));
   const someSelected = selected.size > 0;
@@ -138,7 +147,7 @@ export default function InvoicesPage() {
         <div className="p-3 border-b border-stone-200 flex items-center gap-2 flex-wrap">
           <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, PO..." icon={Search} className="w-72" />
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
-          <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages" options={["New", "Reminder Scheduled", "Reminder Sent", "Awaiting Reply", "Promise to Pay", "Disputed", "Escalated", "On Hold", "Closed"]} />
+          <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages" options={["New", "Scheduled", "Reminder Sent", "Second Notice", "Final Notice", "Awaiting", "Promised", "Disputed", "Escalated", "On Hold", "Closed"]} />
           <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
           <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"

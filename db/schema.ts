@@ -10,6 +10,7 @@ export const organisations = pgTable("organisations", {
   slug: varchar("slug", { length: 64 }).notNull().unique(),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   classificationLevel: varchar("classification_level", { length: 32 }).notNull().default("customer"), // 'customer' | 'project'
+  colRefSeq: integer("col_ref_seq").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -181,6 +182,8 @@ export const communications = pgTable("communications", {
   matchedBy: varchar("matched_by", { length: 64 }),
   isDraft: boolean("is_draft").notNull().default(false),
   authorId: uuid("author_id").references(() => users.id),
+  refNumber: varchar("ref_number", { length: 32 }),
+  stageAtSend: varchar("stage_at_send", { length: 64 }),
 });
 
 // =========================================================================

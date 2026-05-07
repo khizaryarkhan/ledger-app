@@ -29,7 +29,7 @@ export default function DashboardPage() {
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
     const disputed = open.filter(i => i.collectionStage === "Disputed").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-    const promised = open.filter(i => i.collectionStage === "Promise to Pay").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    const promised = open.filter(i => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
     const dueThisWeek = open.filter(i => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
     const thirtyDaysAgo = new Date(daysFromNow(-30)).getTime();

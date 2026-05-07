@@ -6,19 +6,38 @@ import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Users, Briefcase, ChevronRight } from "lucide-react";
 
-const STAGES = ["New", "Reminder Scheduled", "Reminder Sent", "Awaiting Reply", "Promise to Pay", "Disputed", "Escalated", "On Hold", "Closed"];
+const STAGES = [
+  "New", "Scheduled", "Reminder Sent", "Second Notice", "Final Notice",
+  "Awaiting", "Promised", "Disputed", "Escalated", "On Hold", "Closed",
+];
 
 const STAGE_COLORS: Record<string, string> = {
-  "New": "bg-stone-100 text-stone-700",
+  "New":           "bg-stone-100 text-stone-700",
+  "Scheduled":     "bg-blue-100 text-blue-700",
+  "Reminder Sent": "bg-blue-200 text-blue-800",
+  "Second Notice": "bg-violet-100 text-violet-700",
+  "Final Notice":  "bg-violet-200 text-violet-800",
+  "Awaiting":      "bg-amber-100 text-amber-700",
+  "Promised":      "bg-amber-100 text-amber-800",
+  "Disputed":      "bg-rose-100 text-rose-700",
+  "Escalated":     "bg-rose-200 text-rose-800",
+  "On Hold":       "bg-orange-100 text-orange-700",
+  "Closed":        "bg-emerald-100 text-emerald-700",
+  // Backward compat — old DB values map to new display colours
   "Reminder Scheduled": "bg-blue-100 text-blue-700",
-  "Reminder Sent": "bg-blue-100 text-blue-700",
-  "Awaiting Reply": "bg-violet-100 text-violet-700",
-  "Promise to Pay": "bg-amber-100 text-amber-800",
-  "Disputed": "bg-rose-100 text-rose-700",
-  "Escalated": "bg-rose-200 text-rose-800",
-  "On Hold": "bg-orange-100 text-orange-700",
-  "Closed": "bg-emerald-100 text-emerald-700",
+  "Awaiting Reply":     "bg-amber-100 text-amber-700",
+  "Promise to Pay":     "bg-amber-100 text-amber-800",
 };
+
+// Map old stored values to new stage names so cards sort into correct columns
+const STAGE_NORMALIZE: Record<string, string> = {
+  "Reminder Scheduled": "Scheduled",
+  "Awaiting Reply":     "Awaiting",
+  "Promise to Pay":     "Promised",
+};
+function normalizeStage(s: string): string {
+  return STAGE_NORMALIZE[s] || s;
+}
 
 const AGING_COLORS = [
   { label: "Current", color: "bg-emerald-500", key: "current" },
@@ -73,14 +92,17 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
 }
 
 function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, setDraggingId }: any) {
-  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
+  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed");
   const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
-  // Dominant stage
+  // Dominant stage (normalized)
   const stageCounts: Record<string, number> = {};
-  open.forEach((i: any) => { stageCounts[i.collectionStage] = (stageCounts[i.collectionStage] || 0) + 1; });
+  open.forEach((i: any) => {
+    const ns = normalizeStage(i.collectionStage);
+    stageCounts[ns] = (stageCounts[ns] || 0) + 1;
+  });
   const dominantStage = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
 
   return (
@@ -146,13 +168,14 @@ export default function BoardPage() {
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
 
-      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
+      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed");
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       if (outstanding === 0 && open.length === 0) return;
 
       const stageValues: Record<string, number> = {};
       open.forEach((i: any) => {
-        stageValues[i.collectionStage] = (stageValues[i.collectionStage] || 0) + (i.total - (i.paid || 0));
+        const ns = normalizeStage(i.collectionStage);
+        stageValues[ns] = (stageValues[ns] || 0) + (i.total - (i.paid || 0));
       });
       const stage = Object.entries(stageValues).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
 

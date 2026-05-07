@@ -54,9 +54,10 @@ export async function POST(req: Request) {
   const port = smtp?.port || parseInt(process.env.SMTP_PORT || "2525");
   const user = smtp?.user || process.env.SMTP_USER;
   const pass = smtp?.pass || process.env.SMTP_PASS;
+  const fromEmail = smtp?.fromEmail || process.env.SMTP_FROM;
   const from = smtp?.fromName
-    ? `"${smtp.fromName}" <${smtp.fromEmail}>`
-    : smtp?.fromEmail || process.env.SMTP_FROM;
+    ? `"${smtp.fromName}" <${fromEmail}>`
+    : fromEmail;
 
   if (!host || !user || !pass || !from) {
     return bad("Email not configured. Go to Settings → Email to set up SMTP credentials.", 500);
@@ -99,7 +100,8 @@ export async function POST(req: Request) {
       from,
       to: data.to,
       cc: data.cc || undefined,
-      replyTo: data.replyTo || (smtp?.fromEmail || process.env.SMTP_FROM),
+      bcc: fromEmail || undefined, // BCC-to-self so every sent email lands in inbox
+      replyTo: data.replyTo || fromEmail,
       subject: data.subject,
       text: data.body,
       html: data.body.replace(/\n/g, "<br>"),
