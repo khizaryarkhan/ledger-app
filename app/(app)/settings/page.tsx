@@ -4,13 +4,13 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
-import { User, Database, RefreshCw, Link2, Unlink, Check, AlertTriangle, Loader, Mail, Clock, CheckCircle, XCircle } from "lucide-react";
+import { User, Database, RefreshCw, Link2, Unlink, Check, AlertTriangle, Loader, Mail, Clock, CheckCircle, XCircle, Users, MapPin, Plus, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { fmt } from "@/lib/format";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
-  const { refresh, toast, customers, invoices } = useData();
+  const { refresh, toast, customers, invoices, reps, regions, orgSettings, addRep, deleteRep, addRegion, deleteRegion, updateOrgSettings } = useData() as any;
   const searchParams = useSearchParams();
 
   const [seeding, setSeeding] = useState(false);
@@ -26,7 +26,13 @@ export default function SettingsPage() {
   const [savingSmtp, setSavingSmtp] = useState(false);
   const [smtpForm, setSmtpForm] = useState({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "" });
 
-  const isAdmin = (session?.user as any)?.role === "Admin";
+  const role = (session?.user as any)?.role;
+  const isAdmin = role === "company_admin" || role === "super_admin";
+  const [newRepName, setNewRepName] = useState("");
+  const [newRepEmail, setNewRepEmail] = useState("");
+  const [addingRep, setAddingRep] = useState(false);
+  const [newRegionName, setNewRegionName] = useState("");
+  const [addingRegion, setAddingRegion] = useState(false);
   const userName = session?.user?.name || "";
   const userEmail = session?.user?.email || "";
   const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
@@ -303,6 +309,100 @@ export default function SettingsPage() {
             <Button icon={Link2} onClick={() => window.location.href = "/api/qbo"}>Connect QuickBooks Online</Button>
           </div>
         )}
+      </Card>
+
+      {/* Reps & Regions */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Users size={16} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Reps &amp; Regions</h3>
+        </div>
+
+        {/* Classification level */}
+        <div className="mb-5">
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Classification level</div>
+          <div className="flex gap-2">
+            {(["customer", "project"] as const).map(level => (
+              <button key={level} onClick={() => isAdmin && updateOrgSettings({ classificationLevel: level })}
+                className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${orgSettings?.classificationLevel === level ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"}`}>
+                By {level === "customer" ? "Customer" : "Project / Sub-customer"}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-stone-500 mt-2">
+            {orgSettings?.classificationLevel === "customer"
+              ? "Rep and Region are assigned at the Customer level. All invoices for a customer belong to the assigned rep."
+              : "Rep and Region are assigned at the Project (sub-customer) level. Useful when one customer has multiple reps per project."}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-6">
+          {/* Reps */}
+          <div>
+            <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Reps ({reps?.length ?? 0})</div>
+            <div className="space-y-1 mb-3 max-h-48 overflow-y-auto">
+              {(reps ?? []).length === 0 && <div className="text-sm text-stone-400 py-2">No reps defined yet.</div>}
+              {(reps ?? []).map((r: any) => (
+                <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded-md bg-stone-50 ring-1 ring-stone-100">
+                  <div>
+                    <div className="text-sm font-medium text-stone-800">{r.name}</div>
+                    {r.email && <div className="text-[11px] text-stone-500">{r.email}</div>}
+                  </div>
+                  {isAdmin && (
+                    <button onClick={() => deleteRep(r.id)} className="p-1 text-stone-400 hover:text-rose-600 rounded">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {isAdmin && (
+              <div className="space-y-1.5">
+                <input value={newRepName} onChange={e => setNewRepName(e.target.value)} placeholder="Rep name *"
+                  className="w-full h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                <input value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)} placeholder="Email (optional)"
+                  className="w-full h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                <Button size="sm" icon={Plus} disabled={addingRep || !newRepName.trim()} onClick={async () => {
+                  setAddingRep(true);
+                  try { await addRep({ name: newRepName.trim(), email: newRepEmail.trim() || undefined }); setNewRepName(""); setNewRepEmail(""); }
+                  finally { setAddingRep(false); }
+                }}>Add rep</Button>
+              </div>
+            )}
+          </div>
+
+          {/* Regions */}
+          <div>
+            <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Regions ({regions?.length ?? 0})</div>
+            <div className="space-y-1 mb-3 max-h-48 overflow-y-auto">
+              {(regions ?? []).length === 0 && <div className="text-sm text-stone-400 py-2">No regions defined yet.</div>}
+              {(regions ?? []).map((r: any) => (
+                <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded-md bg-stone-50 ring-1 ring-stone-100">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={13} className="text-stone-400" />
+                    <span className="text-sm font-medium text-stone-800">{r.name}</span>
+                  </div>
+                  {isAdmin && (
+                    <button onClick={() => deleteRegion(r.id)} className="p-1 text-stone-400 hover:text-rose-600 rounded">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {isAdmin && (
+              <div className="space-y-1.5">
+                <input value={newRegionName} onChange={e => setNewRegionName(e.target.value)} placeholder="Region name *"
+                  className="w-full h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                <Button size="sm" icon={Plus} disabled={addingRegion || !newRegionName.trim()} onClick={async () => {
+                  setAddingRegion(true);
+                  try { await addRegion({ name: newRegionName.trim() }); setNewRegionName(""); }
+                  finally { setAddingRegion(false); }
+                }}>Add region</Button>
+              </div>
+            )}
+          </div>
+        </div>
       </Card>
 
       {/* Per-org SMTP Settings */}

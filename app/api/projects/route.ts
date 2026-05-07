@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { projects } from "@/db/schema";
+import { projects, organisations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
@@ -10,17 +10,30 @@ const Schema = z.object({
   code: z.string().min(1).max(64),
   ownerId: z.string().uuid().nullable().optional(),
   status: z.enum(["Pending", "Active", "In Progress", "Completed", "On Hold", "Cancelled"]).default("Active"),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  projectedEndDate: z.string().optional(),
 });
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
+
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
-  if (customerId) return ok(await db.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.customerId, customerId))));
+  const repId = (session!.user as any).repId as string | null;
+
+  // company_user scoped to their projects
+  if (role === "company_user" && repId) {
+    const [org] = await db.select({ level: organisations.classificationLevel })
+      .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
+    const level = org?.level ?? "customer";
+    const filter = level === "project"
+      ? and(eq(projects.orgId, orgId!), eq(projects.repId, repId), customerId ? eq(projects.customerId, customerId) : undefined)
+      : and(eq(projects.orgId, orgId!), customerId ? eq(projects.customerId, customerId) : undefined);
+    return ok(await db.select().from(projects).where(filter));
+  }
+
+  if (customerId) {
+    return ok(await db.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.customerId, customerId))));
+  }
   return ok(await db.select().from(projects).where(eq(projects.orgId, orgId!)));
 }
 
@@ -30,7 +43,6 @@ export async function POST(req: Request) {
   try {
     const data = Schema.parse(await req.json());
     const [created] = await db.insert(projects).values({
-      orgId: orgId!,
       orgId: orgId!,
       customerId: data.customerId,
       name: data.name,

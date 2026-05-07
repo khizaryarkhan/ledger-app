@@ -10,6 +10,9 @@ type DataContextType = {
   invoices: any[];
   communications: any[];
   tasks: any[];
+  reps: any[];
+  regions: any[];
+  orgSettings: { classificationLevel: "customer" | "project" };
   refresh: () => Promise<void>;
   toast: (message: string, type?: string) => void;
   toastState: any;
@@ -30,6 +33,13 @@ type DataContextType = {
   bulkDeleteInvoices: (ids: string[]) => Promise<any>;
   bulkDeleteCustomers: (ids: string[]) => Promise<any>;
   bulkDeleteProjects: (ids: string[]) => Promise<any>;
+  reclassifyCustomers: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
+  reclassifyProjects: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
+  addRep: (data: { name: string; email?: string }) => Promise<any>;
+  deleteRep: (id: string) => Promise<void>;
+  addRegion: (data: { name: string }) => Promise<any>;
+  deleteRegion: (id: string) => Promise<void>;
+  updateOrgSettings: (s: { classificationLevel: "customer" | "project" }) => Promise<void>;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -54,19 +64,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [communications, setCommunications] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [reps, setReps] = useState<any[]>([]);
+  const [regions, setRegions] = useState<any[]>([]);
+  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project" }>({ classificationLevel: "customer" });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, ct, p, i, comm, t] = await Promise.all([
+      const [c, ct, p, i, comm, t, r, reg, settings] = await Promise.all([
         fetchJSON("/api/customers"),
         fetchJSON("/api/contacts"),
         fetchJSON("/api/projects"),
         fetchJSON("/api/invoices"),
         fetchJSON("/api/communications"),
         fetchJSON("/api/tasks"),
+        fetchJSON("/api/reps"),
+        fetchJSON("/api/regions"),
+        fetchJSON("/api/org/settings"),
       ]);
       setCustomers(c); setContacts(ct); setProjects(p); setInvoices(i); setCommunications(comm); setTasks(t);
+      setReps(r); setRegions(reg); setOrgSettings(settings);
     } catch (e: any) {
       console.error("Refresh failed:", e);
     } finally {
@@ -194,12 +211,57 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast(`${ids.length} project${ids.length > 1 ? "s" : ""} deleted`);
   };
 
+  const reclassifyCustomers = async (ids: string[], repId?: string | null, regionId?: string | null) => {
+    await postJSON("/api/customers/reclassify", { ids, repId, regionId });
+    setCustomers(prev => prev.map(c => ids.includes(c.id) ? { ...c, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}) } : c));
+    toast(`${ids.length} customer${ids.length > 1 ? "s" : ""} reclassified`);
+  };
+
+  const reclassifyProjects = async (ids: string[], repId?: string | null, regionId?: string | null) => {
+    await postJSON("/api/projects/reclassify", { ids, repId, regionId });
+    setProjects(prev => prev.map(p => ids.includes(p.id) ? { ...p, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}) } : p));
+    toast(`${ids.length} project${ids.length > 1 ? "s" : ""} reclassified`);
+  };
+
+  const addRep = async (data: { name: string; email?: string }) => {
+    const rep = await postJSON("/api/reps", data);
+    setReps(prev => [...prev, rep]);
+    toast("Rep added");
+    return rep;
+  };
+
+  const deleteRep = async (id: string) => {
+    await fetchJSON("/api/reps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setReps(prev => prev.filter(r => r.id !== id));
+    toast("Rep removed");
+  };
+
+  const addRegion = async (data: { name: string }) => {
+    const region = await postJSON("/api/regions", data);
+    setRegions(prev => [...prev, region]);
+    toast("Region added");
+    return region;
+  };
+
+  const deleteRegion = async (id: string) => {
+    await fetchJSON("/api/regions", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setRegions(prev => prev.filter(r => r.id !== id));
+    toast("Region removed");
+  };
+
+  const updateOrgSettings = async (s: { classificationLevel: "customer" | "project" }) => {
+    await fetchJSON("/api/org/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
+    setOrgSettings(s);
+    toast("Settings saved");
+  };
+
   return (
     <DataContext.Provider value={{
-      loaded, customers, contacts, projects, invoices, communications, tasks,
+      loaded, customers, contacts, projects, invoices, communications, tasks, reps, regions, orgSettings,
       refresh, toast, toastState, clearToast,
       updateInvoice, recordPayment, addContact, addNote, sendEmail, addTask, toggleTask, importInvoices,
       addCustomer, updateCustomer, addProject, updateProject, addInvoice, bulkDeleteInvoices, bulkDeleteCustomers, bulkDeleteProjects,
+      reclassifyCustomers, reclassifyProjects, addRep, deleteRep, addRegion, deleteRegion, updateOrgSettings,
     }}>
       {children}
     </DataContext.Provider>

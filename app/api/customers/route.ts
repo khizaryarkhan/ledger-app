@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { customers } from "@/db/schema";
+import { customers, projects, organisations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and, inArray } from "drizzle-orm";
 
 const Schema = z.object({
   name: z.string().min(1).max(255),
@@ -27,8 +27,35 @@ const Schema = z.object({
 });
 
 export async function GET() {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session, role } = await requireOrg();
   if (error) return error;
+
+  const repId = (session!.user as any).repId as string | null;
+
+  // company_user with a rep assignment — scope to their customers only
+  if (role === "company_user" && repId) {
+    const [org] = await db.select({ level: organisations.classificationLevel })
+      .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
+    const level = org?.level ?? "customer";
+
+    if (level === "customer") {
+      const rows = await db.select().from(customers)
+        .where(and(eq(customers.orgId, orgId!), eq(customers.repId, repId)))
+        .orderBy(desc(customers.createdAt));
+      return ok(rows);
+    } else {
+      // project-level: return customers that have at least one project for this rep
+      const repProjects = await db.select({ customerId: projects.customerId })
+        .from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.repId, repId)));
+      const custIds = [...new Set(repProjects.map(p => p.customerId))];
+      if (custIds.length === 0) return ok([]);
+      const rows = await db.select().from(customers)
+        .where(and(eq(customers.orgId, orgId!), inArray(customers.id, custIds)))
+        .orderBy(desc(customers.createdAt));
+      return ok(rows);
+    }
+  }
+
   const rows = await db.select().from(customers).where(eq(customers.orgId, orgId!)).orderBy(desc(customers.createdAt));
   return ok(rows);
 }
@@ -40,10 +67,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = Schema.parse(body);
     const [existing] = await db.select().from(customers).where(eq(customers.code, data.code)).limit(1);
-    // TODO: also check org scope for code uniqueness
     if (existing) return bad(`Customer code "${data.code}" already exists`, 409);
     const [created] = await db.insert(customers).values({
-      orgId: orgId!,
       orgId: orgId!,
       name: data.name,
       code: data.code,

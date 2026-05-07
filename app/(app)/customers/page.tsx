@@ -6,19 +6,80 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
 import { CustomerModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Search, Users, Plus, Trash2, X } from "lucide-react";
-import { getRegionId } from "@/lib/regions";
+import { Search, Users, Plus, Trash2, X, RefreshCw } from "lucide-react";
+
+function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
+  const { reps, regions, orgSettings, reclassifyCustomers, reclassifyProjects } = useData() as any;
+  const [repId, setRepId] = useState("");
+  const [regionId, setRegionId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleApply = async () => {
+    if (!repId && !regionId) return;
+    setSaving(true);
+    try {
+      const patch: any = {};
+      if (repId !== "") patch.repId = repId || null;
+      if (regionId !== "") patch.regionId = regionId || null;
+      if (orgSettings.classificationLevel === "project") {
+        await reclassifyProjects(ids, patch.repId, patch.regionId);
+      } else {
+        await reclassifyCustomers(ids, patch.repId, patch.regionId);
+      }
+      onClose();
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-base font-semibold text-stone-900 mb-1">Reclassify customers</h2>
+        <p className="text-sm text-stone-500 mb-4">Make changes to all <strong>{ids.length}</strong> selected customer{ids.length > 1 ? "s" : ""}.</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Rep to</label>
+            <select value={repId} onChange={e => setRepId(e.target.value)}
+              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
+              <option value="">— No change —</option>
+              <option value="null">Unassign rep</option>
+              {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Region to</label>
+            <select value={regionId} onChange={e => setRegionId(e.target.value)}
+              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
+              <option value="">— No change —</option>
+              <option value="null">Unassign region</option>
+              {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleApply} disabled={saving || (!repId && !regionId)}>
+            {saving ? "Applying…" : "Apply"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function CustomersPage() {
-  const { customers, invoices, bulkDeleteCustomers } = useData() as any;
+  const { customers, invoices, reps, regions, bulkDeleteCustomers } = useData() as any;
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [repFilter, setRepFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showReclassify, setShowReclassify] = useState(false);
 
   const enriched = useMemo(() => {
     return customers.map((c: any) => {
@@ -26,9 +87,11 @@ export default function CustomersPage() {
       const open = custInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-      return { ...c, outstanding, overdue, openCount: open.length };
+      const rep = reps.find((r: any) => r.id === c.repId);
+      const region = regions.find((r: any) => r.id === c.regionId);
+      return { ...c, outstanding, overdue, openCount: open.length, repName: rep?.name, regionName: region?.name };
     });
-  }, [customers, invoices]);
+  }, [customers, invoices, reps, regions]);
 
   const filtered = useMemo(() => {
     let res = enriched;
@@ -38,17 +101,10 @@ export default function CustomersPage() {
     }
     if (riskFilter) res = res.filter((c: any) => c.riskRating === riskFilter);
     if (statusFilter) res = res.filter((c: any) => c.status === statusFilter);
-    if (regionFilter) {
-      // Keep customers that have at least one project/invoice in this region
-      const { invoices: allInvoices, projects: allProjects } = { invoices: enriched, projects: [] };
-      res = res.filter((c: any) => {
-        // Check if customer code itself matches region
-        if (getRegionId(c.code) === regionFilter) return true;
-        return false;
-      });
-    }
+    if (repFilter) res = res.filter((c: any) => c.repId === repFilter);
+    if (regionFilter) res = res.filter((c: any) => c.regionId === regionFilter);
     return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
-  }, [enriched, search, riskFilter, statusFilter]);
+  }, [enriched, search, riskFilter, statusFilter, repFilter, regionFilter]);
 
   const toggleOne = (id: string) => setSelected(prev => {
     const next = new Set(prev);
@@ -68,6 +124,8 @@ export default function CustomersPage() {
     } finally { setDeleting(false); }
   };
 
+  const hasFilters = search || riskFilter || statusFilter || repFilter || regionFilter;
+
   return (
     <div className="p-6 max-w-[1500px] mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -83,6 +141,7 @@ export default function CustomersPage() {
           <span className="text-sm font-medium">{selected.size} selected</span>
           <div className="flex-1" />
           <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded"><X size={14} /></button>
+          <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => setShowReclassify(true)}>Reclassify</Button>
           {!confirmDelete ? (
             <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmDelete(true)}>Delete {selected.size}</Button>
           ) : (
@@ -99,8 +158,17 @@ export default function CustomersPage() {
         <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search by name, code or email..." icon={Search} className="w-72" />
         <Select value={riskFilter} onChange={(e: any) => setRiskFilter(e.target.value)} placeholder="All risk levels" options={["Low", "Medium", "High"]} />
         <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Active", "On Hold", "Inactive"]} />
-        <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)} className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white"><option value="">All regions</option><option value="dublin">Dublin</option><option value="cork">Cork</option><option value="galway">Galway</option><option value="limerick">Limerick</option><option value="london">London</option></select>
-        {(search || riskFilter || statusFilter || regionFilter) && <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter(""); setRegionFilter(""); }}>Clear</Button>}
+        <select value={repFilter} onChange={(e: any) => setRepFilter(e.target.value)}
+          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
+          <option value="">All reps</option>
+          {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
+          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
+          <option value="">All regions</option>
+          {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter(""); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>}
         {filtered.length > 0 && (
           <label className="flex items-center gap-2 text-sm text-stone-600 ml-2 cursor-pointer">
             <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300" />
@@ -132,7 +200,12 @@ export default function CustomersPage() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
                       <div className="text-[11px] text-stone-500 mt-0.5">{c.code} · {c.country || "—"}</div>
-                      {c.email && <div className="text-[11px] text-stone-400 truncate mt-0.5">{c.email}</div>}
+                      {(c.repName || c.regionName) && (
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {c.repName && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
+                          {c.regionName && <span className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-medium">{c.regionName}</span>}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1 items-end">
                       {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
@@ -162,6 +235,12 @@ export default function CustomersPage() {
       )}
 
       {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}
+      {showReclassify && (
+        <ReclassifyModal
+          ids={Array.from(selected)}
+          onClose={() => { setShowReclassify(false); setSelected(new Set()); }}
+        />
+      )}
     </div>
   );
 }

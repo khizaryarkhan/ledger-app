@@ -1,19 +1,46 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, primaryKey, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // =========================================================================
-// ORGANISATIONS — top-level tenant isolation
+// ORGANISATIONS
 // =========================================================================
 export const organisations = pgTable("organisations", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
+  classificationLevel: varchar("classification_level", { length: 32 }).notNull().default("customer"), // 'customer' | 'project'
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type Organisation = typeof organisations.$inferSelect;
 
+// =========================================================================
+// REPS — defined before users so users can FK to reps
+// =========================================================================
+export const reps = pgTable("reps", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type Rep = typeof reps.$inferSelect;
+
+// =========================================================================
+// REGIONS — defined before customers/projects
+// =========================================================================
+export const regions = pgTable("regions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type Region = typeof regions.$inferSelect;
+
+// =========================================================================
+// USERS
+// =========================================================================
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
@@ -21,6 +48,7 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 255 }).notNull(),
   role: varchar("role", { length: 32 }).notNull().default("company_user"),
   orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -50,7 +78,16 @@ export const customers = pgTable("customers", {
   creditLimit: real("credit_limit"),
   accountOwnerId: uuid("account_owner_id").references(() => users.id),
   collectionOwnerId: uuid("collection_owner_id").references(() => users.id),
+  repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
+  regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
   notes: text("notes"),
+  phone: varchar("phone", { length: 64 }),
+  email: varchar("email", { length: 255 }),
+  companyName: varchar("company_name", { length: 255 }),
+  addressStreet: varchar("address_street", { length: 255 }),
+  addressCity: varchar("address_city", { length: 128 }),
+  addressPostcode: varchar("address_postcode", { length: 32 }),
+  qboId: varchar("qbo_id", { length: 64 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -84,6 +121,8 @@ export const projects = pgTable("projects", {
   name: varchar("name", { length: 255 }).notNull(),
   code: varchar("code", { length: 64 }).notNull(),
   ownerId: uuid("owner_id").references(() => users.id),
+  repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
+  regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -114,12 +153,11 @@ export const invoices = pgTable("invoices", {
   disputeDate: varchar("dispute_date", { length: 16 }),
   promiseDate: varchar("promise_date", { length: 16 }),
   lastFollowupDate: varchar("last_followup_date", { length: 16 }),
-  // QBO reconciliation fields
-  qboId: varchar("qbo_id", { length: 64 }),           // QBO internal ID
-  qboBalance: real("qbo_balance"),                      // Balance as reported by QBO
-  qboCustomerId: varchar("qbo_customer_id", { length: 64 }), // QBO customer ID (sub-customer)
-  qboSyncedAt: timestamp("qbo_synced_at"),              // Last time this was synced from QBO
-  txnType: varchar("txn_type", { length: 32 }).default("Invoice"), // Invoice | CreditMemo | JournalEntry
+  qboId: varchar("qbo_id", { length: 64 }),
+  qboBalance: real("qbo_balance"),
+  qboCustomerId: varchar("qbo_customer_id", { length: 64 }),
+  qboSyncedAt: timestamp("qbo_synced_at"),
+  txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -176,7 +214,7 @@ export const emailTemplates = pgTable("email_templates", {
 });
 
 // =========================================================================
-// REMINDER SCHEDULES — set by automations, processed by cron
+// REMINDER SCHEDULES
 // =========================================================================
 export const reminderSchedules = pgTable("reminder_schedules", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -188,15 +226,14 @@ export const reminderSchedules = pgTable("reminder_schedules", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-
 // =========================================================================
-// QBO SYNC LOG — audit trail for every sync
+// QBO SYNC LOG
 // =========================================================================
 export const qboSyncLog = pgTable("qbo_sync_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   syncedAt: timestamp("synced_at").notNull().defaultNow(),
-  status: varchar("status", { length: 16 }).notNull().default("success"), // success | error
+  status: varchar("status", { length: 16 }).notNull().default("success"),
   qboTotalAR: real("qbo_total_ar"),
   ledgerTotalAR: real("ledger_total_ar"),
   difference: real("difference"),
@@ -209,11 +246,59 @@ export const qboSyncLog = pgTable("qbo_sync_log", {
   durationMs: integer("duration_ms"),
   orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
 });
-
 export type QboSyncLog = typeof qboSyncLog.$inferSelect;
 
 // =========================================================================
-// RELATIONS — for joins
+// ORG SMTP SETTINGS
+// =========================================================================
+export const orgSmtpSettings = pgTable("org_smtp_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orgId: uuid("org_id").notNull().unique().references(() => organisations.id, { onDelete: "cascade" }),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: integer("port").notNull().default(2525),
+  user: varchar("user", { length: 255 }).notNull(),
+  pass: text("pass").notNull(),
+  fromEmail: varchar("from_email", { length: 255 }).notNull(),
+  fromName: varchar("from_name", { length: 255 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// =========================================================================
+// QBO TOKENS
+// =========================================================================
+export const qboTokens = pgTable("qbo_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  realmId: varchar("realm_id", { length: 64 }).notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
+  companyName: varchar("company_name", { length: 255 }),
+  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type QboToken = typeof qboTokens.$inferSelect;
+
+// =========================================================================
+// GMAIL TOKENS
+// =========================================================================
+export const gmailTokens = pgTable("gmail_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type GmailToken = typeof gmailTokens.$inferSelect;
+
+// =========================================================================
+// RELATIONS
 // =========================================================================
 export const customersRelations = relations(customers, ({ many, one }) => ({
   contacts: many(contacts),
@@ -222,6 +307,8 @@ export const customersRelations = relations(customers, ({ many, one }) => ({
   communications: many(communications),
   accountOwner: one(users, { fields: [customers.accountOwnerId], references: [users.id], relationName: "accountOwner" }),
   collectionOwner: one(users, { fields: [customers.collectionOwnerId], references: [users.id], relationName: "collectionOwner" }),
+  rep: one(reps, { fields: [customers.repId], references: [reps.id] }),
+  region: one(regions, { fields: [customers.regionId], references: [regions.id] }),
 }));
 
 export const contactsRelations = relations(contacts, ({ one }) => ({
@@ -232,6 +319,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   customer: one(customers, { fields: [projects.customerId], references: [customers.id] }),
   owner: one(users, { fields: [projects.ownerId], references: [users.id] }),
   invoices: many(invoices),
+  rep: one(reps, { fields: [projects.repId], references: [reps.id] }),
+  region: one(regions, { fields: [projects.regionId], references: [regions.id] }),
 }));
 
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
@@ -264,54 +353,3 @@ export type Invoice = typeof invoices.$inferSelect;
 export type Communication = typeof communications.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
-
-// =========================================================================
-// ORG SMTP SETTINGS — per-org email configuration
-// =========================================================================
-export const orgSmtpSettings = pgTable("org_smtp_settings", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  orgId: uuid("org_id").notNull().unique().references(() => organisations.id, { onDelete: "cascade" }),
-  host: varchar("host", { length: 255 }).notNull(),
-  port: integer("port").notNull().default(2525),
-  user: varchar("user", { length: 255 }).notNull(),
-  pass: text("pass").notNull(),
-  fromEmail: varchar("from_email", { length: 255 }).notNull(),
-  fromName: varchar("from_name", { length: 255 }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-// =========================================================================
-// QBO INTEGRATION — stores OAuth tokens per user
-// =========================================================================
-export const qboTokens = pgTable("qbo_tokens", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  realmId: varchar("realm_id", { length: 64 }).notNull(),
-  accessToken: text("access_token").notNull(),
-  refreshToken: text("refresh_token").notNull(),
-  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
-  companyName: varchar("company_name", { length: 255 }),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export type QboToken = typeof qboTokens.$inferSelect;
-
-// =========================================================================
-// GMAIL INTEGRATION
-// =========================================================================
-export const gmailTokens = pgTable("gmail_tokens", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  email: varchar("email", { length: 255 }).notNull(),
-  accessToken: text("access_token").notNull(),
-  refreshToken: text("refresh_token").notNull(),
-  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export type GmailToken = typeof gmailTokens.$inferSelect;
