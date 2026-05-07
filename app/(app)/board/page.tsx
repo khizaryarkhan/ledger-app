@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Users, Briefcase, ChevronRight } from "lucide-react";
-import { getInvoiceRegionIdFromProjects, getProjectRegionId, REGIONS } from "@/lib/regions";
 
 const STAGES = ["New", "Reminder Scheduled", "Reminder Sent", "Awaiting Reply", "Promise to Pay", "Disputed", "Escalated", "On Hold", "Closed"];
 
@@ -117,7 +116,7 @@ function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, set
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, updateInvoice } = useData();
+  const { invoices, customers, projects, regions, updateInvoice } = useData() as any;
   const [groupBy, setGroupBy] = useState<"customer" | "project">("customer");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
@@ -139,8 +138,10 @@ export default function BoardPage() {
       // Region filter — scope invoices to only those in the selected region
       if (regionFilter) {
         entityInvoices = entityInvoices.filter((i: any) => {
+          const cust = customers.find((c: any) => c.id === i.customerId);
+          if (cust?.regionId === regionFilter) return true;
           const proj = projects.find((p: any) => p.id === i.projectId);
-          return proj ? getProjectRegionId(proj) === regionFilter : false;
+          return proj?.regionId === regionFilter;
         });
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
@@ -210,7 +211,7 @@ export default function BoardPage() {
           <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none">
             <option value="">All regions</option>
-            {REGIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           {/* Stage filter */}
           <select value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}

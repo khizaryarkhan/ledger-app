@@ -6,7 +6,6 @@ import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { getInvoiceRegionId, getRegionId, getRegion, getProjectRegion, getProjectRegionId, REGIONS } from "@/lib/regions";
 
 const BUCKETS = ["Current", "1-30", "31-60", "61-90", "90+"];
 const BUCKET_LABELS: Record<string, string> = {
@@ -73,13 +72,14 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
       if ((inv.total - (inv.paid || 0)) <= 0) continue;
 
       // Region filter: check project code OR name (QBO projects have code=QBO-PROJ-xxx, name=D25010-...)
-      if (regionFilter) {
-        const proj = projects.find((p: any) => p.id === inv.projectId);
-        if (getProjectRegionId(proj) !== regionFilter) continue;
-      }
-
       const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!cust) continue;
+
+      if (regionFilter) {
+        const proj = projects.find((p: any) => p.id === inv.projectId);
+        const inRegion = cust.regionId === regionFilter || proj?.regionId === regionFilter;
+        if (!inRegion) continue;
+      }
 
       if (!custMap[cust.id]) {
         custMap[cust.id] = { customer: cust, projects: {}, directInvoices: [], totals: emptyBuckets() };
@@ -241,7 +241,8 @@ function AgingByProject({ invoices, customers, projects, regionFilter }: any) {
 
       // Region filter: check project code OR name
       if (regionFilter) {
-        if (getProjectRegionId(proj) !== regionFilter) continue;
+        const cust2 = customers.find((c: any) => c.id === inv.customerId);
+        if (cust2?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
       }
       const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!proj) continue;
@@ -379,7 +380,9 @@ function RegionalReport({ invoices, customers, projects }: any) {
       if (out <= 0) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
-      const regionLabel = proj ? getProjectRegion(proj) : "Other";
+      const cust3 = customers.find((c: any) => c.id === inv.customerId);
+      const regionId = cust3?.regionId || proj?.regionId || null;
+      const regionLabel = (regions ?? []).find((r: any) => r.id === regionId)?.name || "Other";
 
       if (!regionMap[regionLabel]) {
         regionMap[regionLabel] = { region: regionLabel, invoices: [], buckets: emptyBuckets(), customers: new Set(), overdueCount: 0 };
@@ -523,7 +526,7 @@ const AGING_COLORS_REG = [
 // MAIN PAGE
 // ============================================================
 export default function ReportsPage() {
-  const { invoices, customers, projects, communications } = useData();
+  const { invoices, customers, projects, regions, communications } = useData() as any;
   const [report, setReport] = useState<"aging-customer" | "aging-project" | "regional" | "activity">("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
 
@@ -546,7 +549,7 @@ export default function ReportsPage() {
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px"}}>
             <option value="">All regions</option>
-            {REGIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           <div className="text-xs text-stone-500">As of {new Date().toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}</div>
         </div>

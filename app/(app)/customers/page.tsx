@@ -9,7 +9,7 @@ import { fmt, daysOverdue } from "@/lib/format";
 import { Search, Users, Plus, Trash2, X, RefreshCw } from "lucide-react";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { reps, regions, orgSettings, reclassifyCustomers, reclassifyProjects } = useData() as any;
+  const { reps, regions, reclassifyCustomers } = useData() as any;
   const [repId, setRepId] = useState("");
   const [regionId, setRegionId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -18,14 +18,9 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
     if (!repId && !regionId) return;
     setSaving(true);
     try {
-      const patch: any = {};
-      if (repId !== "") patch.repId = repId || null;
-      if (regionId !== "") patch.regionId = regionId || null;
-      if (orgSettings.classificationLevel === "project") {
-        await reclassifyProjects(ids, patch.repId, patch.regionId);
-      } else {
-        await reclassifyCustomers(ids, patch.repId, patch.regionId);
-      }
+      const repVal = repId === "null" ? null : repId || undefined;
+      const regVal = regionId === "null" ? null : regionId || undefined;
+      await reclassifyCustomers(ids, repVal, regVal);
       onClose();
     } finally { setSaving(false); }
   };

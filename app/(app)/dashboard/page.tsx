@@ -7,17 +7,20 @@ import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle } from "lucide-react";
-import { getInvoiceRegionIdFromProjects, REGIONS } from "@/lib/regions";
-
 export default function DashboardPage() {
-  const { invoices, customers, projects, communications, tasks } = useData();
+  const { invoices, customers, projects, regions, communications, tasks } = useData() as any;
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
   const [regionFilter, setRegionFilter] = useState("");
 
   const stats = useMemo(() => {
     const regionInvoices = regionFilter
-      ? invoices.filter(i => getInvoiceRegionIdFromProjects(i, projects) === regionFilter)
+      ? invoices.filter((i: any) => {
+          const c = customers.find((c: any) => c.id === i.customerId);
+          if (c?.regionId === regionFilter) return true;
+          const p = projects.find((p: any) => p.id === i.projectId);
+          return p?.regionId === regionFilter;
+        })
       : invoices;
     const open = regionInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
     const totalReceivable = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
@@ -73,7 +76,7 @@ export default function DashboardPage() {
             className="h-8 px-3 pr-8 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px"}}>
             <option value="">All regions</option>
-            {REGIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
         </div>

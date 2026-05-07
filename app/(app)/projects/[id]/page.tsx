@@ -7,12 +7,10 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, FileText, Mail, Download, Loader } from "lucide-react";
-import { getProjectRegion } from "@/lib/regions";
-
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { projects, customers, invoices, contacts, updateInvoice } = useData();
+  const { projects, customers, invoices, contacts, regions, updateInvoice } = useData() as any;
   const [tab, setTab] = useState<"invoices" | "compose">("invoices");
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set());
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -45,7 +43,7 @@ export default function ProjectDetailPage() {
   const open = projInvoices.filter(i => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
   const outstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const region = getProjectRegion(project);
+  const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;
 
   const toggleInv = (invId: string) => setSelectedInvIds(prev => {
     const n = new Set(prev);

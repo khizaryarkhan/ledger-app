@@ -6,7 +6,6 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, EmptyState, stageBadge } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
 import { Filter, ChevronRight } from "lucide-react";
-import { getInvoiceRegionIdFromProjects, REGIONS } from "@/lib/regions";
 
 const VIEWS = [
   // IMMEDIATE ACTION
@@ -27,14 +26,19 @@ const VIEWS = [
 ];
 
 export default function SmartViewsPage() {
-  const { invoices, customers, projects } = useData();
+  const { invoices, customers, projects, regions } = useData() as any;
   const [selected, setSelected] = useState(VIEWS[0].id);
   const [regionFilter, setRegionFilter] = useState("");
   const view = VIEWS.find(v => v.id === selected)!;
 
   const results = useMemo(() => {
     let res = invoices.filter(view.filter);
-    if (regionFilter) res = res.filter((i: any) => getInvoiceRegionIdFromProjects(i, projects) === regionFilter);
+    if (regionFilter) res = res.filter((i: any) => {
+      const c = customers.find((c: any) => c.id === i.customerId);
+      if (c?.regionId === regionFilter) return true;
+      const p = projects.find((p: any) => p.id === i.projectId);
+      return p?.regionId === regionFilter;
+    });
     return res;
   }, [invoices, view, regionFilter, projects]);
 

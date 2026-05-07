@@ -7,10 +7,8 @@ import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBa
 import { InvoiceModal } from "@/components/forms";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
 import { Search, Upload, Plus, FileText, Trash2, X, Download } from "lucide-react";
-import { getInvoiceRegionIdFromProjects } from "@/lib/regions";
-
 export default function InvoicesPage() {
-  const { invoices, customers, projects, bulkDeleteInvoices } = useData() as any;
+  const { invoices, customers, projects, regions, bulkDeleteInvoices } = useData() as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
@@ -58,7 +56,12 @@ export default function InvoicesPage() {
     if (statusFilter) res = res.filter((i: any) => i.dueStatus === statusFilter);
     if (stageFilter) res = res.filter((i: any) => i.collectionStage === stageFilter);
     if (customerFilter) res = res.filter((i: any) => i.customerId === customerFilter);
-    if (regionFilter) res = res.filter((i: any) => getInvoiceRegionIdFromProjects(i, projects) === regionFilter);
+    if (regionFilter) res = res.filter((i: any) => {
+      const cust = customers.find((c: any) => c.id === i.customerId);
+      if (cust?.regionId === regionFilter) return true;
+      const proj = projects.find((p: any) => p.id === i.projectId);
+      return proj?.regionId === regionFilter;
+    });
     res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
   }, [invoices, customers, projects, search, statusFilter, stageFilter, customerFilter]);
@@ -137,7 +140,10 @@ export default function InvoicesPage() {
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
           <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages" options={["New", "Reminder Scheduled", "Reminder Sent", "Awaiting Reply", "Promise to Pay", "Disputed", "Escalated", "On Hold", "Closed"]} />
           <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
-          <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)} className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white"><option value="">All regions</option><option value="dublin">Dublin</option><option value="cork">Cork</option><option value="galway">Galway</option><option value="limerick">Limerick</option><option value="london">London</option></select>
+          <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)} className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white">
+  <option value="">All regions</option>
+  {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+</select>
           {(search || statusFilter || stageFilter || customerFilter || regionFilter) && (
             <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); }}>Clear</Button>
           )}
