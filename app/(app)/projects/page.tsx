@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
@@ -63,6 +63,33 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
   );
 }
 
+const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusColor }: { p: any; isSelected: boolean; onToggle: (id: string) => void; statusColor: (s: string) => string }) {
+  return (
+    <tr className={`border-b border-stone-100 hover:bg-stone-50 ${isSelected ? "bg-blue-50/50" : ""}`}>
+      <td className="px-4 py-3 w-10">
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(p.id)} className="rounded border-stone-300 cursor-pointer" />
+      </td>
+      <td className="px-4 py-3">
+        <div className="font-medium text-stone-900">{p.name}</div>
+        <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+      </td>
+      <td className="px-4 py-3">
+        {p.customer && <Link href={`/customers/${p.customer.id}`} className="text-stone-700 hover:text-stone-900 hover:underline">{p.customer.name}</Link>}
+      </td>
+      <td className="px-4 py-3">
+        {p.repName ? <span className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">{p.repName}</span> : <span className="text-stone-400 text-[11px]">—</span>}
+      </td>
+      <td className="px-4 py-3">
+        {p.regionName ? <span className="text-[11px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{p.regionName}</span> : <span className="text-stone-400 text-[11px]">—</span>}
+      </td>
+      <td className="px-4 py-3"><Badge variant={statusColor(p.status) as any} size="sm">{p.status}</Badge></td>
+      <td className="px-4 py-3 text-right tabular-nums">{p.openCount}</td>
+      <td className="px-4 py-3 text-right font-semibold tabular-nums">{fmt.money(p.outstanding, p.customer?.currency)}</td>
+      <td className={`px-4 py-3 text-right font-semibold tabular-nums ${p.overdue > 0 ? "text-rose-600" : "text-stone-500"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
+    </tr>
+  );
+});
+
 export default function ProjectsPage() {
   const { projects, customers, invoices, reps, regions, bulkDeleteProjects } = useData() as any;
   const [showCreate, setShowCreate] = useState(false);
@@ -93,11 +120,11 @@ export default function ProjectsPage() {
 
   const allSelected = filtered.length > 0 && filtered.every((p: any) => selected.has(p.id));
   const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((p: any) => p.id)));
-  const toggleOne = (id: string) => setSelected(prev => {
+  const toggleOne = useCallback((id: string) => setSelected(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
-  });
+  }), []);
 
   const handleBulkDelete = async () => {
     setDeleting(true);
@@ -108,7 +135,7 @@ export default function ProjectsPage() {
     } finally { setDeleting(false); }
   };
 
-  const statusColor = (s: string) => ({ "Active": "blue", "In Progress": "purple", "Completed": "green", "Pending": "yellow", "On Hold": "orange", "Cancelled": "neutral" }[s] || "neutral");
+  const statusColor = useCallback((s: string) => ({ "Active": "blue", "In Progress": "purple", "Completed": "green", "Pending": "yellow", "On Hold": "orange", "Cancelled": "neutral" }[s] || "neutral"), []);
 
   return (
     <div className="p-6 max-w-[1300px] mx-auto">
@@ -181,28 +208,7 @@ export default function ProjectsPage() {
             </tr></thead>
             <tbody>
               {filtered.map((p: any) => (
-                <tr key={p.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selected.has(p.id) ? "bg-blue-50/50" : ""}`}>
-                  <td className="px-4 py-3 w-10">
-                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} className="rounded border-stone-300 cursor-pointer" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-stone-900">{p.name}</div>
-                    <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {p.customer && <Link href={`/customers/${p.customer.id}`} className="text-stone-700 hover:text-stone-900 hover:underline">{p.customer.name}</Link>}
-                  </td>
-                  <td className="px-4 py-3">
-                    {p.repName ? <span className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">{p.repName}</span> : <span className="text-stone-400 text-[11px]">—</span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    {p.regionName ? <span className="text-[11px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{p.regionName}</span> : <span className="text-stone-400 text-[11px]">—</span>}
-                  </td>
-                  <td className="px-4 py-3"><Badge variant={statusColor(p.status) as any} size="sm">{p.status}</Badge></td>
-                  <td className="px-4 py-3 text-right tabular-nums">{p.openCount}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{fmt.money(p.outstanding, p.customer?.currency)}</td>
-                  <td className={`px-4 py-3 text-right font-semibold tabular-nums ${p.overdue > 0 ? "text-rose-600" : "text-stone-500"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
-                </tr>
+                <ProjectRow key={p.id} p={p} isSelected={selected.has(p.id)} onToggle={toggleOne} statusColor={statusColor} />
               ))}
             </tbody>
           </table>

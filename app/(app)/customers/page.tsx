@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
@@ -63,6 +63,55 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
   );
 }
 
+const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c: any; isSelected: boolean; onToggle: (id: string) => void }) {
+  return (
+    <div className={`relative rounded-lg ring-1 transition-colors ${isSelected ? "ring-stone-900 ring-2" : "ring-stone-200 hover:ring-stone-300"}`}>
+      <div className="absolute top-3 left-3 z-10">
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(c.id)}
+          className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+      </div>
+      <Link href={`/customers/${c.id}`}>
+        <Card className="cursor-pointer h-full ring-0 hover:ring-0">
+          <div className="flex items-start gap-3 mb-3 pl-5">
+            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center text-stone-700 text-sm font-semibold flex-shrink-0">
+              {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">{c.code} · {c.country || "—"}</div>
+              {(c.repName || c.regionName) && (
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {c.repName && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
+                  {c.regionName && <span className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-medium">{c.regionName}</span>}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-1 items-end">
+              {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
+              {c.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
+              {c.status !== "Active" && <Badge variant="orange" size="sm">{c.status}</Badge>}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-100">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
+              <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{fmt.money(c.outstanding, c.currency)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
+              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(c.overdue, c.currency)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open inv.</div>
+              <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{c.openCount}</div>
+            </div>
+          </div>
+        </Card>
+      </Link>
+    </div>
+  );
+});
+
 export default function CustomersPage() {
   const { customers, invoices, reps, regions, bulkDeleteCustomers } = useData() as any;
   const [search, setSearch] = useState("");
@@ -101,11 +150,11 @@ export default function CustomersPage() {
     return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
   }, [enriched, search, riskFilter, statusFilter, repFilter, regionFilter]);
 
-  const toggleOne = (id: string) => setSelected(prev => {
+  const toggleOne = useCallback((id: string) => setSelected(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
-  });
+  }), []);
 
   const allSelected = filtered.length > 0 && filtered.every((c: any) => selected.has(c.id));
   const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((c: any) => c.id)));
@@ -183,50 +232,7 @@ export default function CustomersPage() {
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {filtered.map((c: any) => (
-            <div key={c.id} className={`relative rounded-lg ring-1 transition-all ${selected.has(c.id) ? "ring-stone-900 ring-2" : "ring-stone-200 hover:ring-stone-300"}`}>
-              <div className="absolute top-3 left-3 z-10">
-                <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)}
-                  className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
-              </div>
-              <Link href={`/customers/${c.id}`}>
-                <Card className="cursor-pointer h-full ring-0 hover:ring-0">
-                  <div className="flex items-start gap-3 mb-3 pl-5">
-                    <div className="w-10 h-10 rounded-md bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center text-stone-700 text-sm font-semibold flex-shrink-0">
-                      {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5">{c.code} · {c.country || "—"}</div>
-                      {(c.repName || c.regionName) && (
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          {c.repName && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
-                          {c.regionName && <span className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-medium">{c.regionName}</span>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1 items-end">
-                      {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
-                      {c.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
-                      {c.status !== "Active" && <Badge variant="orange" size="sm">{c.status}</Badge>}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-100">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
-                      <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{fmt.money(c.outstanding, c.currency)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
-                      <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(c.overdue, c.currency)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open inv.</div>
-                      <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{c.openCount}</div>
-                    </div>
-                  </div>
-                </Card>
-              </Link>
-            </div>
+            <CustomerCard key={c.id} c={c} isSelected={selected.has(c.id)} onToggle={toggleOne} />
           ))}
         </div>
       )}
