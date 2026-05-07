@@ -5,8 +5,8 @@
  * We verify the HMAC-SHA256 signature, identify which org is affected,
  * and run a targeted sync (only fetching the specific changed invoices/payments).
  *
- * QBO requires a 200 response within 45 seconds. We respond immediately
- * and process the sync asynchronously.
+ * The sync runs synchronously before responding — targeted syncs are fast
+ * (2–5 seconds) and QBO allows up to 45 seconds before retrying.
  *
  * Setup (one-time, in Intuit Developer portal):
  *   1. Go to https://developer.intuit.com → your app → Webhooks
@@ -71,11 +71,11 @@ export async function POST(req: Request) {
     if (relevant.length > 0) workItems.push({ realmId, changes: relevant });
   }
 
-  // Fire background processing (don't await — must respond before 45s)
+  // Process synchronously — targeted sync is fast (2–5s), well within QBO's 45s limit.
+  // Fire-and-forget doesn't work on Vercel serverless: the function terminates
+  // the moment a response is returned, killing any pending async work.
   if (workItems.length > 0) {
-    processWebhookEvents(workItems).catch((err) =>
-      console.error("QBO webhook processing error:", err)
-    );
+    await processWebhookEvents(workItems);
   }
 
   return new Response("OK", { status: 200 });
