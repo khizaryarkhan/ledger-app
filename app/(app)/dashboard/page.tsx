@@ -42,7 +42,7 @@ export default function DashboardPage() {
     const netSales90d = regionInvoices
       .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo)
       .reduce((s, i) => s + ((i as any).amount || 0), 0);
-    const dso = netSales90d > 0 ? Math.round((totalAR / netSales90d) * 90) : 0;
+    const dso = netSales90d > 0 ? Math.round((totalReceivable / netSales90d) * 90) : 0;
 
     // Collection rate = invoices closed in last 30 days / total invoices
     const recentlyClosed = regionInvoices.filter(i => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
