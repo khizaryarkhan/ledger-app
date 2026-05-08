@@ -410,7 +410,7 @@ export default function SettingsPage() {
           {/* Reps */}
           <div>
             <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Reps ({reps?.length ?? 0})</div>
-            {(reps ?? []).length > 3 && (
+            {(reps ?? []).length > 0 && (
               <div className="relative mb-2">
                 <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
                 <input
