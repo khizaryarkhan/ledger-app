@@ -19,6 +19,7 @@ const PERIODS = [
   { id: "ytd",         label: "YTD"          },
   { id: "last-12m",    label: "Last 12M"     },
   { id: "all",         label: "All Time"     },
+  { id: "custom",      label: "Custom"       },
 ] as const;
 type PeriodId = typeof PERIODS[number]["id"];
 
@@ -52,10 +53,13 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date; priorFrom: Date; 
     from      = new Date(now.getFullYear() - 1, now.getMonth(), 1);
     priorFrom = new Date(now.getFullYear() - 2, now.getMonth(), 1);
     priorTo   = new Date(now.getFullYear() - 1, now.getMonth(), 0);
-  } else {
+  } else if (id === "all") {
     from      = new Date(2000, 0, 1);
     priorFrom = new Date(2000, 0, 1);
     priorTo   = new Date(2000, 0, 1);
+  } else {
+    // "custom" — caller handles dates directly; return sentinels
+    from = priorFrom = priorTo = new Date(2000, 0, 1);
   }
   return { from, to, priorFrom, priorTo };
 }
@@ -90,8 +94,25 @@ function MiniBar({ pct, color = "bg-stone-800" }: { pct: number; color?: string 
 function SalesReport({ invoices, customers, projects, regions, reps }: any) {
   const [period, setPeriod] = useState<PeriodId>("last-12m");
   const [breakdown, setBreakdown] = useState<"customer" | "rep" | "region">("customer");
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const [customFrom, setCustomFrom] = useState(firstOfMonth);
+  const [customTo,   setCustomTo]   = useState(todayStr);
 
-  const { from, to, priorFrom, priorTo } = useMemo(() => getPeriodRange(period), [period]);
+  const isCustom = period === "custom";
+
+  const { from, to, priorFrom, priorTo } = useMemo(() => {
+    if (isCustom) {
+      const f = new Date(customFrom + "T00:00:00");
+      const t = new Date(customTo   + "T23:59:59");
+      // Prior period: same length shifted back
+      const len = t.getTime() - f.getTime();
+      const pf  = new Date(f.getTime() - len - 86400000);
+      const pt  = new Date(f.getTime() - 86400000);
+      return { from: f, to: t, priorFrom: pf, priorTo: pt };
+    }
+    return getPeriodRange(period);
+  }, [period, customFrom, customTo, isCustom]);
 
   const salesInvoices = useMemo(() =>
     invoices.filter((i: any) => isSalesInvoice(i)),
@@ -107,7 +128,7 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
   );
 
   const priorInvoices = useMemo(() =>
-    period === "all" ? [] : salesInvoices.filter((i: any) => {
+    (period === "all") ? [] : salesInvoices.filter((i: any) => {
       const d = new Date(i.invoiceDate);
       return d >= priorFrom && d <= priorTo;
     }),
@@ -205,13 +226,27 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
         </div>
 
         {/* Period selector */}
-        <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
-          {PERIODS.map(p => (
-            <button key={p.id} onClick={() => setPeriod(p.id)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${period === p.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}>
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
+            {PERIODS.map(p => (
+              <button key={p.id} onClick={() => setPeriod(p.id)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${period === p.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {isCustom && (
+            <div className="flex items-center gap-1.5 bg-white ring-1 ring-stone-200 rounded-xl px-3 py-1.5">
+              <span className="text-[11px] text-stone-400 font-medium">From</span>
+              <input type="date" value={customFrom} max={customTo}
+                onChange={e => setCustomFrom(e.target.value)}
+                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+              <span className="text-[11px] text-stone-400 font-medium ml-1">To</span>
+              <input type="date" value={customTo} min={customFrom} max={todayStr}
+                onChange={e => setCustomTo(e.target.value)}
+                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -359,9 +394,14 @@ const BUCKET_LABELS: Record<string, string> = {
   "Current": "CURRENT", "1-30": "1 - 30", "31-60": "31 - 60", "61-90": "61 - 90", "90+": "91 AND OVER"
 };
 
-function getBucket(inv: any): string {
+/** Days overdue relative to a specific reference date (not necessarily today) */
+function daysOverdueAt(dueDate: string, asAt: Date): number {
+  return Math.floor((asAt.getTime() - new Date(dueDate).getTime()) / 86400000);
+}
+
+function getBucket(inv: any, asAt: Date): string {
   if (inv.paymentStatus === "Paid") return "";
-  const d = daysOverdue(inv.dueDate);
+  const d = daysOverdueAt(inv.dueDate, asAt);
   if (d <= 0) return "Current";
   if (d <= 30) return "1-30";
   if (d <= 60) return "31-60";
@@ -380,12 +420,12 @@ function addBuckets(a: any, b: any) {
   return r;
 }
 
-function invBuckets(inv: any) {
+function invBuckets(inv: any, asAt: Date) {
   const b = emptyBuckets();
   if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") return b;
   const out = inv.total - (inv.paid || 0);
   if (out <= 0) return b;
-  const bucket = getBucket(inv);
+  const bucket = getBucket(inv, asAt);
   if (bucket) { b[bucket] = out; b.total = out; }
   return b;
 }
@@ -402,8 +442,9 @@ function BucketCell({ value, highlight }: { value: number; highlight?: boolean }
 // ============================================================
 // BY CUSTOMER VIEW — matches QBO AR Aging Summary
 // ============================================================
-function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
+function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
 
   const toggle = (id: string) => setExpanded(prev => {
     const n = new Set(prev);
@@ -415,10 +456,11 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
     const custMap: Record<string, { customer: any; projects: Record<string, { project: any; invoices: any[]; buckets: any }>; directInvoices: any[]; totals: any }> = {};
 
     for (const inv of invoices) {
+      // As-at filter: only include invoices that existed on that date
+      if (asAt && inv.invoiceDate > asAt) continue;
       if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       if ((inv.total - (inv.paid || 0)) <= 0) continue;
 
-      // Region filter: check project code OR name (QBO projects have code=QBO-PROJ-xxx, name=D25010-...)
       const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!cust) continue;
 
@@ -432,7 +474,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
         custMap[cust.id] = { customer: cust, projects: {}, directInvoices: [], totals: emptyBuckets() };
       }
 
-      const b = invBuckets(inv);
+      const b = invBuckets(inv, asAtDate);
       custMap[cust.id].totals = addBuckets(custMap[cust.id].totals, b);
 
       if (inv.projectId) {
@@ -449,7 +491,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
     }
 
     return Object.values(custMap).sort((a, b) => b.totals.total - a.totals.total);
-  }, [invoices, customers, projects, regionFilter]);
+  }, [invoices, customers, projects, regionFilter, asAtDate]);
 
   // Grand totals
   const grandTotals = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.totals), emptyBuckets()), [data]);
@@ -490,7 +532,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
               ...(isOpen ? [
                 // Direct invoices (no project)
                 ...directInvoices.map(inv => {
-                  const b = invBuckets(inv);
+                  const b = invBuckets(inv, asAtDate);
                   return (
                     <tr key={`inv-${inv.id}`} className="border-b border-stone-50 bg-stone-50/50 hover:bg-stone-50">
                       <td className="px-4 py-1.5">
@@ -523,7 +565,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
 
                   // Individual invoices under project
                   ...projInvs.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((inv: any) => {
-                    const ib = invBuckets(inv);
+                    const ib = invBuckets(inv, asAtDate);
                     return (
                       <tr key={`inv-${inv.id}`} className="border-b border-stone-50 hover:bg-blue-50/30">
                         <td className="px-4 py-1.5">
@@ -572,21 +614,22 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter }: any) {
 // ============================================================
 // BY PROJECT VIEW
 // ============================================================
-function AgingByProject({ invoices, customers, projects, regionFilter }: any) {
+function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const data = useMemo(() => {
     const projMap: Record<string, { project: any; customer: any; invoices: any[]; buckets: any }> = {};
 
     for (const inv of invoices) {
+      if (asAt && inv.invoiceDate > asAt) continue;
       if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       if ((inv.total - (inv.paid || 0)) <= 0) continue;
       if (!inv.projectId) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
 
-      // Region filter: check project code OR name
       if (regionFilter) {
         const cust2 = customers.find((c: any) => c.id === inv.customerId);
         if (cust2?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
@@ -595,13 +638,13 @@ function AgingByProject({ invoices, customers, projects, regionFilter }: any) {
       if (!proj) continue;
 
       if (!projMap[proj.id]) projMap[proj.id] = { project: proj, customer: cust, invoices: [], buckets: emptyBuckets() };
-      const b = invBuckets(inv);
+      const b = invBuckets(inv, asAtDate);
       projMap[proj.id].invoices.push(inv);
       projMap[proj.id].buckets = addBuckets(projMap[proj.id].buckets, b);
     }
 
     return Object.values(projMap).sort((a, b) => b.buckets.total - a.buckets.total);
-  }, [invoices, customers, projects, regionFilter]);
+  }, [invoices, customers, projects, regionFilter, asAtDate]);
 
   const grandTotals = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
 
@@ -634,7 +677,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter }: any) {
               </tr>,
 
               ...(isOpen ? projInvs.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((inv: any) => {
-                const ib = invBuckets(inv);
+                const ib = invBuckets(inv, asAtDate);
                 return (
                   <tr key={`inv-${inv.id}`} className="border-b border-stone-50 bg-stone-50/50 hover:bg-blue-50/30">
                     <td className="px-4 py-1.5">
@@ -708,8 +751,9 @@ function ActivityReport({ communications }: any) {
 // ============================================================
 // REGIONAL AR REPORT — Management view
 // ============================================================
-function RegionalReport({ invoices, customers, projects, regions, regionFilter }: any) {
+function RegionalReport({ invoices, customers, projects, regions, regionFilter, asAt }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const data = useMemo(() => {
@@ -722,6 +766,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter }
     }> = {};
 
     for (const inv of invoices) {
+      if (asAt && inv.invoiceDate > asAt) continue;
       if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       const out = inv.total - (inv.paid || 0);
       if (out <= 0) continue;
@@ -739,13 +784,13 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter }
       }
 
       regionMap[regionLabel].invoices.push(inv);
-      regionMap[regionLabel].buckets = addBuckets(regionMap[regionLabel].buckets, invBuckets(inv));
+      regionMap[regionLabel].buckets = addBuckets(regionMap[regionLabel].buckets, invBuckets(inv, asAtDate));
       regionMap[regionLabel].customers.add(inv.customerId);
-      if (daysOverdue(inv.dueDate) > 0) regionMap[regionLabel].overdueCount++;
+      if (daysOverdueAt(inv.dueDate, asAtDate) > 0) regionMap[regionLabel].overdueCount++;
     }
 
     return Object.values(regionMap).sort((a, b) => b.buckets.total - a.buckets.total);
-  }, [invoices, projects]);
+  }, [invoices, projects, regionFilter, asAtDate]);
 
   const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
   const maxTotal = Math.max(...data.map(r => r.buckets.total), 1);
@@ -809,7 +854,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter }
               {r.invoices.sort((a: any, b: any) => (b.total - (b.paid||0)) - (a.total - (a.paid||0))).map((inv: any) => {
                 const cust = customers.find((c: any) => c.id === inv.customerId);
                 const proj = projects.find((p: any) => p.id === inv.projectId);
-                const ib = invBuckets(inv);
+                const ib = invBuckets(inv, asAtDate);
                 return (
                   <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
@@ -867,14 +912,16 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter }
 // ============================================================
 // BY REP REPORT — matches RegionalReport style
 // ============================================================
-function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) {
+function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }: any) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const data = useMemo(() => {
     const repMap: Record<string, { rep: any; invoices: any[]; buckets: any; custSet: Set<string>; overdueCount: number }> = {};
 
     for (const inv of invoices) {
+      if (asAt && inv.invoiceDate > asAt) continue;
       if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       const out = inv.total - (inv.paid || 0);
       if (out <= 0) continue;
@@ -891,13 +938,13 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) 
 
       if (!repMap[repId]) repMap[repId] = { rep, invoices: [], buckets: emptyBuckets(), custSet: new Set(), overdueCount: 0 };
       repMap[repId].invoices.push(inv);
-      repMap[repId].buckets = addBuckets(repMap[repId].buckets, invBuckets(inv));
+      repMap[repId].buckets = addBuckets(repMap[repId].buckets, invBuckets(inv, asAtDate));
       repMap[repId].custSet.add(inv.customerId);
-      if (daysOverdue(inv.dueDate) > 0) repMap[repId].overdueCount++;
+      if (daysOverdueAt(inv.dueDate, asAtDate) > 0) repMap[repId].overdueCount++;
     }
 
     return Object.values(repMap).sort((a, b) => b.buckets.total - a.buckets.total);
-  }, [invoices, customers, projects, reps, regionFilter]);
+  }, [invoices, customers, projects, reps, regionFilter, asAtDate]);
 
   const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
   const maxTotal = Math.max(...data.map(r => r.buckets.total), 1);
@@ -955,7 +1002,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter }: any) 
               {r.invoices.sort((a: any, b: any) => (b.total - (b.paid||0)) - (a.total - (a.paid||0))).map((inv: any) => {
                 const cust = customers.find((c: any) => c.id === inv.customerId);
                 const proj = projects.find((p: any) => p.id === inv.projectId);
-                const ib = invBuckets(inv);
+                const ib = invBuckets(inv, asAtDate);
                 return (
                   <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
@@ -1025,6 +1072,9 @@ export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications } = useData() as any;
   const [report, setReport] = useState<"aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales">("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [asAtDate, setAsAtDate] = useState(todayIso);
+  const isArTab = report !== "sales" && report !== "activity";
 
   const tabs = [
     { id: "sales", label: "Sales Report" },
@@ -1042,7 +1092,7 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Reports</h1>
           <p className="text-sm text-stone-500 mt-1">Receivables analysis and team activity</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {report !== "sales" && (
             <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
               className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
@@ -1051,7 +1101,25 @@ export default function ReportsPage() {
               {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           )}
-          <div className="text-xs text-stone-500">As of {new Date().toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}</div>
+          {isArTab && (
+            <div className="flex items-center gap-1.5 h-9 px-3 rounded-md ring-1 ring-stone-200 bg-white text-sm">
+              <span className="text-stone-400 text-xs font-medium whitespace-nowrap">As at</span>
+              <input
+                type="date"
+                value={asAtDate}
+                max={todayIso}
+                onChange={e => setAsAtDate(e.target.value || todayIso)}
+                className="text-stone-700 text-sm border-none outline-none bg-transparent cursor-pointer"
+              />
+              {asAtDate !== todayIso && (
+                <button onClick={() => setAsAtDate(todayIso)}
+                  className="text-[10px] text-stone-400 hover:text-stone-700 ml-1 font-medium">Today</button>
+              )}
+            </div>
+          )}
+          {!isArTab && (
+            <div className="text-xs text-stone-500">As of {new Date().toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}</div>
+          )}
         </div>
       </div>
 
@@ -1087,17 +1155,20 @@ export default function ReportsPage() {
                 : "Email Activity"}
             </div>
             <div className="text-sm text-stone-500 mt-0.5">EDC - Engineering Design Consultants Limited</div>
-            <div className="text-xs text-stone-400 mt-0.5">As of {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}</div>
+            <div className="text-xs text-stone-400 mt-0.5">
+              As at {new Date(asAtDate + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
+              {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}
+            </div>
           </div>
 
           {report === "aging-customer" && <AgingByCustomer
             invoices={invoices}
-            customers={customers} projects={projects} regionFilter={regionFilter} />}
+            customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />}
           {report === "aging-project" && <AgingByProject
             invoices={invoices}
-            customers={customers} projects={projects} regionFilter={regionFilter} />}
-          {report === "regional" && <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} />}
-          {report === "by-rep" && <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} />}
+            customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />}
+          {report === "regional" && <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} asAt={asAtDate} />}
+          {report === "by-rep" && <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} asAt={asAtDate} />}
           {report === "activity" && <div className="p-4"><ActivityReport communications={communications} /></div>}
         </Card>
       )}
