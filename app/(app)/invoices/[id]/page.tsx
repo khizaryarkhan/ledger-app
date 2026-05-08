@@ -36,10 +36,13 @@ export default function InvoiceDetailPage() {
   const handleDownloadPdf = async () => {
     if (!inv.qboId || inv.qboId.startsWith("CM-")) return;
     setDownloadingPdf(true);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
     try {
-      const res = await fetch(`/api/invoices/${inv.id}/pdf`);
+      const res = await fetch(`/api/invoices/${inv.id}/pdf`, { signal: controller.signal });
+      clearTimeout(timer);
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         alert(err.error || "Failed to download PDF");
         return;
       }
@@ -50,8 +53,10 @@ export default function InvoiceDetailPage() {
       a.download = `Invoice-${inv.invoiceNumber}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) {
-      alert("Failed to download PDF");
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === "AbortError") alert("PDF download timed out — please try again.");
+      else alert("Failed to download PDF");
     } finally {
       setDownloadingPdf(false);
     }

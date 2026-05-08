@@ -4,6 +4,7 @@ import { requireOrg, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
+const PDF_TIMEOUT_MS = 15_000; // 15 seconds — fail fast if QBO is slow
 
 async function getOrgToken(orgId: string) {
   const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
@@ -40,25 +41,48 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!inv.qboId || inv.qboId.startsWith("CM-")) return bad("No QBO PDF available for this invoice", 400);
 
   const token = await getOrgToken(orgId!);
-  if (!token) return bad("QuickBooks not connected. An admin must connect QBO in Settings.", 400);
+  if (!token) return bad("QuickBooks not connected", 400);
 
-  const pdfRes = await fetch(
-    `${QBO_API}/${token.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
-    { headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/pdf" } }
-  );
+  // Abort if QBO takes longer than PDF_TIMEOUT_MS
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PDF_TIMEOUT_MS);
 
-  if (!pdfRes.ok) {
-    console.error("QBO PDF fetch failed:", await pdfRes.text());
-    return bad(`Failed to fetch PDF from QuickBooks: ${pdfRes.status}`, 500);
+  try {
+    const pdfRes = await fetch(
+      `${QBO_API}/${token.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
+      {
+        headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/pdf" },
+        signal: controller.signal,
+      }
+    );
+
+    clearTimeout(timer);
+
+    if (!pdfRes.ok) {
+      const errText = await pdfRes.text().catch(() => "");
+      console.error(`QBO PDF fetch failed for ${inv.invoiceNumber}: HTTP ${pdfRes.status} — ${errText}`);
+      return bad(`PDF unavailable (QBO returned ${pdfRes.status})`, 502);
+    }
+
+    const pdfBuffer = await pdfRes.arrayBuffer();
+    if (pdfBuffer.byteLength === 0) return bad("QBO returned an empty PDF", 502);
+
+    return new Response(pdfBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="Invoice-${inv.invoiceNumber}.pdf"`,
+        "Content-Length": pdfBuffer.byteLength.toString(),
+        "Cache-Control": "private, max-age=300", // cache 5 min in browser — same PDF won't re-fetch
+      },
+    });
+  } catch (e: any) {
+    clearTimeout(timer);
+    if (e?.name === "AbortError") {
+      console.error(`QBO PDF timeout for invoice ${inv.invoiceNumber}`);
+      return bad("PDF request timed out — QBO did not respond in time. Try again.", 504);
+    }
+    console.error(`PDF fetch error for ${inv.invoiceNumber}:`, e);
+    return bad("Failed to fetch PDF from QuickBooks", 500);
   }
-
-  const pdfBuffer = await pdfRes.arrayBuffer();
-  return new Response(pdfBuffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="Invoice-${inv.invoiceNumber}.pdf"`,
-      "Content-Length": pdfBuffer.byteLength.toString(),
-    },
-  });
 }

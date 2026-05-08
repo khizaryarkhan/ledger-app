@@ -39,8 +39,11 @@ export default function InvoicesPage() {
     e.stopPropagation();
     if (!inv.qboId || inv.qboId.startsWith("CM-")) return;
     setDownloadingId(inv.id);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
     try {
-      const res = await fetch(`/api/invoices/${inv.id}/pdf`);
+      const res = await fetch(`/api/invoices/${inv.id}/pdf`, { signal: controller.signal });
+      clearTimeout(timer);
       if (!res.ok) return;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -49,6 +52,9 @@ export default function InvoicesPage() {
       a.download = `Invoice-${inv.invoiceNumber}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === "AbortError") alert("PDF download timed out — please try again.");
     } finally {
       setDownloadingId(null);
     }
