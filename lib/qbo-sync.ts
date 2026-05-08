@@ -145,6 +145,7 @@ export async function runQboSync(orgId: string, userId: string) {
     invoicesCreated: 0,
     invoicesUpdated: 0,
     invoicesClosed: 0,
+    paidSynced: 0,
     creditsCreated: 0,
     qboTotalAR: 0,
     ledgerTotalAR: 0,
@@ -319,6 +320,8 @@ export async function runQboSync(orgId: string, userId: string) {
 
     const qboBalance = parseFloat(qi.Balance) || 0;
     const total = parseFloat(qi.TotalAmt) || 0;
+    const taxAmount = parseFloat(qi.TxnTaxDetail?.TotalTax) || 0;
+    const amount = Math.max(0, total - taxAmount); // Net ex tax
     const paid = Math.max(0, total - qboBalance);
     // QBO Id is the unique source of truth — invoice numbers are display only
     const existing = ledgerInvByQboId.get(qi.Id);
@@ -329,8 +332,9 @@ export async function runQboSync(orgId: string, userId: string) {
 
     const syncData = {
       total,
+      amount,      // Net ex tax
+      taxAmount,   // Tax amount from QBO
       paid,
-      amount: total,
       qboId: qi.Id,
       qboBalance,
       qboCustomerId: qi.CustomerRef?.value,
@@ -407,6 +411,84 @@ export async function runQboSync(orgId: string, userId: string) {
     results.creditsCreated++;
   }
   if (creditsToInsert.length > 0) await db.insert(invoices).values(creditsToInsert);
+
+  // STEP 7.5: Sync paid invoices (Balance = 0) for sales history and DSO calculation
+  // allInvoicesForClose is already in memory — no extra QBO API calls needed
+  const paidQboInvoices = allInvoicesForClose.filter((qi: any) => parseFloat(qi.Balance) === 0 && qi.Id);
+
+  const paidToInsert: any[] = [];
+  const paidToUpdate: { id: string; data: any }[] = [];
+
+  for (const qi of paidQboInvoices) {
+    const existing = ledgerInvByQboId.get(qi.Id);
+    const paidTax   = parseFloat(qi.TxnTaxDetail?.TotalTax) || 0;
+    const paidTotal = parseFloat(qi.TotalAmt) || 0;
+    const paidNet   = Math.max(0, paidTotal - paidTax); // Net ex tax
+    const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
+    const billingEmail  = buildBillingEmails(qi);
+
+    const paidData = {
+      total:         paidTotal,
+      amount:        paidNet,   // Net ex tax — used for DSO & sales reports
+      taxAmount:     paidTax,
+      paid:          paidTotal,
+      qboBalance:    0,
+      qboSyncedAt:   new Date(),
+      paymentStatus: "Paid" as const,
+      collectionStage: "Closed",
+      billingEmail,
+      updatedAt:     new Date(),
+    };
+
+    if (existing) {
+      // Only update if not already marked paid (preserves collection notes/stage)
+      if (existing.paymentStatus !== "Paid") {
+        paidToUpdate.push({ id: existing.id, data: paidData });
+        results.paidSynced++;
+      }
+    } else {
+      // Brand-new paid invoice — insert it for sales history
+      const tlId = topLevelId(qi.CustomerRef?.value, custMap);
+      const cust = freshCustByQboId.get(tlId) || freshCustByCode.get(`QBO-${tlId}`);
+      if (!cust) continue;
+
+      let projectId: string | null = null;
+      const directQboCust = custMap.get(qi.CustomerRef?.value);
+      if (directQboCust?.ParentRef) {
+        const proj = freshProjByQboId.get(qi.CustomerRef.value) || freshProjByCode.get(`QBO-PROJ-${qi.CustomerRef.value}`);
+        if (proj) projectId = proj.id;
+      }
+
+      paidToInsert.push({
+        orgId,
+        invoiceNumber,
+        customerId:        cust.id,
+        projectId,
+        invoiceDate:       qi.TxnDate || new Date().toISOString().slice(0, 10),
+        dueDate:           qi.DueDate || qi.TxnDate || new Date().toISOString().slice(0, 10),
+        currency:          cust.currency || "EUR",
+        paymentTerms:      cust.paymentTerms || 30,
+        collectionOwnerId: userId,
+        qboId:             qi.Id,
+        qboCustomerId:     qi.CustomerRef?.value,
+        txnType:           "Invoice",
+        ...paidData,
+      });
+      results.paidSynced++;
+    }
+  }
+
+  if (paidToInsert.length > 0) {
+    for (let i = 0; i < paidToInsert.length; i += 50)
+      await db.insert(invoices).values(paidToInsert.slice(i, i + 50));
+  }
+  if (paidToUpdate.length > 0) {
+    await Promise.all(
+      paidToUpdate.map(({ id, data }) =>
+        db.update(invoices).set(data).where(eq(invoices.id, id))
+      )
+    );
+  }
 
   // STEP 8: Auto-close fully paid invoices
   const paidQboIds = new Set(
@@ -538,35 +620,31 @@ export async function syncTargetedEntities(
   async function processQboInvoice(qi: any) {
     if (!qi) return;
     const qboBalance = parseFloat(qi.Balance) || 0;
-    const total = parseFloat(qi.TotalAmt) || 0;
-    const paid = Math.max(0, total - qboBalance);
-    const isPaid = qboBalance === 0;
+    const total      = parseFloat(qi.TotalAmt) || 0;
+    const taxAmount  = parseFloat(qi.TxnTaxDetail?.TotalTax) || 0;
+    const amount     = Math.max(0, total - taxAmount); // Net ex tax
+    const paid       = Math.max(0, total - qboBalance);
+    const isPaid     = qboBalance === 0;
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
 
-    // QBO's internal Id is the unique source of truth — never use invoice number for lookup
-    const existing = ledgerInvByQboId.get(qi.Id);
-    // QBO BillEmail.Address can contain multiple comma-separated addresses
-    // Also pull BillEmailCc if present and combine all into one string
+    const existing     = ledgerInvByQboId.get(qi.Id);
     const billingEmail = buildBillingEmails(qi);
 
     if (existing) {
-      // Update: balance, paid, status — also stamp qboId and billingEmail
       updatePromises.push(
-        db
-          .update(invoices)
-          .set({
-            total,
-            paid,
-            amount: total,
-            qboId: qi.Id,
-            qboBalance,
-            qboSyncedAt: new Date(),
-            updatedAt: new Date(),
-            billingEmail,
-            paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
-            ...(isPaid ? { collectionStage: "Closed" } : {}),
-          })
-          .where(eq(invoices.id, existing.id))
+        db.update(invoices).set({
+          total,
+          amount,     // Net ex tax
+          taxAmount,
+          paid,
+          qboId: qi.Id,
+          qboBalance,
+          qboSyncedAt: new Date(),
+          updatedAt: new Date(),
+          billingEmail,
+          paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
+          ...(isPaid ? { collectionStage: "Closed" } : {}),
+        }).where(eq(invoices.id, existing.id))
       );
     } else {
       // New invoice — need customer hierarchy (lazy load custMap once)
@@ -576,7 +654,7 @@ export async function syncTargetedEntities(
       }
       const tlId = topLevelId(qi.CustomerRef?.value, custMap!);
       const cust = ledgerCustByQboId.get(tlId) || ledgerCustByCode.get(`QBO-${tlId}`);
-      if (!cust) return; // Customer not yet in ledger — next full sync will catch it
+      if (!cust) return;
 
       let projectId: string | null = null;
       const directQboCust = custMap!.get(qi.CustomerRef?.value);
@@ -595,8 +673,8 @@ export async function syncTargetedEntities(
         invoiceDate: qi.TxnDate || new Date().toISOString().slice(0, 10),
         dueDate: qi.DueDate || new Date().toISOString().slice(0, 10),
         currency: cust.currency || "EUR",
-        amount: total,
-        taxAmount: 0,
+        amount,       // Net ex tax
+        taxAmount,
         total,
         paid,
         paymentTerms: cust.paymentTerms || 30,

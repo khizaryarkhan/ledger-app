@@ -36,11 +36,13 @@ export default function DashboardPage() {
     const emailsSent = communications.filter(c => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
     const replies = communications.filter(c => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
-    // DSO = (Total AR / Total Revenue last 90 days) * 90
-    // Approximated as avg days overdue weighted by amount
-    const overdueInvoices = open.filter(i => daysOverdue(i.dueDate) > 0);
-    const weightedDays = overdueInvoices.reduce((s, i) => s + daysOverdue(i.dueDate) * (i.total - (i.paid || 0)), 0);
-    const dso = totalOverdue > 0 ? Math.round(weightedDays / totalOverdue) : 0;
+    // True DSO = (Total Open AR / Net Sales last 90 days) × 90
+    // Uses amount (net ex tax) per invoice, consistent with sales reporting
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const netSales90d = regionInvoices
+      .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo)
+      .reduce((s, i) => s + ((i as any).amount || 0), 0);
+    const dso = netSales90d > 0 ? Math.round((totalAR / netSales90d) * 90) : 0;
 
     // Collection rate = invoices closed in last 30 days / total invoices
     const recentlyClosed = regionInvoices.filter(i => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
