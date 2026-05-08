@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
-import { User, Database, RefreshCw, Link2, Unlink, Check, AlertTriangle, Loader, Mail, Clock, CheckCircle, XCircle, Users, MapPin, Plus, Trash2, Palette, Calendar, KeyRound, Eye, EyeOff } from "lucide-react";
+import { User, Database, RefreshCw, Link2, Unlink, Check, AlertTriangle, Loader, Mail, Clock, CheckCircle, XCircle, Users, MapPin, Plus, Trash2, Palette, Calendar, KeyRound, Eye, EyeOff, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { fmt } from "@/lib/format";
 
@@ -35,6 +35,7 @@ export default function SettingsPage() {
   const [newRepName, setNewRepName] = useState("");
   const [newRepEmail, setNewRepEmail] = useState("");
   const [addingRep, setAddingRep] = useState(false);
+  const [repSearch, setRepSearch] = useState("");
   const [newRegionName, setNewRegionName] = useState("");
   const [addingRegion, setAddingRegion] = useState(false);
 
@@ -409,9 +410,22 @@ export default function SettingsPage() {
           {/* Reps */}
           <div>
             <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Reps ({reps?.length ?? 0})</div>
+            {(reps ?? []).length > 3 && (
+              <div className="relative mb-2">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                <input
+                  value={repSearch}
+                  onChange={e => setRepSearch(e.target.value)}
+                  placeholder="Search reps…"
+                  className="w-full h-8 pl-7 pr-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              </div>
+            )}
             <div className="space-y-1 mb-3 max-h-48 overflow-y-auto">
               {(reps ?? []).length === 0 && <div className="text-sm text-stone-400 py-2">No reps defined yet.</div>}
-              {(reps ?? []).map((r: any) => {
+              {(reps ?? [])
+                .filter((r: any) => !repSearch || r.name?.toLowerCase().includes(repSearch.toLowerCase()) || r.email?.toLowerCase().includes(repSearch.toLowerCase()))
+                .map((r: any) => {
                 const loginInfo = repLogins[r.id];
                 return (
                   <div key={r.id} className="px-3 py-2 rounded-md bg-stone-50 ring-1 ring-stone-100">

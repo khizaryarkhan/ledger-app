@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { ProjectModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Briefcase, Plus, Trash2, X, RefreshCw } from "lucide-react";
+import { Briefcase, Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
   const { reps, regions, reclassifyProjects } = useData() as any;
@@ -93,6 +93,7 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
 export default function ProjectsPage() {
   const { projects, customers, invoices, reps, regions, bulkDeleteProjects } = useData() as any;
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
   const [repFilter, setRepFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -113,14 +114,22 @@ export default function ProjectsPage() {
 
   const filtered = useMemo(() => {
     let res = enriched;
+    if (search) {
+      const s = search.toLowerCase();
+      res = res.filter((p: any) =>
+        p.name?.toLowerCase().includes(s) ||
+        p.code?.toLowerCase().includes(s) ||
+        p.customer?.name?.toLowerCase().includes(s)
+      );
+    }
     if (repFilter) res = res.filter((p: any) => p.repId === repFilter);
     if (regionFilter) res = res.filter((p: any) => p.regionId === regionFilter);
     return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
-  }, [enriched, repFilter, regionFilter]);
+  }, [enriched, search, repFilter, regionFilter]);
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [repFilter, regionFilter]);
+  useEffect(() => { setPage(0); }, [search, repFilter, regionFilter]);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const visible = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
 
@@ -151,6 +160,15 @@ export default function ProjectsPage() {
           <p className="text-sm text-stone-500 mt-1">{filtered.length} projects</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search project, code, customer…"
+              className="h-9 pl-8 pr-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none w-64"
+            />
+          </div>
           <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
@@ -163,8 +181,8 @@ export default function ProjectsPage() {
             <option value="">All regions</option>
             {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          {(repFilter || regionFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setRepFilter(""); setRegionFilter(""); }}>Clear</Button>
+          {(search || repFilter || regionFilter) && (
+            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>
           )}
           <Button icon={Plus} onClick={() => setShowCreate(true)}>New project</Button>
         </div>
