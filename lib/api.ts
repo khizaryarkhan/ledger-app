@@ -27,14 +27,15 @@ export function isSuperAdmin(session: any) {
 export async function requireOrg() {
   const session = await auth();
   if (!session?.user) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null };
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
   }
   const orgId = (session.user as any).orgId as string;
   const role = (session.user as any).role as string;
+  const repId = (session.user as any).repId as string | null ?? null;
   if (!orgId) {
-    return { error: NextResponse.json({ error: "No organisation assigned" }, { status: 403 }), session: null, orgId: null, role: null };
+    return { error: NextResponse.json({ error: "No organisation assigned" }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
   }
-  return { error: null, session, orgId, role };
+  return { error: null, session, orgId, role, repId };
 }
 
 export function requireRole(role: string, minRole: string) {

@@ -13,6 +13,27 @@ import { eq, inArray } from "drizzle-orm";
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Extract all billing emails from a QBO invoice object.
+ * QBO stores primary recipients in BillEmail.Address (may be comma-separated)
+ * and CC in BillEmailCc.Address. We merge, deduplicate, and return a single
+ * comma-separated string so all recipients are captured.
+ */
+function buildBillingEmails(qi: any): string | null {
+  const raw: string[] = [];
+  if (qi.BillEmail?.Address) raw.push(qi.BillEmail.Address);
+  if (qi.BillEmailCc?.Address) raw.push(qi.BillEmailCc.Address);
+  if (raw.length === 0) return null;
+  // Split on comma/semicolon, trim, deduplicate
+  const all = raw
+    .join(",")
+    .split(/[,;]/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+  const unique = [...new Set(all)];
+  return unique.length > 0 ? unique.join(", ") : null;
+}
+
 // ============================================================
 // TOKEN MANAGEMENT
 // ============================================================
@@ -302,6 +323,10 @@ export async function runQboSync(orgId: string, userId: string) {
     // QBO Id is the unique source of truth — invoice numbers are display only
     const existing = ledgerInvByQboId.get(qi.Id);
 
+    // QBO BillEmail.Address can contain multiple comma-separated addresses
+    // Also pull BillEmailCc if present and combine all into one string
+    const billingEmail = buildBillingEmails(qi);
+
     const syncData = {
       total,
       paid,
@@ -312,6 +337,7 @@ export async function runQboSync(orgId: string, userId: string) {
       qboSyncedAt: new Date(),
       txnType: "Invoice",
       paymentStatus: (paid > 0 ? "Partially Paid" : "Unpaid") as any,
+      billingEmail,
       updatedAt: new Date(),
     };
 
@@ -519,8 +545,12 @@ export async function syncTargetedEntities(
 
     // QBO's internal Id is the unique source of truth — never use invoice number for lookup
     const existing = ledgerInvByQboId.get(qi.Id);
+    // QBO BillEmail.Address can contain multiple comma-separated addresses
+    // Also pull BillEmailCc if present and combine all into one string
+    const billingEmail = buildBillingEmails(qi);
+
     if (existing) {
-      // Update: balance, paid, status — also stamp qboId if missing
+      // Update: balance, paid, status — also stamp qboId and billingEmail
       updatePromises.push(
         db
           .update(invoices)
@@ -532,6 +562,7 @@ export async function syncTargetedEntities(
             qboBalance,
             qboSyncedAt: new Date(),
             updatedAt: new Date(),
+            billingEmail,
             paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
             ...(isPaid ? { collectionStage: "Closed" } : {}),
           })
@@ -572,6 +603,7 @@ export async function syncTargetedEntities(
         paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
         collectionStage: isPaid ? "Closed" : "New",
         collectionOwnerId: userId,
+        billingEmail,
         qboId: qi.Id,
         qboBalance,
         qboCustomerId: qi.CustomerRef?.value,

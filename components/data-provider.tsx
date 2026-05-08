@@ -12,7 +12,13 @@ type DataContextType = {
   tasks: any[];
   reps: any[];
   regions: any[];
-  orgSettings: { classificationLevel: "customer" | "project" };
+  orgSettings: {
+    classificationLevel: "customer" | "project";
+    dateFormat: string;
+    logoUrl: string | null;
+    displayName: string | null;
+    name: string;
+  };
   refresh: () => Promise<void>;
   toast: (message: string, type?: string) => void;
   toastState: any;
@@ -39,7 +45,7 @@ type DataContextType = {
   deleteRep: (id: string) => Promise<void>;
   addRegion: (data: { name: string }) => Promise<any>;
   deleteRegion: (id: string) => Promise<void>;
-  updateOrgSettings: (s: { classificationLevel: "customer" | "project" }) => Promise<void>;
+  updateOrgSettings: (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; logoUrl: string | null; displayName: string | null }>) => Promise<void>;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -66,7 +72,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [regions, setRegions] = useState<any[]>([]);
-  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project" }>({ classificationLevel: "customer" });
+  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; logoUrl: string | null; displayName: string | null; name: string }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", logoUrl: null, displayName: null, name: "" });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {
@@ -249,9 +255,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast("Region removed");
   };
 
-  const updateOrgSettings = async (s: { classificationLevel: "customer" | "project" }) => {
-    await fetchJSON("/api/org/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
-    setOrgSettings(s);
+  const updateOrgSettings = async (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; logoUrl: string | null; displayName: string | null }>) => {
+    const updated = await fetchJSON("/api/org/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
+    setOrgSettings(prev => ({ ...prev, ...updated }));
     toast("Settings saved");
   };
 

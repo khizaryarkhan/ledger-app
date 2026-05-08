@@ -6,13 +6,13 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
-import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
-import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader } from "lucide-react";
+import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
+import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2 } from "lucide-react";
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { invoices, customers, projects, contacts, communications, tasks } = useData();
+  const { invoices, customers, projects, contacts, communications, tasks, orgSettings } = useData() as any;
   const [tab, setTab] = useState<"overview" | "comms" | "tasks">("overview");
   const [showCompose, setShowCompose] = useState(false);
   const [showPay, setShowPay] = useState(false);
@@ -20,6 +20,8 @@ export default function InvoiceDetailPage() {
   const [showPromise, setShowPromise] = useState(false);
   const [showTask, setShowTask] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const inv = invoices.find(i => i.id === id);
   if (!inv) {
@@ -60,7 +62,24 @@ export default function InvoiceDetailPage() {
   const customerContacts = contacts.filter(c => c.customerId === inv.customerId);
   const invComms = useMemo(() => communications.filter(c => c.invoiceId === id), [communications, id]);
   const invTasks = useMemo(() => tasks.filter(t => t.invoiceId === id), [tasks, id]);
-  const out = inv.total - (inv.paid || 0);
+  const isPaidOrClosed = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+  const out = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
+  const df = orgSettings?.dateFormat || "DD MMM YYYY";
+
+  /** Billing email priority: invoice → primary contact → customer email */
+  const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary && c.email);
+  const resolvedEmail = inv.billingEmail || primaryContact?.email || customer?.email || null;
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await fetch(`/api/invoices/${inv.id}`, { method: "DELETE" });
+      router.push("/invoices");
+    } catch {
+      alert("Failed to delete invoice");
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -94,6 +113,17 @@ export default function InvoiceDetailPage() {
           <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}>Dispute</Button>
           <Button variant="secondary" icon={CreditCard} onClick={() => setShowPay(true)}>Record payment</Button>
           <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
+          {!confirmDelete ? (
+            <Button variant="danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>Delete</Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-rose-600 font-medium">Sure?</span>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              <Button variant="danger" size="sm" icon={Trash2} onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Deleting…" : "Yes, delete"}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -112,7 +142,7 @@ export default function InvoiceDetailPage() {
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Due</div>
-          <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.shortDate(inv.dueDate)}</div>
+          <div className="text-xl font-semibold text-stone-900 tabular-nums">{formatDate(inv.dueDate, df)}</div>
           {daysOverdue(inv.dueDate) > 0 && <div className="text-[11px] text-rose-600 font-medium mt-1">{daysOverdue(inv.dueDate)} days overdue</div>}
         </Card>
       </div>
@@ -137,15 +167,39 @@ export default function InvoiceDetailPage() {
           <Card className="col-span-2">
             <h3 className="text-sm font-semibold text-stone-900 mb-4">Invoice details</h3>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <div><dt className="text-xs text-stone-500 mb-0.5">Invoice date</dt><dd>{fmt.date(inv.invoiceDate)}</dd></div>
-              <div><dt className="text-xs text-stone-500 mb-0.5">Due date</dt><dd>{fmt.date(inv.dueDate)}</dd></div>
+              <div><dt className="text-xs text-stone-500 mb-0.5">Invoice date</dt><dd>{formatDate(inv.invoiceDate, df)}</dd></div>
+              <div><dt className="text-xs text-stone-500 mb-0.5">Due date</dt><dd>{formatDate(inv.dueDate, df)}</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Payment terms</dt><dd>{inv.paymentTerms} days</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Currency</dt><dd>{inv.currency}</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Subtotal</dt><dd className="tabular-nums">{fmt.money(inv.amount, inv.currency)}</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Tax</dt><dd className="tabular-nums">{fmt.money(inv.taxAmount, inv.currency)}</dd></div>
-              {inv.lastFollowupDate && <div><dt className="text-xs text-stone-500 mb-0.5">Last followup</dt><dd>{fmt.date(inv.lastFollowupDate)}</dd></div>}
-              {inv.promiseDate && <div><dt className="text-xs text-stone-500 mb-0.5">Promise date</dt><dd>{fmt.date(inv.promiseDate)}</dd></div>}
-              {inv.disputeDate && <div><dt className="text-xs text-stone-500 mb-0.5">Disputed since</dt><dd>{fmt.date(inv.disputeDate)}</dd></div>}
+              <div className="col-span-2">
+                <dt className="text-xs text-stone-500 mb-0.5">
+                  Billing email
+                  {resolvedEmail && (
+                    <span className="ml-2 font-normal normal-case text-stone-400">
+                      {inv.billingEmail ? "· from QBO" : primaryContact?.email === resolvedEmail ? "· from contact" : "· from customer"}
+                    </span>
+                  )}
+                </dt>
+                <dd>
+                  {resolvedEmail ? (
+                    <div className="flex flex-wrap gap-1.5 mt-0.5">
+                      {resolvedEmail.split(",").map((addr: string) => addr.trim()).filter(Boolean).map((addr: string) => (
+                        <a key={addr} href={`mailto:${addr}`}
+                          className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[12px] hover:bg-blue-100 transition-colors">
+                          {addr}
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-stone-400 italic text-xs">No billing email — add in QBO (BillEmail field) or add a contact</span>
+                  )}
+                </dd>
+              </div>
+              {inv.lastFollowupDate && <div><dt className="text-xs text-stone-500 mb-0.5">Last followup</dt><dd>{formatDate(inv.lastFollowupDate, df)}</dd></div>}
+              {inv.promiseDate && <div><dt className="text-xs text-stone-500 mb-0.5">Promise date</dt><dd>{formatDate(inv.promiseDate, df)}</dd></div>}
+              {inv.disputeDate && <div><dt className="text-xs text-stone-500 mb-0.5">Disputed since</dt><dd>{formatDate(inv.disputeDate, df)}</dd></div>}
             </dl>
             {inv.disputeReason && (
               <div className="mt-4 pt-4 border-t border-stone-200">

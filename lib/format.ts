@@ -1,10 +1,41 @@
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+/**
+ * Format a date according to an org's chosen date format.
+ * Supported formats:
+ *   DD MMM YYYY  → 07 May 2026  (default)
+ *   DD/MM/YYYY   → 07/05/2026
+ *   MM/DD/YYYY   → 05/07/2026
+ *   YYYY-MM-DD   → 2026-05-07
+ *   MMM DD, YYYY → May 07, 2026
+ */
+export function formatDate(d: string | Date | null | undefined, format = "DD MMM YYYY"): string {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = date.getMonth();
+  const year = date.getFullYear();
+  const mm = (month + 1).toString().padStart(2, "0");
+  switch (format) {
+    case "DD MMM YYYY":  return `${day} ${MONTH_SHORT[month]} ${year}`;
+    case "DD/MM/YYYY":   return `${day}/${mm}/${year}`;
+    case "MM/DD/YYYY":   return `${mm}/${day}/${year}`;
+    case "YYYY-MM-DD":   return `${year}-${mm}-${day}`;
+    case "MMM DD, YYYY": return `${MONTH_SHORT[month]} ${day}, ${year}`;
+    default:             return `${day} ${MONTH_SHORT[month]} ${year}`;
+  }
+}
+
 export const fmt = {
   money: (n: number | null | undefined, ccy = "EUR") => {
     if (n == null || isNaN(n)) return "—";
     return new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
   },
+  // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format
   date: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",
-  shortDate: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short" }) : "—",
+  // Short date — now includes year for clarity
+  shortDate: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",
   relative: (d: string | Date | null | undefined) => {
     if (!d) return "—";
     const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);

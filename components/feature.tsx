@@ -5,7 +5,7 @@ import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { fmt, daysOverdue, today, daysFromNow, emailTemplates } from "@/lib/format";
 import { useData } from "./data-provider";
 import { useSession } from "next-auth/react";
-import { ArrowDownRight, ArrowUpRight, FileEdit, Link2, Save, Send, Paperclip, MessageSquare, Circle, Check, Download } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, FileEdit, Link2, Save, Send, Paperclip, MessageSquare, Circle, Check, Download, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
 // =====================
 // TIMELINE
@@ -600,5 +600,254 @@ export function TasksList({ tasks, showAssignee = true }: any) {
         </div>
       ))}
     </Card>
+  );
+}
+
+// =====================
+// BATCH EMAIL MODAL
+// =====================
+export function BatchEmailModal({ invoiceIds, onClose }: { invoiceIds: string[]; onClose: () => void }) {
+  const { invoices, customers, contacts, sendEmail, toast, orgSettings } = useData() as any;
+  const { data: session } = useSession();
+  const [templateId, setTemplateId] = useState(emailTemplates[2].id); // default: first overdue notice
+  const [attachPdf, setAttachPdf] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState<{ sent: number; skipped: string[]; failed: string[]; pdfErrors: string[] } | null>(null);
+
+  const senderName = (session?.user?.name) || orgSettings?.displayName || orgSettings?.name || "Accounts Receivable";
+
+  /**
+   * Resolve all billing emails for an invoice.
+   * Priority: QBO billingEmail (may be multiple, comma-separated) → primary contact → customer email
+   * Returns a comma-separated string of all unique email addresses, or null if none found.
+   */
+  function resolveEmail(inv: any): string | null {
+    if (inv.billingEmail) return inv.billingEmail; // already deduped multi-address string from QBO
+    const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary && c.email);
+    if (primaryContact) return primaryContact.email;
+    const customer = customers.find((c: any) => c.id === inv.customerId);
+    return customer?.email || null;
+  }
+
+  /** Count distinct email addresses in a comma-separated string */
+  function countEmails(emailStr: string | null): number {
+    if (!emailStr) return 0;
+    return emailStr.split(",").map(e => e.trim()).filter(e => e.includes("@")).length;
+  }
+
+  function resolveContactName(inv: any): string {
+    const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary);
+    if (primaryContact) return primaryContact.name;
+    const customer = customers.find((c: any) => c.id === inv.customerId);
+    return customer?.name || "Valued Customer";
+  }
+
+  function fillTemplate(template: any, inv: any, toEmail: string): { subject: string; body: string } {
+    const contactName = resolveContactName(inv);
+    const isPaidOrClosed = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+    const outstanding = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
+    const vars: Record<string, string> = {
+      invoiceNumber: inv.invoiceNumber,
+      amount: fmt.money(outstanding, inv.currency),
+      dueDate: fmt.date(inv.dueDate),
+      contactName,
+      daysOverdue: String(Math.max(0, daysOverdue(inv.dueDate))),
+      senderName,
+    };
+    const replace = (s: string) => s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+    return { subject: replace(template.subject), body: replace(template.body) };
+  }
+
+  const selectedInvoices = invoices.filter((i: any) => invoiceIds.includes(i.id));
+  const template = emailTemplates.find(t => t.id === templateId) || emailTemplates[2];
+
+  const rows = selectedInvoices.map((inv: any) => {
+    const email = resolveEmail(inv);
+    const customer = customers.find((c: any) => c.id === inv.customerId);
+    return { inv, email, customerName: customer?.name || inv.invoiceNumber };
+  });
+
+  const withEmail = rows.filter(r => r.email);
+  const withoutEmail = rows.filter(r => !r.email);
+
+  const handleSend = async () => {
+    setSending(true);
+    const sent: string[] = [];
+    const failed: string[] = [];
+    const pdfErrors: string[] = [];
+    const skipped = withoutEmail.map(r => r.customerName);
+
+    for (const { inv, email } of withEmail) {
+      if (!email) continue;
+      const { subject, body } = fillTemplate(template, inv, email);
+      try {
+        // QBO only serves PDFs for open/unpaid invoices — 400 error on Written Off/Paid/Closed
+        const isClosedOrPaid = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+        const canAttach = attachPdf && inv.qboId && !inv.qboId.startsWith("CM-") && !isClosedOrPaid;
+        const res = await fetch("/api/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: email,
+            subject,
+            body,
+            ...(canAttach ? { attachInvoiceIds: [inv.id] } : {}),
+          }),
+        });
+        if (!res.ok) throw new Error("Send failed");
+        const result = await res.json();
+        // Collect any PDF attachment errors
+        if (result.attachmentErrors?.length > 0) {
+          pdfErrors.push(...result.attachmentErrors.map((e: string) => `${inv.invoiceNumber}: ${e}`));
+        }
+        // Record in timeline
+        await fetch("/api/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: inv.customerId,
+            invoiceId: inv.id,
+            direction: "Outbound",
+            channel: "Email",
+            subject,
+            recipients: email,
+            body,
+          }),
+        });
+        sent.push(inv.invoiceNumber);
+      } catch {
+        failed.push(inv.invoiceNumber);
+      }
+    }
+
+    setResults({ sent: sent.length, skipped, failed, pdfErrors });
+    setSending(false);
+    if (sent.length > 0) toast(`Sent ${sent.length} email${sent.length > 1 ? "s" : ""}`);
+  };
+
+  return (
+    <Modal open title={`Send email to ${selectedInvoices.length} invoice${selectedInvoices.length > 1 ? "s" : ""}`} onClose={onClose} size="lg">
+      {results ? (
+        <div className="space-y-4">
+          <div className={`flex items-start gap-3 p-4 ring-1 rounded-lg ${results.sent > 0 ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"}`}>
+            <CheckCircle size={20} className={`flex-shrink-0 mt-0.5 ${results.sent > 0 ? "text-emerald-600" : "text-rose-500"}`} />
+            <div className="space-y-1 text-sm">
+              <div className={`font-semibold ${results.sent > 0 ? "text-emerald-900" : "text-rose-800"}`}>
+                {results.sent} email{results.sent !== 1 ? "s" : ""} sent successfully
+              </div>
+              {results.skipped.length > 0 && (
+                <div className="text-xs text-stone-600">
+                  {results.skipped.length} skipped (no email address): {results.skipped.join(", ")}
+                </div>
+              )}
+              {results.failed.length > 0 && (
+                <div className="text-xs text-rose-700">
+                  {results.failed.length} send failed: {results.failed.join(", ")}
+                </div>
+              )}
+              {results.pdfErrors.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-amber-200">
+                  <div className="text-xs font-semibold text-amber-700 mb-1">⚠ PDF attachment issues ({results.pdfErrors.length}):</div>
+                  {results.pdfErrors.map((e, i) => (
+                    <div key={i} className="text-xs text-amber-700">{e}</div>
+                  ))}
+                  <div className="text-xs text-amber-600 mt-1">Emails were sent but without the PDF attachment.</div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Template picker */}
+          <div>
+            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Email template</label>
+            <select
+              value={templateId}
+              onChange={e => setTemplateId(e.target.value)}
+              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none">
+              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+
+          {/* Attach PDF toggle */}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => setAttachPdf(p => !p)}
+              className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${attachPdf ? "bg-stone-900" : "bg-stone-200"}`}>
+              <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-stone-800">Attach invoice PDF</div>
+              <div className="text-[11px] text-stone-400">Fetches each PDF from QuickBooks and attaches it to the email</div>
+            </div>
+          </label>
+
+          {/* Invoice list with resolved emails */}
+          <div>
+            <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">
+              Recipients — {withEmail.length} invoice{withEmail.length !== 1 ? "s" : ""} ·{" "}
+              {withEmail.reduce((sum, r) => sum + countEmails(r.email), 0)} email address{withEmail.reduce((sum, r) => sum + countEmails(r.email), 0) !== 1 ? "es" : ""}
+              {withoutEmail.length > 0 ? ` · ${withoutEmail.length} skipped (no email)` : ""}
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-1 rounded-md ring-1 ring-stone-200 p-2">
+              {rows.map(({ inv, email, customerName }) => {
+                const emailCount = countEmails(email);
+                return (
+                  <div key={inv.id} className="px-2 py-2 rounded hover:bg-stone-50">
+                    <div className="flex items-center gap-2">
+                      {email
+                        ? <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />
+                        : <XCircle size={13} className="text-rose-400 flex-shrink-0" />}
+                      <span className="font-mono text-[12px] text-stone-500 w-16 flex-shrink-0">{inv.invoiceNumber}</span>
+                      <span className="font-medium text-stone-800 text-sm truncate flex-1">{customerName}</span>
+                      {email && emailCount > 1 && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium flex-shrink-0">{emailCount} addresses</span>
+                      )}
+                    </div>
+                    {email ? (
+                      <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
+                        {email.split(",").map((e: string) => e.trim()).filter((e: string) => e).map((addr: string) => (
+                          <span key={addr} className="text-[11px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded font-mono">{addr}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="ml-5 mt-0.5 text-[11px] text-rose-400 italic">No email — will be skipped</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {withoutEmail.length > 0 && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-md p-3">
+              <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
+              <span>
+                {withoutEmail.length} invoice{withoutEmail.length > 1 ? "s" : ""} have no billing email and will be skipped.
+                Add an email in QBO (BillEmail field) or add a contact to the customer.
+              </span>
+            </div>
+          )}
+
+          {withEmail.length === 0 && (
+            <div className="text-sm text-rose-600 text-center py-4">No invoices have a valid email address. Cannot send.</div>
+          )}
+
+          <div className="flex items-center justify-between pt-2 border-t border-stone-100">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button
+              icon={Send}
+              disabled={sending || withEmail.length === 0}
+              onClick={handleSend}>
+              {sending ? "Sending…" : `Send to ${withEmail.length} invoice${withEmail.length !== 1 ? "s" : ""}`}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

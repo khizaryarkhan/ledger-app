@@ -12,7 +12,7 @@ import { useData } from "./data-provider";
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { invoices, communications, tasks } = useData();
+  const { invoices, communications, tasks, orgSettings } = useData();
 
   const role = (session?.user as any)?.role;
   const isAdmin = role === "super_admin" || role === "company_admin";
@@ -55,11 +55,17 @@ export function Sidebar() {
     <aside className="w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen sticky top-0">
       <div className="px-4 py-4 border-b border-stone-200">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-stone-900 flex items-center justify-center">
-            <span className="text-white text-[11px] font-bold tracking-tight">AR</span>
-          </div>
+          {orgSettings?.logoUrl ? (
+            <img src={orgSettings.logoUrl} alt="Logo" className="w-7 h-7 rounded-md object-contain bg-stone-100" />
+          ) : (
+            <div className="w-7 h-7 rounded-md bg-stone-900 flex items-center justify-center">
+              <span className="text-white text-[11px] font-bold tracking-tight">AR</span>
+            </div>
+          )}
           <div>
-            <div className="text-sm font-semibold text-stone-900 tracking-tight leading-none">Ledger</div>
+            <div className="text-sm font-semibold text-stone-900 tracking-tight leading-none">
+              {orgSettings?.displayName || orgSettings?.name || "Ledger"}
+            </div>
             <div className="text-[10px] text-stone-500 mt-0.5 tracking-wide">COLLECTIONS CRM</div>
           </div>
         </div>

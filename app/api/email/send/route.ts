@@ -68,27 +68,44 @@ export async function POST(req: Request) {
 
     // Fetch PDFs for attachments
     const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
+    const attachmentErrors: string[] = [];
 
     if (data.attachInvoiceIds && data.attachInvoiceIds.length > 0) {
       const qboToken = await getOrgToken(orgId!);
-      if (qboToken) {
+      if (!qboToken) {
+        attachmentErrors.push("QuickBooks not connected — could not fetch PDFs");
+      } else {
         for (const invId of data.attachInvoiceIds) {
           const [inv] = await db.select().from(invoices).where(eq(invoices.id, invId)).limit(1);
-          if (!inv?.qboId || inv.qboId.startsWith("CM-")) continue;
+          if (!inv) { attachmentErrors.push(`Invoice not found: ${invId}`); continue; }
+          if (!inv.qboId || inv.qboId.startsWith("CM-")) continue; // credit memos have no PDF
+          // QBO returns 400 for Written Off / Paid / Closed invoices — skip silently
+          const isClosedOrPaid = ["Paid", "Written Off"].includes(inv.paymentStatus ?? "") || inv.collectionStage === "Closed";
+          if (isClosedOrPaid) continue;
           try {
             const pdfRes = await fetch(
               `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
               { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } }
             );
             if (pdfRes.ok) {
-              attachments.push({
-                filename: `Invoice-${inv.invoiceNumber}.pdf`,
-                content: Buffer.from(await pdfRes.arrayBuffer()),
-                contentType: "application/pdf",
-              });
+              const buf = Buffer.from(await pdfRes.arrayBuffer());
+              if (buf.byteLength > 0) {
+                attachments.push({
+                  filename: `Invoice-${inv.invoiceNumber}.pdf`,
+                  content: buf,
+                  contentType: "application/pdf",
+                });
+              } else {
+                attachmentErrors.push(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
+              }
+            } else {
+              const errText = await pdfRes.text();
+              console.error(`QBO PDF fetch failed for invoice ${inv.invoiceNumber} (qboId: ${inv.qboId}): HTTP ${pdfRes.status} — ${errText}`);
+              attachmentErrors.push(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${pdfRes.status})`);
             }
-          } catch (e) {
-            console.error(`PDF fetch failed for ${inv.invoiceNumber}:`, e);
+          } catch (e: any) {
+            console.error(`PDF fetch exception for ${inv.invoiceNumber}:`, e);
+            attachmentErrors.push(`PDF fetch failed for invoice ${inv.invoiceNumber}: ${e.message}`);
           }
         }
       }
@@ -108,7 +125,7 @@ export async function POST(req: Request) {
       attachments: attachments.length > 0 ? attachments : undefined,
     });
 
-    return ok({ sent: true, from, attachments: attachments.map(a => a.filename) });
+    return ok({ sent: true, from, attachments: attachments.map(a => a.filename), attachmentErrors });
   } catch (e: any) {
     if (e?.issues) return bad(e.issues[0].message);
     console.error("SMTP send error:", e);

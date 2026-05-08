@@ -13,15 +13,14 @@ const Schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const { error, orgId, session, role } = await requireOrg();
+  const { error, orgId, role, repId } = await requireOrg();
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
-  const repId = (session!.user as any).repId as string | null;
 
-  // company_user scoped to their projects
-  if (role === "company_user" && repId) {
+  // rep or company_user scoped to their projects
+  if ((role === "rep" || role === "company_user") && repId) {
     const [org] = await db.select({ level: organisations.classificationLevel })
       .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
     const level = org?.level ?? "customer";

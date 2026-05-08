@@ -11,6 +11,9 @@ export const organisations = pgTable("organisations", {
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   classificationLevel: varchar("classification_level", { length: 32 }).notNull().default("customer"), // 'customer' | 'project'
   colRefSeq: integer("col_ref_seq").notNull().default(0),
+  dateFormat: varchar("date_format", { length: 32 }).notNull().default("DD MMM YYYY"), // date format preference
+  logoUrl: text("logo_url"), // org logo URL
+  displayName: varchar("display_name", { length: 255 }), // optional display name override
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -155,6 +158,7 @@ export const invoices = pgTable("invoices", {
   disputeDate: varchar("dispute_date", { length: 16 }),
   promiseDate: varchar("promise_date", { length: 16 }),
   lastFollowupDate: varchar("last_followup_date", { length: 16 }),
+  billingEmail: text("billing_email"), // QBO BillEmail — may contain multiple comma-separated addresses
   qboId: varchar("qbo_id", { length: 64 }), // QBO internal transaction ID — unique source of truth
   qboBalance: real("qbo_balance"),
   qboCustomerId: varchar("qbo_customer_id", { length: 64 }),

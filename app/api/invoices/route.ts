@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
+import { invoices, customers, projects, organisations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 
 const Schema = z.object({
   invoiceNumber: z.string().min(1).max(64),
@@ -23,8 +23,36 @@ const Schema = z.object({
 });
 
 export async function GET() {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role, repId } = await requireOrg();
   if (error) return error;
+
+  // Rep role: only return invoices for this rep's assigned customers/projects
+  if ((role === "rep" || role === "company_user") && repId) {
+    const [org] = await db.select({ level: organisations.classificationLevel })
+      .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
+    const level = org?.level ?? "customer";
+
+    if (level === "project") {
+      // Filter by projects assigned to this rep
+      const repProjects = await db.select({ id: projects.id })
+        .from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.repId, repId)));
+      if (repProjects.length === 0) return ok([]);
+      const projectIds = repProjects.map(p => p.id);
+      return ok(await db.select().from(invoices)
+        .where(and(eq(invoices.orgId, orgId!), inArray(invoices.projectId, projectIds)))
+        .orderBy(desc(invoices.dueDate)));
+    } else {
+      // Filter by customers assigned to this rep
+      const repCustomers = await db.select({ id: customers.id })
+        .from(customers).where(and(eq(customers.orgId, orgId!), eq(customers.repId, repId)));
+      if (repCustomers.length === 0) return ok([]);
+      const customerIds = repCustomers.map(c => c.id);
+      return ok(await db.select().from(invoices)
+        .where(and(eq(invoices.orgId, orgId!), inArray(invoices.customerId, customerIds)))
+        .orderBy(desc(invoices.dueDate)));
+    }
+  }
+
   return ok(await db.select().from(invoices).where(eq(invoices.orgId, orgId!)).orderBy(desc(invoices.dueDate)));
 }
 
@@ -36,7 +64,6 @@ export async function POST(req: Request) {
     const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceNumber, data.invoiceNumber)).limit(1);
     if (existing) return bad(`Invoice number "${data.invoiceNumber}" already exists`, 409);
     const [created] = await db.insert(invoices).values({
-      orgId: orgId!,
       orgId: orgId!,
       invoiceNumber: data.invoiceNumber,
       customerId: data.customerId,
