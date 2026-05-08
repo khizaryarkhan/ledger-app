@@ -5,7 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import { fmt, formatDate, daysOverdue } from "@/lib/format";
 import {
   LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
-  Download, Loader, ChevronDown, ChevronUp, FileText,
+  Download, Loader, ChevronDown, ChevronUp, FileText, Search, X,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -245,6 +245,7 @@ export default function RepPortalPage() {
   const [error,       setError]       = useState("");
   const [view,        setView]        = useState<View>({ type: "home" });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [homeSearch, setHomeSearch]   = useState("");
 
   const repName = session?.user?.name || "Rep";
   const level   = orgSettings.classificationLevel as "customer" | "project";
@@ -410,6 +411,25 @@ export default function RepPortalPage() {
               </div>
             )}
 
+            {/* Search bar */}
+            {!loading && entityList.length > 0 && (
+              <div className="relative mb-3">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                <input
+                  value={homeSearch}
+                  onChange={e => setHomeSearch(e.target.value)}
+                  placeholder={`Search ${level === "customer" ? "customers" : "projects"}…`}
+                  className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+                {homeSearch && (
+                  <button onClick={() => setHomeSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Entity cards */}
             {loading ? (
               <div className="space-y-3">
@@ -426,19 +446,34 @@ export default function RepPortalPage() {
                 <FileText size={32} className="mx-auto mb-2 opacity-30" />
                 <div className="text-sm">No receivables assigned yet</div>
               </div>
-            ) : (
-              <div className="space-y-2.5">
-                {entityList.map(({ entity, invoices: eInvs, customer }) => (
-                  <EntityCard
-                    key={entity.id}
-                    entity={entity}
-                    invoices={eInvs}
-                    customerName={customer?.name}
-                    onClick={() => setView({ type: "entity", id: entity.id, kind: level })}
-                  />
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              const s = homeSearch.toLowerCase();
+              const visible = homeSearch
+                ? entityList.filter(({ entity, customer }) =>
+                    entity.name?.toLowerCase().includes(s) ||
+                    (entity as any).code?.toLowerCase().includes(s) ||
+                    customer?.name?.toLowerCase().includes(s)
+                  )
+                : entityList;
+              return visible.length === 0 ? (
+                <div className="text-center py-12 text-stone-400">
+                  <Search size={24} className="mx-auto mb-2 opacity-30" />
+                  <div className="text-sm">No results for "{homeSearch}"</div>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {visible.map(({ entity, invoices: eInvs, customer }) => (
+                    <EntityCard
+                      key={entity.id}
+                      entity={entity}
+                      invoices={eInvs}
+                      customerName={customer?.name}
+                      onClick={() => setView({ type: "entity", id: entity.id, kind: level })}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
           </>
         )}
 
