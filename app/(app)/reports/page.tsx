@@ -64,12 +64,14 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date; priorFrom: Date; 
   return { from, to, priorFrom, priorTo };
 }
 
-function isSalesInvoice(inv: any) {
-  return inv.txnType !== "CreditMemo" && !String(inv.qboId || "").startsWith("CM-");
+function isCreditMemo(inv: any): boolean {
+  return inv.txnType === "CreditMemo" || String(inv.qboId || "").startsWith("CM-");
 }
 
+/** Positive for invoices, negative for credit memos — gives net revenue impact */
 function netAmount(inv: any): number {
-  return inv.amount || 0; // Net ex tax — stored in amount field since sync fix
+  const base = inv.amount || 0;
+  return isCreditMemo(inv) ? -Math.abs(base) : base;
 }
 
 function SalesKPI({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: "green" | "red" | "neutral" }) {
@@ -114,12 +116,10 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
     return getPeriodRange(period);
   }, [period, customFrom, customTo, isCustom]);
 
-  const salesInvoices = useMemo(() =>
-    invoices.filter((i: any) => isSalesInvoice(i)),
-    [invoices]
-  );
+  // All billing items (invoices + credit memos combined — CMs reduce revenue)
+  const salesInvoices = useMemo(() => invoices, [invoices]);
 
-  const periodInvoices = useMemo(() =>
+  const periodItems = useMemo(() =>
     salesInvoices.filter((i: any) => {
       const d = new Date(i.invoiceDate);
       return d >= from && d <= to;
@@ -127,7 +127,7 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
     [salesInvoices, from, to]
   );
 
-  const priorInvoices = useMemo(() =>
+  const priorItems = useMemo(() =>
     (period === "all") ? [] : salesInvoices.filter((i: any) => {
       const d = new Date(i.invoiceDate);
       return d >= priorFrom && d <= priorTo;
@@ -135,11 +135,18 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
     [salesInvoices, priorFrom, priorTo, period]
   );
 
+  // Split current period into regular invoices vs credit memos
+  const periodInvoices = useMemo(() => periodItems.filter((i: any) => !isCreditMemo(i)), [periodItems]);
+  const periodCNs      = useMemo(() => periodItems.filter((i: any) =>  isCreditMemo(i)), [periodItems]);
+
   // ── KPIs ────────────────────────────────────────────────────
-  const netRevenue   = useMemo(() => periodInvoices.reduce((s: number, i: any) => s + netAmount(i), 0), [periodInvoices]);
-  const priorRevenue = useMemo(() => priorInvoices.reduce((s: number, i: any) => s + netAmount(i), 0), [priorInvoices]);
-  const growth       = priorRevenue > 0 ? ((netRevenue - priorRevenue) / priorRevenue) * 100 : null;
-  const avgInvoice   = periodInvoices.length > 0 ? netRevenue / periodInvoices.length : 0;
+  const grossRevenue = useMemo(() => periodInvoices.reduce((s: number, i: any) => s + netAmount(i), 0), [periodInvoices]);
+  const cnAdjustment = useMemo(() => periodCNs.reduce((s: number, i: any) => s + netAmount(i), 0), [periodCNs]); // always ≤ 0
+  const netRevenue   = grossRevenue + cnAdjustment;
+
+  const priorNet     = useMemo(() => priorItems.reduce((s: number, i: any) => s + netAmount(i), 0), [priorItems]);
+  const growth       = priorNet > 0 ? ((netRevenue - priorNet) / priorNet) * 100 : null;
+  const avgInvoice   = periodInvoices.length > 0 ? grossRevenue / periodInvoices.length : 0;
 
   // Open AR for DSO (gross - AR uses total not amount)
   const openAR = useMemo(() =>
@@ -149,11 +156,12 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
   );
   const net90d = useMemo(() => {
     const d90 = new Date(Date.now() - 90 * 86400000);
+    // Use net (invoices minus CNs) for a correct DSO denominator
     return salesInvoices.filter((i: any) => new Date(i.invoiceDate) >= d90).reduce((s: number, i: any) => s + netAmount(i), 0);
   }, [salesInvoices]);
   const dso = net90d > 0 ? Math.round((openAR / net90d) * 90) : 0;
 
-  // Paid in period / all invoices in period
+  // Paid in period / regular invoices only (CNs don't have a paid status)
   const paidInPeriod = periodInvoices.filter((i: any) => i.paymentStatus === "Paid").length;
   const collRate = periodInvoices.length > 0 ? Math.round(paidInPeriod / periodInvoices.length * 100) : 0;
 
@@ -180,14 +188,16 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
 
   // ── Breakdown ────────────────────────────────────────────────
   const breakdownData = useMemo(() => {
-    const map = new Map<string, { label: string; sub?: string; net: number; count: number }>();
+    type Row = { label: string; gross: number; cnAdj: number; net: number; invCount: number; cnCount: number; projectIds: Set<string> };
+    const map = new Map<string, Row>();
 
-    for (const inv of periodInvoices) {
-      let key = "", label = "", sub = "";
+    // Iterate all period items (invoices + credit memos)
+    for (const inv of periodItems) {
+      let key = "", label = "";
 
       if (breakdown === "customer") {
         const c = customers.find((c: any) => c.id === inv.customerId);
-        key = inv.customerId; label = c?.name || "Unknown";
+        key = inv.customerId || "unknown"; label = c?.name || "Unknown";
       } else if (breakdown === "rep") {
         const c = customers.find((c: any) => c.id === inv.customerId);
         const p = projects.find((p: any) => p.id === inv.projectId);
@@ -202,16 +212,22 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
         key = regId; label = reg?.name || "No Region";
       }
 
-      if (!map.has(key)) map.set(key, { label, sub, net: 0, count: 0 });
+      if (!map.has(key)) map.set(key, { label, gross: 0, cnAdj: 0, net: 0, invCount: 0, cnCount: 0, projectIds: new Set() });
       const e = map.get(key)!;
-      e.net += netAmount(inv);
-      e.count += 1;
+      const amt = netAmount(inv);
+      e.net += amt;
+      if (isCreditMemo(inv)) {
+        e.cnAdj += amt; // negative
+        e.cnCount += 1;
+      } else {
+        e.gross += amt;
+        e.invCount += 1;
+        if (inv.projectId) e.projectIds.add(inv.projectId);
+      }
     }
 
     return Array.from(map.values()).sort((a, b) => b.net - a.net);
-  }, [periodInvoices, breakdown, customers, projects, reps, regions]);
-
-  const maxBreakdown = Math.max(...breakdownData.map(r => r.net), 1);
+  }, [periodItems, breakdown, customers, projects, reps, regions]);
 
   const growthColor = growth === null ? "neutral" : growth >= 0 ? "green" : "red";
   const GrowthIcon  = growth === null ? Minus : growth >= 0 ? TrendingUp : TrendingDown;
@@ -253,30 +269,32 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
       {/* KPI row */}
       <div className="grid grid-cols-6 gap-3">
         <SalesKPI
+          label="Gross Invoiced"
+          value={fmt.money(grossRevenue)}
+          sub={`${periodInvoices.length} invoice${periodInvoices.length !== 1 ? "s" : ""}`}
+        />
+        <SalesKPI
+          label="Credit Note Adj."
+          value={cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment))}` : "—"}
+          sub={periodCNs.length > 0 ? `${periodCNs.length} credit note${periodCNs.length !== 1 ? "s" : ""}` : "None issued"}
+          highlight={cnAdjustment < 0 ? "red" : "neutral"}
+        />
+        <SalesKPI
           label="Net Revenue"
           value={fmt.money(netRevenue)}
-          sub={`${periodInvoices.length} invoices`}
+          sub="Gross minus credit notes"
+          highlight={netRevenue >= grossRevenue * 0.95 ? "green" : "neutral"}
         />
         <SalesKPI
           label="vs Prior Period"
           value={growth !== null ? `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%` : "—"}
-          sub={period !== "all" ? fmt.money(priorRevenue) : "No comparison"}
+          sub={period !== "all" ? fmt.money(priorNet) : "No comparison"}
           highlight={growthColor}
-        />
-        <SalesKPI
-          label="Avg Invoice (Net)"
-          value={fmt.money(avgInvoice)}
-          sub={`${periodInvoices.length} invoices`}
-        />
-        <SalesKPI
-          label="Invoice Count"
-          value={String(periodInvoices.length)}
-          sub={`${paidInPeriod} paid`}
         />
         <SalesKPI
           label="Collection Rate"
           value={`${collRate}%`}
-          sub="Paid in period"
+          sub={`${paidInPeriod} of ${periodInvoices.length} paid`}
           highlight={collRate >= 80 ? "green" : collRate >= 50 ? "neutral" : "red"}
         />
         <SalesKPI
@@ -346,23 +364,36 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
               <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-100">
                 <th className="text-left font-semibold px-5 py-3">#</th>
                 <th className="text-left font-semibold px-3 py-3">{breakdown === "customer" ? "Customer" : breakdown === "rep" ? "Rep" : "Region"}</th>
+                <th className="text-right font-semibold px-3 py-3">Gross</th>
+                <th className="text-right font-semibold px-3 py-3">CN Adj.</th>
                 <th className="text-right font-semibold px-3 py-3">Net Revenue</th>
+                <th className="text-right font-semibold px-3 py-3">Projects</th>
                 <th className="text-right font-semibold px-3 py-3">Invoices</th>
                 <th className="text-right font-semibold px-3 py-3">Avg Invoice</th>
                 <th className="text-right font-semibold px-3 py-3">% of Total</th>
-                <th className="px-5 py-3 w-40"></th>
+                <th className="px-5 py-3 w-32"></th>
               </tr>
             </thead>
             <tbody>
               {breakdownData.map((r, i) => {
                 const pct = netRevenue > 0 ? (r.net / netRevenue) * 100 : 0;
-                const avg = r.count > 0 ? r.net / r.count : 0;
+                const avg = r.invCount > 0 ? r.gross / r.invCount : 0;
                 return (
                   <tr key={i} className="border-b border-stone-50 hover:bg-stone-50">
                     <td className="px-5 py-3 text-stone-300 text-[11px] font-mono">{String(i + 1).padStart(2, "0")}</td>
-                    <td className="px-3 py-3 font-medium text-stone-900 max-w-[220px] truncate">{r.label}</td>
+                    <td className="px-3 py-3 font-medium text-stone-900 max-w-[200px] truncate">{r.label}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-600">{fmt.money(r.gross)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {r.cnAdj < 0
+                        ? <span className="text-rose-600 font-medium">−{fmt.money(Math.abs(r.cnAdj))}</span>
+                        : <span className="text-stone-300">—</span>}
+                    </td>
                     <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.net)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">{r.count}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">{r.projectIds.size > 0 ? r.projectIds.size : <span className="text-stone-300">—</span>}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">
+                      {r.invCount}
+                      {r.cnCount > 0 && <span className="text-[10px] text-rose-400 ml-1">−{r.cnCount}CN</span>}
+                    </td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">{fmt.money(avg)}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">{pct.toFixed(1)}%</td>
                     <td className="px-5 py-3">
@@ -375,8 +406,18 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
               <tr className="bg-stone-900 text-white">
                 <td className="px-5 py-3 text-stone-400 text-[11px] font-mono">—</td>
                 <td className="px-3 py-3 font-bold text-sm">TOTAL</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grossRevenue)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm text-rose-300">
+                  {cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment))}` : "—"}
+                </td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(netRevenue)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{periodInvoices.length}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
+                  {breakdownData.reduce((s, r) => s + r.projectIds.size, 0)}
+                </td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
+                  {periodInvoices.length}
+                  {periodCNs.length > 0 && <span className="text-rose-300 ml-1 text-[10px]">−{periodCNs.length}CN</span>}
+                </td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(avgInvoice)}</td>
                 <td className="px-3 py-3 text-right font-bold">100%</td>
                 <td className="px-5 py-3" />
