@@ -93,11 +93,13 @@ function MiniBar({ pct, color = "bg-stone-800" }: { pct: number; color?: string 
   );
 }
 
-function SalesReport({ invoices, customers, projects, regions, reps }: any) {
+function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakdown }: any) {
   const { orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
   const [period, setPeriod] = useState<PeriodId>("last-12m");
-  const [breakdown, setBreakdown] = useState<"customer" | "rep" | "region">("customer");
+  const [breakdown, setBreakdown] = useState<"customer" | "project" | "rep" | "region">(fixedBreakdown ?? "customer");
+  // Sync breakdown when the sidebar selection changes
+  const activeBreakdown: "customer" | "project" | "rep" | "region" = fixedBreakdown ?? breakdown;
   const todayStr = new Date().toISOString().slice(0, 10);
   const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   const [customFrom, setCustomFrom] = useState(firstOfMonth);
@@ -197,10 +199,13 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
     for (const inv of periodItems) {
       let key = "", label = "";
 
-      if (breakdown === "customer") {
+      if (activeBreakdown === "customer") {
         const c = customers.find((c: any) => c.id === inv.customerId);
         key = inv.customerId || "unknown"; label = c?.name || "Unknown";
-      } else if (breakdown === "rep") {
+      } else if (activeBreakdown === "project") {
+        const proj = projects.find((p: any) => p.id === inv.projectId);
+        key = inv.projectId || "no-project"; label = proj?.name || "No Project";
+      } else if (activeBreakdown === "rep") {
         const c = customers.find((c: any) => c.id === inv.customerId);
         const p = projects.find((p: any) => p.id === inv.projectId);
         const repId = c?.repId || p?.repId || "unassigned";
@@ -229,7 +234,7 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
     }
 
     return Array.from(map.values()).sort((a, b) => b.net - a.net);
-  }, [periodItems, breakdown, customers, projects, reps, regions]);
+  }, [periodItems, activeBreakdown, customers, projects, reps, regions]);
 
   const growthColor = growth === null ? "neutral" : growth >= 0 ? "green" : "red";
   const GrowthIcon  = growth === null ? Minus : growth >= 0 ? TrendingUp : TrendingDown;
@@ -346,16 +351,18 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
       <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
           <div className="text-sm font-semibold text-stone-900">
-            Revenue by {breakdown === "customer" ? "Customer" : breakdown === "rep" ? "Rep" : "Region"}
+            Revenue by {activeBreakdown === "customer" ? "Customer" : activeBreakdown === "project" ? "Project" : activeBreakdown === "rep" ? "Rep" : "Region"}
           </div>
-          <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg">
-            {(["customer", "rep", "region"] as const).map(b => (
-              <button key={b} onClick={() => setBreakdown(b)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors capitalize ${breakdown === b ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
-                {b === "customer" ? "Customer" : b === "rep" ? "Rep" : "Region"}
-              </button>
-            ))}
-          </div>
+          {!fixedBreakdown && (
+            <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg">
+              {(["customer", "project", "rep", "region"] as const).map(b => (
+                <button key={b} onClick={() => setBreakdown(b)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors capitalize ${activeBreakdown === b ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
+                  {b === "customer" ? "Customer" : b === "project" ? "Project" : b === "rep" ? "Rep" : "Region"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {breakdownData.length === 0 ? (
@@ -365,11 +372,11 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-100">
                 <th className="text-left font-semibold px-5 py-3">#</th>
-                <th className="text-left font-semibold px-3 py-3">{breakdown === "customer" ? "Customer" : breakdown === "rep" ? "Rep" : "Region"}</th>
+                <th className="text-left font-semibold px-3 py-3">{activeBreakdown === "customer" ? "Customer" : activeBreakdown === "project" ? "Project" : activeBreakdown === "rep" ? "Rep" : "Region"}</th>
                 <th className="text-right font-semibold px-3 py-3">Gross</th>
                 <th className="text-right font-semibold px-3 py-3">CN Adj.</th>
                 <th className="text-right font-semibold px-3 py-3">Net Revenue</th>
-                <th className="text-right font-semibold px-3 py-3">Projects</th>
+                {activeBreakdown !== "project" && <th className="text-right font-semibold px-3 py-3">Projects</th>}
                 <th className="text-right font-semibold px-3 py-3">Invoices</th>
                 <th className="text-right font-semibold px-3 py-3">Avg Invoice</th>
                 <th className="text-right font-semibold px-3 py-3">% of Total</th>
@@ -391,7 +398,7 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
                         : <span className="text-stone-300">—</span>}
                     </td>
                     <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.net, ccy)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">{r.projectIds.size > 0 ? r.projectIds.size : <span className="text-stone-300">—</span>}</td>
+                    {activeBreakdown !== "project" && <td className="px-3 py-3 text-right tabular-nums text-stone-500">{r.projectIds.size > 0 ? r.projectIds.size : <span className="text-stone-300">—</span>}</td>}
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">
                       {r.invCount}
                       {r.cnCount > 0 && <span className="text-[10px] text-rose-400 ml-1">−{r.cnCount}CN</span>}
@@ -413,9 +420,11 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
                   {cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment), ccy)}` : "—"}
                 </td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(netRevenue, ccy)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
-                  {breakdownData.reduce((s, r) => s + r.projectIds.size, 0)}
-                </td>
+                {activeBreakdown !== "project" && (
+                  <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
+                    {breakdownData.reduce((s, r) => s + r.projectIds.size, 0)}
+                  </td>
+                )}
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
                   {periodInvoices.length}
                   {periodCNs.length > 0 && <span className="text-rose-300 ml-1 text-[10px]">−{periodCNs.length}CN</span>}
@@ -1450,7 +1459,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
 
-type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales";
+type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
 
 interface ReportItem {
   id: ReportId;
@@ -1467,11 +1476,21 @@ const REPORT_GROUPS: ReportGroup[] = [
   {
     label: "Receivables",
     items: [
-      { id: "ar-health",      label: "AR Health",          description: "AR quality score and portfolio overview" },
-      { id: "aging-customer", label: "Aging by Customer",  description: "Outstanding balances grouped by customer" },
-      { id: "aging-project",  label: "Aging by Project",   description: "Outstanding balances grouped by project" },
-      { id: "regional",       label: "Aging by Region",    description: "AR split by region with concentration view" },
-      { id: "by-rep",         label: "Aging by Rep",       description: "Portfolio view per sales representative" },
+      { id: "ar-health",      label: "AR Health",         description: "AR quality score and portfolio overview" },
+      { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
+      { id: "aging-project",  label: "Aging by Project",  description: "Outstanding balances grouped by project" },
+      { id: "regional",       label: "Aging by Region",   description: "AR split by region with concentration view" },
+      { id: "by-rep",         label: "Aging by Rep",      description: "Portfolio view per sales representative" },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
+      { id: "sales-overview",  label: "Sales Overview",    description: "Revenue KPIs and period-over-period trends" },
+      { id: "sales-customer",  label: "Sales by Customer", description: "Net revenue grouped by customer" },
+      { id: "sales-project",   label: "Sales by Project",  description: "Net revenue grouped by project" },
+      { id: "sales-region",    label: "Sales by Region",   description: "Net revenue grouped by region" },
+      { id: "sales-rep",       label: "Sales by Rep",      description: "Net revenue grouped by sales rep" },
     ],
   },
   {
@@ -1480,15 +1499,18 @@ const REPORT_GROUPS: ReportGroup[] = [
       { id: "activity", label: "Email Activity", description: "Outbound and inbound communication log" },
     ],
   },
-  {
-    label: "Sales",
-    items: [
-      { id: "sales", label: "Sales Report", description: "Revenue and invoicing trends" },
-    ],
-  },
 ];
 
 const AR_REPORTS: ReportId[] = ["aging-customer", "aging-project", "regional", "by-rep"];
+const SALES_REPORTS: ReportId[] = ["sales-overview", "sales-customer", "sales-project", "sales-region", "sales-rep"];
+
+// Map sidebar report ID → SalesReport breakdown
+const SALES_BREAKDOWN: Partial<Record<ReportId, "customer" | "project" | "rep" | "region">> = {
+  "sales-customer": "customer",
+  "sales-project":  "project",
+  "sales-region":   "region",
+  "sales-rep":      "rep",
+};
 
 export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications, orgSettings } = useData() as any;
@@ -1499,8 +1521,9 @@ export default function ReportsPage() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asAtDate, setAsAtDate] = useState(todayIso);
 
-  const isArReport = AR_REPORTS.includes(report);
-  const currentItem = REPORT_GROUPS.flatMap(g => g.items).find(i => i.id === report);
+  const isArReport    = AR_REPORTS.includes(report);
+  const isSalesReport = SALES_REPORTS.includes(report);
+  const currentItem   = REPORT_GROUPS.flatMap(g => g.items).find(i => i.id === report);
 
   const toggleGroup = (label: string) =>
     setCollapsedGroups(prev => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n; });
@@ -1512,35 +1535,35 @@ export default function ReportsPage() {
         <div className="px-4 pt-5 pb-3">
           <div className="text-[11px] uppercase tracking-widest font-semibold text-stone-400">Reports</div>
         </div>
-        <nav className="flex-1 pb-6">
+        <nav className="flex-1 pb-6 pt-1">
           {REPORT_GROUPS.map(group => {
             const isCollapsed = collapsedGroups.has(group.label);
             return (
-              <div key={group.label} className="mb-1">
-                {/* Group header */}
+              <div key={group.label} className="mb-3">
+                {/* Group header — small caps label, clearly distinct from items */}
                 <button
                   onClick={() => toggleGroup(group.label)}
-                  className="w-full flex items-center justify-between px-4 py-1.5 text-left group"
+                  className="w-full flex items-center justify-between px-4 pt-3 pb-1.5 text-left group"
                 >
-                  <span className="text-[11px] uppercase tracking-wider font-semibold text-stone-500 group-hover:text-stone-700 transition-colors">
+                  <span className="text-[10px] uppercase tracking-widest font-bold text-stone-400 group-hover:text-stone-600 transition-colors">
                     {group.label}
                   </span>
                   {isCollapsed
-                    ? <ChevronRight size={11} className="text-stone-400" />
-                    : <ChevronDown size={11} className="text-stone-400" />}
+                    ? <ChevronRight size={10} className="text-stone-300" />
+                    : <ChevronDown size={10} className="text-stone-300" />}
                 </button>
 
-                {/* Group items */}
+                {/* Group items — indented, larger, normal case */}
                 {!isCollapsed && (
-                  <div className="mt-0.5">
+                  <div>
                     {group.items.map(item => (
                       <button
                         key={item.id}
                         onClick={() => setReport(item.id)}
-                        className={`w-full text-left px-4 py-2 text-[13px] transition-colors rounded-none ${
+                        className={`w-full text-left pl-6 pr-4 py-2 text-[13px] transition-colors ${
                           report === item.id
-                            ? "bg-stone-900 text-white font-medium"
-                            : "text-stone-600 hover:bg-stone-200 hover:text-stone-900"
+                            ? "bg-stone-900 text-white font-semibold"
+                            : "text-stone-700 hover:bg-stone-200 hover:text-stone-900"
                         }`}
                       >
                         {item.label}
@@ -1563,7 +1586,7 @@ export default function ReportsPage() {
             <p className="text-[11px] text-stone-400 mt-0.5">{currentItem?.description}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {report !== "sales" && report !== "activity" && (
+            {!isSalesReport && report !== "activity" && (
               <select
                 value={regionFilter}
                 onChange={(e) => setRegionFilter(e.target.value)}
@@ -1607,13 +1630,14 @@ export default function ReportsPage() {
             />
           )}
 
-          {report === "sales" && (
+          {isSalesReport && (
             <SalesReport
               invoices={invoices}
               customers={customers}
               projects={projects}
               regions={regions}
               reps={reps ?? []}
+              fixedBreakdown={SALES_BREAKDOWN[report]}
             />
           )}
 
