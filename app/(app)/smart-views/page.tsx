@@ -103,6 +103,7 @@ export default function SmartViewsPage() {
               <div>
                 {results.slice(0, 50).map(inv => {
                   const customer = customers.find(c => c.id === inv.customerId);
+                  const project = projects.find(p => p.id === inv.projectId);
                   const out = inv.total - (inv.paid || 0);
                   return (
                     <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 px-4 py-2.5 border-b border-stone-100 last:border-0 hover:bg-stone-50">
@@ -112,6 +113,9 @@ export default function SmartViewsPage() {
                           <Badge variant={stageBadge(inv.collectionStage)} size="sm">{inv.collectionStage}</Badge>
                         </div>
                         <div className="text-sm font-medium text-stone-900 truncate mt-0.5">{customer?.name}</div>
+                        {project && (
+                          <div className="text-[11px] text-stone-400 truncate mt-0.5">{project.name}</div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold tabular-nums">{fmt.money(out, inv.currency)}</div>
