@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle } from "lucide-react";
 export default function DashboardPage() {
   const { invoices, customers, projects, regions, communications, tasks } = useData() as any;
   const { data: session } = useSession();
@@ -37,12 +37,20 @@ export default function DashboardPage() {
     const replies = communications.filter(c => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
     // True DSO = (Total Open AR / Net Sales last 90 days) × 90
-    // Uses amount (net ex tax) per invoice, consistent with sales reporting
     const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
     const netSales90d = regionInvoices
       .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo)
       .reduce((s, i) => s + ((i as any).amount || 0), 0);
     const dso = netSales90d > 0 ? Math.round((totalReceivable / netSales90d) * 90) : 0;
+
+    // Best Possible DSO = (Current/not-yet-due AR / Annual 365d Sales) × 365
+    const threeSixtyFiveDaysAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const currentAR = open.filter(i => daysOverdue(i.dueDate) < 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    const annualSales365 = regionInvoices
+      .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo)
+      .reduce((s, i) => s + ((i as any).amount || 0), 0);
+    const bpDso = annualSales365 > 0 ? Math.round((currentAR / annualSales365) * 365) : 0;
+    const dsoGap = Math.max(0, dso - bpDso);
 
     // Collection rate = invoices closed in last 30 days / total invoices
     const recentlyClosed = regionInvoices.filter(i => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
@@ -51,7 +59,13 @@ export default function DashboardPage() {
     // 90+ days overdue
     const over90 = open.filter(i => daysOverdue(i.dueDate) > 90).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
 
-    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, dso, collectionRate, over90, recentlyClosed };
+    // Proactive pipeline: due in 7-14 days, no lastFollowupDate
+    const proactivePipeline = open.filter(i => {
+      const d = daysOverdue(i.dueDate);
+      return d < -6 && d >= -14 && !i.lastFollowupDate;
+    });
+
+    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, dso, bpDso, dsoGap, collectionRate, over90, recentlyClosed, proactivePipeline };
   }, [invoices, communications]);
 
   const topOverdue = useMemo(() => {
@@ -62,6 +76,21 @@ export default function DashboardPage() {
     return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find(c => c.id === cid), amount: amt }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
   }, [invoices, customers, projects, communications, regionFilter]);
+
+  // Concentration risk — top 5 customers by total open AR
+  const concentrationRisk = useMemo(() => {
+    const byCust: Record<string, number> = {};
+    const open = invoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+    const totalAR = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    open.forEach(i => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
+    const sorted = Object.entries(byCust).map(([cid, amt]) => ({
+      customer: customers.find(c => c.id === cid),
+      amount: amt,
+      pct: totalAR > 0 ? (amt / totalAR) * 100 : 0,
+    })).filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
+    const top5Pct = totalAR > 0 ? sorted.reduce((s, x) => s + x.pct, 0) : 0;
+    return { rows: sorted, top5Pct, totalAR };
+  }, [invoices, customers]);
 
   const myTasks = tasks.filter(t => !t.completed && t.assigneeId === userId).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).slice(0, 5);
   const maxBucket = Math.max(...Object.values(stats.buckets), 1);
@@ -107,10 +136,38 @@ export default function DashboardPage() {
         </Card>
       </div>
       <div className="grid grid-cols-4 gap-3 mb-3">
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">DSO</div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.dso} days</div>
-          <div className="mt-2 text-[11px] text-stone-500">Days sales outstanding</div>
+        <Card padding="md" className="col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">DSO vs Best Possible</div>
+            <TrendingUp size={14} className="text-stone-400" />
+          </div>
+          <div className="flex items-end gap-4 mb-3">
+            <div>
+              <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.dso}d</div>
+              <div className="text-[11px] text-stone-500">Actual DSO</div>
+            </div>
+            <div className="pb-1 text-stone-300">/</div>
+            <div>
+              <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.bpDso}d</div>
+              <div className="text-[11px] text-stone-500">Best possible</div>
+            </div>
+            {stats.dsoGap > 0 && (
+              <div className="ml-auto">
+                <div className="text-xl font-semibold text-amber-600 tracking-tight">+{stats.dsoGap}d</div>
+                <div className="text-[11px] text-stone-500">Collection gap</div>
+              </div>
+            )}
+          </div>
+          <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+            <div className="h-full flex">
+              <div className="h-full bg-emerald-400 rounded-l" style={{ width: `${stats.dso > 0 ? (stats.bpDso / stats.dso) * 100 : 0}%` }} />
+              <div className="h-full bg-amber-400" style={{ width: `${stats.dso > 0 ? (stats.dsoGap / stats.dso) * 100 : 0}%` }} />
+            </div>
+          </div>
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-stone-400">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Best possible</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Collection gap</span>
+          </div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Collection rate</div>
@@ -121,11 +178,6 @@ export default function DashboardPage() {
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
           <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised)}</div>
           <div className="mt-2 text-[11px] text-stone-500">Promise to pay</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Emails sent (7d)</div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.emailsSent}</div>
-          <div className="mt-2 text-[11px] text-stone-500">{stats.replies} replies received</div>
         </Card>
       </div>
 
@@ -248,6 +300,89 @@ export default function DashboardPage() {
                   </Link>
                 );
               })}
+            </div>
+          )}
+        </Card>
+
+        {/* Concentration Risk */}
+        <Card className="col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-stone-900">Concentration risk</h3>
+              <p className="text-[11px] text-stone-500 mt-0.5">Top 5 customers as % of total AR</p>
+            </div>
+            {concentrationRisk.top5Pct > 50 && (
+              <div className="flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2 py-1 rounded-md">
+                <AlertTriangle size={11} /> High concentration
+              </div>
+            )}
+          </div>
+          {concentrationRisk.rows.length === 0 ? (
+            <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
+          ) : (
+            <div className="space-y-2.5">
+              {concentrationRisk.rows.map(({ customer, amount, pct }) => (
+                <Link key={customer.id} href={`/customers/${customer.id}`} className="block group">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[12px] font-medium text-stone-800 truncate group-hover:text-stone-900">{customer.name}</span>
+                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                      <span className="text-[11px] font-semibold text-stone-700 tabular-nums">{fmt.money(amount)}</span>
+                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-600" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${pct > 20 ? "bg-amber-400" : "bg-stone-400"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </Link>
+              ))}
+              <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
+                <span className="text-[11px] text-stone-500">Top 5 total concentration</span>
+                <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-600" : "text-emerald-600"}`}>
+                  {concentrationRisk.top5Pct.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* Proactive Pipeline */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-stone-900">Proactive pipeline</h3>
+              <p className="text-[11px] text-stone-500 mt-0.5">Due in 7–14 days, not yet contacted</p>
+            </div>
+            <Link href="/smart-views" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">Smart Views <ArrowUpRight size={12} /></Link>
+          </div>
+          {stats.proactivePipeline.length === 0 ? (
+            <div className="py-6 text-center">
+              <div className="text-2xl font-semibold text-emerald-600 mb-1">✓</div>
+              <div className="text-sm text-stone-500">All upcoming invoices contacted</div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <div className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-md px-3 py-2 mb-3">
+                <strong>{stats.proactivePipeline.length}</strong> invoice{stats.proactivePipeline.length !== 1 ? "s" : ""} due soon with no contact logged — reach out now
+              </div>
+              {stats.proactivePipeline.slice(0, 4).map(inv => {
+                const customer = customers.find(c => c.id === inv.customerId);
+                const d = Math.abs(daysOverdue(inv.dueDate));
+                return (
+                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium text-stone-800 truncate">{customer?.name}</div>
+                      <div className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[12px] font-semibold tabular-nums">{fmt.money(inv.total - (inv.paid || 0))}</div>
+                      <div className="text-[10px] text-amber-600">in {d}d</div>
+                    </div>
+                  </Link>
+                );
+              })}
+              {stats.proactivePipeline.length > 4 && (
+                <div className="text-center text-[11px] text-stone-400 pt-1">+{stats.proactivePipeline.length - 4} more</div>
+              )}
             </div>
           )}
         </Card>

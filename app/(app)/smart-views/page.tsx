@@ -18,6 +18,10 @@ const VIEWS = [
   { id: "31-60", name: "31–60 days overdue", description: "Second bucket — escalate to senior contact", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60 && i.paymentStatus !== "Paid"; }, group: "Aging" },
   { id: "61-90", name: "61–90 days overdue", description: "Third bucket — final notice before legal", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90 && i.paymentStatus !== "Paid"; }, group: "Aging" },
   { id: "90-plus", name: "90+ days overdue", description: "Refer to legal / write-off consideration", filter: (i: any) => daysOverdue(i.dueDate) > 90 && i.paymentStatus !== "Paid", group: "Aging" },
+  // PROACTIVE — pre-due contact
+  { id: "due-1-3", name: "Due in 1–3 days", description: "Pre-due contact window — send a courtesy reminder now", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d < 0 && d >= -3 && i.paymentStatus !== "Paid"; }, group: "Proactive" },
+  { id: "due-4-14", name: "Due in 4–14 days", description: "Upcoming invoices — confirm payment is on track", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d < -3 && d >= -14 && i.paymentStatus !== "Paid"; }, group: "Proactive" },
+  { id: "current-no-contact", name: "Current, never contacted", description: "Not yet due and no follow-up logged — reach out proactively", filter: (i: any) => daysOverdue(i.dueDate) < 0 && i.paymentStatus !== "Paid" && !i.lastFollowupDate, group: "Proactive" },
   // RISK
   { id: "high-value-overdue", name: "High value overdue (>€10k)", description: "Big-ticket invoices past due — priority chase", filter: (i: any) => daysOverdue(i.dueDate) > 0 && i.paymentStatus !== "Paid" && (i.total - (i.paid || 0)) > 10000, group: "Risk" },
   { id: "disputed", name: "Disputed", description: "In dispute — needs resolution before collection", filter: (i: any) => i.collectionStage === "Disputed", group: "Risk" },
@@ -51,19 +55,37 @@ export default function SmartViewsPage() {
 
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-4">
-          <div className="space-y-1">
-            {VIEWS.map(v => {
-              const count = invoices.filter(v.filter).length;
-              const active = selected === v.id;
+          <div className="space-y-0.5">
+            {(["Proactive", "Immediate", "Aging", "Risk"] as const).map(group => {
+              const groupViews = VIEWS.filter(v => v.group === group);
+              const groupLabel: Record<string, string> = {
+                Proactive: "PROACTIVE",
+                Immediate: "IMMEDIATE ACTION",
+                Aging: "AGING BUCKETS",
+                Risk: "RISK",
+              };
               return (
-                <button key={v.id} onClick={() => setSelected(v.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${active ? "bg-white ring-1 ring-stone-200 shadow-sm" : "hover:bg-stone-50"}`}>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <div className="text-sm font-medium text-stone-900">{v.name}</div>
-                    <span className="text-[11px] font-semibold text-stone-500 tabular-nums">{count}</span>
+                <div key={group} className="mb-3">
+                  <div className={`px-2 mb-1 text-[10px] font-semibold tracking-widest ${
+                    group === "Proactive" ? "text-emerald-600" : "text-stone-400"
+                  }`}>
+                    {groupLabel[group]}
                   </div>
-                  <div className="text-[11px] text-stone-500">{v.description}</div>
-                </button>
+                  {groupViews.map(v => {
+                    const count = invoices.filter(v.filter).length;
+                    const active = selected === v.id;
+                    return (
+                      <button key={v.id} onClick={() => setSelected(v.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${active ? "bg-white ring-1 ring-stone-200 shadow-sm" : "hover:bg-stone-50"}`}>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <div className="text-sm font-medium text-stone-900">{v.name}</div>
+                          <span className={`text-[11px] font-semibold tabular-nums ${count > 0 && group === "Proactive" ? "text-emerald-600" : "text-stone-500"}`}>{count}</span>
+                        </div>
+                        <div className="text-[11px] text-stone-500">{v.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>

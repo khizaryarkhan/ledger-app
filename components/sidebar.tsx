@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
-  CheckSquare, BarChart3, Upload, Zap, FileEdit, Settings, LogOut, Shield
+  CheckSquare, BarChart3, Upload, Zap, FileEdit, Settings, LogOut, Shield, TrendingUp
 } from "lucide-react";
 import { useData } from "./data-provider";
 
@@ -49,6 +49,7 @@ export function Sidebar() {
       label: "INSIGHTS",
       items: [
         { href: "/smart-views", label: "Smart Views", icon: Filter },
+        { href: "/performance", label: "Performance", icon: TrendingUp },
         { href: "/reports", label: "Reports", icon: BarChart3 },
       ],
     },
