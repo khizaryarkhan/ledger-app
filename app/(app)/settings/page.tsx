@@ -36,6 +36,8 @@ export default function SettingsPage() {
   const [newRepEmail, setNewRepEmail] = useState("");
   const [addingRep, setAddingRep] = useState(false);
   const [repSearch, setRepSearch] = useState("");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ backfilled: number; skipped: number } | null>(null);
   const [newRegionName, setNewRegionName] = useState("");
   const [addingRegion, setAddingRegion] = useState(false);
 
@@ -214,6 +216,18 @@ export default function SettingsPage() {
     finally { setSeeding(false); }
   };
 
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch("/api/qbo/backfill-paid-at", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) toast(data.error || "Backfill failed", "error");
+      else { setBackfillResult(data); toast(`Backfilled ${data.backfilled} invoice${data.backfilled !== 1 ? "s" : ""}`); }
+    } catch (e) { toast("Backfill failed", "error"); }
+    finally { setBackfilling(false); }
+  };
+
   const isReconciled = syncResult && Math.abs(syncResult.difference || 0) < 1;
 
   return (
@@ -260,7 +274,7 @@ export default function SettingsPage() {
               Sync pulls all open invoices (Balance &gt; 0) and unapplied credits from QBO. Invoices paid in QBO auto-close in Ledger. Your collection notes, stages and tasks are never overwritten.
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button onClick={handleSync} disabled={syncing}>
                 {syncing ? (
                   <span className="flex items-center gap-2"><Loader size={14} className="animate-spin" />Syncing from QuickBooks…</span>
@@ -268,10 +282,26 @@ export default function SettingsPage() {
                   <span className="flex items-center gap-2"><RefreshCw size={14} />Sync from QuickBooks</span>
                 )}
               </Button>
+              <Button variant="secondary" size="sm" onClick={handleBackfill} disabled={backfilling || syncing}>
+                {backfilling ? (
+                  <span className="flex items-center gap-2"><Loader size={14} className="animate-spin" />Backfilling…</span>
+                ) : (
+                  <span className="flex items-center gap-2"><Clock size={14} />Backfill payment dates</span>
+                )}
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleQboDisconnect} disabled={disconnecting}>
                 <Unlink size={14} className="mr-1.5" />{disconnecting ? "Disconnecting…" : "Disconnect"}
               </Button>
             </div>
+            {backfillResult && (
+              <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md px-3 py-2 text-sm text-emerald-800 flex items-center gap-2">
+                <Check size={14} className="text-emerald-600 shrink-0" />
+                <span>
+                  Backfilled <strong>{backfillResult.backfilled}</strong> invoice{backfillResult.backfilled !== 1 ? "s" : ""} with payment dates
+                  {backfillResult.skipped > 0 ? ` · ${backfillResult.skipped} skipped (no QBO payment found)` : ""}
+                </span>
+              </div>
+            )}
 
             {/* Reconciliation panel */}
             {syncResult && (
