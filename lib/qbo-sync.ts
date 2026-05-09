@@ -160,6 +160,27 @@ export async function runQboSync(orgId: string, userId: string) {
   const allInvoicesForClose = await qboFetchAllSafe(accessToken, realmId, "Invoice");
   await sleep(500);
   const openCredits = await qboFetchAllSafe(accessToken, realmId, "CreditMemo", "Balance > '0'");
+  await sleep(500);
+  // Fetch all Payments — TxnDate is the actual payment date per payment transaction
+  const allQboPayments = await qboFetchAllSafe(accessToken, realmId, "Payment");
+
+  // Build: invoiceQboId → latest payment TxnDate
+  // For invoices paid in multiple instalments, take the LATEST payment date
+  // (that's when the balance hit zero)
+  const paymentDateByInvId = new Map<string, string>();
+  for (const pay of allQboPayments) {
+    const txnDate: string = pay.TxnDate; // YYYY-MM-DD
+    if (!txnDate) continue;
+    for (const line of (pay.Line || [])) {
+      for (const linked of (line.LinkedTxn || [])) {
+        if (linked.TxnType === "Invoice") {
+          const existing = paymentDateByInvId.get(linked.TxnId);
+          // Keep the latest date — that's when it was finally settled
+          if (!existing || txnDate > existing) paymentDateByInvId.set(linked.TxnId, txnDate);
+        }
+      }
+    }
+  }
 
   const custMap = new Map(allQboCustomers.map((c: any) => [c.Id, c]));
   const parentCustomers = allQboCustomers.filter((c: any) => !c.Job && !c.ParentRef);
@@ -427,9 +448,8 @@ export async function runQboSync(orgId: string, userId: string) {
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
     const billingEmail  = buildBillingEmails(qi);
 
-    // Use QBO MetaData.LastUpdatedTime as proxy for payment date
-    // (QBO updates this when a payment is applied to the invoice)
-    const qboPaidAt = qi.MetaData?.LastUpdatedTime?.slice(0, 10) || null;
+    // Use actual Payment TxnDate — accurate date payment was received
+    const qboPaidAt = paymentDateByInvId.get(qi.Id) || null;
 
     const paidData = {
       total:         paidTotal,
@@ -446,9 +466,13 @@ export async function runQboSync(orgId: string, userId: string) {
     };
 
     if (existing) {
-      // Only update if not already marked paid (preserves collection notes/stage)
-      if (existing.paymentStatus !== "Paid") {
-        paidToUpdate.push({ id: existing.id, data: paidData });
+      // Update financials if not yet paid, OR if paidAt is missing (backfill)
+      const needsUpdate = existing.paymentStatus !== "Paid" || (!existing.paidAt && qboPaidAt);
+      if (needsUpdate) {
+        const updateData = existing.paymentStatus !== "Paid"
+          ? paidData  // full update
+          : { paidAt: qboPaidAt, updatedAt: new Date() }; // backfill paidAt only
+        paidToUpdate.push({ id: existing.id, data: updateData });
         results.paidSynced++;
       }
     } else {
@@ -622,7 +646,7 @@ export async function syncTargetedEntities(
   const invsToInsert: any[] = [];
 
   // --- Helper: apply QBO invoice data to ledger ---
-  async function processQboInvoice(qi: any) {
+  async function processQboInvoice(qi: any, paymentDate?: string) {
     if (!qi) return;
     const qboBalance = parseFloat(qi.Balance) || 0;
     const total      = parseFloat(qi.TotalAmt) || 0;
@@ -635,8 +659,8 @@ export async function syncTargetedEntities(
     const existing     = ledgerInvByQboId.get(qi.Id);
     const billingEmail = buildBillingEmails(qi);
 
-    // Payment date: use QBO MetaData.LastUpdatedTime when invoice becomes paid
-    const qboPaidAt = isPaid ? (qi.MetaData?.LastUpdatedTime?.slice(0, 10) || null) : null;
+    // Payment date: prefer explicitly-passed date (from Payment.TxnDate), else paymentDateByInvId map
+    const qboPaidAt = isPaid ? (paymentDate || paymentDateByInvId.get(qi.Id) || null) : null;
 
     if (existing) {
       updatePromises.push(
@@ -714,7 +738,7 @@ export async function syncTargetedEntities(
     for (const qi of qboInvoices.filter(Boolean)) await processQboInvoice(qi);
   }
 
-  // --- Payments: find linked invoices and refresh them ---
+  // --- Payments: find linked invoices and refresh them with accurate payment date ---
   if (paymentIds.length > 0) {
     const qboPayments = await Promise.all(
       paymentIds.map((id) =>
@@ -724,24 +748,33 @@ export async function syncTargetedEntities(
       )
     );
 
-    const linkedInvIds = new Set<string>();
+    // Build a local map: invoiceQboId → paymentTxnDate (from this webhook batch)
+    const webhookPaymentDate = new Map<string, string>();
     for (const pay of qboPayments.filter(Boolean)) {
-      for (const line of pay.Line || []) {
-        for (const linked of line.LinkedTxn || []) {
-          if (linked.TxnType === "Invoice") linkedInvIds.add(linked.TxnId);
+      const txnDate: string = pay.TxnDate;
+      if (!txnDate) continue;
+      for (const line of (pay.Line || [])) {
+        for (const linked of (line.LinkedTxn || [])) {
+          if (linked.TxnType === "Invoice") {
+            const existing = webhookPaymentDate.get(linked.TxnId);
+            if (!existing || txnDate > existing) webhookPaymentDate.set(linked.TxnId, txnDate);
+          }
         }
       }
     }
 
-    if (linkedInvIds.size > 0) {
+    if (webhookPaymentDate.size > 0) {
       const linkedQboInvoices = await Promise.all(
-        Array.from(linkedInvIds).map((id) =>
+        Array.from(webhookPaymentDate.keys()).map((id) =>
           qboApiGet(accessToken, realmId, `invoice/${id}`)
             .then((r) => r.Invoice)
             .catch(() => null)
         )
       );
-      for (const qi of linkedQboInvoices.filter(Boolean)) await processQboInvoice(qi);
+      for (const qi of linkedQboInvoices.filter(Boolean)) {
+        // Pass the actual payment date from the Payment object
+        await processQboInvoice(qi, webhookPaymentDate.get(qi.Id));
+      }
     }
   }
 
