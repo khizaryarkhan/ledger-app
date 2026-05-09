@@ -406,11 +406,23 @@ export async function runQboSync(orgId: string, userId: string) {
     const cust = freshCustByQboId.get(tlId) || freshCustByCode.get(`QBO-${tlId}`);
     if (!cust) continue;
     const balance = parseFloat(cm.Balance) || 0;
+
+    // Resolve project: same logic as invoices — if the CM's CustomerRef points to a
+    // sub-customer (QBO project), capture that project ID.
+    let cmProjectId: string | null = null;
+    const cmDirectCust = custMap.get(cm.CustomerRef?.value);
+    if (cmDirectCust?.ParentRef) {
+      const proj =
+        freshProjByQboId.get(cm.CustomerRef.value) ||
+        freshProjByCode.get(`QBO-PROJ-${cm.CustomerRef.value}`);
+      if (proj) cmProjectId = proj.id;
+    }
+
     creditsToInsert.push({
       orgId,
       invoiceNumber: creditNumber,
       customerId: cust.id,
-      projectId: null,
+      projectId: cmProjectId,
       invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       currency: cust.currency || "EUR",
