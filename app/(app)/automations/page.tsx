@@ -1,135 +1,274 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/components/data-provider";
 import { Card, Badge } from "@/components/ui";
 import {
   Zap, Mail, Clock, AlertOctagon, Search, AlertTriangle,
-  Info, CheckCircle, Users, Briefcase,
+  Info, CheckCircle, Users, Briefcase, Check, Minus,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
-// AUTOMATION RULES (existing content)
+// AUTOMATION RULES
 // ─────────────────────────────────────────────
 const RULES = [
-  { name: "Pre-due reminder",        trigger: "3 days before due date",  action: "Send 'Friendly reminder' template",      status: "active" },
-  { name: "First overdue notice",    trigger: "1 day after due date",    action: "Send 'First overdue' template",           status: "active" },
-  { name: "Second overdue notice",   trigger: "8 days after due date",   action: "Send 'Second overdue' template",          status: "active" },
-  { name: "Final notice",            trigger: "21 days after due date",  action: "Send 'Final notice' template, escalate",  status: "active" },
-  { name: "Auto-escalate (30 days)", trigger: "30+ days overdue",        action: "Move stage to Escalated",                 status: "active" },
-  { name: "Pause on dispute",        trigger: "Stage = Disputed",        action: "Pause all reminders",                     status: "active" },
-  { name: "Pause on promise",        trigger: "Stage = Promise to Pay",  action: "Pause until promise date",               status: "active" },
+  { name: "Pre-due reminder",        trigger: "3 days before due date",  action: "Send 'Friendly reminder' template — open invoices attached"     },
+  { name: "First overdue notice",    trigger: "1 day after due date",    action: "Send 'First overdue' template — open invoices attached"           },
+  { name: "Second overdue notice",   trigger: "8 days after due date",   action: "Send 'Second overdue' template — open invoices attached"          },
+  { name: "Final notice",            trigger: "21 days after due date",  action: "Send 'Final notice' template, escalate — open invoices attached"  },
+  { name: "Auto-escalate (30 days)", trigger: "30+ days overdue",        action: "Move stage to Escalated"                                          },
+  { name: "Pause on dispute",        trigger: "Stage = Disputed",        action: "Pause all reminders"                                              },
+  { name: "Pause on promise",        trigger: "Stage = Promise to Pay",  action: "Pause until promise date"                                         },
 ];
 
 // ─────────────────────────────────────────────
 // REMINDER PROGRAMME TAB
 // ─────────────────────────────────────────────
 function ReminderProgramme() {
-  const { customers, projects, contacts, orgSettings, refresh, toast } = useData();
-  const [search, setSearch] = useState("");
-  const [saving, setSaving] = useState<Record<string, boolean>>({});
-  // Allow user to override view independently of org default
+  const { customers, projects, contacts, invoices, orgSettings, refresh, toast } = useData() as any;
+
+  const [search, setSearch]       = useState("");
+  const [saving, setSaving]       = useState<Record<string, boolean>>({});
+  const [selected, setSelected]   = useState<Set<string>>(new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
   const [viewLevel, setViewLevel] = useState<"customer" | "project">(
-    orgSettings.classificationLevel ?? "customer"
+    orgSettings?.classificationLevel ?? "customer"
   );
 
-  const isProjectLevel = viewLevel === "project";
-  const entities: any[] = isProjectLevel ? projects : customers;
+  // Per-entity local email values (editable directly)
+  const [emails, setEmails] = useState<Record<string, string>>({});
+  const [emailDirty, setEmailDirty] = useState<Set<string>>(new Set());
 
-  // For each entity: gather its contacts (with email), find active reminder contact
+  const isProjectLevel = viewLevel === "project";
+  const entities: any[] = isProjectLevel ? (projects ?? []) : (customers ?? []);
+
+  // Initialise email inputs from active contacts (only if not dirty)
+  useEffect(() => {
+    setEmails((prev) => {
+      const next = { ...prev };
+      entities.forEach((entity) => {
+        if (!emailDirty.has(entity.id)) {
+          const active = (contacts ?? []).find((c: any) =>
+            (isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id) && c.receivesAuto
+          );
+          // If no project-specific auto contact, fall back to customer-level
+          const fallback = !isProjectLevel
+            ? null
+            : (contacts ?? []).find((c: any) => c.customerId === entity.customerId && !c.projectId && c.receivesAuto);
+          next[entity.id] = active?.email ?? fallback?.email ?? "";
+        }
+      });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts, isProjectLevel]);
+
+  // ── Derived row data ──────────────────────────
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return entities
-      .filter((e) => !q || e.name.toLowerCase().includes(q))
+      .filter((e) => !q || e.name.toLowerCase().includes(q) || (e.code ?? "").toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((entity) => {
-        const entityContacts = contacts
-          .filter((c: any) =>
-            isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id
-          )
-          .filter((c: any) => c.email); // only contacts with an email address
-
+        const entityContacts = (contacts ?? []).filter((c: any) =>
+          isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id
+        );
         const activeContact = entityContacts.find((c: any) => c.receivesAuto) ?? null;
-        const isOn = !!activeContact;
+        const isOn = !!activeContact && !!activeContact.email;
+        const localEmail = emails[entity.id] ?? "";
+        const isDirty = emailDirty.has(entity.id);
 
-        return { entity, entityContacts, activeContact, isOn };
+        // Count open invoices with balance > 0 for this entity
+        const openInvoices = (invoices ?? []).filter((inv: any) => {
+          const matchesEntity = isProjectLevel
+            ? inv.projectId === entity.id
+            : inv.customerId === entity.id;
+          return matchesEntity && inv.paymentStatus !== "Paid" && inv.paymentStatus !== "Written Off" && (inv.total - (inv.paid || 0)) > 0;
+        });
+
+        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices };
       });
-  }, [entities, contacts, search, isProjectLevel]);
+  }, [entities, contacts, emails, emailDirty, search, isProjectLevel, invoices]);
+
+  const onCount  = rows.filter((r) => r.isOn).length;
+  const offCount = rows.filter((r) => !r.isOn).length;
+  const noEmailCount = rows.filter((r) => !r.localEmail).length;
 
   // ── API helpers ──────────────────────────────
   const patchContact = useCallback(async (contactId: string, data: any) => {
-    await fetch(`/api/contacts/${contactId}`, {
+    const res = await fetch(`/api/contacts/${contactId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    if (!res.ok) throw new Error("Failed to update contact");
+    return res.json();
   }, []);
 
-  // Select a new reminder contact for an entity
-  const handleContactChange = useCallback(
-    async (entityId: string, oldContactId: string | null, newContactId: string) => {
-      setSaving((p) => ({ ...p, [entityId]: true }));
+  const createContact = useCallback(async (entity: any, email: string) => {
+    const body: any = {
+      customerId: isProjectLevel ? entity.customerId : entity.id,
+      name: entity.name,
+      email,
+      type: "Billing",
+      isPrimary: false,
+      receivesAuto: true,
+    };
+    if (isProjectLevel) body.projectId = entity.id;
+    const res = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("Failed to create contact");
+    return res.json();
+  }, [isProjectLevel]);
+
+  // Save the email for an entity (create or update contact)
+  const saveEmail = useCallback(
+    async (entity: any, email: string, row: typeof rows[0]) => {
+      if (!email.trim()) {
+        toast("Please enter a valid email address", "error");
+        return;
+      }
+      setSaving((p) => ({ ...p, [entity.id]: true }));
       try {
-        if (oldContactId && oldContactId !== newContactId) {
-          await patchContact(oldContactId, { receivesAuto: false });
+        if (row.activeContact) {
+          await patchContact(row.activeContact.id, { email: email.trim(), receivesAuto: true });
+        } else if (row.entityContacts.length > 0) {
+          // Update an existing non-auto contact and enable it
+          const target =
+            row.entityContacts.find((c: any) => c.type === "Billing") ??
+            row.entityContacts[0];
+          await patchContact(target.id, { email: email.trim(), receivesAuto: true });
+        } else {
+          // No contact yet — create one
+          await createContact(entity, email.trim());
         }
-        await patchContact(newContactId, { receivesAuto: true });
+        setEmailDirty((prev) => { const s = new Set(prev); s.delete(entity.id); return s; });
         await refresh();
+        toast("Email saved");
       } catch {
-        toast("Failed to update contact", "error");
+        toast("Failed to save email", "error");
       } finally {
-        setSaving((p) => ({ ...p, [entityId]: false }));
+        setSaving((p) => ({ ...p, [entity.id]: false }));
       }
     },
-    [patchContact, refresh, toast]
+    [patchContact, createContact, refresh, toast]
   );
 
   // Toggle programme ON / OFF
   const handleToggle = useCallback(
-    async (entityId: string, entityContacts: any[], activeContact: any | null, turnOn: boolean) => {
-      if (turnOn && entityContacts.length === 0) {
-        toast("Add a contact with an email address first", "error");
+    async (entity: any, row: typeof rows[0], turnOn: boolean) => {
+      // If turning ON and email in input but not yet saved → save first
+      const email = emails[entity.id]?.trim() ?? "";
+      if (turnOn && !row.activeContact && !email) {
+        toast("Enter an email address first", "error");
         return;
       }
-      setSaving((p) => ({ ...p, [entityId]: true }));
+      setSaving((p) => ({ ...p, [entity.id]: true }));
       try {
         if (!turnOn) {
-          // Turn OFF: clear receivesAuto on all contacts for this entity
           await Promise.all(
-            entityContacts
+            row.entityContacts
               .filter((c: any) => c.receivesAuto)
               .map((c: any) => patchContact(c.id, { receivesAuto: false }))
           );
         } else {
-          // Turn ON: pick best available contact
-          const target =
-            entityContacts.find((c: any) => c.isPrimary) ??
-            entityContacts.find((c: any) => c.type === "Billing") ??
-            entityContacts[0];
-          await patchContact(target.id, { receivesAuto: true });
+          if (row.activeContact) {
+            await patchContact(row.activeContact.id, { receivesAuto: true });
+          } else if (email) {
+            // Save the email then turn on
+            if (row.entityContacts.length > 0) {
+              const target =
+                row.entityContacts.find((c: any) => c.type === "Billing") ?? row.entityContacts[0];
+              await patchContact(target.id, { email, receivesAuto: true });
+            } else {
+              await createContact(entity, email);
+            }
+            setEmailDirty((prev) => { const s = new Set(prev); s.delete(entity.id); return s; });
+          }
         }
         await refresh();
       } catch {
         toast("Failed to update programme", "error");
       } finally {
-        setSaving((p) => ({ ...p, [entityId]: false }));
+        setSaving((p) => ({ ...p, [entity.id]: false }));
       }
     },
-    [patchContact, refresh, toast]
+    [emails, patchContact, createContact, refresh, toast]
   );
 
-  const onCount  = rows.filter((r) => r.isOn).length;
-  const offCount = rows.filter((r) => !r.isOn).length;
-  const noContactCount = rows.filter((r) => r.entityContacts.length === 0).length;
+  // ── Batch actions ──────────────────────────────
+  const allSelected  = rows.length > 0 && rows.every((r) => selected.has(r.entity.id));
+  const someSelected = rows.some((r) => selected.has(r.entity.id));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.entity.id)));
+    }
+  };
+
+  const handleBulk = useCallback(
+    async (turnOn: boolean) => {
+      const targets = rows.filter((r) => selected.has(r.entity.id));
+      if (targets.length === 0) return;
+
+      // Validate: turning ON requires an email
+      if (turnOn) {
+        const missing = targets.filter((r) => !r.localEmail.trim());
+        if (missing.length > 0) {
+          toast(`${missing.length} ${missing.length === 1 ? "row has" : "rows have"} no email — enter emails first`, "error");
+          return;
+        }
+      }
+
+      setBulkSaving(true);
+      try {
+        await Promise.all(
+          targets.map(async (r) => {
+            if (!turnOn) {
+              return Promise.all(
+                r.entityContacts
+                  .filter((c: any) => c.receivesAuto)
+                  .map((c: any) => patchContact(c.id, { receivesAuto: false }))
+              );
+            } else {
+              const email = r.localEmail.trim();
+              if (r.activeContact) {
+                return patchContact(r.activeContact.id, { receivesAuto: true, email });
+              } else if (r.entityContacts.length > 0) {
+                const target =
+                  r.entityContacts.find((c: any) => c.type === "Billing") ?? r.entityContacts[0];
+                return patchContact(target.id, { receivesAuto: true, email });
+              } else {
+                return createContact(r.entity, email);
+              }
+            }
+          })
+        );
+        await refresh();
+        toast(`${targets.length} ${turnOn ? "turned ON" : "turned OFF"}`);
+        setSelected(new Set());
+      } catch {
+        toast("Bulk update failed", "error");
+      } finally {
+        setBulkSaving(false);
+      }
+    },
+    [rows, selected, patchContact, createContact, refresh, toast]
+  );
 
   return (
     <div className="space-y-4">
-      {/* Summary KPIs */}
+      {/* KPI cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Programme ON",         value: onCount,        color: "text-emerald-600" },
-          { label: "Programme OFF",         value: offCount,       color: "text-stone-500"   },
-          { label: "No email contact",      value: noContactCount, color: "text-amber-600"   },
+          { label: "Programme ON",   value: onCount,      color: "text-emerald-600" },
+          { label: "Programme OFF",  value: offCount,     color: "text-stone-500"   },
+          { label: "No email set",   value: noEmailCount, color: "text-amber-600"   },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white rounded-lg ring-1 ring-stone-200 px-4 py-3 text-center">
             <div className={`text-2xl font-bold ${color}`}>{value}</div>
@@ -138,28 +277,16 @@ function ReminderProgramme() {
         ))}
       </div>
 
-      {/* Controls row */}
-      <div className="flex items-center gap-3">
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
         {/* Level toggle */}
         <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-1">
-          <button
-            onClick={() => setViewLevel("customer")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-              viewLevel === "customer"
-                ? "bg-white text-stone-900 shadow-sm"
-                : "text-stone-500 hover:text-stone-800"
-            }`}
-          >
+          <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Users size={12} /> By Customer
           </button>
-          <button
-            onClick={() => setViewLevel("project")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-              viewLevel === "project"
-                ? "bg-white text-stone-900 shadow-sm"
-                : "text-stone-500 hover:text-stone-800"
-            }`}
-          >
+          <button onClick={() => { setViewLevel("project"); setSelected(new Set()); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Briefcase size={12} /> By Project
           </button>
         </div>
@@ -167,28 +294,66 @@ function ReminderProgramme() {
         {/* Search */}
         <div className="relative flex-1 max-w-xs">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${isProjectLevel ? "projects" : "customers"}…`}
-            className="w-full h-9 pl-8 pr-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
-          />
+            className="w-full h-9 pl-8 pr-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
         </div>
 
-        <div className="ml-auto text-[11px] text-stone-400">
-          {rows.length} {isProjectLevel ? "projects" : "customers"}
-        </div>
+        <div className="ml-auto text-[11px] text-stone-400">{rows.length} {isProjectLevel ? "projects" : "customers"}</div>
       </div>
+
+      {/* Bulk action bar */}
+      {someSelected && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => handleBulk(true)}
+              disabled={bulkSaving}
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
+            >
+              Turn ON ({selected.size})
+            </button>
+            <button
+              onClick={() => handleBulk(false)}
+              disabled={bulkSaving}
+              className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
+            >
+              Turn OFF ({selected.size})
+            </button>
+            <button onClick={() => setSelected(new Set())}
+              className="px-2 py-1.5 text-stone-400 hover:text-white text-sm rounded-md transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[1fr_2fr_140px] gap-4 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[40px_1fr_2fr_130px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+          {/* Select all */}
+          <div className="flex items-center justify-center">
+            <button
+              onClick={toggleSelectAll}
+              className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                allSelected
+                  ? "bg-stone-900 border-stone-900"
+                  : someSelected
+                  ? "bg-stone-400 border-stone-400"
+                  : "border-stone-300 hover:border-stone-500"
+              }`}
+            >
+              {allSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+              {someSelected && !allSelected && <Minus size={10} className="text-white" strokeWidth={3} />}
+            </button>
+          </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
             {isProjectLevel ? "Project" : "Customer"}
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
-            Reminder Contact &amp; Email
+            Reminder Email
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">
             Programme
@@ -201,85 +366,112 @@ function ReminderProgramme() {
           </div>
         )}
 
-        {rows.map(({ entity, entityContacts, activeContact, isOn }) => {
-          const isSaving = !!saving[entity.id];
-          const hasNoContacts = entityContacts.length === 0;
+        {rows.map(({ entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices }) => {
+          const isSaving   = !!saving[entity.id] || bulkSaving;
+          const isSelected = selected.has(entity.id);
+          const emailVal   = emails[entity.id] ?? "";
 
           return (
             <div
               key={entity.id}
-              className={`grid grid-cols-[1fr_2fr_140px] gap-4 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
-                isSaving ? "opacity-60" : ""
-              }`}
+              className={`grid grid-cols-[40px_1fr_2fr_130px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+                isSelected ? "bg-stone-50" : ""
+              } ${isSaving ? "opacity-60" : ""}`}
             >
+              {/* Checkbox */}
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={() => {
+                    setSelected((prev) => {
+                      const s = new Set(prev);
+                      s.has(entity.id) ? s.delete(entity.id) : s.add(entity.id);
+                      return s;
+                    });
+                  }}
+                  className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                    isSelected
+                      ? "bg-stone-900 border-stone-900"
+                      : "border-stone-300 hover:border-stone-500"
+                  }`}
+                >
+                  {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+                </button>
+              </div>
+
               {/* Entity name */}
               <div className="min-w-0">
                 <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
-                {entity.code && (
+                {(entity.code || entity.invoiceNumber) && (
                   <div className="text-[11px] text-stone-400 font-mono">{entity.code}</div>
                 )}
-              </div>
-
-              {/* Contact selector */}
-              <div className="flex items-center gap-2 min-w-0">
-                {hasNoContacts ? (
-                  <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
-                    <AlertTriangle size={12} />
-                    <span>No contact with email — add one in customer profile</span>
+                {openInvoices.length > 0 && (
+                  <div className="text-[10px] text-emerald-600 mt-0.5">
+                    {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
                   </div>
-                ) : (
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <select
-                        value={activeContact?.id ?? ""}
-                        disabled={isSaving}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleContactChange(entity.id, activeContact?.id ?? null, e.target.value);
-                          }
-                        }}
-                        className="w-full h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none appearance-none cursor-pointer disabled:opacity-50"
-                        style={{
-                          backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                          backgroundPosition: "right 0.5rem center",
-                          backgroundSize: "12px",
-                          paddingRight: "1.75rem",
-                        }}
-                      >
-                        <option value="">Select contact…</option>
-                        {entityContacts.map((c: any) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}{c.title ? ` (${c.title})` : ""} — {c.email}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Status icon */}
-                    {activeContact ? (
-                      <CheckCircle size={14} className="text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertTriangle size={14} className="text-amber-400 shrink-0" title="No contact selected — programme will not send" />
-                    )}
-                  </>
                 )}
               </div>
 
-              {/* ON/OFF toggle */}
+              {/* Email input */}
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="email"
+                    value={emailVal}
+                    disabled={isSaving}
+                    placeholder="billing@customer.com"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEmails((prev) => ({ ...prev, [entity.id]: val }));
+                      setEmailDirty((prev) => {
+                        const s = new Set(prev);
+                        // Mark dirty only if value differs from saved contact email
+                        if (val !== (activeContact?.email ?? "")) s.add(entity.id);
+                        else s.delete(entity.id);
+                        return s;
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEmail(entity, emailVal, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices });
+                    }}
+                    onBlur={() => {
+                      if (isDirty && emailVal.trim()) {
+                        saveEmail(entity, emailVal, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices });
+                      }
+                    }}
+                    className={`w-full h-8 px-2.5 text-sm rounded-md ring-1 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white transition-colors ${
+                      isDirty
+                        ? "ring-amber-300 bg-amber-50"
+                        : emailVal
+                        ? "ring-stone-200"
+                        : "ring-stone-200 placeholder:text-stone-300"
+                    }`}
+                  />
+                  {isDirty && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600 font-medium pointer-events-none">
+                      unsaved
+                    </span>
+                  )}
+                </div>
+
+                {/* Status icon */}
+                {!emailVal ? (
+                  <span title="No email set"><AlertTriangle size={14} className="text-amber-400 shrink-0" /></span>
+                ) : isOn ? (
+                  <span title="Programme active"><CheckCircle size={14} className="text-emerald-500 shrink-0" /></span>
+                ) : (
+                  <div className="w-3.5 h-3.5 shrink-0" />
+                )}
+              </div>
+
+              {/* ON/OFF toggle + label */}
               <div className="flex items-center justify-center gap-2">
                 <button
-                  disabled={isSaving || (hasNoContacts && !isOn)}
-                  onClick={() => handleToggle(entity.id, entityContacts, activeContact, !isOn)}
+                  disabled={isSaving}
+                  onClick={() => handleToggle(entity, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices }, !isOn)}
+                  title={isOn ? "Click to turn off" : emailVal ? "Click to turn on" : "Enter email first"}
                   className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${
                     isOn ? "bg-emerald-500" : "bg-stone-200"
                   }`}
-                  title={
-                    hasNoContacts
-                      ? "Add a contact first"
-                      : isOn
-                      ? "Click to turn off"
-                      : "Click to turn on"
-                  }
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${
@@ -287,11 +479,7 @@ function ReminderProgramme() {
                     }`}
                   />
                 </button>
-                <span
-                  className={`text-[11px] font-semibold w-7 ${
-                    isOn ? "text-emerald-600" : "text-stone-400"
-                  }`}
-                >
+                <span className={`text-[11px] font-semibold w-7 ${isOn ? "text-emerald-600" : "text-stone-400"}`}>
                   {isOn ? "ON" : "OFF"}
                 </span>
               </div>
@@ -300,13 +488,14 @@ function ReminderProgramme() {
         })}
       </Card>
 
-      {/* Info note */}
+      {/* Footer note */}
       <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          When a programme is ON, the contact above will receive automated reminder emails according to
-          the schedule in <strong className="text-stone-600">Automation Rules</strong>. Invoices in Disputed or
-          Promise to Pay stages are always skipped. Invoice PDFs are attached automatically when available.
+          Reminders are sent only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
+          Invoice PDFs are attached automatically. Invoices in Disputed or Promise to Pay stages are always skipped.
+          Email subjects include the project/customer reference and invoice numbers.
+          Type directly in the email field — it saves automatically on Enter or when you click away.
         </span>
       </div>
     </div>
@@ -329,24 +518,17 @@ export default function AutomationsPage() {
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-5 border-b border-stone-200">
         {(["programme", "rules"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
+          <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? "border-stone-900 text-stone-900"
-                : "border-transparent text-stone-500 hover:text-stone-900"
-            }`}
-          >
+              tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"
+            }`}>
             {t === "programme" ? "Reminder Programme" : "Automation Rules"}
           </button>
         ))}
       </div>
 
-      {/* ── Reminder Programme ── */}
       {tab === "programme" && <ReminderProgramme />}
 
-      {/* ── Automation Rules ── */}
       {tab === "rules" && (
         <div className="space-y-4">
           <Card className="bg-amber-50 ring-amber-200">
@@ -355,11 +537,9 @@ export default function AutomationsPage() {
               <div className="text-sm text-amber-900">
                 <div className="font-medium mb-1">Email sending requires SMTP configuration</div>
                 <div>
-                  Reminder rules are active but emails won't send until SMTP is configured in{" "}
-                  <a href="/settings/notifications" className="underline font-medium">
-                    Settings → Notifications
-                  </a>
-                  . The 30-day auto-escalation rule runs daily without SMTP.
+                  Rules are active but emails won't send until SMTP is configured in{" "}
+                  <a href="/settings/notifications" className="underline font-medium">Settings → Notifications</a>.
+                  The 30-day auto-escalation rule runs daily without SMTP.
                 </div>
               </div>
             </div>
@@ -369,14 +549,11 @@ export default function AutomationsPage() {
             <div className="px-4 py-3 border-b border-stone-200">
               <h3 className="text-sm font-semibold text-stone-900">Active rules</h3>
               <p className="text-[11px] text-stone-500 mt-0.5">
-                These rules apply to all customers with the Reminder Programme turned ON
+                Apply to all customers/projects with Reminder Programme ON · only open invoices with a balance are included
               </p>
             </div>
             {RULES.map((r, i) => (
-              <div
-                key={i}
-                className="px-4 py-3 border-b border-stone-100 last:border-0 flex items-start gap-3"
-              >
+              <div key={i} className="px-4 py-3 border-b border-stone-100 last:border-0 flex items-start gap-3">
                 <div className="w-8 h-8 rounded-md bg-stone-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <Zap size={14} className="text-stone-600" />
                 </div>
