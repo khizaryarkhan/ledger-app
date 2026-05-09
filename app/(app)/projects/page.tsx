@@ -7,6 +7,7 @@ import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { ProjectModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Briefcase, Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
+import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
   const { reps, regions, reclassifyProjects } = useData() as any;
@@ -124,17 +125,30 @@ export default function ProjectsPage() {
     }
     if (repFilter) res = res.filter((p: any) => p.repId === repFilter);
     if (regionFilter) res = res.filter((p: any) => p.regionId === regionFilter);
-    return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
+    return res;
   }, [enriched, search, repFilter, regionFilter]);
+
+  const PROJ_COLS: ColDef[] = useMemo(() => [
+    { key: "name", label: "Project", sortValue: (r: any) => r.name, filterLabel: (r: any) => r.name },
+    { key: "customer", label: "Customer", sortValue: (r: any) => r.customer?.name ?? "", filterLabel: (r: any) => r.customer?.name ?? "(None)" },
+    { key: "repName", label: "Rep", sortValue: (r: any) => r.repName ?? "", filterLabel: (r: any) => r.repName ?? "(Unassigned)" },
+    { key: "regionName", label: "Region", sortValue: (r: any) => r.regionName ?? "", filterLabel: (r: any) => r.regionName ?? "(Unassigned)" },
+    { key: "status", label: "Status", sortValue: (r: any) => r.status ?? "", filterLabel: (r: any) => r.status ?? "" },
+    { key: "openCount", label: "Open Inv.", sortValue: (r: any) => r.openCount ?? 0, align: "right" as const, noFilter: true },
+    { key: "outstanding", label: "Outstanding", sortValue: (r: any) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
+    { key: "overdue", label: "Overdue", sortValue: (r: any) => r.overdue ?? 0, align: "right" as const, noFilter: true },
+  ], []);
+
+  const dt = useDataTable(filtered, PROJ_COLS, { defaultSort: "outstanding", defaultDir: "desc" });
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [search, repFilter, regionFilter]);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const visible = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
+  useEffect(() => { setPage(0); }, [search, repFilter, regionFilter, dt.sortKey, dt.sortDir]);
+  const totalPages = Math.ceil(dt.rows.length / PAGE_SIZE);
+  const visible = useMemo(() => dt.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [dt.rows, page]);
 
-  const allSelected = filtered.length > 0 && filtered.every((p: any) => selected.has(p.id));
-  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((p: any) => p.id)));
+  const allSelected = dt.rows.length > 0 && dt.rows.every((p: any) => selected.has(p.id));
+  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(dt.rows.map((p: any) => p.id)));
   const toggleOne = useCallback((id: string) => setSelected(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -206,7 +220,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {dt.rows.length === 0 ? (
         <Card>
           <EmptyState icon={Briefcase} title="No projects found"
             description={projects.length === 0 ? "Projects group invoices for a customer engagement." : "Try adjusting your filters."}
@@ -214,21 +228,15 @@ export default function ProjectsPage() {
         </Card>
       ) : (
         <Card padding="none">
+          <ActiveFiltersBar dt={dt} cols={PROJ_COLS} />
           <div className="px-4 py-2.5 border-b border-stone-200 flex items-center gap-2">
             <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
-            <span className="text-[11px] text-stone-500">Select all</span>
+            <span className="text-[11px] text-stone-500">Select all ({dt.rows.length})</span>
           </div>
           <table className="w-full text-sm">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+            <thead><tr className="border-b border-stone-200 bg-stone-50/50">
               <th className="w-10 px-4 py-2.5"></th>
-              <th className="text-left font-semibold px-4 py-2.5">Project</th>
-              <th className="text-left font-semibold px-4 py-2.5">Customer</th>
-              <th className="text-left font-semibold px-4 py-2.5">Rep</th>
-              <th className="text-left font-semibold px-4 py-2.5">Region</th>
-              <th className="text-left font-semibold px-4 py-2.5">Status</th>
-              <th className="text-right font-semibold px-4 py-2.5">Open inv.</th>
-              <th className="text-right font-semibold px-4 py-2.5">Outstanding</th>
-              <th className="text-right font-semibold px-4 py-2.5">Overdue</th>
+              {PROJ_COLS.map(col => <ColHeader key={col.key} col={col} dt={dt} />)}
             </tr></thead>
             <tbody>
               {visible.map((p: any) => (
@@ -238,7 +246,7 @@ export default function ProjectsPage() {
           </table>
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-stone-100">
-              <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+              <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, dt.rows.length)} of {dt.rows.length}</span>
               <div className="flex items-center gap-1">
                 <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
                   className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Prev</button>

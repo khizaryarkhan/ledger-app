@@ -8,6 +8,7 @@ import { InvoiceModal } from "@/components/forms";
 import { BatchEmailModal } from "@/components/feature";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
 import { Search, Upload, Plus, FileText, Trash2, X, Download, Send } from "lucide-react";
+import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 export default function InvoicesPage() {
   const { invoices, customers, projects, contacts, regions, bulkDeleteInvoices, orgSettings } = useData() as any;
@@ -103,6 +104,21 @@ export default function InvoicesPage() {
     return res;
   }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter]);
 
+  // Column definitions for sort + filter
+  const INV_COLS: ColDef[] = [
+    { key: "invoiceNumber", label: "Invoice", sortValue: (r) => r.invoiceNumber, filterLabel: (r) => r.invoiceNumber },
+    { key: "customer",      label: "Customer", sortValue: (r) => r.customer?.name ?? "", filterLabel: (r) => r.customer?.name ?? "" },
+    { key: "project",       label: "Project",  sortValue: (r) => r.project?.name ?? "", filterLabel: (r) => r.project?.name ?? "(None)" },
+    { key: "invoiceDate",   label: "Inv. Date", sortValue: (r) => r.invoiceDate ?? "" },
+    { key: "dueDate",       label: "Due Date",  sortValue: (r) => r.dueDate ?? "" },
+    { key: "dueStatus",     label: "Status",    sortValue: (r) => r.dueStatus ?? "", filterLabel: (r) => r.dueStatus ?? "" },
+    { key: "collectionStage", label: "Stage",   sortValue: (r) => r.collectionStage ?? "", filterLabel: (r) => r.collectionStage ?? "" },
+    { key: "billingEmail",  label: "Billing Email", sortValue: (r) => r.resolvedEmail ?? "", filterLabel: (r) => r.resolvedEmail ? "Has email" : "No email", noFilter: false },
+    { key: "total",         label: "Value",      sortValue: (r) => r.total ?? 0, align: "right" as const, noFilter: true },
+    { key: "outstanding",   label: "Outstanding", sortValue: (r) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
+  ];
+  const dt = useDataTable(filtered, INV_COLS);
+
   const allSelected = filtered.length > 0 && filtered.every((i: any) => selected.has(i.id));
   const someSelected = selected.size > 0;
 
@@ -187,28 +203,22 @@ export default function InvoicesPage() {
             <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); setRegionFilter(""); }}>Clear</Button>
           )}
         </div>
+        <ActiveFiltersBar dt={dt} cols={INV_COLS} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200 bg-stone-50/50">
+              <tr className="border-b border-stone-200 bg-stone-50/50">
                 <th className="px-3 py-2.5 w-10">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
                 </th>
-                <th className="text-left font-semibold px-3 py-2.5">Invoice</th>
-                <th className="text-left font-semibold px-3 py-2.5">Customer</th>
-                <th className="text-left font-semibold px-3 py-2.5">Project</th>
-                <th className="text-left font-semibold px-3 py-2.5">Inv. Date</th>
-                <th className="text-left font-semibold px-3 py-2.5">Due Date</th>
-                <th className="text-left font-semibold px-3 py-2.5">Status</th>
-                <th className="text-left font-semibold px-3 py-2.5">Stage</th>
-                <th className="text-left font-semibold px-3 py-2.5">Billing Email</th>
-                <th className="text-right font-semibold px-3 py-2.5">Value</th>
-                <th className="text-right font-semibold px-3 py-2.5">Outstanding</th>
+                {INV_COLS.map((col) => (
+                  <ColHeader key={col.key} col={col} dt={dt} className={col.align === "right" ? "text-right" : "text-left"} />
+                ))}
                 <th className="w-10 px-2 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((inv: any) => (
+              {dt.rows.map((inv: any) => (
                 <tr key={inv.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selected.has(inv.id) ? "bg-blue-50/50" : ""}`}>
                   <td className="px-3 py-2.5 w-10">
                     <input type="checkbox" checked={selected.has(inv.id)} onChange={() => toggleOne(inv.id)}

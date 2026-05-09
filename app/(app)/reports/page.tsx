@@ -505,7 +505,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
       }
     }
 
-    return Object.values(custMap).sort((a, b) => b.totals.total - a.totals.total);
+    return Object.values(custMap).filter(r => r.totals.total !== 0).sort((a, b) => b.totals.total - a.totals.total);
   }, [invoices, customers, projects, regionFilter, asAtDate]);
 
   // Grand totals
@@ -662,7 +662,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       projMap[proj.id].buckets = addBuckets(projMap[proj.id].buckets, b);
     }
 
-    return Object.values(projMap).sort((a, b) => b.buckets.total - a.buckets.total);
+    return Object.values(projMap).filter(r => r.buckets.total !== 0).sort((a, b) => b.buckets.total - a.buckets.total);
   }, [invoices, customers, projects, regionFilter, asAtDate]);
 
   const grandTotals = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
@@ -812,7 +812,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
       if (daysOverdueAt(inv.dueDate, asAtDate) > 0) regionMap[regionLabel].overdueCount++;
     }
 
-    return Object.values(regionMap).sort((a, b) => b.buckets.total - a.buckets.total);
+    return Object.values(regionMap).filter(r => r.buckets.total !== 0).sort((a, b) => b.buckets.total - a.buckets.total);
   }, [invoices, projects, regionFilter, asAtDate]);
 
   const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
@@ -970,7 +970,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
       if (daysOverdueAt(inv.dueDate, asAtDate) > 0) repMap[repId].overdueCount++;
     }
 
-    return Object.values(repMap).sort((a, b) => b.buckets.total - a.buckets.total);
+    return Object.values(repMap).filter(r => r.buckets.total !== 0).sort((a, b) => b.buckets.total - a.buckets.total);
   }, [invoices, customers, projects, reps, regionFilter, asAtDate]);
 
   const grandTotal = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
@@ -1410,124 +1410,219 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 }
 
 // ============================================================
-// MAIN PAGE
+// MAIN PAGE — QBO-style sidebar layout
 // ============================================================
+
+type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales";
+
+interface ReportItem {
+  id: ReportId;
+  label: string;
+  description: string;
+}
+
+interface ReportGroup {
+  label: string;
+  items: ReportItem[];
+}
+
+const REPORT_GROUPS: ReportGroup[] = [
+  {
+    label: "Analysis",
+    items: [
+      { id: "ar-health", label: "AR Health Score", description: "5-dimension AR quality framework" },
+    ],
+  },
+  {
+    label: "Receivables",
+    items: [
+      { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
+      { id: "aging-project", label: "Aging by Project", description: "Outstanding balances grouped by project" },
+      { id: "regional", label: "Regional AR", description: "AR split by region with concentration view" },
+      { id: "by-rep", label: "AR by Rep", description: "Portfolio view per sales representative" },
+    ],
+  },
+  {
+    label: "Activity",
+    items: [
+      { id: "activity", label: "Email Activity", description: "Outbound and inbound communication log" },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
+      { id: "sales", label: "Sales Report", description: "Revenue and invoicing trends" },
+    ],
+  },
+];
+
+const AR_REPORTS: ReportId[] = ["aging-customer", "aging-project", "regional", "by-rep"];
+
 export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications } = useData() as any;
-  const [report, setReport] = useState<"aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales" | "ar-health">("aging-customer");
+  const [report, setReport] = useState<ReportId>("ar-health");
   const [regionFilter, setRegionFilter] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asAtDate, setAsAtDate] = useState(todayIso);
-  const isArTab = report !== "sales" && report !== "activity" && report !== "ar-health";
 
-  const tabs = [
-    { id: "ar-health", label: "AR Health" },
-    { id: "sales", label: "Sales Report" },
-    { id: "aging-customer", label: "AR Aging by Customer" },
-    { id: "aging-project", label: "AR Aging by Project" },
-    { id: "regional", label: "Regional AR" },
-    { id: "by-rep", label: "AR by Rep" },
-    { id: "activity", label: "Activity" },
-  ];
+  const isArReport = AR_REPORTS.includes(report);
+  const currentItem = REPORT_GROUPS.flatMap(g => g.items).find(i => i.id === report);
+
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups(prev => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n; });
 
   return (
-    <div className="p-6 max-w-[1500px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Reports</h1>
-          <p className="text-sm text-stone-500 mt-1">Receivables analysis and team activity</p>
+    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+      {/* ── Sidebar ── */}
+      <aside className="w-56 shrink-0 border-r border-stone-200 bg-stone-50 overflow-y-auto flex flex-col">
+        <div className="px-4 pt-5 pb-3">
+          <div className="text-[11px] uppercase tracking-widest font-semibold text-stone-400">Reports</div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {report !== "sales" && (
-            <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
-              className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-              style={{backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px"}}>
-              <option value="">All regions</option>
-              {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          )}
-          {isArTab && (
-            <div className="flex items-center gap-1.5 h-9 px-3 rounded-md ring-1 ring-stone-200 bg-white text-sm">
-              <span className="text-stone-400 text-xs font-medium whitespace-nowrap">As at</span>
-              <input
-                type="date"
-                value={asAtDate}
-                max={todayIso}
-                onChange={e => setAsAtDate(e.target.value || todayIso)}
-                className="text-stone-700 text-sm border-none outline-none bg-transparent cursor-pointer"
-              />
-              {asAtDate !== todayIso && (
-                <button onClick={() => setAsAtDate(todayIso)}
-                  className="text-[10px] text-stone-400 hover:text-stone-700 ml-1 font-medium">Today</button>
-              )}
-            </div>
-          )}
-          {!isArTab && (
-            <div className="text-xs text-stone-500">As of {new Date().toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}</div>
-          )}
-        </div>
-      </div>
+        <nav className="flex-1 pb-6">
+          {REPORT_GROUPS.map(group => {
+            const isCollapsed = collapsedGroups.has(group.label);
+            return (
+              <div key={group.label} className="mb-1">
+                {/* Group header */}
+                <button
+                  onClick={() => toggleGroup(group.label)}
+                  className="w-full flex items-center justify-between px-4 py-1.5 text-left group"
+                >
+                  <span className="text-[11px] uppercase tracking-wider font-semibold text-stone-500 group-hover:text-stone-700 transition-colors">
+                    {group.label}
+                  </span>
+                  {isCollapsed
+                    ? <ChevronRight size={11} className="text-stone-400" />
+                    : <ChevronDown size={11} className="text-stone-400" />}
+                </button>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-4 border-b border-stone-200">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setReport(tab.id as any)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${report === tab.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+                {/* Group items */}
+                {!isCollapsed && (
+                  <div className="mt-0.5">
+                    {group.items.map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => setReport(item.id)}
+                        className={`w-full text-left px-4 py-2 text-[13px] transition-colors rounded-none ${
+                          report === item.id
+                            ? "bg-stone-900 text-white font-medium"
+                            : "text-stone-600 hover:bg-stone-200 hover:text-stone-900"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </aside>
 
-      {report === "ar-health" && (
-        <ArHealthReport
-          invoices={invoices}
-          customers={customers}
-          projects={projects}
-          reps={reps ?? []}
-          communications={communications}
-          regionFilter={regionFilter}
-        />
-      )}
-
-      {report === "sales" && (
-        <SalesReport
-          invoices={invoices}
-          customers={customers}
-          projects={projects}
-          regions={regions}
-          reps={reps ?? []}
-        />
-      )}
-
-      {report !== "sales" && report !== "ar-health" && (
-        <Card padding="none">
-          {/* Report header */}
-          <div className="px-4 py-4 border-b border-stone-200 text-center">
-            <div className="text-lg font-semibold text-stone-900">
-              {report === "aging-customer" ? "A/R Ageing Summary Report"
-                : report === "aging-project" ? "A/R Ageing by Project"
-                : report === "regional" ? "Regional AR Analysis"
-                : report === "by-rep" ? "AR by Sales Rep"
-                : "Email Activity"}
-            </div>
-            <div className="text-sm text-stone-500 mt-0.5">EDC - Engineering Design Consultants Limited</div>
-            <div className="text-xs text-stone-400 mt-0.5">
-              As at {new Date(asAtDate + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
-              {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}
-            </div>
+      {/* ── Main content ── */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Top toolbar */}
+        <div className="sticky top-0 z-10 bg-white border-b border-stone-200 px-6 py-3 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-base font-semibold text-stone-900">{currentItem?.label}</h1>
+            <p className="text-[11px] text-stone-400 mt-0.5">{currentItem?.description}</p>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {report !== "sales" && report !== "activity" && (
+              <select
+                value={regionFilter}
+                onChange={(e) => setRegionFilter(e.target.value)}
+                className="h-8 px-3 pr-8 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}
+              >
+                <option value="">All regions</option>
+                {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            )}
+            {isArReport && (
+              <div className="flex items-center gap-1.5 h-8 px-3 rounded-md ring-1 ring-stone-200 bg-white text-xs">
+                <span className="text-stone-400 font-medium whitespace-nowrap">As at</span>
+                <input
+                  type="date"
+                  value={asAtDate}
+                  max={todayIso}
+                  onChange={e => setAsAtDate(e.target.value || todayIso)}
+                  className="text-stone-700 text-xs border-none outline-none bg-transparent cursor-pointer"
+                />
+                {asAtDate !== todayIso && (
+                  <button onClick={() => setAsAtDate(todayIso)} className="text-[10px] text-stone-400 hover:text-stone-700 ml-1 font-medium">
+                    Today
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
-          {report === "aging-customer" && <AgingByCustomer
-            invoices={invoices}
-            customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />}
-          {report === "aging-project" && <AgingByProject
-            invoices={invoices}
-            customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />}
-          {report === "regional" && <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} asAt={asAtDate} />}
-          {report === "by-rep" && <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} asAt={asAtDate} />}
-          {report === "activity" && <div className="p-4"><ActivityReport communications={communications} /></div>}
-        </Card>
-      )}
+        {/* Report body */}
+        <div className="p-6">
+          {report === "ar-health" && (
+            <ArHealthReport
+              invoices={invoices}
+              customers={customers}
+              projects={projects}
+              reps={reps ?? []}
+              communications={communications}
+              regionFilter={regionFilter}
+            />
+          )}
+
+          {report === "sales" && (
+            <SalesReport
+              invoices={invoices}
+              customers={customers}
+              projects={projects}
+              regions={regions}
+              reps={reps ?? []}
+            />
+          )}
+
+          {report === "activity" && (
+            <Card>
+              <ActivityReport communications={communications} />
+            </Card>
+          )}
+
+          {isArReport && (
+            <Card padding="none">
+              {/* Report header */}
+              <div className="px-4 py-4 border-b border-stone-200 text-center">
+                <div className="text-lg font-semibold text-stone-900">
+                  {report === "aging-customer" ? "A/R Ageing Summary Report"
+                    : report === "aging-project" ? "A/R Ageing by Project"
+                    : report === "regional" ? "Regional AR Analysis"
+                    : "AR by Sales Rep"}
+                </div>
+                <div className="text-sm text-stone-500 mt-0.5">EDC - Engineering Design Consultants Limited</div>
+                <div className="text-xs text-stone-400 mt-0.5">
+                  As at {new Date(asAtDate + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
+                  {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}
+                </div>
+              </div>
+
+              {report === "aging-customer" && (
+                <AgingByCustomer invoices={invoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
+              )}
+              {report === "aging-project" && (
+                <AgingByProject invoices={invoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
+              )}
+              {report === "regional" && (
+                <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} asAt={asAtDate} />
+              )}
+              {report === "by-rep" && (
+                <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} asAt={asAtDate} />
+              )}
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,8 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
 import { CustomerModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Search, Users, Plus, Trash2, X, RefreshCw } from "lucide-react";
+import { Search, Users, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "lucide-react";
+import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
   const { reps, regions, reclassifyCustomers } = useData() as any;
@@ -175,6 +176,22 @@ export default function CustomersPage() {
   };
 
   const hasFilters = search || riskFilter || statusFilter || repFilter || regionFilter;
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+
+  // Column definitions for list view
+  const CUST_COLS: ColDef[] = [
+    { key: "name",        label: "Customer",    sortValue: (r) => r.name,        filterLabel: (r) => r.name },
+    { key: "code",        label: "Code",         sortValue: (r) => r.code,        filterLabel: (r) => r.code },
+    { key: "country",     label: "Country",      sortValue: (r) => r.country ?? "", filterLabel: (r) => r.country ?? "(None)" },
+    { key: "repName",     label: "Rep",          sortValue: (r) => r.repName ?? "", filterLabel: (r) => r.repName ?? "(Unassigned)" },
+    { key: "regionName",  label: "Region",       sortValue: (r) => r.regionName ?? "", filterLabel: (r) => r.regionName ?? "(Unassigned)" },
+    { key: "riskRating",  label: "Risk",         sortValue: (r) => r.riskRating ?? "", filterLabel: (r) => r.riskRating ?? "" },
+    { key: "status",      label: "Status",       sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
+    { key: "outstanding", label: "Outstanding",  sortValue: (r) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
+    { key: "overdue",     label: "Overdue",      sortValue: (r) => r.overdue ?? 0,     align: "right" as const, noFilter: true },
+    { key: "openCount",   label: "Open Inv.",    sortValue: (r) => r.openCount ?? 0,   align: "right" as const, noFilter: true },
+  ];
+  const dt = useDataTable(filtered, CUST_COLS, { defaultSort: "outstanding", defaultDir: "desc" });
 
   return (
     <div className="p-6 max-w-[1500px] mx-auto">
@@ -221,12 +238,23 @@ export default function CustomersPage() {
           {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter(""); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>}
-        {filtered.length > 0 && (
+        {filtered.length > 0 && viewMode === "grid" && (
           <label className="flex items-center gap-2 text-sm text-stone-600 ml-2 cursor-pointer">
             <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300" />
             Select all
           </label>
         )}
+        {/* View toggle */}
+        <div className="ml-auto flex items-center gap-1 bg-stone-100 rounded-lg p-1">
+          <button onClick={() => setViewMode("list")} title="List view"
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-700"}`}>
+            <List size={14} />
+          </button>
+          <button onClick={() => setViewMode("grid")} title="Card view"
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-700"}`}>
+            <LayoutGrid size={14} />
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -235,7 +263,55 @@ export default function CustomersPage() {
             description={customers.length === 0 ? "Create your first customer or sync from QuickBooks." : "Try adjusting your filters."}
             action={customers.length === 0 ? <Button icon={Plus} onClick={() => setShowCreate(true)}>New customer</Button> : undefined} />
         </Card>
+      ) : viewMode === "list" ? (
+        /* ── LIST VIEW ── */
+        <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
+          <ActiveFiltersBar dt={dt} cols={CUST_COLS} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50/50">
+                  <th className="px-3 py-2.5 w-10">
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
+                  </th>
+                  {CUST_COLS.map((col) => (
+                    <ColHeader key={col.key} col={col} dt={dt} className={col.align === "right" ? "text-right" : "text-left"} />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dt.rows.map((c: any) => (
+                  <tr key={c.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selected.has(c.id) ? "bg-blue-50/50" : ""}`}>
+                    <td className="px-3 py-2.5 w-10">
+                      <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)}
+                        className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+                    </td>
+                    <td className="px-3 py-2.5 font-medium text-stone-900">
+                      <Link href={`/customers/${c.id}`} className="hover:underline">{c.name}</Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-stone-500 font-mono text-[12px]">{c.code}</td>
+                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.country || "—"}</td>
+                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.repName || <span className="text-stone-300">—</span>}</td>
+                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.regionName || <span className="text-stone-300">—</span>}</td>
+                    <td className="px-3 py-2.5">
+                      {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
+                      {c.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
+                      {c.riskRating === "Low" && <Badge variant="green" size="sm">Low</Badge>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant={c.status === "Active" ? "green" : "neutral"} size="sm">{c.status}</Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(c.outstanding, c.currency)}</td>
+                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-600" : "text-stone-400"}`}>{fmt.money(c.overdue, c.currency)}</td>
+                    <td className="px-3 py-2.5 text-right text-stone-600 tabular-nums">{c.openCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
+        /* ── GRID VIEW ── */
         <>
         <div className="grid grid-cols-3 gap-3">
           {visible.map((c: any) => (
