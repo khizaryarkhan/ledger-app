@@ -1219,10 +1219,9 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
     return {
       totalAR, current, b1_30, b31_60, b61_90, b90plus,
       currentPct, over90Pct, overdueRate,
-      disputedAR, disputeRate, highRiskAR, highRiskPct,
+      disputeRate, highRiskPct,
       brokenPromises, neverContacted,
-      emails30d, replies30d, replyRate,
-      concentrationRows, top5Pct, repPortfolio,
+      concentrationRows, repPortfolio,
       openCount: open.length,
     };
   }, [filteredInvoices, customers, projects, reps, communications]);
@@ -1232,25 +1231,18 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
     currentPct, over90Pct, overdueRate,
     disputeRate, highRiskPct,
     brokenPromises, neverContacted,
-    emails30d, replies30d, replyRate,
-    concentrationRows, top5Pct, repPortfolio,
+    concentrationRows, repPortfolio,
   } = metrics;
 
-  // Score each dimension 0–100 (higher = healthier).
-  // All scores are integer-rounded to avoid float rendering in SVG labels.
+  // Three scored dimensions — all based on data we actually have reliably.
+  // Activity excluded (email logging isn't comprehensive enough to score).
+  // Concentration excluded (few large clients is normal for this business).
   const scores = {
-    // Aging: purely due-date based — % of AR that is NOT overdue
-    aging: Math.round(Math.max(0, currentPct)),
-    // Risk: penalise dispute rate (×3) and high-risk customer concentration
-    risk: Math.round(Math.max(0, 100 - disputeRate * 3 - highRiskPct)),
-    // Quality: penalise broken promises and overdue invoices with no contact
+    aging:   Math.round(Math.max(0, currentPct)),
+    risk:    Math.round(Math.max(0, 100 - disputeRate * 3 - highRiskPct)),
     quality: Math.round(Math.max(0, 100 - (brokenPromises * 5) - Math.min(neverContacted * 3, 40) - over90Pct * 0.5)),
-    // Activity: based on outreach volume + reply rate
-    activity: Math.round(Math.min(100, replyRate * 1.5 + Math.min(emails30d * 2, 40))),
-    // Concentration: penalise if top 5 customers hold >50% of AR
-    concentration: Math.round(Math.max(0, 100 - (top5Pct > 50 ? (top5Pct - 50) * 2 : 0))),
   };
-  const overallScore = Math.round((scores.aging + scores.risk + scores.quality + scores.activity + scores.concentration) / 5);
+  const overallScore = Math.round((scores.aging + scores.risk + scores.quality) / 3);
 
   const maxBucket = Math.max(current, b1_30, b31_60, b61_90, b90plus, 1);
 
@@ -1269,25 +1261,27 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
                "Needs attention — multiple AR health risks identified"}
             </div>
           </div>
-          <div className="grid grid-cols-5 gap-3">
-            {[
-              { label: "Aging", score: scores.aging },
-              { label: "Risk", score: scores.risk },
-              { label: "Quality", score: scores.quality },
-              { label: "Activity", score: scores.activity },
-              { label: "Concentration", score: scores.concentration },
-            ].map(({ label, score }) => (
-              <div key={label} className="text-center">
-                <div className="relative w-14 h-14 mx-auto mb-1">
-                  <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
+          <div className="flex gap-5">
+            {([
+              { label: "Aging",   score: scores.aging,   tip: "% of AR not yet overdue" },
+              { label: "Risk",    score: scores.risk,    tip: "Dispute rate + high-risk customer exposure" },
+              { label: "Quality", score: scores.quality, tip: "Broken promises + overdue never contacted + 90d+ bucket" },
+            ] as { label: string; score: number; tip: string }[]).map(({ label, score, tip }) => (
+              <div key={label} className="text-center group relative">
+                <div className="relative w-16 h-16 mx-auto mb-1">
+                  <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="#44403c" strokeWidth="3" />
                     <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3"
                       stroke={score >= 70 ? "#34d399" : score >= 40 ? "#fbbf24" : "#f87171"}
                       strokeDasharray={`${score} 100`} strokeLinecap="round" />
                   </svg>
-                  <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold">{score}</div>
+                  <div className="absolute inset-0 flex items-center justify-center text-sm font-bold">{score}</div>
                 </div>
-                <div className="text-[10px] text-stone-400">{label}</div>
+                <div className="text-[11px] text-stone-400">{label}</div>
+                {/* Tooltip */}
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-700 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap">
+                  {tip}
+                </div>
               </div>
             ))}
           </div>
@@ -1373,34 +1367,26 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
         </Card>
       </div>
 
-      {/* Concentration Risk */}
+      {/* Largest debtors + Rep breakdown */}
       <div className="grid grid-cols-2 gap-4">
         <Card>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Concentration Risk</div>
-              <div className="text-[11px] text-stone-400 mt-0.5">Top 10 customers by outstanding balance</div>
-            </div>
-            <div className={`text-sm font-bold px-2.5 py-1 rounded-md ${top5Pct > 50 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
-              Top 5: {top5Pct.toFixed(1)}%
-            </div>
-          </div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Largest Open Balances</div>
           <div className="space-y-2">
             {concentrationRows.length === 0 ? (
               <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
             ) : concentrationRows.map(({ customer, amount, pct }, idx) => (
               <div key={customer.id} className="flex items-center gap-2">
-                <span className="w-5 text-[11px] text-stone-400 font-mono text-right">{idx + 1}</span>
+                <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="text-[12px] font-medium text-stone-800 truncate">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-600">{fmt.money(amount)}</span>
-                      <span className={`text-[11px] font-bold w-10 text-right ${pct > 20 ? "text-amber-600" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
+                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount)}</span>
+                      <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
                     </div>
                   </div>
                   <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${idx < 5 && pct > 15 ? "bg-amber-400" : "bg-stone-400"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                    <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(pct, 100)}%` }} />
                   </div>
                 </div>
               </div>
@@ -1408,55 +1394,41 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
           </div>
         </Card>
 
-        {/* Activity & Rep Portfolio */}
-        <div className="space-y-4">
+        {repPortfolio.length > 0 ? (
           <Card>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Collection Activity (30 days)</div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Emails sent", value: emails30d, color: "text-stone-900" },
-                { label: "Replies received", value: replies30d, color: "text-emerald-600" },
-                { label: "Reply rate", value: `${replyRate}%`, color: replyRate > 30 ? "text-emerald-600" : replyRate > 15 ? "text-amber-600" : "text-rose-600" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="text-center bg-stone-50 rounded-lg py-3 px-2">
-                  <div className={`text-2xl font-bold tabular-nums ${color}`}>{value}</div>
-                  <div className="text-[10px] text-stone-500 mt-1">{label}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {repPortfolio.length > 0 && (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Rep Portfolio Overview</div>
-                <Link href="/performance" className="text-[11px] text-stone-500 hover:text-stone-900 flex items-center gap-0.5">Full report <ChevronRight size={11} /></Link>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[12px]">
-                  <thead>
-                    <tr className="border-b border-stone-100">
-                      <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
-                      <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
-                      <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
-                      <th className="text-right py-1.5 font-semibold text-stone-500">Emails 30d</th>
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR by Rep</div>
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-stone-100">
+                  <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500">% Overdue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {repPortfolio.map(({ rep, openAR, overdueAR }: any) => {
+                  const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
+                  return (
+                    <tr key={rep.id} className="border-b border-stone-50 last:border-0">
+                      <td className="py-2 font-medium text-stone-800 pr-3">{rep.name}</td>
+                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR)}</td>
+                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR)}</td>
+                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-600" : overdPct > 25 ? "text-amber-600" : "text-stone-500"}`}>
+                        {overdPct.toFixed(0)}%
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {repPortfolio.map(({ rep, openAR, overdueAR, emails30d: repEmails }: any) => (
-                      <tr key={rep.id} className="border-b border-stone-50 last:border-0">
-                        <td className="py-1.5 font-medium text-stone-800 pr-3">{rep.name}</td>
-                        <td className="py-1.5 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR)}</td>
-                        <td className={`py-1.5 text-right tabular-nums pr-3 font-medium ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR)}</td>
-                        <td className="py-1.5 text-right tabular-nums text-stone-600">{repEmails}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        ) : (
+          <Card>
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">AR by Rep</div>
+            <div className="py-6 text-center text-sm text-stone-400">No reps assigned</div>
+          </Card>
+        )}
       </div>
     </div>
   );
