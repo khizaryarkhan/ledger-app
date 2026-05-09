@@ -7,7 +7,33 @@ import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBa
 import { InvoiceModal } from "@/components/forms";
 import { BatchEmailModal } from "@/components/feature";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
-import { Search, Upload, Plus, FileText, Trash2, X, Download, Send } from "lucide-react";
+import { Search, Upload, Plus, FileText, Trash2, X, Download, Send, CalendarDays } from "lucide-react";
+
+// ── Date period helpers ────────────────────────────────────────────────────────
+type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
+
+const PERIODS: { id: PeriodId; label: string }[] = [
+  { id: "this-month",  label: "This Month"  },
+  { id: "last-month",  label: "Last Month"  },
+  { id: "last-3m",     label: "Last 3M"     },
+  { id: "last-6m",     label: "Last 6M"     },
+  { id: "all",         label: "All Time"    },
+  { id: "custom",      label: "Custom"      },
+];
+
+function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
+  const now = new Date();
+  if (id === "this-month")
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
+  if (id === "last-month")
+    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
+  if (id === "last-3m")
+    return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
+  if (id === "last-6m")
+    return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
+  // "all" and "custom" handled at call site
+  return { from: new Date(2000, 0, 1), to: now };
+}
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 export default function InvoicesPage() {
@@ -18,6 +44,13 @@ export default function InvoicesPage() {
   const [customerFilter, setCustomerFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+
+  // Date period filter — defaults to last month
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
+  const [period, setPeriod] = useState<PeriodId>("last-month");
+  const [customFrom, setCustomFrom] = useState(lastMonthStart);
+  const [customTo, setCustomTo]   = useState(todayStr);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -61,6 +94,18 @@ export default function InvoicesPage() {
     }
   };
 
+  // Resolve active date range
+  const { from: periodFrom, to: periodTo } = useMemo(() => {
+    if (period === "custom") {
+      return {
+        from: new Date(customFrom + "T00:00:00"),
+        to:   new Date(customTo   + "T23:59:59"),
+      };
+    }
+    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
+    return getPeriodRange(period);
+  }, [period, customFrom, customTo]);
+
   const filtered = useMemo(() => {
     let res = invoices.map((i: any) => {
       const isPaidOrClosed = ["Paid", "Written Off"].includes(i.paymentStatus) || i.collectionStage === "Closed";
@@ -74,6 +119,14 @@ export default function InvoicesPage() {
         resolvedEmail: resolveEmail(i),
       };
     });
+
+    // Date filter on invoice date
+    res = res.filter((i: any) => {
+      if (!i.invoiceDate) return true;
+      const d = new Date(i.invoiceDate);
+      return d >= periodFrom && d <= periodTo;
+    });
+
     if (search) {
       const s = search.toLowerCase();
       res = res.filter((i: any) =>
@@ -102,7 +155,7 @@ export default function InvoicesPage() {
     });
     res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
-  }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter]);
+  }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter, periodFrom, periodTo]);
 
   // Column definitions for sort + filter
   const INV_COLS: ColDef[] = [
@@ -152,7 +205,10 @@ export default function InvoicesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Invoices</h1>
-          <p className="text-sm text-stone-500 mt-1">{filtered.length} of {invoices.length} invoices</p>
+          <p className="text-sm text-stone-500 mt-1">
+            {dt.rows.length} invoice{dt.rows.length !== 1 ? "s" : ""}
+            <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/imports"><Button variant="secondary" icon={Upload}>Import CSV</Button></Link>
@@ -188,6 +244,40 @@ export default function InvoicesPage() {
       )}
 
       <Card padding="none">
+        {/* ── Date period picker ── */}
+        <div className="px-3 py-2.5 border-b border-stone-200 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[11px] text-stone-500 font-medium shrink-0">
+            <CalendarDays size={13} />
+            Invoice date
+          </div>
+          <div className="flex items-center gap-0.5 bg-stone-100 p-0.5 rounded-lg">
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  period === p.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {period === "custom" && (
+            <div className="flex items-center gap-1.5 bg-white ring-1 ring-stone-200 rounded-lg px-3 py-1.5">
+              <span className="text-[11px] text-stone-400 font-medium">From</span>
+              <input type="date" value={customFrom} max={customTo}
+                onChange={e => setCustomFrom(e.target.value)}
+                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+              <span className="text-[11px] text-stone-400 font-medium ml-1">To</span>
+              <input type="date" value={customTo} min={customFrom} max={todayStr}
+                onChange={e => setCustomTo(e.target.value)}
+                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+            </div>
+          )}
+        </div>
+
+        {/* ── Search + column filters ── */}
         <div className="p-3 border-b border-stone-200 flex items-center gap-2 flex-wrap">
           <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, email, PO..." icon={Search} className="w-72" />
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
