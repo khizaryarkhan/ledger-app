@@ -125,10 +125,16 @@ function ReminderProgramme() {
   }, [isProjectLevel]);
 
   // Save the email for an entity (create or update contact)
+  const validateEmails = (value: string) => {
+    const parts = value.split(",").map((e) => e.trim()).filter(Boolean);
+    if (parts.length === 0) return false;
+    return parts.every((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  };
+
   const saveEmail = useCallback(
     async (entity: any, email: string, row: typeof rows[0]) => {
-      if (!email.trim()) {
-        toast("Please enter a valid email address", "error");
+      if (!email.trim() || !validateEmails(email)) {
+        toast("Please enter a valid email address (comma-separate multiple)", "error");
         return;
       }
       setSaving((p) => ({ ...p, [entity.id]: true }));
@@ -164,6 +170,10 @@ function ReminderProgramme() {
       const email = emails[entity.id]?.trim() ?? "";
       if (turnOn && !row.activeContact && !email) {
         toast("Enter an email address first", "error");
+        return;
+      }
+      if (turnOn && email && !validateEmails(email)) {
+        toast("One or more email addresses are invalid", "error");
         return;
       }
       setSaving((p) => ({ ...p, [entity.id]: true }));
@@ -415,10 +425,10 @@ function ReminderProgramme() {
               <div className="flex items-center gap-2 min-w-0">
                 <div className="relative flex-1 min-w-0">
                   <input
-                    type="email"
+                    type="text"
                     value={emailVal}
                     disabled={isSaving}
-                    placeholder="billing@customer.com"
+                    placeholder="billing@customer.com, cc@customer.com"
                     onChange={(e) => {
                       const val = e.target.value;
                       setEmails((prev) => ({ ...prev, [entity.id]: val }));
@@ -496,6 +506,7 @@ function ReminderProgramme() {
           Invoice PDFs are attached automatically. Invoices in Disputed or Promise to Pay stages are always skipped.
           Email subjects include the project/customer reference and invoice numbers.
           Type directly in the email field — it saves automatically on Enter or when you click away.
+          <strong className="text-stone-600"> Multiple recipients supported</strong> — just separate addresses with a comma.
         </span>
       </div>
     </div>

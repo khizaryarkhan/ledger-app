@@ -9,7 +9,10 @@ const Schema = z.object({
   projectId: z.string().uuid().nullable().optional(),
   name: z.string().min(1).max(255),
   title: z.string().optional(),
-  email: z.string().email(),
+  email: z.string().min(1).refine(
+    (v) => v.split(",").map((e) => e.trim()).every((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+    { message: "One or more email addresses are invalid" }
+  ),
   phone: z.string().optional(),
   type: z.enum(["Billing", "Finance", "Project", "Escalation", "Legal", "Other"]).default("Billing"),
   isPrimary: z.boolean().default(false),
