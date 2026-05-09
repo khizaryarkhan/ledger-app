@@ -1465,18 +1465,13 @@ interface ReportGroup {
 
 const REPORT_GROUPS: ReportGroup[] = [
   {
-    label: "Analysis",
-    items: [
-      { id: "ar-health", label: "AR Health Score", description: "5-dimension AR quality framework" },
-    ],
-  },
-  {
     label: "Receivables",
     items: [
-      { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
-      { id: "aging-project", label: "Aging by Project", description: "Outstanding balances grouped by project" },
-      { id: "regional", label: "Regional AR", description: "AR split by region with concentration view" },
-      { id: "by-rep", label: "AR by Rep", description: "Portfolio view per sales representative" },
+      { id: "ar-health",      label: "AR Health",          description: "AR quality score and portfolio overview" },
+      { id: "aging-customer", label: "Aging by Customer",  description: "Outstanding balances grouped by customer" },
+      { id: "aging-project",  label: "Aging by Project",   description: "Outstanding balances grouped by project" },
+      { id: "regional",       label: "Aging by Region",    description: "AR split by region with concentration view" },
+      { id: "by-rep",         label: "Aging by Rep",       description: "Portfolio view per sales representative" },
     ],
   },
   {
