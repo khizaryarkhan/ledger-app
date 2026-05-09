@@ -1148,59 +1148,53 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
   }, [invoices, customers, projects, regionFilter]);
 
   const metrics = useMemo(() => {
-    const open = filteredInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
-    const totalAR = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    // "Open" = not closed/written off. We rely only on collectionStage + dueDate,
+    // NOT on paymentStatus or paidAt (payment dates are not yet reliable in the data).
+    const open = filteredInvoices.filter((i: any) =>
+      i.collectionStage !== "Closed" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo"
+    );
+    // Outstanding = invoice total (no paid deduction since payment data isn't reliable)
+    const bal = (i: any) => i.total || 0;
+    const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
 
-    // Aging buckets
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    // ── Aging buckets — based purely on due date vs today ──────
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0);
+    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
 
-    // DSO (90d method)
-    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
-    const netSales90d = filteredInvoices.filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo).reduce((s: number, i: any) => s + ((i.amount || 0)), 0);
-    const dso = netSales90d > 0 ? Math.round((totalAR / netSales90d) * 90) : 0;
+    const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
+    const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
+    const overdueRate = totalAR > 0 ? ((totalAR - current) / totalAR) * 100 : 0;
 
-    // Best Possible DSO (365d method)
-    const threeSixtyFiveDaysAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-    const annualSales = filteredInvoices.filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo).reduce((s: number, i: any) => s + ((i.amount || 0)), 0);
-    const bpDso = annualSales > 0 ? Math.round((current / annualSales) * 365) : 0;
-    const dsoGap = Math.max(0, dso - bpDso);
-
-    // Dimension 1 — Turnover (DSO metrics)
-    const currentPct = totalAR > 0 ? (current / totalAR) * 100 : 0;
-    const over90Pct  = totalAR > 0 ? (b90plus / totalAR) * 100 : 0;
-
-    // Dimension 2 — Risk
-    const disputedAR = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    // ── Dimension 2 — Risk ─────────────────────────────────────
+    const disputedAR = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
     const disputeRate = totalAR > 0 ? (disputedAR / totalAR) * 100 : 0;
     const highRiskAR = open.filter((i: any) => {
       const c = customers.find((c: any) => c.id === i.customerId);
       return c?.riskRating === "High";
-    }).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    }).reduce((s: number, i: any) => s + bal(i), 0);
     const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
 
-    // Dimension 3 — Quality (clutter = partial payments)
-    const partialCount = open.filter((i: any) => i.paymentStatus === "Partially Paid").length;
-    const clutterRatio = open.length > 0 ? (partialCount / open.length) * 100 : 0;
-    // Broken promises
+    // ── Dimension 3 — Quality (no payment-date metrics) ────────
+    // Broken promises: promise stage set, promise date passed, still open
     const brokenPromises = open.filter((i: any) =>
       (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
       i.promiseDate && daysOverdue(i.promiseDate) > 0
     ).length;
+    // Never contacted: overdue but no follow-up on record
     const neverContacted = open.filter((i: any) => daysOverdue(i.dueDate) > 0 && !i.lastFollowupDate).length;
 
-    // Dimension 4 — Activity (emails, replies)
+    // ── Dimension 4 — Activity ─────────────────────────────────
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const emails30d = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
-    const replies30d = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
-    const replyRate = emails30d > 0 ? Math.round((replies30d / emails30d) * 100) : 0;
+    const emails30d  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
+    const replies30d = communications.filter((c: any) => c.direction === "Inbound"  && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
+    const replyRate  = emails30d > 0 ? Math.round((replies30d / emails30d) * 100) : 0;
 
-    // Concentration risk — top 5
+    // ── Dimension 5 — Concentration ────────────────────────────
     const byCust: Record<string, number> = {};
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + bal(i); });
     const concentrationRows = Object.entries(byCust)
       .map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt as number, pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0 }))
       .filter(x => x.customer)
@@ -1208,40 +1202,55 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
       .slice(0, 10);
     const top5Pct = concentrationRows.slice(0, 5).reduce((s, x) => s + x.pct, 0);
 
-    // Rep portfolio
+    // ── Rep portfolio ───────────────────────────────────────────
     const repPortfolio = (reps ?? []).map((rep: any) => {
       const repInvs = open.filter((i: any) => {
         const c = customers.find((c: any) => c.id === i.customerId);
         const p = projects.find((p: any) => p.id === i.projectId);
         return c?.repId === rep.id || p?.repId === rep.id;
       });
-      const repOpen = repInvs.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-      const custIds = new Set(repInvs.map((i: any) => i.customerId));
-      const repEmails = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo && custIds.has(c.customerId)).length;
+      const repOpen    = repInvs.reduce((s: number, i: any) => s + bal(i), 0);
+      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + bal(i), 0);
+      const custIds    = new Set(repInvs.map((i: any) => i.customerId));
+      const repEmails  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo && custIds.has(c.customerId)).length;
       return { rep, openAR: repOpen, overdueAR: repOverdue, emails30d: repEmails, custCount: custIds.size };
     }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
 
     return {
-      totalAR, current, b1_30, b31_60, b61_90, b90plus, dso, bpDso, dsoGap,
-      currentPct, over90Pct, disputedAR, disputeRate, highRiskAR, highRiskPct,
-      clutterRatio, brokenPromises, neverContacted,
-      emails30d, replies30d, replyRate, concentrationRows, top5Pct, repPortfolio,
+      totalAR, current, b1_30, b31_60, b61_90, b90plus,
+      currentPct, over90Pct, overdueRate,
+      disputedAR, disputeRate, highRiskAR, highRiskPct,
+      brokenPromises, neverContacted,
+      emails30d, replies30d, replyRate,
+      concentrationRows, top5Pct, repPortfolio,
       openCount: open.length,
     };
   }, [filteredInvoices, customers, projects, reps, communications]);
 
-  const { totalAR, current, b1_30, b31_60, b61_90, b90plus, dso, bpDso, dsoGap, currentPct, over90Pct, disputeRate, highRiskPct, clutterRatio, brokenPromises, neverContacted, emails30d, replies30d, replyRate, concentrationRows, top5Pct, repPortfolio } = metrics;
+  const {
+    totalAR, current, b1_30, b31_60, b61_90, b90plus,
+    currentPct, over90Pct, overdueRate,
+    disputeRate, highRiskPct,
+    brokenPromises, neverContacted,
+    emails30d, replies30d, replyRate,
+    concentrationRows, top5Pct, repPortfolio,
+  } = metrics;
 
-  // Score each dimension 0-100 (higher = healthier)
+  // Score each dimension 0–100 (higher = healthier).
+  // All scores are integer-rounded to avoid float rendering in SVG labels.
   const scores = {
-    turnover: Math.max(0, 100 - dsoGap * 2),
-    risk: Math.max(0, 100 - disputeRate * 3 - highRiskPct),
-    quality: Math.max(0, 100 - clutterRatio * 2 - (brokenPromises * 5) - (neverContacted > 0 ? Math.min(neverContacted * 2, 30) : 0)),
-    activity: Math.min(100, replyRate * 1.5 + Math.min(emails30d * 2, 40)),
-    concentration: Math.max(0, 100 - (top5Pct > 50 ? (top5Pct - 50) * 2 : 0)),
+    // Aging: purely due-date based — % of AR that is NOT overdue
+    aging: Math.round(Math.max(0, currentPct)),
+    // Risk: penalise dispute rate (×3) and high-risk customer concentration
+    risk: Math.round(Math.max(0, 100 - disputeRate * 3 - highRiskPct)),
+    // Quality: penalise broken promises and overdue invoices with no contact
+    quality: Math.round(Math.max(0, 100 - (brokenPromises * 5) - Math.min(neverContacted * 3, 40) - over90Pct * 0.5)),
+    // Activity: based on outreach volume + reply rate
+    activity: Math.round(Math.min(100, replyRate * 1.5 + Math.min(emails30d * 2, 40))),
+    // Concentration: penalise if top 5 customers hold >50% of AR
+    concentration: Math.round(Math.max(0, 100 - (top5Pct > 50 ? (top5Pct - 50) * 2 : 0))),
   };
-  const overallScore = Math.round((scores.turnover + scores.risk + scores.quality + scores.activity + scores.concentration) / 5);
+  const overallScore = Math.round((scores.aging + scores.risk + scores.quality + scores.activity + scores.concentration) / 5);
 
   const maxBucket = Math.max(current, b1_30, b31_60, b61_90, b90plus, 1);
 
@@ -1262,7 +1271,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
           </div>
           <div className="grid grid-cols-5 gap-3">
             {[
-              { label: "Turnover", score: scores.turnover },
+              { label: "Aging", score: scores.aging },
               { label: "Risk", score: scores.risk },
               { label: "Quality", score: scores.quality },
               { label: "Activity", score: scores.activity },
@@ -1285,33 +1294,36 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
         </div>
       </div>
 
-      {/* DSO vs Best Possible */}
+      {/* Aging overview + distribution + quality */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">DSO Analysis</div>
-          <div className="flex items-end gap-6 mb-4">
-            <div>
-              <div className="text-3xl font-bold text-stone-900">{dso}<span className="text-lg font-normal text-stone-400">d</span></div>
-              <div className="text-[11px] text-stone-500 mt-0.5">Actual DSO</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-stone-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR)}</div>
+              <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
             </div>
-            <div>
-              <div className="text-3xl font-bold text-emerald-600">{bpDso}<span className="text-lg font-normal text-stone-400">d</span></div>
-              <div className="text-[11px] text-stone-500 mt-0.5">Best Possible</div>
-            </div>
-            <div>
-              <div className={`text-3xl font-bold ${dsoGap > 15 ? "text-rose-600" : dsoGap > 5 ? "text-amber-600" : "text-emerald-600"}`}>
-                +{dsoGap}<span className="text-lg font-normal text-stone-400">d</span>
+            <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-50" : overdueRate > 25 ? "bg-amber-50" : "bg-emerald-50"}`}>
+              <div className={`text-2xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-700" : overdueRate > 25 ? "text-amber-700" : "text-emerald-700"}`}>
+                {overdueRate.toFixed(0)}%
               </div>
-              <div className="text-[11px] text-stone-500 mt-0.5">Gap</div>
+              <div className="text-[10px] text-stone-500 mt-0.5">Overdue Rate</div>
             </div>
           </div>
-          <div className="h-3 bg-stone-100 rounded-full overflow-hidden flex">
-            <div className="h-full bg-emerald-400" style={{ width: `${dso > 0 ? (bpDso / dso) * 100 : 0}%` }} />
-            <div className="h-full bg-amber-400" style={{ width: `${dso > 0 ? (dsoGap / dso) * 100 : 0}%` }} />
-          </div>
-          <div className="flex items-center gap-4 mt-2 text-[10px] text-stone-400">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1" />Best possible</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1" />Collection gap</span>
+          <div className="space-y-2">
+            {[
+              { label: "Current (not due)", value: current, pct: currentPct, color: "bg-emerald-500" },
+              { label: "Overdue 1–30d",     value: b1_30,   pct: totalAR > 0 ? (b1_30  / totalAR) * 100 : 0, color: "bg-amber-400" },
+              { label: "Overdue 31–90d",    value: b31_60 + b61_90, pct: totalAR > 0 ? ((b31_60 + b61_90) / totalAR) * 100 : 0, color: "bg-orange-500" },
+              { label: "Overdue 90+ days",  value: b90plus, pct: over90Pct, color: "bg-rose-600" },
+            ].map(({ label, value, pct, color }) => (
+              <div key={label} className="flex items-center gap-2 text-[11px]">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
+                <div className="flex-1 text-stone-600">{label}</div>
+                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value)}</div>
+                <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
+              </div>
+            ))}
           </div>
         </Card>
 
@@ -1337,15 +1349,15 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
         </Card>
 
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Quality Indicators</div>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Health Indicators</div>
           <div className="space-y-3">
             {[
-              { label: "Current AR", value: `${currentPct.toFixed(1)}%`, sub: "% of total AR not yet due", good: currentPct > 50, warn: currentPct < 30 },
-              { label: "90+ days", value: `${over90Pct.toFixed(1)}%`, sub: "% in oldest bucket", good: over90Pct < 5, warn: over90Pct > 15 },
-              { label: "Dispute rate", value: `${disputeRate.toFixed(1)}%`, sub: "AR in disputed stage", good: disputeRate < 2, warn: disputeRate > 5 },
-              { label: "Clutter ratio", value: `${clutterRatio.toFixed(1)}%`, sub: "Partially paid invoices", good: clutterRatio < 10, warn: clutterRatio > 25 },
-              { label: "No contact (overdue)", value: String(neverContacted), sub: "Overdue with zero follow-up", good: neverContacted === 0, warn: neverContacted > 5 },
-              { label: "Broken promises", value: String(brokenPromises), sub: "Promise date passed, unpaid", good: brokenPromises === 0, warn: brokenPromises > 2 },
+              { label: "Current AR", value: `${currentPct.toFixed(1)}%`, sub: "% of total AR not yet due", good: currentPct > 60, warn: currentPct < 40 },
+              { label: "90+ days overdue", value: `${over90Pct.toFixed(1)}%`, sub: "% in oldest aging bucket", good: over90Pct < 5, warn: over90Pct > 15 },
+              { label: "Dispute rate", value: `${disputeRate.toFixed(1)}%`, sub: "AR value in Disputed stage", good: disputeRate < 2, warn: disputeRate > 5 },
+              { label: "High-risk customer AR", value: `${highRiskPct.toFixed(1)}%`, sub: "AR held by High risk customers", good: highRiskPct < 10, warn: highRiskPct > 25 },
+              { label: "No contact (overdue)", value: String(neverContacted), sub: "Overdue invoices with zero follow-up", good: neverContacted === 0, warn: neverContacted > 5 },
+              { label: "Broken promises", value: String(brokenPromises), sub: "Promise date passed, still open", good: brokenPromises === 0, warn: brokenPromises > 2 },
             ].map(({ label, value, sub, good, warn }) => (
               <div key={label} className="flex items-center justify-between">
                 <div>
