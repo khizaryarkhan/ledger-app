@@ -399,12 +399,13 @@ export function PaymentModal({ invoice, onClose }: any) {
   const { recordPayment } = useData();
   const out = invoice.total - (invoice.paid || 0);
   const [amount, setAmount] = useState(out);
+  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
   const [submitting, setSubmitting] = useState(false);
 
   const handle = async () => {
     setSubmitting(true);
     try {
-      await recordPayment(invoice.id, parseFloat(String(amount)));
+      await recordPayment(invoice.id, parseFloat(String(amount)), paidDate);
       onClose();
     } finally {
       setSubmitting(false);
@@ -425,6 +426,12 @@ export function PaymentModal({ invoice, onClose }: any) {
         <div>
           <label className="text-xs font-medium text-stone-700 block mb-1">Payment amount ({invoice.currency})</label>
           <Input type="number" value={amount} onChange={(e: any) => setAmount(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-stone-700 block mb-1">Payment date</label>
+          <input type="date" value={paidDate} max={new Date().toISOString().slice(0, 10)}
+            onChange={e => setPaidDate(e.target.value)}
+            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
         </div>
       </div>
     </Modal>

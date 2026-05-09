@@ -427,6 +427,10 @@ export async function runQboSync(orgId: string, userId: string) {
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
     const billingEmail  = buildBillingEmails(qi);
 
+    // Use QBO MetaData.LastUpdatedTime as proxy for payment date
+    // (QBO updates this when a payment is applied to the invoice)
+    const qboPaidAt = qi.MetaData?.LastUpdatedTime?.slice(0, 10) || null;
+
     const paidData = {
       total:         paidTotal,
       amount:        paidNet,   // Net ex tax — used for DSO & sales reports
@@ -438,6 +442,7 @@ export async function runQboSync(orgId: string, userId: string) {
       collectionStage: "Closed",
       billingEmail,
       updatedAt:     new Date(),
+      ...(qboPaidAt ? { paidAt: qboPaidAt } : {}),
     };
 
     if (existing) {
@@ -630,6 +635,9 @@ export async function syncTargetedEntities(
     const existing     = ledgerInvByQboId.get(qi.Id);
     const billingEmail = buildBillingEmails(qi);
 
+    // Payment date: use QBO MetaData.LastUpdatedTime when invoice becomes paid
+    const qboPaidAt = isPaid ? (qi.MetaData?.LastUpdatedTime?.slice(0, 10) || null) : null;
+
     if (existing) {
       updatePromises.push(
         db.update(invoices).set({
@@ -644,6 +652,8 @@ export async function syncTargetedEntities(
           billingEmail,
           paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
           ...(isPaid ? { collectionStage: "Closed" } : {}),
+          // Only set paidAt once — don't overwrite a previously recorded date
+          ...(isPaid && !existing.paidAt && qboPaidAt ? { paidAt: qboPaidAt } : {}),
         }).where(eq(invoices.id, existing.id))
       );
     } else {
@@ -687,6 +697,7 @@ export async function syncTargetedEntities(
         qboCustomerId: qi.CustomerRef?.value,
         qboSyncedAt: new Date(),
         txnType: "Invoice",
+        ...(isPaid && qboPaidAt ? { paidAt: qboPaidAt } : {}),
       });
     }
   }

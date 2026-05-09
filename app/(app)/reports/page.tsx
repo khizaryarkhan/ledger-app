@@ -422,8 +422,16 @@ function addBuckets(a: any, b: any) {
 
 function invBuckets(inv: any, asAt: Date) {
   const b = emptyBuckets();
-  if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") return b;
-  const out = inv.total - (inv.paid || 0);
+  // For historical view: if paidAt is after asAt (or null), invoice was open then — use full outstanding
+  // For today's view: skip paid/closed
+  const isHistorical = asAt.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10);
+  if (!isHistorical) {
+    if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") return b;
+  }
+  // Outstanding as-at: if paid after asAt, full balance was open; otherwise current outstanding
+  const out = (isHistorical && inv.paidAt && inv.paidAt > asAt.toISOString().slice(0, 10))
+    ? inv.total  // paid after the as-at date → full amount was outstanding then
+    : inv.total - (inv.paid || 0);
   if (out <= 0) return b;
   const bucket = getBucket(inv, asAt);
   if (bucket) { b[bucket] = out; b.total = out; }
@@ -456,10 +464,17 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
     const custMap: Record<string, { customer: any; projects: Record<string, { project: any; invoices: any[]; buckets: any }>; directInvoices: any[]; totals: any }> = {};
 
     for (const inv of invoices) {
-      // As-at filter: only include invoices that existed on that date
+      // As-at filter: invoice must have existed AND not yet been paid by that date
       if (asAt && inv.invoiceDate > asAt) continue;
-      if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
-      if ((inv.total - (inv.paid || 0)) <= 0) continue;
+      if (asAt) {
+        // If paidAt is known and payment was on/before asAt → exclude (paid by then)
+        if (inv.paidAt && inv.paidAt <= asAt) continue;
+        // If paidAt is null but paymentStatus is Paid/Written Off → already paid, exclude
+        // (fallback for invoices without a recorded paidAt — conservative: show as open)
+      } else {
+        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      }
+      if ((inv.total - (inv.paid || 0)) <= 0 && !asAt) continue;
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!cust) continue;
@@ -624,8 +639,12 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
 
     for (const inv of invoices) {
       if (asAt && inv.invoiceDate > asAt) continue;
-      if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
-      if ((inv.total - (inv.paid || 0)) <= 0) continue;
+      if (asAt) {
+        if (inv.paidAt && inv.paidAt <= asAt) continue;
+      } else {
+        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      }
+      if (!asAt && (inv.total - (inv.paid || 0)) <= 0) continue;
       if (!inv.projectId) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
@@ -767,9 +786,13 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
 
     for (const inv of invoices) {
       if (asAt && inv.invoiceDate > asAt) continue;
-      if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      if (asAt) {
+        if (inv.paidAt && inv.paidAt <= asAt) continue;
+      } else {
+        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      }
       const out = inv.total - (inv.paid || 0);
-      if (out <= 0) continue;
+      if (!asAt && out <= 0) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
       const cust3 = customers.find((c: any) => c.id === inv.customerId);
@@ -922,9 +945,13 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
 
     for (const inv of invoices) {
       if (asAt && inv.invoiceDate > asAt) continue;
-      if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      if (asAt) {
+        if (inv.paidAt && inv.paidAt <= asAt) continue;
+      } else {
+        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+      }
       const out = inv.total - (inv.paid || 0);
-      if (out <= 0) continue;
+      if (!asAt && out <= 0) continue;
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
       const proj = projects.find((p: any) => p.id === inv.projectId);

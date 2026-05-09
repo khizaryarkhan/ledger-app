@@ -164,6 +164,7 @@ export const invoices = pgTable("invoices", {
   qboCustomerId: varchar("qbo_customer_id", { length: 64 }),
   qboSyncedAt: timestamp("qbo_synced_at"),
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
+  paidAt: varchar("paid_at", { length: 16 }), // Date payment was received (YYYY-MM-DD) — NULL if unpaid
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({

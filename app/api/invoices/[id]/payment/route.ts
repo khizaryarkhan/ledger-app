@@ -4,23 +4,29 @@ import { requireAuth, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 
-const Schema = z.object({ amount: z.number().positive() });
+const Schema = z.object({
+  amount: z.number().positive(),
+  paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // YYYY-MM-DD
+});
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { error } = await requireAuth();
   if (error) return error;
   try {
-    const { amount } = Schema.parse(await req.json());
+    const { amount, paidDate } = Schema.parse(await req.json());
     const [inv] = await db.select().from(invoices).where(eq(invoices.id, params.id)).limit(1);
     if (!inv) return bad("Invoice not found", 404);
 
     const newPaid = (inv.paid || 0) + amount;
     const isPaid = newPaid >= inv.total - 0.01;
+    const today = new Date().toISOString().slice(0, 10);
 
     const [updated] = await db.update(invoices).set({
       paid: newPaid,
       paymentStatus: isPaid ? "Paid" : "Partially Paid",
       collectionStage: isPaid ? "Closed" : inv.collectionStage,
+      // Store paidAt when fully paid — use provided date or today
+      ...(isPaid ? { paidAt: paidDate || today } : {}),
       updatedAt: new Date(),
     }).where(eq(invoices.id, params.id)).returning();
 

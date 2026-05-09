@@ -144,8 +144,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return updated;
   };
 
-  const recordPayment = async (id: string, amount: number) => {
-    const updated = await postJSON(`/api/invoices/${id}/payment`, { amount });
+  const recordPayment = async (id: string, amount: number, paidDate?: string) => {
+    const updated = await postJSON(`/api/invoices/${id}/payment`, { amount, ...(paidDate ? { paidDate } : {}) });
     setInvoices(prev => prev.map(i => i.id === id ? updated : i));
     toast(updated.paymentStatus === "Paid" ? "Invoice marked as paid" : "Partial payment recorded");
     return updated;
