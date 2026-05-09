@@ -12,7 +12,8 @@ import {
 import { fmt } from "@/lib/format";
 
 export default function IntegrationsSettingsPage() {
-  const { customers, invoices, refresh, toast } = useData();
+  const { customers, invoices, refresh, toast, orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const searchParams = useSearchParams();
 
   // QBO
@@ -244,7 +245,7 @@ export default function IntegrationsSettingsPage() {
                               : ""
                           }`}
                         >
-                          {fmt.money(value)}
+                          {fmt.money(value, ccy)}
                         </div>
                         <div className="text-[10px] text-stone-400 mt-0.5">{note}</div>
                       </div>
@@ -318,7 +319,7 @@ export default function IntegrationsSettingsPage() {
                                 reconciled ? "text-emerald-700" : "text-amber-700"
                               }`}
                             >
-                              {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0)}`}
+                              {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0, ccy)}`}
                             </span>
                             <span className="text-stone-400 text-[11px]">
                               {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : ""}

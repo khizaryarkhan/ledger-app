@@ -138,7 +138,8 @@ function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, set
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, regions, updateInvoice } = useData() as any;
+  const { invoices, customers, projects, regions, updateInvoice, orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [groupBy, setGroupBy] = useState<"customer" | "project">("customer");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
@@ -226,7 +227,7 @@ export default function BoardPage() {
         <div>
           <h1 className="text-xl font-semibold text-stone-900 tracking-tight">Collections Board</h1>
           <p className="text-sm text-stone-500 mt-0.5">
-            {fmt.money(totalAR)} total AR · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
+            {fmt.money(totalAR, ccy)} total AR · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -281,7 +282,7 @@ export default function BoardPage() {
                     <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLORS[stage]}`}>{stage}</span>
                     <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
                   </div>
-                  <div className="text-sm font-semibold text-stone-700 tabular-nums">{fmt.money(stageTotal)}</div>
+                  <div className="text-sm font-semibold text-stone-700 tabular-nums">{fmt.money(stageTotal, ccy)}</div>
                   {totalAR > 0 && stageTotal > 0 && (
                     <div className="text-[10px] text-stone-400 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
                   )}

@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
-import { ChevronLeft, User, Palette, Calendar } from "lucide-react";
+import { ChevronLeft, User, Palette, Calendar, DollarSign } from "lucide-react";
 
 export default function CompanySettingsPage() {
   const { data: session } = useSession();
@@ -26,10 +26,15 @@ export default function CompanySettingsPage() {
   const [dateFormat, setDateFormat] = useState("DD MMM YYYY");
   const [savingDateFormat, setSavingDateFormat] = useState(false);
 
+  // Currency
+  const [currency, setCurrency] = useState("EUR");
+  const [savingCurrency, setSavingCurrency] = useState(false);
+
   useEffect(() => {
     if (orgSettings) {
       setBrandingForm({ logoUrl: orgSettings.logoUrl || "", displayName: orgSettings.displayName || "" });
       setDateFormat(orgSettings.dateFormat || "DD MMM YYYY");
+      setCurrency(orgSettings.currency || "EUR");
     }
   }, [orgSettings]);
 
@@ -188,6 +193,63 @@ export default function CompanySettingsPage() {
               }}
             >
               {savingDateFormat ? "Saving…" : "Save date format"}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Home currency */}
+      {isAdmin && (
+        <Card className="mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <DollarSign size={16} className="text-stone-600" />
+            <h3 className="text-sm font-semibold text-stone-900">Home currency</h3>
+          </div>
+          <p className="text-[12px] text-stone-400 mb-4">All reports, invoices and dashboards will display amounts in this currency.</p>
+          <div className="space-y-3">
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { value: "EUR", label: "€ EUR", desc: "Euro" },
+                { value: "USD", label: "$ USD", desc: "US Dollar" },
+                { value: "GBP", label: "£ GBP", desc: "British Pound" },
+                { value: "AED", label: "AED", desc: "UAE Dirham" },
+                { value: "AUD", label: "A$ AUD", desc: "Australian Dollar" },
+                { value: "CAD", label: "C$ CAD", desc: "Canadian Dollar" },
+                { value: "CHF", label: "CHF", desc: "Swiss Franc" },
+                { value: "DKK", label: "kr DKK", desc: "Danish Krone" },
+                { value: "NOK", label: "kr NOK", desc: "Norwegian Krone" },
+                { value: "NZD", label: "NZ$ NZD", desc: "New Zealand Dollar" },
+                { value: "SEK", label: "kr SEK", desc: "Swedish Krona" },
+                { value: "SGD", label: "S$ SGD", desc: "Singapore Dollar" },
+                { value: "ZAR", label: "R ZAR", desc: "South African Rand" },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCurrency(opt.value)}
+                  className={`px-3 py-2 rounded-md text-left text-sm border transition-colors ${
+                    currency === opt.value
+                      ? "bg-stone-900 text-white border-stone-900"
+                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-400"
+                  }`}
+                >
+                  <div className="font-semibold font-mono">{opt.label}</div>
+                  <div className={`text-[10px] ${currency === opt.value ? "text-stone-300" : "text-stone-400"}`}>{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              disabled={savingCurrency}
+              onClick={async () => {
+                setSavingCurrency(true);
+                try {
+                  await updateOrgSettings({ currency });
+                } finally {
+                  setSavingCurrency(false);
+                }
+              }}
+            >
+              {savingCurrency ? "Saving…" : "Save currency"}
             </Button>
           </div>
         </Card>

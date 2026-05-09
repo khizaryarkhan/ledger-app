@@ -36,7 +36,8 @@ function Chip({
 
 // ─── main ────────────────────────────────────────────────────────────────────
 export default function PerformancePage() {
-  const { invoices, customers, projects, reps, communications, tasks } = useData() as any;
+  const { invoices, customers, projects, reps, communications, tasks, orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [period, setPeriod] = useState<"week" | "month">("month");
 
   const now = new Date();
@@ -211,9 +212,9 @@ export default function PerformancePage() {
       {/* Org-level KPIs */}
       <div className="grid grid-cols-5 gap-3 mb-5">
         {[
-          { label: "Total Open AR", value: fmt.money(totals.openAR), sub: `across ${repData.length} reps`, icon: BarChart3, color: "text-stone-900" },
-          { label: "Total Overdue", value: fmt.money(totals.overdueAR), sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-600" },
-          { label: "Cash Collected", value: fmt.money(totals.cashCollected), sub: periodLabel, icon: TrendingUp, color: "text-emerald-600" },
+          { label: "Total Open AR", value: fmt.money(totals.openAR, ccy), sub: `across ${repData.length} reps`, icon: BarChart3, color: "text-stone-900" },
+          { label: "Total Overdue", value: fmt.money(totals.overdueAR, ccy), sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-600" },
+          { label: "Cash Collected", value: fmt.money(totals.cashCollected, ccy), sub: periodLabel, icon: TrendingUp, color: "text-emerald-600" },
           { label: "Emails Sent", value: String(totals.emailsSent), sub: periodLabel, icon: Mail, color: "text-stone-900" },
           { label: "Open Tasks", value: String(totals.openTasks), sub: "assigned to reps", icon: CheckSquare, color: "text-amber-600" },
         ].map(({ label, value, sub, icon: Icon, color }) => (
@@ -261,13 +262,13 @@ export default function PerformancePage() {
                     {r.rep.email && <div className="text-[11px] text-stone-400">{r.rep.email}</div>}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-stone-600">{r.custCount}</td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.openAR)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-rose-600 font-medium">{fmt.money(r.overdueAR)}</td>
+                  <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.openAR, ccy)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-rose-600 font-medium">{fmt.money(r.overdueAR, ccy)}</td>
                   <td className="px-3 py-3 text-right">
                     <Chip value={r.overduePct} good={20} warn={50} />
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-stone-500 text-xs">
-                    {r.at90plus > 0 ? <span className="text-rose-600 font-medium">{fmt.money(r.at90plus)}</span> : <span className="text-stone-300">—</span>}
+                    {r.at90plus > 0 ? <span className="text-rose-600 font-medium">{fmt.money(r.at90plus, ccy)}</span> : <span className="text-stone-300">—</span>}
                   </td>
                   <td className="px-3 py-3 text-right">
                     {r.avgDPD > 0 ? (
@@ -281,7 +282,7 @@ export default function PerformancePage() {
                       <div className="w-16">
                         <ScoreBar value={r.cashCollected} max={maxCash} color="bg-emerald-500" />
                       </div>
-                      <span className="text-xs font-semibold text-emerald-700 tabular-nums">{fmt.money(r.cashCollected)}</span>
+                      <span className="text-xs font-semibold text-emerald-700 tabular-nums">{fmt.money(r.cashCollected, ccy)}</span>
                     </div>
                   </td>
                   <td className="px-3 py-3">
@@ -308,14 +309,14 @@ export default function PerformancePage() {
               <tr className="bg-stone-900 text-white">
                 <td className="px-5 py-3 font-bold text-sm">TOTAL</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.custCount, 0)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.openAR)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.overdueAR)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.openAR, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.overdueAR, ccy)}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">
                   {totals.openAR > 0 ? ((totals.overdueAR / totals.openAR) * 100).toFixed(0) : 0}%
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(repData.reduce((s: number, r: any) => s + r.at90plus, 0))}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(repData.reduce((s: number, r: any) => s + r.at90plus, 0), ccy)}</td>
                 <td className="px-3 py-3" />
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.cashCollected)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.cashCollected, ccy)}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{totals.emailsSent}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.repliesReceived, 0)}</td>
                 <td className="px-5 py-3 text-right font-bold tabular-nums">{totals.openTasks}</td>
@@ -366,11 +367,11 @@ export default function PerformancePage() {
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Open AR</div>
-                  <div className="text-base font-bold text-stone-900 tabular-nums">{fmt.money(r.openAR)}</div>
+                  <div className="text-base font-bold text-stone-900 tabular-nums">{fmt.money(r.openAR, ccy)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Cash {period === "month" ? "MTD" : "WTD"}</div>
-                  <div className="text-base font-bold text-emerald-600 tabular-nums">{fmt.money(r.cashCollected)}</div>
+                  <div className="text-base font-bold text-emerald-600 tabular-nums">{fmt.money(r.cashCollected, ccy)}</div>
                 </div>
               </div>
 
@@ -394,13 +395,13 @@ export default function PerformancePage() {
                 {r.at90plus > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-stone-500 flex items-center gap-1"><AlertTriangle size={10} /> 90+ days</span>
-                    <span className="font-semibold text-rose-600">{fmt.money(r.at90plus)}</span>
+                    <span className="font-semibold text-rose-600">{fmt.money(r.at90plus, ccy)}</span>
                   </div>
                 )}
                 {r.promisedAR > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-stone-500 flex items-center gap-1"><Target size={10} /> Promised</span>
-                    <span className="font-semibold text-amber-600">{fmt.money(r.promisedAR)}</span>
+                    <span className="font-semibold text-amber-600">{fmt.money(r.promisedAR, ccy)}</span>
                   </div>
                 )}
               </div>

@@ -10,6 +10,7 @@ export async function GET() {
     .select({
       classificationLevel: organisations.classificationLevel,
       dateFormat: organisations.dateFormat,
+      currency: organisations.currency,
       logoUrl: organisations.logoUrl,
       displayName: organisations.displayName,
       name: organisations.name,
@@ -20,6 +21,7 @@ export async function GET() {
   return ok({
     classificationLevel: org?.classificationLevel ?? "customer",
     dateFormat: org?.dateFormat ?? "DD MMM YYYY",
+    currency: org?.currency ?? "EUR",
     logoUrl: org?.logoUrl ?? null,
     displayName: org?.displayName ?? null,
     name: org?.name ?? "",
@@ -27,6 +29,7 @@ export async function GET() {
 }
 
 const ALLOWED_DATE_FORMATS = ["DD MMM YYYY", "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD", "MMM DD, YYYY"];
+const ALLOWED_CURRENCIES = ["EUR", "USD", "GBP", "AED", "AUD", "CAD", "CHF", "DKK", "NOK", "NZD", "SEK", "SGD", "ZAR"];
 
 export async function PATCH(req: Request) {
   const { error, orgId, role } = await requireOrg();
@@ -44,6 +47,10 @@ export async function PATCH(req: Request) {
     if (!ALLOWED_DATE_FORMATS.includes(body.dateFormat)) return bad("Invalid dateFormat");
     updates.dateFormat = body.dateFormat;
   }
+  if (body.currency !== undefined) {
+    if (!ALLOWED_CURRENCIES.includes(body.currency)) return bad("Invalid currency");
+    updates.currency = body.currency;
+  }
   if (body.logoUrl !== undefined) updates.logoUrl = body.logoUrl || null;
   if (body.displayName !== undefined) updates.displayName = body.displayName || null;
 
@@ -53,6 +60,7 @@ export async function PATCH(req: Request) {
     .select({
       classificationLevel: organisations.classificationLevel,
       dateFormat: organisations.dateFormat,
+      currency: organisations.currency,
       logoUrl: organisations.logoUrl,
       displayName: organisations.displayName,
       name: organisations.name,
@@ -64,6 +72,7 @@ export async function PATCH(req: Request) {
   return ok({
     classificationLevel: updated.classificationLevel,
     dateFormat: updated.dateFormat ?? "DD MMM YYYY",
+    currency: updated.currency ?? "EUR",
     logoUrl: updated.logoUrl ?? null,
     displayName: updated.displayName ?? null,
     name: updated.name,

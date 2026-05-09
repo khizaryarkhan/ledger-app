@@ -17,7 +17,7 @@ type Invoice = {
 };
 type Customer    = { id: string; name: string; code: string; currency: string; };
 type Project     = { id: string; name: string; code: string; customerId: string; };
-type OrgSettings = { classificationLevel: string; dateFormat: string; };
+type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; };
 
 // ─── Aging helpers ────────────────────────────────────────────────────────────
 const AGING = [
@@ -240,7 +240,7 @@ export default function RepPortalPage() {
   const [invoices,    setInvoices]    = useState<Invoice[]>([]);
   const [customers,   setCustomers]   = useState<Customer[]>([]);
   const [projects,    setProjects]    = useState<Project[]>([]);
-  const [orgSettings, setOrgSettings] = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY" });
+  const [orgSettings, setOrgSettings] = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR" });
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
   const [view,        setView]        = useState<View>({ type: "home" });
@@ -250,6 +250,7 @@ export default function RepPortalPage() {
   const repName = session?.user?.name || "Rep";
   const level   = orgSettings.classificationLevel as "customer" | "project";
   const df      = orgSettings.dateFormat || "DD MMM YYYY";
+  const ccy     = orgSettings.currency || "EUR";
 
   const load = async () => {
     setLoading(true); setError("");
@@ -391,12 +392,12 @@ export default function RepPortalPage() {
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Total AR</div>
-                    <div className="text-xl font-bold text-stone-900 tabular-nums leading-tight">{fmt.money(totalAR)}</div>
+                    <div className="text-xl font-bold text-stone-900 tabular-nums leading-tight">{fmt.money(totalAR, ccy)}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">{openInvoices.length} open</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Overdue</div>
-                    <div className={`text-xl font-bold tabular-nums leading-tight ${overdueAR > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdueAR)}</div>
+                    <div className={`text-xl font-bold tabular-nums leading-tight ${overdueAR > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdueAR, ccy)}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">{overdueCnt} invoice{overdueCnt !== 1 ? "s" : ""}</div>
                   </div>
                   <div>
@@ -488,7 +489,7 @@ export default function RepPortalPage() {
               <div className="flex items-end justify-between">
                 <div>
                   <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Outstanding</div>
-                  <div className="text-2xl font-bold tabular-nums text-stone-900">{fmt.money(detailData.outstanding)}</div>
+                  <div className="text-2xl font-bold tabular-nums text-stone-900">{fmt.money(detailData.outstanding, ccy)}</div>
                 </div>
                 <div className="text-right text-[12px] text-stone-500 pb-0.5">
                   <div>{detailData.openCount} open</div>

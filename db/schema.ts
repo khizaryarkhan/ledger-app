@@ -12,6 +12,7 @@ export const organisations = pgTable("organisations", {
   classificationLevel: varchar("classification_level", { length: 32 }).notNull().default("customer"), // 'customer' | 'project'
   colRefSeq: integer("col_ref_seq").notNull().default(0),
   dateFormat: varchar("date_format", { length: 32 }).notNull().default("DD MMM YYYY"), // date format preference
+  currency: varchar("currency", { length: 8 }).notNull().default("EUR"), // home/reporting currency
   logoUrl: text("logo_url"), // org logo URL
   displayName: varchar("display_name", { length: 255 }), // optional display name override
   createdAt: timestamp("created_at").notNull().defaultNow(),

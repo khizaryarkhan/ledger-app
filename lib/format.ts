@@ -27,10 +27,22 @@ export function formatDate(d: string | Date | null | undefined, format = "DD MMM
   }
 }
 
+/** Pick a sensible English locale for a given ISO 4217 currency code. */
+function currencyLocale(ccy: string): string {
+  if (ccy === "GBP") return "en-GB";
+  if (ccy === "EUR") return "en-IE";
+  if (ccy === "AUD") return "en-AU";
+  if (ccy === "NZD") return "en-NZ";
+  if (ccy === "SGD") return "en-SG";
+  if (ccy === "ZAR") return "en-ZA";
+  if (ccy === "NOK" || ccy === "DKK" || ccy === "SEK") return "en-US"; // use US formatting for Scandinavian currencies
+  return "en-US"; // USD, CAD, CHF, AED, etc.
+}
+
 export const fmt = {
   money: (n: number | null | undefined, ccy = "EUR") => {
     if (n == null || isNaN(n)) return "—";
-    return new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
+    return new Intl.NumberFormat(currencyLocale(ccy), { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
   },
   // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format
   date: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",

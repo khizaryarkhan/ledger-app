@@ -94,6 +94,8 @@ function MiniBar({ pct, color = "bg-stone-800" }: { pct: number; color?: string 
 }
 
 function SalesReport({ invoices, customers, projects, regions, reps }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [period, setPeriod] = useState<PeriodId>("last-12m");
   const [breakdown, setBreakdown] = useState<"customer" | "rep" | "region">("customer");
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -270,25 +272,25 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
       <div className="grid grid-cols-6 gap-3">
         <SalesKPI
           label="Gross Invoiced"
-          value={fmt.money(grossRevenue)}
+          value={fmt.money(grossRevenue, ccy)}
           sub={`${periodInvoices.length} invoice${periodInvoices.length !== 1 ? "s" : ""}`}
         />
         <SalesKPI
           label="Credit Note Adj."
-          value={cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment))}` : "—"}
+          value={cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment), ccy)}` : "—"}
           sub={periodCNs.length > 0 ? `${periodCNs.length} credit note${periodCNs.length !== 1 ? "s" : ""}` : "None issued"}
           highlight={cnAdjustment < 0 ? "red" : "neutral"}
         />
         <SalesKPI
           label="Net Revenue"
-          value={fmt.money(netRevenue)}
+          value={fmt.money(netRevenue, ccy)}
           sub="Gross minus credit notes"
           highlight={netRevenue >= grossRevenue * 0.95 ? "green" : "neutral"}
         />
         <SalesKPI
           label="vs Prior Period"
           value={growth !== null ? `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%` : "—"}
-          sub={period !== "all" ? fmt.money(priorNet) : "No comparison"}
+          sub={period !== "all" ? fmt.money(priorNet, ccy) : "No comparison"}
           highlight={growthColor}
         />
         <SalesKPI
@@ -323,8 +325,8 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
               {/* Tooltip */}
               <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-900 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap">
                 <div className="font-semibold">{m.label}</div>
-                <div>This yr: {fmt.money(m.net)}</div>
-                <div>Prior yr: {fmt.money(m.prior)}</div>
+                <div>This yr: {fmt.money(m.net, ccy)}</div>
+                <div>Prior yr: {fmt.money(m.prior, ccy)}</div>
               </div>
               <div className="flex-1 flex items-end gap-0.5 w-full justify-center">
                 {/* Prior year bar */}
@@ -382,19 +384,19 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
                   <tr key={i} className="border-b border-stone-50 hover:bg-stone-50">
                     <td className="px-5 py-3 text-stone-300 text-[11px] font-mono">{String(i + 1).padStart(2, "0")}</td>
                     <td className="px-3 py-3 font-medium text-stone-900 max-w-[200px] truncate">{r.label}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-600">{fmt.money(r.gross)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-600">{fmt.money(r.gross, ccy)}</td>
                     <td className="px-3 py-3 text-right tabular-nums">
                       {r.cnAdj < 0
-                        ? <span className="text-rose-600 font-medium">−{fmt.money(Math.abs(r.cnAdj))}</span>
+                        ? <span className="text-rose-600 font-medium">−{fmt.money(Math.abs(r.cnAdj), ccy)}</span>
                         : <span className="text-stone-300">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.net)}</td>
+                    <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.net, ccy)}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">{r.projectIds.size > 0 ? r.projectIds.size : <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">
                       {r.invCount}
                       {r.cnCount > 0 && <span className="text-[10px] text-rose-400 ml-1">−{r.cnCount}CN</span>}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">{fmt.money(avg)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-500">{fmt.money(avg, ccy)}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-500">{pct.toFixed(1)}%</td>
                     <td className="px-5 py-3">
                       <MiniBar pct={pct} color={i === 0 ? "bg-stone-800" : i < 3 ? "bg-stone-500" : "bg-stone-300"} />
@@ -406,11 +408,11 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
               <tr className="bg-stone-900 text-white">
                 <td className="px-5 py-3 text-stone-400 text-[11px] font-mono">—</td>
                 <td className="px-3 py-3 font-bold text-sm">TOTAL</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grossRevenue)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grossRevenue, ccy)}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm text-rose-300">
-                  {cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment))}` : "—"}
+                  {cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment), ccy)}` : "—"}
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(netRevenue)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(netRevenue, ccy)}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
                   {breakdownData.reduce((s, r) => s + r.projectIds.size, 0)}
                 </td>
@@ -418,7 +420,7 @@ function SalesReport({ invoices, customers, projects, regions, reps }: any) {
                   {periodInvoices.length}
                   {periodCNs.length > 0 && <span className="text-rose-300 ml-1 text-[10px]">−{periodCNs.length}CN</span>}
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(avgInvoice)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(avgInvoice, ccy)}</td>
                 <td className="px-3 py-3 text-right font-bold">100%</td>
                 <td className="px-5 py-3" />
               </tr>
@@ -483,7 +485,7 @@ function BucketCell({ value, highlight }: { value: number; highlight?: boolean }
   if (!value || value === 0) return <td className="px-3 py-2 text-right text-stone-300">—</td>;
   return (
     <td className={`px-3 py-2 text-right tabular-nums text-sm ${highlight ? "font-semibold text-stone-900" : "text-stone-700"}`}>
-      {fmt.money(value)}
+      {fmt.money(value, ccy)}
     </td>
   );
 }
@@ -492,6 +494,8 @@ function BucketCell({ value, highlight }: { value: number; highlight?: boolean }
 // BY CUSTOMER VIEW — matches QBO AR Aging Summary
 // ============================================================
 function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
 
@@ -581,7 +585,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                   </div>
                 </td>
                 {BUCKETS.map(b => <BucketCell key={b} value={totals[b]} highlight />)}
-                <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(totals.total)}</td>
+                <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(totals.total, ccy)}</td>
               </tr>,
 
               // Expanded: projects
@@ -600,7 +604,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                         </div>
                       </td>
                       {BUCKETS.map(bk => <BucketCell key={bk} value={b[bk]} />)}
-                      <td className="px-4 py-1.5 text-right tabular-nums text-[12px] text-stone-700">{fmt.money(b.total)}</td>
+                      <td className="px-4 py-1.5 text-right tabular-nums text-[12px] text-stone-700">{fmt.money(b.total, ccy)}</td>
                     </tr>
                   );
                 }),
@@ -616,7 +620,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                       </div>
                     </td>
                     {BUCKETS.map(b => <BucketCell key={b} value={pb[b]} />)}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-[12px] text-stone-800">{fmt.money(pb.total)}</td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-[12px] text-stone-800">{fmt.money(pb.total, ccy)}</td>
                   </tr>,
 
                   // Individual invoices under project
@@ -633,7 +637,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                           </div>
                         </td>
                         {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
-                        <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total)}</td>
+                        <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total, ccy)}</td>
                       </tr>
                     );
                   }),
@@ -644,8 +648,8 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                   <td className="px-4 py-2 pl-4">
                     <span className="text-[12px] font-bold text-stone-700">Total for {customer.name}</span>
                   </td>
-                  {BUCKETS.map(b => <td key={b} className="px-3 py-2 text-right text-[12px] font-bold tabular-nums text-stone-800">{totals[b] > 0 ? fmt.money(totals[b]) : "—"}</td>)}
-                  <td className="px-4 py-2 text-right text-[12px] font-bold tabular-nums text-stone-900">{fmt.money(totals.total)}</td>
+                  {BUCKETS.map(b => <td key={b} className="px-3 py-2 text-right text-[12px] font-bold tabular-nums text-stone-800">{totals[b] > 0 ? fmt.money(totals[b], ccy) : "—"}</td>)}
+                  <td className="px-4 py-2 text-right text-[12px] font-bold tabular-nums text-stone-900">{fmt.money(totals.total, ccy)}</td>
                 </tr>,
               ] : [])
             ];
@@ -656,10 +660,10 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
             {BUCKETS.map(b => (
               <td key={b} className="px-3 py-3 text-right font-bold tabular-nums text-sm">
-                {grandTotals[b] > 0 ? fmt.money(grandTotals[b]) : "—"}
+                {grandTotals[b] > 0 ? fmt.money(grandTotals[b], ccy) : "—"}
               </td>
             ))}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total)}</td>
+            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
           </tr>
         </tbody>
       </table>
@@ -671,6 +675,8 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
 // BY PROJECT VIEW
 // ============================================================
 function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -733,7 +739,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                   </div>
                 </td>
                 {BUCKETS.map(b => <BucketCell key={b} value={buckets[b]} highlight />)}
-                <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(buckets.total)}</td>
+                <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(buckets.total, ccy)}</td>
               </tr>,
 
               ...(isOpen ? projInvs.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((inv: any) => {
@@ -747,7 +753,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                       </div>
                     </td>
                     {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
-                    <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total)}</td>
+                    <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
               }) : [])
@@ -756,8 +762,8 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
 
           <tr className="bg-stone-900 text-white">
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums text-sm">{grandTotals[b] > 0 ? fmt.money(grandTotals[b]) : "—"}</td>)}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total)}</td>
+            {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums text-sm">{grandTotals[b] > 0 ? fmt.money(grandTotals[b], ccy) : "—"}</td>)}
+            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
           </tr>
         </tbody>
       </table>
@@ -812,6 +818,8 @@ function ActivityReport({ communications }: any) {
 // REGIONAL AR REPORT — Management view
 // ============================================================
 function RegionalReport({ invoices, customers, projects, regions, regionFilter, asAt }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -873,7 +881,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">High risk</span>}
                 {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">Watch</span>}
               </div>
-              <div className="text-xl font-bold text-stone-900 tabular-nums mb-1">{fmt.money(r.buckets.total)}</div>
+              <div className="text-xl font-bold text-stone-900 tabular-nums mb-1">{fmt.money(r.buckets.total, ccy)}</div>
               <div className="text-[11px] text-stone-500 mb-3">{r.customers.size} customers · {r.invoices.length} invoices</div>
 
               {/* Aging bar */}
@@ -903,7 +911,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
         <div key={r.region} className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
             <div className="font-semibold text-stone-900">{r.region} — Detailed Aging</div>
-            <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total)}</div>
+            <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total, ccy)}</div>
           </div>
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
@@ -926,7 +934,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
                     {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
-                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total)}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
               })}
@@ -954,7 +962,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.customers.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
                 {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} />)}
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total)}</td>
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
@@ -962,8 +970,8 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
               <td className="px-4 py-3 font-bold">TOTAL</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.customers.size, 0)}</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b]) : "—"}</td>)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total)}</td>
+              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b], ccy) : "—"}</td>)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total, ccy)}</td>
               <td className="px-4 py-3 text-right font-bold">100%</td>
             </tr>
           </tbody>
@@ -977,6 +985,8 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
 // BY REP REPORT — matches RegionalReport style
 // ============================================================
 function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1031,7 +1041,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">High risk</span>}
                 {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">Watch</span>}
               </div>
-              <div className="text-xl font-bold text-stone-900 tabular-nums mb-1">{fmt.money(r.buckets.total)}</div>
+              <div className="text-xl font-bold text-stone-900 tabular-nums mb-1">{fmt.money(r.buckets.total, ccy)}</div>
               <div className="text-[11px] text-stone-500 mb-3">{r.custSet.size} customers · {r.invoices.length} invoices</div>
               <div className="h-1.5 rounded-full overflow-hidden flex gap-px mb-2">
                 {AGING_COLORS_REG.map(({ key, color }) => {
@@ -1055,7 +1065,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
         <div key={r.rep.id} className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
             <div className="font-semibold text-stone-900">{r.rep.name} — Detailed Aging</div>
-            <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total)}</div>
+            <div className="font-bold text-stone-900 tabular-nums">{fmt.money(r.buckets.total, ccy)}</div>
           </div>
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
@@ -1078,7 +1088,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
                     {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
-                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total)}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
               })}
@@ -1106,7 +1116,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
                 {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} />)}
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total)}</td>
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
@@ -1114,8 +1124,8 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
               <td className="px-4 py-3 font-bold">TOTAL</td>
               <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b]) : "—"}</td>)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total)}</td>
+              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b], ccy) : "—"}</td>)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total, ccy)}</td>
               <td className="px-4 py-3 text-right font-bold">100%</td>
             </tr>
           </tbody>
@@ -1137,6 +1147,8 @@ const AGING_COLORS_REG = [
 // AR HEALTH REPORT — 5-dimension framework (Salek)
 // ============================================================
 function ArHealthReport({ invoices, customers, projects, reps, communications, regionFilter }: any) {
+  const { orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const filteredInvoices = useMemo(() => {
     if (!regionFilter) return invoices;
     return invoices.filter((i: any) => {
@@ -1294,7 +1306,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-stone-50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR)}</div>
+              <div className="text-2xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR, ccy)}</div>
               <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
             </div>
             <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-50" : overdueRate > 25 ? "bg-amber-50" : "bg-emerald-50"}`}>
@@ -1314,7 +1326,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
               <div key={label} className="flex items-center gap-2 text-[11px]">
                 <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
                 <div className="flex-1 text-stone-600">{label}</div>
-                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value)}</div>
+                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value, ccy)}</div>
                 <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
               </div>
             ))}
@@ -1381,7 +1393,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="text-[12px] font-medium text-stone-800 truncate">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount)}</span>
+                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount, ccy)}</span>
                       <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
                     </div>
                   </div>
@@ -1412,8 +1424,8 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
                   return (
                     <tr key={rep.id} className="border-b border-stone-50 last:border-0">
                       <td className="py-2 font-medium text-stone-800 pr-3">{rep.name}</td>
-                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR)}</td>
-                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR)}</td>
+                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR, ccy)}</td>
+                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR, ccy)}</td>
                       <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-600" : overdPct > 25 ? "text-amber-600" : "text-stone-500"}`}>
                         {overdPct.toFixed(0)}%
                       </td>
@@ -1484,7 +1496,8 @@ const REPORT_GROUPS: ReportGroup[] = [
 const AR_REPORTS: ReportId[] = ["aging-customer", "aging-project", "regional", "by-rep"];
 
 export default function ReportsPage() {
-  const { invoices, customers, projects, regions, reps, communications } = useData() as any;
+  const { invoices, customers, projects, regions, reps, communications, orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const [report, setReport] = useState<ReportId>("ar-health");
   const [regionFilter, setRegionFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());

@@ -8,7 +8,8 @@ import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle } from "lucide-react";
 export default function DashboardPage() {
-  const { invoices, customers, projects, regions, communications, tasks } = useData() as any;
+  const { invoices, customers, projects, regions, communications, tasks, orgSettings } = useData() as any;
+  const ccy: string = orgSettings?.currency ?? "EUR";
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
   const [regionFilter, setRegionFilter] = useState("");
@@ -116,22 +117,22 @@ export default function DashboardPage() {
       <div className="grid grid-cols-4 gap-3 mb-3">
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Total Receivable</div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable)}</div>
+          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className="text-2xl font-semibold text-rose-600 tracking-tight">{fmt.money(stats.totalOverdue)}</div>
+          <div className="text-2xl font-semibold text-rose-600 tracking-tight">{fmt.money(stats.totalOverdue, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
-          <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90)}</div>
+          <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.disputed)}</div>
+          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
         </Card>
       </div>
@@ -176,7 +177,7 @@ export default function DashboardPage() {
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
-          <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised)}</div>
+          <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">Promise to pay</div>
         </Card>
       </div>
@@ -198,7 +199,7 @@ export default function DashboardPage() {
                   <div className="flex-1 h-7 bg-stone-100 rounded relative overflow-hidden">
                     <div className={`h-full ${colors[i]}`} style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="w-28 text-right text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(stats.buckets[bucket])}</div>
+                  <div className="w-28 text-right text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(stats.buckets[bucket], ccy)}</div>
                 </div>
               );
             })}
@@ -326,7 +327,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[12px] font-medium text-stone-800 truncate group-hover:text-stone-900">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] font-semibold text-stone-700 tabular-nums">{fmt.money(amount)}</span>
+                      <span className="text-[11px] font-semibold text-stone-700 tabular-nums">{fmt.money(amount, ccy)}</span>
                       <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-600" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
                     </div>
                   </div>
@@ -374,7 +375,7 @@ export default function DashboardPage() {
                       <div className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[12px] font-semibold tabular-nums">{fmt.money(inv.total - (inv.paid || 0))}</div>
+                      <div className="text-[12px] font-semibold tabular-nums">{fmt.money(inv.total - (inv.paid || 0), inv.currency ?? ccy)}</div>
                       <div className="text-[10px] text-amber-600">in {d}d</div>
                     </div>
                   </Link>
