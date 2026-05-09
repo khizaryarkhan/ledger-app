@@ -481,7 +481,7 @@ function invBuckets(inv: any, asAt: Date) {
   return b;
 }
 
-function BucketCell({ value, highlight }: { value: number; highlight?: boolean }) {
+function BucketCell({ value, highlight, ccy = "EUR" }: { value: number; highlight?: boolean; ccy?: string }) {
   if (!value || value === 0) return <td className="px-3 py-2 text-right text-stone-300">—</td>;
   return (
     <td className={`px-3 py-2 text-right tabular-nums text-sm ${highlight ? "font-semibold text-stone-900" : "text-stone-700"}`}>
@@ -584,7 +584,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                     <span className="font-semibold text-stone-900">{customer.name}</span>
                   </div>
                 </td>
-                {BUCKETS.map(b => <BucketCell key={b} value={totals[b]} highlight />)}
+                {BUCKETS.map(b => <BucketCell key={b} value={totals[b]} highlight ccy={ccy} />)}
                 <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(totals.total, ccy)}</td>
               </tr>,
 
@@ -603,7 +603,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                           <span className="text-[11px] text-stone-400">· Due {inv.dueDate}</span>
                         </div>
                       </td>
-                      {BUCKETS.map(bk => <BucketCell key={bk} value={b[bk]} />)}
+                      {BUCKETS.map(bk => <BucketCell key={bk} value={b[bk]} ccy={ccy} />)}
                       <td className="px-4 py-1.5 text-right tabular-nums text-[12px] text-stone-700">{fmt.money(b.total, ccy)}</td>
                     </tr>
                   );
@@ -619,7 +619,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                         <span className="text-[10px] text-stone-400 font-mono">{project?.code}</span>
                       </div>
                     </td>
-                    {BUCKETS.map(b => <BucketCell key={b} value={pb[b]} />)}
+                    {BUCKETS.map(b => <BucketCell key={b} value={pb[b]} ccy={ccy} />)}
                     <td className="px-4 py-2 text-right font-semibold tabular-nums text-[12px] text-stone-800">{fmt.money(pb.total, ccy)}</td>
                   </tr>,
 
@@ -636,7 +636,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                             <span className="text-[10px] text-stone-400">· Due {inv.dueDate}</span>
                           </div>
                         </td>
-                        {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
+                        {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
                         <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total, ccy)}</td>
                       </tr>
                     );
@@ -738,7 +738,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                     </div>
                   </div>
                 </td>
-                {BUCKETS.map(b => <BucketCell key={b} value={buckets[b]} highlight />)}
+                {BUCKETS.map(b => <BucketCell key={b} value={buckets[b]} highlight ccy={ccy} />)}
                 <td className="px-4 py-2.5 text-right font-bold text-stone-900 tabular-nums">{fmt.money(buckets.total, ccy)}</td>
               </tr>,
 
@@ -752,7 +752,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                         <span className="text-[10px] text-stone-400">· Due {inv.dueDate}</span>
                       </div>
                     </td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
                     <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-600">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
@@ -933,7 +933,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                     <td className="px-3 py-2 text-[11px] text-stone-500 font-mono">{proj?.code || "—"}</td>
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
                     <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
@@ -961,7 +961,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 <td className="px-4 py-2.5 font-medium text-stone-900">{r.region}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.customers.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
-                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} />)}
+                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} ccy={ccy} />)}
                 <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
@@ -1087,7 +1087,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                     <td className="px-3 py-2 text-[11px] text-stone-500 font-mono">{proj?.code || "—"}</td>
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} />)}
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
                     <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
                   </tr>
                 );
@@ -1115,7 +1115,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 <td className="px-4 py-2.5 font-medium text-stone-900">{r.rep.name}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
-                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} />)}
+                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} ccy={ccy} />)}
                 <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
