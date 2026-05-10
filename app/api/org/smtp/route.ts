@@ -8,10 +8,12 @@ const Schema = z.object({
   host: z.string().min(1),
   port: z.number().int().default(2525),
   user: z.string().min(1),
-  pass: z.string().optional(), // optional on edit (keepExistingPass=true)
+  pass: z.string().optional(),
   fromEmail: z.string().email(),
   fromName: z.string().optional(),
   keepExistingPass: z.boolean().optional(),
+  ccEmail: z.string().email().optional().or(z.literal("")),
+  ccEnabled: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -19,12 +21,14 @@ export async function GET() {
   if (error) return error;
 
   const [settings] = await db.select({
-    id: orgSmtpSettings.id,
-    host: orgSmtpSettings.host,
-    port: orgSmtpSettings.port,
-    user: orgSmtpSettings.user,
+    id:        orgSmtpSettings.id,
+    host:      orgSmtpSettings.host,
+    port:      orgSmtpSettings.port,
+    user:      orgSmtpSettings.user,
     fromEmail: orgSmtpSettings.fromEmail,
-    fromName: orgSmtpSettings.fromName,
+    fromName:  orgSmtpSettings.fromName,
+    ccEmail:   orgSmtpSettings.ccEmail,
+    ccEnabled: orgSmtpSettings.ccEnabled,
     // Never return password
   }).from(orgSmtpSettings).where(eq(orgSmtpSettings.orgId, orgId!)).limit(1);
 
@@ -40,15 +44,19 @@ export async function POST(req: Request) {
     const data = Schema.parse(await req.json());
     const [existing] = await db.select().from(orgSmtpSettings).where(eq(orgSmtpSettings.orgId, orgId!)).limit(1);
 
+    const ccEmail  = data.ccEmail  || null;
+    const ccEnabled = data.ccEnabled ?? false;
+
     if (existing) {
       await db.update(orgSmtpSettings).set({
-        host: data.host,
-        port: data.port,
-        user: data.user,
-        // Only update password if a new one was provided
+        host:      data.host,
+        port:      data.port,
+        user:      data.user,
         ...(data.keepExistingPass || !data.pass ? {} : { pass: data.pass }),
         fromEmail: data.fromEmail,
-        fromName: data.fromName,
+        fromName:  data.fromName,
+        ccEmail,
+        ccEnabled,
         updatedAt: new Date(),
       }).where(eq(orgSmtpSettings.orgId, orgId!));
     } else {
@@ -57,6 +65,7 @@ export async function POST(req: Request) {
         orgId: orgId!, host: data.host, port: data.port,
         user: data.user, pass: data.pass!,
         fromEmail: data.fromEmail, fromName: data.fromName,
+        ccEmail, ccEnabled,
       });
     }
 

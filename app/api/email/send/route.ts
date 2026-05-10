@@ -111,12 +111,19 @@ export async function POST(req: Request) {
       }
     }
 
+    // Merge caller-supplied CC with the org-level default CC (if enabled)
+    const ccParts = [
+      data.cc || null,
+      smtp?.ccEnabled && smtp?.ccEmail ? smtp.ccEmail : null,
+    ].filter(Boolean);
+    const ccField = ccParts.length > 0 ? ccParts.join(",") : undefined;
+
     const transporter = nodemailer.createTransport({ host, port, secure: false, auth: { user, pass } });
 
     await transporter.sendMail({
       from,
       to: data.to,
-      cc: data.cc || undefined,
+      cc: ccField,
       bcc: fromEmail || undefined, // BCC-to-self so every sent email lands in inbox
       replyTo: data.replyTo || fromEmail,
       subject: data.subject,

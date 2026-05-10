@@ -25,19 +25,64 @@ export default function NotificationsSettingsPage() {
     pass: "",
     fromEmail: "",
     fromName: "",
+    ccEmail: "",
+    ccEnabled: false,
   });
 
   useEffect(() => {
     fetch("/api/org/smtp")
       .then(r => r.json())
-      .then(setSmtpStatus)
+      .then(data => {
+        setSmtpStatus(data);
+        if (data?.settings) {
+          setCcForm({
+            ccEmail:   data.settings.ccEmail  || "",
+            ccEnabled: data.settings.ccEnabled ?? false,
+          });
+        }
+      })
       .catch(() => setSmtpStatus({ configured: false }));
   }, []);
+
+  // Saving CC settings independently (when SMTP is already configured)
+  const [savingCc, setSavingCc] = useState(false);
+  const [ccForm, setCcForm] = useState({ ccEmail: "", ccEnabled: false });
+
+  const handleCcSave = async () => {
+    setSavingCc(true);
+    try {
+      // Merge CC fields into a PATCH-style save by re-posting all existing settings + new CC
+      const existing = smtpStatus?.settings;
+      if (!existing) return;
+      const res = await fetch("/api/org/smtp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: existing.host, port: existing.port, user: existing.user,
+          fromEmail: existing.fromEmail, fromName: existing.fromName || "",
+          keepExistingPass: true,
+          ccEmail: ccForm.ccEmail,
+          ccEnabled: ccForm.ccEnabled,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); toast(d.error || "Failed to save", "error"); return; }
+      toast("CC preference saved");
+      const r = await fetch("/api/org/smtp");
+      if (r.ok) setSmtpStatus(await r.json());
+    } finally {
+      setSavingCc(false);
+    }
+  };
 
   const handleSmtpSave = async () => {
     setSavingSmtp(true);
     try {
-      const payload: any = { ...smtpForm, port: parseInt(smtpForm.port) };
+      const payload: any = {
+        ...smtpForm,
+        port: parseInt(smtpForm.port),
+        ccEmail:  smtpForm.ccEnabled ? smtpForm.ccEmail : "",
+        ccEnabled: smtpForm.ccEnabled,
+      };
       if (!smtpForm.pass && smtpStatus?.configured) {
         delete payload.pass;
         payload.keepExistingPass = true;
@@ -52,7 +97,13 @@ export default function NotificationsSettingsPage() {
       toast("Email settings saved");
       setShowSmtpForm(false);
       const r = await fetch("/api/org/smtp");
-      if (r.ok) setSmtpStatus(await r.json());
+      if (r.ok) {
+        const data = await r.json();
+        setSmtpStatus(data);
+        if (data?.settings) {
+          setCcForm({ ccEmail: data.settings.ccEmail || "", ccEnabled: data.settings.ccEnabled ?? false });
+        }
+      }
     } finally {
       setSavingSmtp(false);
     }
@@ -149,6 +200,8 @@ export default function NotificationsSettingsPage() {
                     pass: "",
                     fromEmail: smtpStatus.settings?.fromEmail || "",
                     fromName: smtpStatus.settings?.fromName || "",
+                    ccEmail:   smtpStatus.settings?.ccEmail  || "",
+                    ccEnabled: smtpStatus.settings?.ccEnabled ?? false,
                   });
                   setShowSmtpForm(true);
                 }}
@@ -174,6 +227,54 @@ export default function NotificationsSettingsPage() {
                 {testResult.message}
               </div>
             )}
+
+            {/* ── Default CC ─────────────────────────────────────────────── */}
+            <div className="border-t border-stone-100 pt-4 mt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-sm font-semibold text-stone-900">Default CC address</div>
+                  <div className="text-[12px] text-stone-500 mt-0.5">
+                    Automatically CC this address on every outgoing email.
+                  </div>
+                </div>
+                {/* Toggle */}
+                <button
+                  onClick={() => setCcForm(p => ({ ...p, ccEnabled: !p.ccEnabled }))}
+                  className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 flex-shrink-0 ${
+                    ccForm.ccEnabled ? "bg-stone-900" : "bg-stone-200"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    ccForm.ccEnabled ? "translate-x-4" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+
+              {ccForm.ccEnabled && (
+                <input
+                  type="email"
+                  value={ccForm.ccEmail}
+                  onChange={e => setCcForm(p => ({ ...p, ccEmail: e.target.value }))}
+                  placeholder="e.g. accounts@yourcompany.ie"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none mb-3"
+                />
+              )}
+
+              {/* Show current saved state if not toggled on */}
+              {!ccForm.ccEnabled && smtpStatus?.settings?.ccEnabled && smtpStatus?.settings?.ccEmail && (
+                <div className="text-[11px] text-stone-400 mb-3">
+                  Currently CC-ing <span className="font-mono">{smtpStatus.settings.ccEmail}</span> — toggle on to change.
+                </div>
+              )}
+
+              <button
+                onClick={handleCcSave}
+                disabled={savingCc || (ccForm.ccEnabled && !ccForm.ccEmail)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-900 text-white text-[12px] font-medium rounded-lg hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {savingCc ? "Saving…" : "Save CC preference"}
+              </button>
+            </div>
           </div>
         ) : (
           /* Form — not configured or editing */
@@ -263,6 +364,40 @@ export default function NotificationsSettingsPage() {
                   className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
                 />
               </div>
+            </div>
+
+            {/* Default CC */}
+            <div className="border-t border-stone-100 pt-3 mt-1">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
+                  Default CC on every email
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSmtpForm(p => ({ ...p, ccEnabled: !p.ccEnabled }))}
+                  className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
+                    smtpForm.ccEnabled ? "bg-stone-900" : "bg-stone-200"
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                    smtpForm.ccEnabled ? "translate-x-4" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+              {smtpForm.ccEnabled && (
+                <input
+                  type="email"
+                  value={smtpForm.ccEmail}
+                  onChange={e => setSmtpForm(p => ({ ...p, ccEmail: e.target.value }))}
+                  placeholder="e.g. accounts@yourcompany.ie"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                />
+              )}
+              {smtpForm.ccEnabled && (
+                <p className="text-[11px] text-stone-400 mt-1">
+                  This address will be CC'd on every outgoing collection email.
+                </p>
+              )}
             </div>
 
             <div className="bg-stone-50 ring-1 ring-stone-200 rounded-md p-3 text-[11px] text-stone-600 space-y-0.5">

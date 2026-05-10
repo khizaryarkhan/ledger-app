@@ -295,6 +295,8 @@ export const orgSmtpSettings = pgTable("org_smtp_settings", {
   pass: text("pass").notNull(),
   fromEmail: varchar("from_email", { length: 255 }).notNull(),
   fromName: varchar("from_name", { length: 255 }),
+  ccEmail: varchar("cc_email", { length: 255 }),      // default CC address on every outgoing email
+  ccEnabled: boolean("cc_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
