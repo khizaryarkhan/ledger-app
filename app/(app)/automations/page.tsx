@@ -105,7 +105,12 @@ function ReminderProgramme() {
         const effectiveStatus: "Active" | "Inactive" | "On Hold" =
           entity.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
 
-        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus };
+        // Project count for customer-level rows
+        const projectCount = !isProjectLevel
+          ? (projects ?? []).filter((p: any) => p.customerId === entity.id).length
+          : null;
+
+        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount };
       })
       .filter((r) => statusFilter === "All" || r.effectiveStatus === statusFilter)
       .sort((a, b) => a.entity.name.localeCompare(b.entity.name));
@@ -355,7 +360,7 @@ function ReminderProgramme() {
 
   // ── Row renderer (shared by By Customer flat list and By Project grouped list) ──
   const renderRow = (row: typeof rows[0]) => {
-    const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus } = row;
+    const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount } = row;
     const isSaving   = !!saving[entity.id] || bulkSaving;
     const isSelected = selected.has(entity.id);
     const emailVal   = emails[entity.id] ?? "";
@@ -385,14 +390,20 @@ function ReminderProgramme() {
         {/* Entity name */}
         <div className="min-w-0">
           <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
-          {(entity.code || entity.invoiceNumber) && (
-            <div className="text-[11px] text-stone-400 font-mono">{entity.code}</div>
-          )}
-          {openInvoices.length > 0 && (
-            <div className="text-[10px] text-emerald-600 mt-0.5">
-              {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
-            </div>
-          )}
+          <div className="flex items-center gap-2 mt-0.5">
+            {!isProjectLevel && projectCount !== null ? (
+              <span className="text-[11px] text-stone-400">
+                {projectCount} project{projectCount !== 1 ? "s" : ""}
+              </span>
+            ) : (
+              entity.code && <span className="text-[11px] text-stone-400 font-mono">{entity.code}</span>
+            )}
+            {openInvoices.length > 0 && (
+              <span className="text-[10px] text-emerald-600">
+                · {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Status badge */}
