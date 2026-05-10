@@ -31,6 +31,7 @@ function ReminderProgramme() {
   const [saving, setSaving]       = useState<Record<string, boolean>>({});
   const [selected, setSelected]   = useState<Set<string>>(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"Active" | "Inactive" | "On Hold" | "All">("Active");
   const [viewLevel, setViewLevel] = useState<"customer" | "project">(
     orgSettings?.classificationLevel ?? "customer"
   );
@@ -68,7 +69,6 @@ function ReminderProgramme() {
     const q = search.trim().toLowerCase();
     return entities
       .filter((e) => !q || e.name.toLowerCase().includes(q) || (e.code ?? "").toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name))
       .map((entity) => {
         const entityContacts = (contacts ?? []).filter((c: any) =>
           isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id
@@ -78,17 +78,30 @@ function ReminderProgramme() {
         const localEmail = emails[entity.id] ?? "";
         const isDirty = emailDirty.has(entity.id);
 
-        // Count open invoices with balance > 0 for this entity
+        // Count open invoices with balance > 0 for this entity (CMs excluded — negative total fails > 0)
         const openInvoices = (invoices ?? []).filter((inv: any) => {
           const matchesEntity = isProjectLevel
             ? inv.projectId === entity.id
             : inv.customerId === entity.id;
-          return matchesEntity && inv.paymentStatus !== "Paid" && inv.paymentStatus !== "Written Off" && (inv.total - (inv.paid || 0)) > 0;
+          return matchesEntity
+            && inv.txnType !== "CreditMemo"
+            && inv.paymentStatus !== "Paid"
+            && inv.paymentStatus !== "Written Off"
+            && (inv.total - (inv.paid || 0)) > 0;
         });
 
-        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices };
-      });
-  }, [entities, contacts, emails, emailDirty, search, isProjectLevel, invoices]);
+        // Compute outstanding and effectiveStatus (same logic as Customers / Projects pages)
+        const outstanding = openInvoices.reduce(
+          (sum: number, inv: any) => sum + (inv.total - (inv.paid || 0)), 0
+        );
+        const effectiveStatus: "Active" | "Inactive" | "On Hold" =
+          entity.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
+
+        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus };
+      })
+      .filter((r) => statusFilter === "All" || r.effectiveStatus === statusFilter)
+      .sort((a, b) => a.entity.name.localeCompare(b.entity.name));
+  }, [entities, contacts, emails, emailDirty, search, isProjectLevel, invoices, statusFilter]);
 
   const onCount  = rows.filter((r) => r.isOn).length;
   const offCount = rows.filter((r) => !r.isOn).length;
@@ -291,15 +304,27 @@ function ReminderProgramme() {
       <div className="flex items-center gap-3 flex-wrap">
         {/* Level toggle */}
         <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-1">
-          <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); }}
+          <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); setStatusFilter("Active"); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Users size={12} /> By Customer
           </button>
-          <button onClick={() => { setViewLevel("project"); setSelected(new Set()); }}
+          <button onClick={() => { setViewLevel("project"); setSelected(new Set()); setStatusFilter("Active"); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Briefcase size={12} /> By Project
           </button>
         </div>
+
+        {/* Status filter */}
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value as any); setSelected(new Set()); }}
+          className="h-9 px-2.5 pr-7 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white text-stone-700"
+        >
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+          <option value="On Hold">On Hold</option>
+          <option value="All">All statuses</option>
+        </select>
 
         {/* Search */}
         <div className="relative flex-1 max-w-xs">
@@ -342,7 +367,7 @@ function ReminderProgramme() {
       {/* Table */}
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[40px_1fr_2fr_130px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[40px_1fr_90px_110px_2fr_130px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
           {/* Select all */}
           <div className="flex items-center justify-center">
             <button
@@ -363,6 +388,12 @@ function ReminderProgramme() {
             {isProjectLevel ? "Project" : "Customer"}
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
+            Status
+          </div>
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">
+            Outstanding
+          </div>
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
             Reminder Email
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">
@@ -376,15 +407,20 @@ function ReminderProgramme() {
           </div>
         )}
 
-        {rows.map(({ entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices }) => {
+        {rows.map(({ entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus }) => {
           const isSaving   = !!saving[entity.id] || bulkSaving;
           const isSelected = selected.has(entity.id);
           const emailVal   = emails[entity.id] ?? "";
 
+          const statusBadge =
+            effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" } :
+            effectiveStatus === "On Hold"  ? { label: "On Hold",  cls: "bg-amber-50 text-amber-700 ring-amber-200"       } :
+                                             { label: "Inactive", cls: "bg-stone-100 text-stone-500 ring-stone-200"      };
+
           return (
             <div
               key={entity.id}
-              className={`grid grid-cols-[40px_1fr_2fr_130px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+              className={`grid grid-cols-[40px_1fr_90px_110px_2fr_130px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
                 isSelected ? "bg-stone-50" : ""
               } ${isSaving ? "opacity-60" : ""}`}
             >
@@ -418,6 +454,24 @@ function ReminderProgramme() {
                   <div className="text-[10px] text-emerald-600 mt-0.5">
                     {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
                   </div>
+                )}
+              </div>
+
+              {/* Effective status badge */}
+              <div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ring-1 ${statusBadge.cls}`}>
+                  {statusBadge.label}
+                </span>
+              </div>
+
+              {/* Outstanding */}
+              <div className="text-right tabular-nums">
+                {outstanding > 0 ? (
+                  <span className="text-sm font-semibold text-stone-900">
+                    {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-stone-400">—</span>
                 )}
               </div>
 
