@@ -262,6 +262,25 @@ function ReminderProgramme() {
     [patchContact, refresh, toast, handleToggle]
   );
 
+  // ── Switch a customer back to customer-level chasing ──
+  const [switchingCustomer, setSwitchingCustomer] = useState<string | null>(null);
+  const handleSwitchToCustomerLevel = useCallback(async (customerId: string) => {
+    setSwitchingCustomer(customerId);
+    try {
+      await fetch(`/api/customers/${customerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chaseByProject: false }),
+      });
+      await refresh();
+      toast("Switched back to customer-level chasing");
+    } catch {
+      toast("Failed to update", "error");
+    } finally {
+      setSwitchingCustomer(null);
+    }
+  }, [refresh, toast]);
+
   // ── Batch actions ──────────────────────────────
   const allSelected  = rows.length > 0 && rows.every((r) => selected.has(r.entity.id));
   const someSelected = rows.some((r) => selected.has(r.entity.id));
@@ -323,6 +342,145 @@ function ReminderProgramme() {
     },
     [rows, selected, patchContact, createContact, refresh, toast]
   );
+
+  // ── Row renderer (shared by By Customer flat list and By Project grouped list) ──
+  const renderRow = (row: typeof rows[0]) => {
+    const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus } = row;
+    const isSaving   = !!saving[entity.id] || bulkSaving;
+    const isSelected = selected.has(entity.id);
+    const emailVal   = emails[entity.id] ?? "";
+
+    const statusBadge =
+      effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" } :
+      effectiveStatus === "On Hold"  ? { label: "On Hold",  cls: "bg-amber-50 text-amber-700 ring-amber-200"       } :
+                                       { label: "Inactive", cls: "bg-stone-100 text-stone-500 ring-stone-200"      };
+
+    return (
+      <div
+        key={entity.id}
+        className={`grid grid-cols-[40px_1fr_90px_110px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+          isSelected ? "bg-stone-50" : ""
+        } ${isSaving ? "opacity-60" : ""}`}
+      >
+        {/* Checkbox */}
+        <div className="flex items-center justify-center">
+          <button
+            onClick={() => setSelected((prev) => { const s = new Set(prev); s.has(entity.id) ? s.delete(entity.id) : s.add(entity.id); return s; })}
+            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? "bg-stone-900 border-stone-900" : "border-stone-300 hover:border-stone-500"}`}
+          >
+            {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+          </button>
+        </div>
+
+        {/* Entity name */}
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
+          {(entity.code || entity.invoiceNumber) && (
+            <div className="text-[11px] text-stone-400 font-mono">{entity.code}</div>
+          )}
+          {openInvoices.length > 0 && (
+            <div className="text-[10px] text-emerald-600 mt-0.5">
+              {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+
+        {/* Status badge */}
+        <div>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ring-1 ${statusBadge.cls}`}>
+            {statusBadge.label}
+          </span>
+        </div>
+
+        {/* Outstanding */}
+        <div className="text-right tabular-nums">
+          {outstanding > 0 ? (
+            <span className="text-sm font-semibold text-stone-900">
+              {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
+            </span>
+          ) : (
+            <span className="text-[11px] text-stone-400">—</span>
+          )}
+        </div>
+
+        {/* Email input */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="relative flex-1 min-w-0">
+            <input
+              type="text"
+              value={emailVal}
+              disabled={isSaving}
+              placeholder="billing@customer.com, cc@customer.com"
+              onChange={(e) => {
+                const val = e.target.value;
+                setEmails((prev) => ({ ...prev, [entity.id]: val }));
+                setEmailDirty((prev) => {
+                  const s = new Set(prev);
+                  if (val !== (activeContact?.email ?? "")) s.add(entity.id);
+                  else s.delete(entity.id);
+                  return s;
+                });
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") saveEmail(entity, emailVal, row); }}
+              onBlur={() => { if (isDirty && emailVal.trim()) saveEmail(entity, emailVal, row); }}
+              className={`w-full h-8 px-2.5 text-sm rounded-md ring-1 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white transition-colors ${
+                isDirty ? "ring-amber-300 bg-amber-50" : emailVal ? "ring-stone-200" : "ring-stone-200 placeholder:text-stone-300"
+              }`}
+            />
+            {isDirty && (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600 font-medium pointer-events-none">unsaved</span>
+            )}
+          </div>
+          {!emailVal ? (
+            <span title="No email set"><AlertTriangle size={14} className="text-amber-400 shrink-0" /></span>
+          ) : isOn ? (
+            <span title="Programme active"><CheckCircle size={14} className="text-emerald-500 shrink-0" /></span>
+          ) : (
+            <div className="w-3.5 h-3.5 shrink-0" />
+          )}
+        </div>
+
+        {/* Programme control */}
+        <div className="flex items-center justify-center">
+          {!isProjectLevel ? (
+            // By Customer: 3-state dropdown
+            <select
+              disabled={isSaving}
+              value={isOn ? "on" : "off"}
+              onChange={(e) => {
+                const mode = e.target.value as "off" | "on" | "by-project";
+                if (mode === "on" && !emailVal) { toast("Enter an email address first", "error"); return; }
+                handleChaseMode(entity, row, mode);
+              }}
+              className={`h-8 pl-2.5 pr-6 text-[12px] font-semibold rounded-lg border-0 ring-1 focus:outline-none focus:ring-2 focus:ring-stone-900 appearance-none cursor-pointer transition-colors disabled:opacity-50 ${
+                isOn ? "bg-emerald-50 ring-emerald-300 text-emerald-700" : "bg-stone-100 ring-stone-200 text-stone-500"
+              }`}
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
+            >
+              <option value="off">Off</option>
+              <option value="on">Programme On</option>
+              <option value="by-project">By Project ↗</option>
+            </select>
+          ) : (
+            // By Project: ON/OFF toggle
+            <div className="flex items-center gap-2">
+              <button
+                disabled={isSaving}
+                onClick={() => handleToggle(entity, row, !isOn)}
+                title={isOn ? "Click to turn off" : emailVal ? "Click to turn on" : "Enter email first"}
+                className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${isOn ? "bg-emerald-500" : "bg-stone-200"}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isOn ? "translate-x-6" : "translate-x-0"}`} />
+              </button>
+              <span className={`text-[11px] font-semibold w-7 ${isOn ? "text-emerald-600" : "text-stone-400"}`}>
+                {isOn ? "ON" : "OFF"}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -453,174 +611,45 @@ function ReminderProgramme() {
           </div>
         )}
 
-        {rows.map(({ entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus }) => {
-          const isSaving   = !!saving[entity.id] || bulkSaving;
-          const isSelected = selected.has(entity.id);
-          const emailVal   = emails[entity.id] ?? "";
-
-          const statusBadge =
-            effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" } :
-            effectiveStatus === "On Hold"  ? { label: "On Hold",  cls: "bg-amber-50 text-amber-700 ring-amber-200"       } :
-                                             { label: "Inactive", cls: "bg-stone-100 text-stone-500 ring-stone-200"      };
-
-          return (
-            <div
-              key={entity.id}
-              className={`grid grid-cols-[40px_1fr_90px_110px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
-                isSelected ? "bg-stone-50" : ""
-              } ${isSaving ? "opacity-60" : ""}`}
-            >
-              {/* Checkbox */}
-              <div className="flex items-center justify-center">
+        {/* By Project: group rows under their parent customer with a switch-back header */}
+        {isProjectLevel && (() => {
+          // Group projects by customerId
+          const groups: { customerId: string; customerName: string; rows: typeof rows }[] = [];
+          rows.forEach((r) => {
+            const cid = r.entity.customerId ?? "unknown";
+            const existing = groups.find((g) => g.customerId === cid);
+            if (existing) { existing.rows.push(r); }
+            else {
+              const cust = (customers ?? []).find((c: any) => c.id === cid);
+              groups.push({ customerId: cid, customerName: cust?.name ?? cid, rows: [r] });
+            }
+          });
+          return groups.map(({ customerId, customerName, rows: groupRows }) => (
+            <div key={customerId}>
+              {/* Customer group header */}
+              <div className="flex items-center justify-between px-4 py-2 bg-violet-50 border-b border-violet-100">
+                <div className="flex items-center gap-2">
+                  <Users size={12} className="text-violet-500 shrink-0" />
+                  <span className="text-[12px] font-semibold text-violet-800">{customerName}</span>
+                  <span className="text-[11px] text-violet-500">{groupRows.length} project{groupRows.length !== 1 ? "s" : ""}</span>
+                </div>
                 <button
-                  onClick={() => {
-                    setSelected((prev) => {
-                      const s = new Set(prev);
-                      s.has(entity.id) ? s.delete(entity.id) : s.add(entity.id);
-                      return s;
-                    });
-                  }}
-                  className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                    isSelected
-                      ? "bg-stone-900 border-stone-900"
-                      : "border-stone-300 hover:border-stone-500"
-                  }`}
+                  disabled={switchingCustomer === customerId}
+                  onClick={() => handleSwitchToCustomerLevel(customerId)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:text-violet-900 hover:bg-violet-100 rounded-md transition-colors disabled:opacity-50"
                 >
-                  {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+                  ↩ Chase at customer level
                 </button>
               </div>
-
-              {/* Entity name */}
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
-                {(entity.code || entity.invoiceNumber) && (
-                  <div className="text-[11px] text-stone-400 font-mono">{entity.code}</div>
-                )}
-                {openInvoices.length > 0 && (
-                  <div className="text-[10px] text-emerald-600 mt-0.5">
-                    {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
-                  </div>
-                )}
-              </div>
-
-              {/* Effective status badge */}
-              <div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ring-1 ${statusBadge.cls}`}>
-                  {statusBadge.label}
-                </span>
-              </div>
-
-              {/* Outstanding */}
-              <div className="text-right tabular-nums">
-                {outstanding > 0 ? (
-                  <span className="text-sm font-semibold text-stone-900">
-                    {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-stone-400">—</span>
-                )}
-              </div>
-
-              {/* Email input */}
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="relative flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={emailVal}
-                    disabled={isSaving}
-                    placeholder="billing@customer.com, cc@customer.com"
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setEmails((prev) => ({ ...prev, [entity.id]: val }));
-                      setEmailDirty((prev) => {
-                        const s = new Set(prev);
-                        // Mark dirty only if value differs from saved contact email
-                        if (val !== (activeContact?.email ?? "")) s.add(entity.id);
-                        else s.delete(entity.id);
-                        return s;
-                      });
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveEmail(entity, emailVal, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices });
-                    }}
-                    onBlur={() => {
-                      if (isDirty && emailVal.trim()) {
-                        saveEmail(entity, emailVal, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices });
-                      }
-                    }}
-                    className={`w-full h-8 px-2.5 text-sm rounded-md ring-1 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white transition-colors ${
-                      isDirty
-                        ? "ring-amber-300 bg-amber-50"
-                        : emailVal
-                        ? "ring-stone-200"
-                        : "ring-stone-200 placeholder:text-stone-300"
-                    }`}
-                  />
-                  {isDirty && (
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600 font-medium pointer-events-none">
-                      unsaved
-                    </span>
-                  )}
-                </div>
-
-                {/* Status icon */}
-                {!emailVal ? (
-                  <span title="No email set"><AlertTriangle size={14} className="text-amber-400 shrink-0" /></span>
-                ) : isOn ? (
-                  <span title="Programme active"><CheckCircle size={14} className="text-emerald-500 shrink-0" /></span>
-                ) : (
-                  <div className="w-3.5 h-3.5 shrink-0" />
-                )}
-              </div>
-
-              {/* Programme control */}
-              <div className="flex items-center justify-center">
-                {!isProjectLevel ? (
-                  // ── By Customer: 3-state dropdown ──
-                  <select
-                    disabled={isSaving}
-                    value={isOn ? "on" : "off"}
-                    onChange={(e) => {
-                      const mode = e.target.value as "off" | "on" | "by-project";
-                      if (mode === "on" && !emailVal) {
-                        toast("Enter an email address first", "error");
-                        return;
-                      }
-                      handleChaseMode(entity, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus }, mode);
-                    }}
-                    className={`h-8 pl-2.5 pr-6 text-[12px] font-semibold rounded-lg border-0 ring-1 focus:outline-none focus:ring-2 focus:ring-stone-900 appearance-none cursor-pointer transition-colors disabled:opacity-50 ${
-                      isOn
-                        ? "bg-emerald-50 ring-emerald-300 text-emerald-700"
-                        : "bg-stone-100 ring-stone-200 text-stone-500"
-                    }`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
-                  >
-                    <option value="off">Off</option>
-                    <option value="on">Programme On</option>
-                    <option value="by-project">By Project ↗</option>
-                  </select>
-                ) : (
-                  // ── By Project: simple ON/OFF toggle ──
-                  <div className="flex items-center gap-2">
-                    <button
-                      disabled={isSaving}
-                      onClick={() => handleToggle(entity, { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices }, !isOn)}
-                      title={isOn ? "Click to turn off" : emailVal ? "Click to turn on" : "Enter email first"}
-                      className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${
-                        isOn ? "bg-emerald-500" : "bg-stone-200"
-                      }`}
-                    >
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isOn ? "translate-x-6" : "translate-x-0"}`} />
-                    </button>
-                    <span className={`text-[11px] font-semibold w-7 ${isOn ? "text-emerald-600" : "text-stone-400"}`}>
-                      {isOn ? "ON" : "OFF"}
-                    </span>
-                  </div>
-                )}
-              </div>
+              {groupRows.map((row) => renderRow(row))}
             </div>
-          );
-        })}
+          ));
+        })()}
+
+        {/* By Customer: flat list */}
+        {!isProjectLevel && rows.map((row) => renderRow(row))}
+
+
       </Card>
 
       {/* Footer note */}
