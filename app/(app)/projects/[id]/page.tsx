@@ -56,7 +56,7 @@ export default function ProjectDetailPage() {
     [contacts, customer.id]
   );
 
-  const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
+  const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed" && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;

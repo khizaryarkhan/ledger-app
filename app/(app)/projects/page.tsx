@@ -105,7 +105,7 @@ export default function ProjectsPage() {
   const enriched = useMemo(() => projects.map((p: any) => {
     const customer = customers.find((c: any) => c.id === p.customerId);
     const projInvoices = invoices.filter((i: any) => i.projectId === p.id);
-    const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+    const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const rep = reps.find((r: any) => r.id === p.repId);

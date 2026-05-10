@@ -57,7 +57,7 @@ export default function PerformancePage() {
       });
 
       const openInvs = repInvs.filter((i: any) =>
-        i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off",
+        i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo",
       );
 
       const openAR    = openInvs.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
