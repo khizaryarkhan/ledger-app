@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { customers, projects, organisations } from "@/db/schema";
+import { customers, projects, organisations, reps } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { desc, eq, and, inArray } from "drizzle-orm";
@@ -32,19 +32,31 @@ export async function GET() {
 
   // rep or company_user with a rep assignment — scope to their customers only
   if ((role === "rep" || role === "company_user") && repId) {
+    const [repRow] = await db.select({ tier: reps.tier })
+      .from(reps).where(and(eq(reps.id, repId), eq(reps.orgId, orgId!))).limit(1);
+    const tier = repRow?.tier ?? "rep";
+
+    // Build the list of repIds this user can see
+    let visibleRepIds: string[] = [repId];
+    if (tier === "ed" || tier === "rd") {
+      // ED/RD: also include all reps reporting to them
+      const reportees = await db.select({ id: reps.id })
+        .from(reps).where(and(eq(reps.orgId, orgId!), eq(reps.managerId, repId)));
+      visibleRepIds = [repId, ...reportees.map(r => r.id)];
+    }
+
     const [org] = await db.select({ level: organisations.classificationLevel })
       .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
     const level = org?.level ?? "customer";
 
     if (level === "customer") {
       const rows = await db.select().from(customers)
-        .where(and(eq(customers.orgId, orgId!), eq(customers.repId, repId)))
+        .where(and(eq(customers.orgId, orgId!), inArray(customers.repId, visibleRepIds)))
         .orderBy(desc(customers.createdAt));
       return ok(rows);
     } else {
-      // project-level: return customers that have at least one project for this rep
       const repProjects = await db.select({ customerId: projects.customerId })
-        .from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.repId, repId)));
+        .from(projects).where(and(eq(projects.orgId, orgId!), inArray(projects.repId, visibleRepIds)));
       const custIds = [...new Set(repProjects.map(p => p.customerId))];
       if (custIds.length === 0) return ok([]);
       const rows = await db.select().from(customers)

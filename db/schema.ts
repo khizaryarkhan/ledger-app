@@ -30,6 +30,8 @@ export const reps = pgTable("reps", {
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }),
+  tier: varchar("tier", { length: 16 }).notNull().default("rep"), // 'rep' | 'rd' | 'ed'
+  managerId: uuid("manager_id").references((): any => reps.id, { onDelete: "set null" }), // ED/RD this rep reports to
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Rep = typeof reps.$inferSelect;

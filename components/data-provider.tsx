@@ -44,7 +44,9 @@ type DataContextType = {
   bulkDeleteProjects: (ids: string[]) => Promise<any>;
   reclassifyCustomers: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
   reclassifyProjects: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
-  addRep: (data: { name: string; email?: string }) => Promise<any>;
+  addRep: (data: { name: string; email?: string; tier?: string }) => Promise<any>;
+  updateRepTier: (id: string, tier: string) => Promise<any>;
+  updateRepManager: (id: string, managerId: string | null) => Promise<any>;
   deleteRep: (id: string) => Promise<void>;
   addRegion: (data: { name: string }) => Promise<any>;
   deleteRegion: (id: string) => Promise<void>;
@@ -232,11 +234,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast(`${ids.length} project${ids.length > 1 ? "s" : ""} reclassified`);
   };
 
-  const addRep = async (data: { name: string; email?: string }) => {
+  const addRep = async (data: { name: string; email?: string; tier?: string }) => {
     const rep = await postJSON("/api/reps", data);
     setReps(prev => [...prev, rep]);
     toast("Rep added");
     return rep;
+  };
+
+  const updateRepTier = async (id: string, tier: string) => {
+    const updated = await patchJSON(`/api/reps/${id}`, { tier });
+    setReps(prev => prev.map(r => r.id === id ? updated : r));
+    toast("Rep tier updated");
+    return updated;
+  };
+
+  const updateRepManager = async (id: string, managerId: string | null) => {
+    const updated = await patchJSON(`/api/reps/${id}`, { managerId });
+    setReps(prev => prev.map(r => r.id === id ? updated : r));
+    return updated;
   };
 
   const deleteRep = async (id: string) => {
@@ -270,7 +285,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       refresh, toast, toastState, clearToast,
       updateInvoice, recordPayment, addContact, addNote, sendEmail, addTask, toggleTask, importInvoices,
       addCustomer, updateCustomer, addProject, updateProject, addInvoice, bulkDeleteInvoices, bulkDeleteCustomers, bulkDeleteProjects,
-      reclassifyCustomers, reclassifyProjects, addRep, deleteRep, addRegion, deleteRegion, updateOrgSettings,
+      reclassifyCustomers, reclassifyProjects, addRep, updateRepTier, updateRepManager, deleteRep, addRegion, deleteRegion, updateOrgSettings,
     }}>
       {children}
     </DataContext.Provider>

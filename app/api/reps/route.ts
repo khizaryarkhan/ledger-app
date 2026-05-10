@@ -14,9 +14,11 @@ export async function POST(req: Request) {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
   if (!["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
-  const { name, email } = await req.json();
+  const { name, email, tier } = await req.json();
   if (!name?.trim()) return bad("Name is required");
-  const [rep] = await db.insert(reps).values({ orgId: orgId!, name: name.trim(), email: email?.trim() || null }).returning();
+  const validTiers = ["rep", "rd", "ed"];
+  const safeTier = validTiers.includes(tier) ? tier : "rep";
+  const [rep] = await db.insert(reps).values({ orgId: orgId!, name: name.trim(), email: email?.trim() || null, tier: safeTier }).returning();
   return ok(rep);
 }
 
