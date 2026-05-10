@@ -42,14 +42,14 @@ function ReminderProgramme() {
 
   const isProjectLevel = viewLevel === "project";
 
-  // By Customer → only customers NOT flagged chaseByProject
+  // By Customer → ALL customers (chaseByProject ones shown with violet "By Project" state)
   // By Project  → only projects whose parent customer IS flagged chaseByProject
   const entities: any[] = isProjectLevel
     ? (projects ?? []).filter((p: any) => {
         const cust = (customers ?? []).find((c: any) => c.id === p.customerId);
         return cust?.chaseByProject === true;
       })
-    : (customers ?? []).filter((c: any) => !c.chaseByProject);
+    : (customers ?? []);
 
   // Initialise email inputs from active contacts (only if not dirty)
   useEffect(() => {
@@ -233,31 +233,41 @@ function ReminderProgramme() {
   // ── Chase mode (customer-level only) ─────────
   const handleChaseMode = useCallback(
     async (entity: any, row: typeof rows[0], mode: "off" | "on" | "by-project") => {
-      if (mode === "by-project") {
-        setSaving((p) => ({ ...p, [entity.id]: true }));
-        try {
+      setSaving((p) => ({ ...p, [entity.id]: true }));
+      try {
+        if (mode === "by-project") {
+          // Flag customer as chaseByProject, turn off any active contacts
           await fetch(`/api/customers/${entity.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chaseByProject: true }),
           });
-          // Turn off any active contacts so no duplicate sending
           await Promise.all(
             row.entityContacts
               .filter((c: any) => c.receivesAuto)
               .map((c: any) => patchContact(c.id, { receivesAuto: false }))
           );
           await refresh();
-          toast("Switched to per-project chasing — configure projects in the By Project tab");
-        } catch {
-          toast("Failed to update", "error");
-        } finally {
-          setSaving((p) => ({ ...p, [entity.id]: false }));
+          toast("Switched to per-project chasing — set up reminders in the By Project tab");
+        } else {
+          // Switching back to customer level — clear flag first if set
+          if (entity.chaseByProject) {
+            await fetch(`/api/customers/${entity.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chaseByProject: false }),
+            });
+          }
+          await refresh();
+          // Then handle on/off via toggle (operates on contacts)
+          if (mode === "on") await handleToggle(entity, row, true);
+          else await handleToggle(entity, row, false);
         }
-        return;
+      } catch {
+        toast("Failed to update", "error");
+      } finally {
+        setSaving((p) => ({ ...p, [entity.id]: false }));
       }
-      // "on" / "off" — delegate to existing toggle handler
-      handleToggle(entity, row, mode === "on");
     },
     [patchContact, refresh, toast, handleToggle]
   );
@@ -359,7 +369,7 @@ function ReminderProgramme() {
       <div
         key={entity.id}
         className={`grid grid-cols-[40px_1fr_90px_110px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
-          isSelected ? "bg-stone-50" : ""
+          entity.chaseByProject ? "bg-violet-50/40" : isSelected ? "bg-stone-50" : ""
         } ${isSaving ? "opacity-60" : ""}`}
       >
         {/* Checkbox */}
@@ -446,14 +456,16 @@ function ReminderProgramme() {
             // By Customer: 3-state dropdown
             <select
               disabled={isSaving}
-              value={isOn ? "on" : "off"}
+              value={entity.chaseByProject ? "by-project" : isOn ? "on" : "off"}
               onChange={(e) => {
                 const mode = e.target.value as "off" | "on" | "by-project";
-                if (mode === "on" && !emailVal) { toast("Enter an email address first", "error"); return; }
+                if (mode === "on" && !emailVal && !entity.chaseByProject) { toast("Enter an email address first", "error"); return; }
                 handleChaseMode(entity, row, mode);
               }}
               className={`h-8 pl-2.5 pr-6 text-[12px] font-semibold rounded-lg border-0 ring-1 focus:outline-none focus:ring-2 focus:ring-stone-900 appearance-none cursor-pointer transition-colors disabled:opacity-50 ${
-                isOn ? "bg-emerald-50 ring-emerald-300 text-emerald-700" : "bg-stone-100 ring-stone-200 text-stone-500"
+                entity.chaseByProject
+                  ? "bg-violet-50 ring-violet-300 text-violet-700"
+                  : isOn ? "bg-emerald-50 ring-emerald-300 text-emerald-700" : "bg-stone-100 ring-stone-200 text-stone-500"
               }`}
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
             >
@@ -627,19 +639,10 @@ function ReminderProgramme() {
           return groups.map(({ customerId, customerName, rows: groupRows }) => (
             <div key={customerId}>
               {/* Customer group header */}
-              <div className="flex items-center justify-between px-4 py-2 bg-violet-50 border-b border-violet-100">
-                <div className="flex items-center gap-2">
-                  <Users size={12} className="text-violet-500 shrink-0" />
-                  <span className="text-[12px] font-semibold text-violet-800">{customerName}</span>
-                  <span className="text-[11px] text-violet-500">{groupRows.length} project{groupRows.length !== 1 ? "s" : ""}</span>
-                </div>
-                <button
-                  disabled={switchingCustomer === customerId}
-                  onClick={() => handleSwitchToCustomerLevel(customerId)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:text-violet-900 hover:bg-violet-100 rounded-md transition-colors disabled:opacity-50"
-                >
-                  ↩ Chase at customer level
-                </button>
+              <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 border-b border-violet-100">
+                <Users size={12} className="text-violet-500 shrink-0" />
+                <span className="text-[12px] font-semibold text-violet-800">{customerName}</span>
+                <span className="text-[11px] text-violet-400">{groupRows.length} project{groupRows.length !== 1 ? "s" : ""}</span>
               </div>
               {groupRows.map((row) => renderRow(row))}
             </div>
