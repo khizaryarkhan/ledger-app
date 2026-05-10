@@ -41,6 +41,7 @@ export function Sidebar() {
       label: "RECEIVABLES",
       items: [
         { href: "/board", label: "Collections Board", icon: Kanban },
+        { href: "/automations", label: "Automations", icon: Zap },
         { href: "/inbox", label: "Inbox", icon: Inbox, count: counts.inbox },
         { href: "/tasks", label: "Tasks", icon: CheckSquare, count: counts.tasks },
       ],
@@ -56,7 +57,6 @@ export function Sidebar() {
     {
       label: "CONFIGURE",
       items: [
-        { href: "/automations", label: "Automations", icon: Zap },
         { href: "/templates", label: "Email Templates", icon: FileEdit },
         { href: "/imports", label: "Imports", icon: Upload },
         { href: "/settings", label: "Settings", icon: Settings },
