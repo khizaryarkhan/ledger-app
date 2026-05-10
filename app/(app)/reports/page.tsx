@@ -1490,7 +1490,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
 
-type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "activity" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
+type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
 
 interface ReportItem {
   id: ReportId;
@@ -1522,12 +1522,6 @@ const REPORT_GROUPS: ReportGroup[] = [
       { id: "sales-project",   label: "Sales by Project",  description: "Net revenue grouped by project" },
       { id: "sales-region",    label: "Sales by Region",   description: "Net revenue grouped by region" },
       { id: "sales-rep",       label: "Sales by Rep",      description: "Net revenue grouped by sales rep" },
-    ],
-  },
-  {
-    label: "Activity",
-    items: [
-      { id: "activity", label: "Email Activity", description: "Outbound and inbound communication log" },
     ],
   },
 ];
@@ -1617,7 +1611,7 @@ export default function ReportsPage() {
             <p className="text-[11px] text-stone-400 mt-0.5">{currentItem?.description}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {!isSalesReport && report !== "activity" && (
+            {!isSalesReport && (
               <select
                 value={regionFilter}
                 onChange={(e) => setRegionFilter(e.target.value)}
@@ -1670,12 +1664,6 @@ export default function ReportsPage() {
               reps={reps ?? []}
               fixedBreakdown={SALES_BREAKDOWN[report]}
             />
-          )}
-
-          {report === "activity" && (
-            <Card>
-              <ActivityReport communications={communications} />
-            </Card>
           )}
 
           {isArReport && (
