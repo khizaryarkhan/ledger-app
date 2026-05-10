@@ -16,6 +16,7 @@ export const organisations = pgTable("organisations", {
   logoUrl: text("logo_url"), // org logo URL
   displayName: varchar("display_name", { length: 255 }), // optional display name override
   stages: jsonb("stages"), // customisable collection stages array
+  disabledRules: jsonb("disabled_rules").notNull().default([]), // automation rule IDs that are paused
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

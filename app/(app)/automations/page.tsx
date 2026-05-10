@@ -11,14 +11,15 @@ import {
 // ─────────────────────────────────────────────
 // AUTOMATION RULES
 // ─────────────────────────────────────────────
-const RULES = [
-  { name: "Pre-due reminder",        trigger: "3 days before due date",  action: "Send 'Friendly reminder' template — open invoices attached"     },
-  { name: "First overdue notice",    trigger: "1 day after due date",    action: "Send 'First overdue' template — open invoices attached"           },
-  { name: "Second overdue notice",   trigger: "8 days after due date",   action: "Send 'Second overdue' template — open invoices attached"          },
-  { name: "Final notice",            trigger: "21 days after due date",  action: "Send 'Final notice' template, escalate — open invoices attached"  },
-  { name: "Auto-escalate (30 days)", trigger: "30+ days overdue",        action: "Move stage to Escalated"                                          },
-  { name: "Pause on dispute",        trigger: "Stage = Disputed",        action: "Pause all reminders"                                              },
-  { name: "Pause on promise",        trigger: "Stage = Promise to Pay",  action: "Pause until promise date"                                         },
+const RULES: { id: string; name: string; trigger: string; action: string; canDisable: boolean; isNew?: boolean }[] = [
+  { id: "pre-due",        canDisable: true,  name: "Pre-due reminder",         trigger: "3 days before due date",   action: "Send 'Friendly reminder' template — open invoices attached"    },
+  { id: "first-overdue",  canDisable: true,  name: "First overdue notice",     trigger: "1 day after due date",     action: "Send 'First overdue' template — open invoices attached"          },
+  { id: "second-overdue", canDisable: true,  name: "Second overdue notice",    trigger: "8 days after due date",    action: "Send 'Second overdue' template — open invoices attached"         },
+  { id: "final-notice",   canDisable: true,  name: "Final notice",             trigger: "21 days after due date",   action: "Send 'Final notice' template, escalate — open invoices attached" },
+  { id: "auto-escalate",  canDisable: true,  name: "Auto-escalate (30 days)",  trigger: "30+ days overdue",         action: "Move stage to Escalated"                                         },
+  { id: "weekly-monday",  canDisable: true,  name: "Weekly Monday reminder",   trigger: "Every Monday",             action: "Send reminder to all customers/projects with overdue invoices — programme must be ON", isNew: true },
+  { id: "pause-dispute",  canDisable: false, name: "Pause on dispute",         trigger: "Stage = Disputed",         action: "Pause all reminders"                                             },
+  { id: "pause-promise",  canDisable: false, name: "Pause on promise",         trigger: "Stage = Promise to Pay",   action: "Pause until promise date"                                        },
 ];
 
 // ─────────────────────────────────────────────
@@ -682,6 +683,149 @@ function ReminderProgramme() {
 }
 
 // ─────────────────────────────────────────────
+// AUTOMATION RULES TAB
+// ─────────────────────────────────────────────
+function AutomationRules() {
+  const { orgSettings, refresh, toast } = useData() as any;
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const disabledRules: string[] = orgSettings?.disabledRules ?? [];
+
+  const toggleRule = async (ruleId: string, currentlyDisabled: boolean) => {
+    setSaving(ruleId);
+    try {
+      const next = currentlyDisabled
+        ? disabledRules.filter((id: string) => id !== ruleId)   // re-enable
+        : [...disabledRules, ruleId];                            // disable
+
+      const res = await fetch("/api/org/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabledRules: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      await refresh();
+      toast(currentlyDisabled ? "Rule activated" : "Rule paused");
+    } catch {
+      toast("Failed to update rule", "error");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const activeCount  = RULES.filter(r => !disabledRules.includes(r.id)).length;
+  const pausedCount  = RULES.filter(r =>  disabledRules.includes(r.id)).length;
+
+  return (
+    <div className="space-y-4">
+      {/* SMTP warning */}
+      <Card className="bg-amber-50 ring-amber-200">
+        <div className="flex items-start gap-3">
+          <AlertOctagon size={18} className="text-amber-700 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-amber-900">
+            <div className="font-medium mb-1">Email sending requires SMTP configuration</div>
+            <div>
+              Rules are active but emails won't send until SMTP is configured in{" "}
+              <a href="/settings/notifications" className="underline font-medium">Settings → Notifications</a>.
+              The auto-escalation rule runs daily without SMTP.
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Summary pills */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 ring-1 ring-emerald-200 rounded-full text-[12px] font-medium text-emerald-700">
+          <CheckCircle size={12} /> {activeCount} active
+        </div>
+        {pausedCount > 0 && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 ring-1 ring-stone-200 rounded-full text-[12px] font-medium text-stone-500">
+            <Minus size={12} /> {pausedCount} paused
+          </div>
+        )}
+      </div>
+
+      <Card padding="none">
+        <div className="px-4 py-3 border-b border-stone-200">
+          <h3 className="text-sm font-semibold text-stone-900">Automation rules</h3>
+          <p className="text-[11px] text-stone-500 mt-0.5">
+            Apply to all customers/projects with Reminder Programme ON · only open invoices with a balance are included · click the toggle to pause/activate a rule
+          </p>
+        </div>
+
+        {RULES.map((r) => {
+          const isDisabled  = disabledRules.includes(r.id);
+          const isSaving    = saving === r.id;
+
+          return (
+            <div
+              key={r.id}
+              className={`px-4 py-3.5 border-b border-stone-100 last:border-0 flex items-center gap-3 transition-colors ${isDisabled ? "bg-stone-50 opacity-60" : ""}`}
+            >
+              {/* Icon */}
+              <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${isDisabled ? "bg-stone-100" : "bg-stone-900"}`}>
+                <Zap size={14} className={isDisabled ? "text-stone-400" : "text-white"} />
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <div className="text-sm font-medium text-stone-900">{r.name}</div>
+                  {r.isNew && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 ring-1 ring-violet-200">NEW</span>
+                  )}
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${
+                    isDisabled
+                      ? "bg-stone-100 text-stone-400 ring-stone-200"
+                      : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  }`}>
+                    {isDisabled ? "Paused" : "Active"}
+                  </span>
+                </div>
+                <div className="text-xs text-stone-500 flex items-center gap-1.5">
+                  <Clock size={11} className="text-stone-400 shrink-0" /> {r.trigger}
+                </div>
+                <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5">
+                  <Mail size={11} className="text-stone-400 shrink-0" /> {r.action}
+                </div>
+              </div>
+
+              {/* Toggle */}
+              {r.canDisable ? (
+                <button
+                  disabled={isSaving}
+                  onClick={() => toggleRule(r.id, isDisabled)}
+                  title={isDisabled ? "Click to activate this rule" : "Click to pause this rule"}
+                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 disabled:opacity-50 ${
+                    isDisabled ? "bg-stone-200" : "bg-emerald-500"
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                    isDisabled ? "translate-x-0" : "translate-x-5"
+                  }`} />
+                </button>
+              ) : (
+                <div className="w-11 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[10px] text-stone-400 font-medium">Always on</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </Card>
+
+      <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
+        <Info size={13} className="mt-0.5 shrink-0" />
+        <span>
+          <strong className="text-stone-600">Pause on dispute</strong> and <strong className="text-stone-600">Pause on promise</strong> are always enforced and cannot be disabled — they protect against chasing customers who have raised a dispute or committed to a payment date.
+          The <strong className="text-stone-600">Weekly Monday reminder</strong> sends a consolidated reminder every Monday to all customers/projects that have overdue invoices and the programme switched ON.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // PAGE
 // ─────────────────────────────────────────────
 export default function AutomationsPage() {
@@ -708,51 +852,7 @@ export default function AutomationsPage() {
 
       {tab === "programme" && <ReminderProgramme />}
 
-      {tab === "rules" && (
-        <div className="space-y-4">
-          <Card className="bg-amber-50 ring-amber-200">
-            <div className="flex items-start gap-3">
-              <AlertOctagon size={18} className="text-amber-700 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-amber-900">
-                <div className="font-medium mb-1">Email sending requires SMTP configuration</div>
-                <div>
-                  Rules are active but emails won't send until SMTP is configured in{" "}
-                  <a href="/settings/notifications" className="underline font-medium">Settings → Notifications</a>.
-                  The 30-day auto-escalation rule runs daily without SMTP.
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card padding="none">
-            <div className="px-4 py-3 border-b border-stone-200">
-              <h3 className="text-sm font-semibold text-stone-900">Active rules</h3>
-              <p className="text-[11px] text-stone-500 mt-0.5">
-                Apply to all customers/projects with Reminder Programme ON · only open invoices with a balance are included
-              </p>
-            </div>
-            {RULES.map((r, i) => (
-              <div key={i} className="px-4 py-3 border-b border-stone-100 last:border-0 flex items-start gap-3">
-                <div className="w-8 h-8 rounded-md bg-stone-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Zap size={14} className="text-stone-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <div className="text-sm font-medium text-stone-900">{r.name}</div>
-                    <Badge variant="green" size="sm">Active</Badge>
-                  </div>
-                  <div className="text-xs text-stone-600 flex items-center gap-1.5">
-                    <Clock size={11} className="text-stone-400" /> {r.trigger}
-                  </div>
-                  <div className="text-xs text-stone-600 flex items-center gap-1.5 mt-0.5">
-                    <Mail size={11} className="text-stone-400" /> {r.action}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </Card>
-        </div>
-      )}
+      {tab === "rules" && <AutomationRules />}
     </div>
   );
 }

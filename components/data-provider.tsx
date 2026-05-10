@@ -20,6 +20,7 @@ type DataContextType = {
     displayName: string | null;
     name: string;
     stages: import("@/lib/stages").Stage[];
+    disabledRules: string[];
   };
   refresh: () => Promise<void>;
   toast: (message: string, type?: string) => void;
@@ -74,7 +75,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [regions, setRegions] = useState<any[]>([]);
-  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[] }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [] });
+  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[] }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [] });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {

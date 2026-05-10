@@ -20,6 +20,7 @@ export async function GET() {
       displayName: organisations.displayName,
       name: organisations.name,
       stages: organisations.stages,
+      disabledRules: organisations.disabledRules,
     })
     .from(organisations)
     .where(eq(organisations.id, orgId!))
@@ -32,6 +33,7 @@ export async function GET() {
     displayName: org?.displayName ?? null,
     name: org?.name ?? "",
     stages: getStages(org),
+    disabledRules: (org?.disabledRules as string[]) ?? [],
   });
 }
 
@@ -61,6 +63,10 @@ export async function PATCH(req: Request) {
   }
   if (body.logoUrl !== undefined) updates.logoUrl = body.logoUrl || null;
   if (body.displayName !== undefined) updates.displayName = body.displayName || null;
+  if (body.disabledRules !== undefined) {
+    if (!Array.isArray(body.disabledRules)) return bad("disabledRules must be an array");
+    updates.disabledRules = body.disabledRules.filter((r: any) => typeof r === "string");
+  }
 
   // ── Stages update ──────────────────────────────────────────────────────────
   if (body.stages !== undefined) {
@@ -110,6 +116,7 @@ export async function PATCH(req: Request) {
       displayName: organisations.displayName,
       name: organisations.name,
       stages: organisations.stages,
+      disabledRules: organisations.disabledRules,
     })
     .from(organisations)
     .where(eq(organisations.id, orgId!))
@@ -123,5 +130,6 @@ export async function PATCH(req: Request) {
     displayName: updated.displayName ?? null,
     name: updated.name,
     stages: getStages(updated),
+    disabledRules: (updated.disabledRules as string[]) ?? [],
   });
 }
