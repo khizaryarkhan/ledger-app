@@ -579,6 +579,57 @@ export async function runQboSync(orgId: string, userId: string) {
     results.invoicesClosed = toClose.length;
   }
 
+  // STEP 8b: Auto-mark customers and projects Inactive when they have no open AR
+  // A customer/project with zero open invoices (and no unapplied CMs) has nothing
+  // left to collect — mark Inactive so they drop out of the active collections view.
+  {
+    const allCurrentInvoices = await db.select({
+      customerId: invoices.customerId,
+      projectId: invoices.projectId,
+      paymentStatus: invoices.paymentStatus,
+      collectionStage: invoices.collectionStage,
+      txnType: invoices.txnType,
+      qboBalance: invoices.qboBalance,
+    }).from(invoices).where(eq(invoices.orgId, orgId));
+
+    // Build sets of customer/project IDs that still have open AR
+    const activeCustomerIds = new Set<string>();
+    const activeProjectIds  = new Set<string>();
+    for (const inv of allCurrentInvoices) {
+      const isOpen = inv.txnType !== "CreditMemo"
+        ? inv.paymentStatus !== "Paid" && inv.collectionStage !== "Closed"
+        : (inv.qboBalance ?? 0) < 0; // unapplied CM
+      if (isOpen) {
+        if (inv.customerId) activeCustomerIds.add(inv.customerId);
+        if (inv.projectId)  activeProjectIds.add(inv.projectId);
+      }
+    }
+
+    // Customers currently Active but with no open AR → Inactive
+    const activeCustomers = await db.select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.orgId, orgId));
+    const customersToDeactivate = activeCustomers
+      .filter(c => c.id && !activeCustomerIds.has(c.id));
+    if (customersToDeactivate.length > 0) {
+      await db.update(customers)
+        .set({ status: "Inactive", updatedAt: new Date() })
+        .where(inArray(customers.id, customersToDeactivate.map(c => c.id)));
+    }
+
+    // Projects currently Active but with no open AR → Inactive
+    const activeProjects = await db.select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.orgId, orgId));
+    const projectsToDeactivate = activeProjects
+      .filter(p => p.id && !activeProjectIds.has(p.id));
+    if (projectsToDeactivate.length > 0) {
+      await db.update(projects)
+        .set({ status: "Inactive", updatedAt: new Date() })
+        .where(inArray(projects.id, projectsToDeactivate.map(p => p.id)));
+    }
+  }
+
   // STEP 9: Reconciliation totals
   const currentInvoices = await db.select().from(invoices);
   results.ledgerTotalAR = currentInvoices

@@ -23,9 +23,13 @@ export default function IntegrationsSettingsPage() {
   const [syncHistory, setSyncHistory] = useState<any[]>([]);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  // Backfill
+  // Backfill paid-at dates
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ backfilled: number; skipped: number } | null>(null);
+
+  // Backfill inactive
+  const [backfillingInactive, setBackfillingInactive] = useState(false);
+  const [backfillInactiveResult, setBackfillInactiveResult] = useState<{ customersDeactivated: number; projectsDeactivated: number } | null>(null);
 
   // Demo data
   const [seeding, setSeeding] = useState(false);
@@ -95,6 +99,25 @@ export default function IntegrationsSettingsPage() {
       toast("Backfill failed", "error");
     } finally {
       setBackfilling(false);
+    }
+  };
+
+  const handleBackfillInactive = async () => {
+    setBackfillingInactive(true);
+    setBackfillInactiveResult(null);
+    try {
+      const res = await fetch("/api/backfill-inactive", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) toast(data.error || "Backfill failed", "error");
+      else {
+        setBackfillInactiveResult(data);
+        toast(`Marked ${data.customersDeactivated} customers and ${data.projectsDeactivated} projects inactive`);
+        await refresh();
+      }
+    } catch {
+      toast("Backfill failed", "error");
+    } finally {
+      setBackfillingInactive(false);
     }
   };
 
@@ -378,6 +401,31 @@ export default function IntegrationsSettingsPage() {
             <Button size="sm" onClick={handleSeed} disabled={seeding}>
               {seeding ? "Loading…" : "Load demo data"}
             </Button>
+          </div>
+
+          {/* Backfill inactive */}
+          <div className="pb-4 border-b border-stone-100">
+            <div className="text-sm font-medium text-stone-800 mb-1">Mark inactive — no open AR</div>
+            <div className="text-[12px] text-stone-500 mb-3">
+              Marks customers and projects as <strong>Inactive</strong> if they have no open invoices or unapplied credit memos.
+              This runs automatically on every QBO sync. Use this to backfill existing records.
+            </div>
+            <Button size="sm" variant="secondary" onClick={handleBackfillInactive} disabled={backfillingInactive}>
+              {backfillingInactive ? (
+                <span className="flex items-center gap-2"><Loader size={14} className="animate-spin" />Running…</span>
+              ) : (
+                <span className="flex items-center gap-2"><RefreshCw size={14} />Mark inactive with no open AR</span>
+              )}
+            </Button>
+            {backfillInactiveResult && (
+              <div className="mt-2 bg-emerald-50 ring-1 ring-emerald-200 rounded-md px-3 py-2 text-sm text-emerald-800 flex items-center gap-2">
+                <Check size={14} className="text-emerald-600 shrink-0" />
+                <span>
+                  Marked <strong>{backfillInactiveResult.customersDeactivated}</strong> customer{backfillInactiveResult.customersDeactivated !== 1 ? "s" : ""} and{" "}
+                  <strong>{backfillInactiveResult.projectsDeactivated}</strong> project{backfillInactiveResult.projectsDeactivated !== 1 ? "s" : ""} inactive
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Tip */}

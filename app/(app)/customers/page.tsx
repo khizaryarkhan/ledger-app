@@ -117,7 +117,7 @@ export default function CustomersPage() {
   const { customers, invoices, reps, regions, bulkDeleteCustomers } = useData() as any;
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Active");
   const [repFilter, setRepFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);

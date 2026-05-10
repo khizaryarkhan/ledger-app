@@ -97,6 +97,7 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [repFilter, setRepFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Active");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -123,10 +124,11 @@ export default function ProjectsPage() {
         p.customer?.name?.toLowerCase().includes(s)
       );
     }
+    if (statusFilter) res = res.filter((p: any) => p.status === statusFilter);
     if (repFilter) res = res.filter((p: any) => p.repId === repFilter);
     if (regionFilter) res = res.filter((p: any) => p.regionId === regionFilter);
     return res;
-  }, [enriched, search, repFilter, regionFilter]);
+  }, [enriched, search, statusFilter, repFilter, regionFilter]);
 
   const PROJ_COLS: ColDef[] = useMemo(() => [
     { key: "name", label: "Project", sortValue: (r: any) => r.name, filterLabel: (r: any) => r.name },
@@ -143,7 +145,7 @@ export default function ProjectsPage() {
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [search, repFilter, regionFilter, dt.sortKey, dt.sortDir]);
+  useEffect(() => { setPage(0); }, [search, statusFilter, repFilter, regionFilter, dt.sortKey, dt.sortDir]);
   const totalPages = Math.ceil(dt.rows.length / PAGE_SIZE);
   const visible = useMemo(() => dt.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [dt.rows, page]);
 
@@ -183,6 +185,14 @@ export default function ProjectsPage() {
               className="h-9 pl-8 pr-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none w-64"
             />
           </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
+            <option value="">All statuses</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="On Hold">On Hold</option>
+          </select>
           <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
@@ -195,8 +205,8 @@ export default function ProjectsPage() {
             <option value="">All regions</option>
             {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          {(search || repFilter || regionFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>
+          {(search || statusFilter !== "Active" || repFilter || regionFilter) && (
+            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter("Active"); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>
           )}
           <Button icon={Plus} onClick={() => setShowCreate(true)}>New project</Button>
         </div>
