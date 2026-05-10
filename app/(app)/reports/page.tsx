@@ -1284,17 +1284,47 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
     disputeRate, highRiskPct,
     brokenPromises, neverContacted,
     concentrationRows, repPortfolio,
+    openCount,
   } = metrics;
 
-  // Three scored dimensions — all based on data we actually have reliably.
-  // Activity excluded (email logging isn't comprehensive enough to score).
-  // Concentration excluded (few large clients is normal for this business).
-  const scores = {
-    aging:   Math.round(Math.max(0, currentPct)),
-    risk:    Math.round(Math.max(0, 100 - disputeRate * 3 - highRiskPct)),
-    quality: Math.round(Math.max(0, 100 - (brokenPromises * 5) - Math.min(neverContacted * 3, 40) - over90Pct * 0.5)),
-  };
-  const overallScore = Math.round((scores.aging + scores.risk + scores.quality) / 3);
+  // ── Scores — percentage-based throughout so they scale with portfolio size ──
+  const b1_30_pct  = totalAR > 0 ? (b1_30  / totalAR) * 100 : 0;
+  const b31_60_pct = totalAR > 0 ? (b31_60 / totalAR) * 100 : 0;
+  const b61_90_pct = totalAR > 0 ? (b61_90 / totalAR) * 100 : 0;
+  const overdueCount = filteredInvoices.filter((i: any) =>
+    i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+    i.collectionStage !== "Closed" && i.txnType !== "CreditMemo" &&
+    daysOverdue(i.dueDate) > 0
+  ).length;
+
+  // Aging: start at 100, deduct weighted penalty per bucket (older = heavier penalty)
+  const agingScore = Math.round(Math.max(0,
+    100
+    - b1_30_pct  * 0.8   // 1–30d:  mild penalty
+    - b31_60_pct * 1.5   // 31–60d: moderate
+    - b61_90_pct * 2.0   // 61–90d: significant
+    - over90Pct  * 3.0   // 90+d:   heavy — oldest debt is worst
+  ));
+
+  // Risk: disputed AR + high-risk customer exposure
+  const riskScore = Math.round(Math.max(0,
+    100
+    - disputeRate * 4     // disputes signal probable write-off risk
+    - highRiskPct * 1.5  // high-risk customers inflate collection risk
+  ));
+
+  // Collection: broken promises + uncontacted overdue — as % of portfolio, not raw counts
+  const brokenPromiseRate  = openCount    > 0 ? (brokenPromises / openCount)    * 100 : 0;
+  const neverContactedRate = overdueCount > 0 ? (neverContacted / overdueCount) * 100 : 0;
+  const collectionScore = Math.round(Math.max(0,
+    100
+    - brokenPromiseRate  * 2    // broken promises as % of open invoices
+    - neverContactedRate * 1.2  // never contacted as % of overdue invoices
+    - over90Pct * 0.6           // very old debt also reflects poor collection
+  ));
+
+  const scores = { aging: agingScore, risk: riskScore, collection: collectionScore };
+  const overallScore = Math.round((scores.aging + scores.risk + scores.collection) / 3);
 
   const maxBucket = Math.max(current, b1_30, b31_60, b61_90, b90plus, 1);
 
@@ -1315,9 +1345,9 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
           </div>
           <div className="flex gap-5">
             {([
-              { label: "Aging",   score: scores.aging,   tip: "% of AR not yet overdue" },
-              { label: "Risk",    score: scores.risk,    tip: "Dispute rate + high-risk customer exposure" },
-              { label: "Quality", score: scores.quality, tip: "Broken promises + overdue never contacted + 90d+ bucket" },
+              { label: "Aging",      score: scores.aging,      tip: "Weighted by bucket age — older overdue = heavier penalty" },
+              { label: "Risk",       score: scores.risk,       tip: "Disputed AR + high-risk customer exposure" },
+              { label: "Collection", score: scores.collection, tip: "Broken promises + uncontacted overdue + 90d+ AR" },
             ] as { label: string; score: number; tip: string }[]).map(({ label, score, tip }) => (
               <div key={label} className="text-center group relative">
                 <div className="relative w-16 h-16 mx-auto mb-1">
