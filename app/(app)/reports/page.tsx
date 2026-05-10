@@ -1287,40 +1287,41 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
     openCount,
   } = metrics;
 
-  // ── Scores — percentage-based throughout so they scale with portfolio size ──
-  const b1_30_pct  = totalAR > 0 ? (b1_30  / totalAR) * 100 : 0;
-  const b31_60_pct = totalAR > 0 ? (b31_60 / totalAR) * 100 : 0;
-  const b61_90_pct = totalAR > 0 ? (b61_90 / totalAR) * 100 : 0;
+  // ── Scores ─────────────────────────────────────────────────────────────────
   const overdueCount = filteredInvoices.filter((i: any) =>
     i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
     i.collectionStage !== "Closed" && i.txnType !== "CreditMemo" &&
     daysOverdue(i.dueDate) > 0
   ).length;
 
-  // Aging: start at 100, deduct weighted penalty per bucket (older = heavier penalty)
-  const agingScore = Math.round(Math.max(0,
+  // Aging: weighted average — each bucket has a "quality" value (100 = current, 5 = 90+d)
+  // Avoids additive stacking; score degrades gracefully with AR age
+  const agingScore = totalAR > 0
+    ? Math.round(
+        (current  * 100   // current = full marks
+        + b1_30   * 70    // 1-30d overdue = still mostly healthy
+        + b31_60  * 40    // 31-60d = moderate concern
+        + b61_90  * 20    // 61-90d = significant concern
+        + b90plus * 5)    // 90+ = worst, but not zero
+        / totalAR
+      )
+    : 100;
+
+  // Risk: disputes + high-risk customer exposure, each capped so one factor can't hit 0 alone
+  const riskScore = Math.round(Math.max(10,
     100
-    - b1_30_pct  * 0.8   // 1–30d:  mild penalty
-    - b31_60_pct * 1.5   // 31–60d: moderate
-    - b61_90_pct * 2.0   // 61–90d: significant
-    - over90Pct  * 3.0   // 90+d:   heavy — oldest debt is worst
+    - Math.min(disputeRate * 3,  50)   // dispute rate — max 50pt deduction
+    - Math.min(highRiskPct * 1, 40)    // high-risk AR — max 40pt deduction
   ));
 
-  // Risk: disputed AR + high-risk customer exposure
-  const riskScore = Math.round(Math.max(0,
-    100
-    - disputeRate * 4     // disputes signal probable write-off risk
-    - highRiskPct * 1.5  // high-risk customers inflate collection risk
-  ));
-
-  // Collection: broken promises + uncontacted overdue — as % of portfolio, not raw counts
+  // Collection: % of overdue never contacted + broken promise rate, individually capped
   const brokenPromiseRate  = openCount    > 0 ? (brokenPromises / openCount)    * 100 : 0;
   const neverContactedRate = overdueCount > 0 ? (neverContacted / overdueCount) * 100 : 0;
-  const collectionScore = Math.round(Math.max(0,
+  const collectionScore = Math.round(Math.max(10,
     100
-    - brokenPromiseRate  * 2    // broken promises as % of open invoices
-    - neverContactedRate * 1.2  // never contacted as % of overdue invoices
-    - over90Pct * 0.6           // very old debt also reflects poor collection
+    - Math.min(neverContactedRate * 0.5, 45)  // max 45pt — never contacting everyone is bad but not fatal
+    - Math.min(brokenPromiseRate  * 1.5, 35)  // max 35pt for broken promises
+    - Math.min(over90Pct          * 0.4, 20)  // max 20pt for very aged AR
   ));
 
   const scores = { aging: agingScore, risk: riskScore, collection: collectionScore };
