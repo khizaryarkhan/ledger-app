@@ -41,6 +41,8 @@ export default function CustomerDetailPage() {
   const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
   open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
+  // Same rule as the customers list — computed from AR, not DB status field
+  const effectiveStatus = customer.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -59,7 +61,14 @@ export default function CustomerDetailPage() {
               <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{customer.name}</h1>
               {customer.riskRating === "High" && <Badge variant="red">High risk</Badge>}
               {customer.riskRating === "Medium" && <Badge variant="yellow">Medium risk</Badge>}
-              {customer.status !== "Active" && <Badge variant="orange">{customer.status}</Badge>}
+              <Badge variant={effectiveStatus === "Active" ? "green" : effectiveStatus === "On Hold" ? "orange" : "neutral"}>
+                {effectiveStatus}
+              </Badge>
+              {outstanding > 0 && (
+                <span className="text-sm font-semibold tabular-nums text-stone-700">
+                  {fmt.money(outstanding, customer.currency)} outstanding
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-sm text-stone-600">
               <span className="font-mono text-xs">{customer.code}</span>

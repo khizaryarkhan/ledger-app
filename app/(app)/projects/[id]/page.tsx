@@ -60,6 +60,8 @@ export default function ProjectDetailPage() {
   const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;
+  // Same rule as projects list — computed from AR, not DB status field
+  const effectiveStatus = project.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
 
   const handleDownloadPdf = async (e: React.MouseEvent, inv: any) => {
     e.preventDefault();
@@ -86,8 +88,18 @@ export default function ProjectDetailPage() {
 
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{project.name}</h1>
-          <div className="flex items-center gap-2 text-sm text-stone-500 mt-1">
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{project.name}</h1>
+            <Badge variant={effectiveStatus === "Active" ? "green" : effectiveStatus === "On Hold" ? "orange" : "neutral"}>
+              {effectiveStatus}
+            </Badge>
+            {outstanding > 0 && (
+              <span className="text-sm font-semibold tabular-nums text-stone-700">
+                {fmt.money(outstanding, customer.currency)} outstanding
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-stone-500">
             <span className="font-mono text-xs">{project.code}</span>
             <span>·</span>
             <Link href={`/customers/${customer.id}`} className="hover:text-stone-900">{customer.name}</Link>
