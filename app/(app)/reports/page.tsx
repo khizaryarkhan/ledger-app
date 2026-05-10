@@ -475,6 +475,17 @@ function addBuckets(a: any, b: any) {
 
 function invBuckets(inv: any, asAt: Date) {
   const b = emptyBuckets();
+
+  // Credit memos: place unapplied balance (negative) in Current bucket.
+  // They don't age like invoices — they're available credits reducing net AR.
+  if (inv.txnType === "CreditMemo") {
+    const openBal = inv.qboBalance ?? 0; // already negative
+    if (openBal >= 0) return b; // fully applied — don't show
+    b["Current"] = openBal;
+    b.total = openBal;
+    return b;
+  }
+
   // For historical view: if paidAt is after asAt (or null), invoice was open then — use full outstanding
   // For today's view: skip paid/closed
   const isHistorical = asAt.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10);
@@ -493,8 +504,11 @@ function invBuckets(inv: any, asAt: Date) {
 
 function BucketCell({ value, highlight, ccy = "EUR" }: { value: number; highlight?: boolean; ccy?: string }) {
   if (!value || value === 0) return <td className="px-3 py-2 text-right text-stone-300">—</td>;
+  const isCredit = value < 0;
   return (
-    <td className={`px-3 py-2 text-right tabular-nums text-sm ${highlight ? "font-semibold text-stone-900" : "text-stone-700"}`}>
+    <td className={`px-3 py-2 text-right tabular-nums text-sm ${
+      isCredit ? "text-rose-600 font-medium" : highlight ? "font-semibold text-stone-900" : "text-stone-700"
+    }`}>
       {fmt.money(value, ccy)}
     </td>
   );
@@ -529,7 +543,14 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
       } else {
         if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       }
-      if ((inv.total - (inv.paid || 0)) <= 0 && !asAt) continue;
+      // For current view: skip zero-balance invoices; skip fully-applied CMs
+      if (!asAt) {
+        if (inv.txnType === "CreditMemo") {
+          if ((inv.qboBalance ?? 0) >= 0) continue; // fully applied
+        } else {
+          if ((inv.total - (inv.paid || 0)) <= 0) continue;
+        }
+      }
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!cust) continue;
@@ -658,7 +679,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                   <td className="px-4 py-2 pl-4">
                     <span className="text-[12px] font-bold text-stone-700">Total for {customer.name}</span>
                   </td>
-                  {BUCKETS.map(b => <td key={b} className="px-3 py-2 text-right text-[12px] font-bold tabular-nums text-stone-800">{totals[b] > 0 ? fmt.money(totals[b], ccy) : "—"}</td>)}
+                  {BUCKETS.map(b => <td key={b} className={`px-3 py-2 text-right text-[12px] font-bold tabular-nums ${totals[b] < 0 ? "text-rose-600" : "text-stone-800"}`}>{totals[b] !== 0 ? fmt.money(totals[b], ccy) : "—"}</td>)}
                   <td className="px-4 py-2 text-right text-[12px] font-bold tabular-nums text-stone-900">{fmt.money(totals.total, ccy)}</td>
                 </tr>,
               ] : [])
@@ -669,8 +690,8 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
           <tr className="bg-stone-900 text-white">
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
             {BUCKETS.map(b => (
-              <td key={b} className="px-3 py-3 text-right font-bold tabular-nums text-sm">
-                {grandTotals[b] > 0 ? fmt.money(grandTotals[b], ccy) : "—"}
+              <td key={b} className={`px-3 py-3 text-right font-bold tabular-nums text-sm ${grandTotals[b] < 0 ? "text-rose-300" : ""}`}>
+                {grandTotals[b] !== 0 ? fmt.money(grandTotals[b], ccy) : "—"}
               </td>
             ))}
             <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
@@ -701,7 +722,13 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       } else {
         if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
       }
-      if (!asAt && (inv.total - (inv.paid || 0)) <= 0) continue;
+      if (!asAt) {
+        if (inv.txnType === "CreditMemo") {
+          if ((inv.qboBalance ?? 0) >= 0) continue; // fully applied CM
+        } else {
+          if ((inv.total - (inv.paid || 0)) <= 0) continue;
+        }
+      }
       if (!inv.projectId) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
@@ -772,7 +799,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
 
           <tr className="bg-stone-900 text-white">
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums text-sm">{grandTotals[b] > 0 ? fmt.money(grandTotals[b], ccy) : "—"}</td>)}
+            {BUCKETS.map(b => <td key={b} className={`px-3 py-3 text-right font-bold tabular-nums text-sm ${grandTotals[b] < 0 ? "text-rose-300" : ""}`}>{grandTotals[b] !== 0 ? fmt.money(grandTotals[b], ccy) : "—"}</td>)}
             <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
           </tr>
         </tbody>
