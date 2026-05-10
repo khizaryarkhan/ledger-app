@@ -1169,13 +1169,16 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
   }, [invoices, customers, projects, regionFilter]);
 
   const metrics = useMemo(() => {
-    // "Open" = not closed/written off. We rely only on collectionStage + dueDate,
-    // NOT on paymentStatus or paidAt (payment dates are not yet reliable in the data).
+    // "Open" = unpaid, not written off, not closed, not a credit memo.
+    // Use the same definition as Aging by Customer so totals reconcile.
     const open = filteredInvoices.filter((i: any) =>
-      i.collectionStage !== "Closed" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo"
+      i.paymentStatus !== "Paid" &&
+      i.paymentStatus !== "Written Off" &&
+      i.collectionStage !== "Closed" &&
+      i.txnType !== "CreditMemo"
     );
-    // Outstanding = invoice total (no paid deduction since payment data isn't reliable)
-    const bal = (i: any) => i.total || 0;
+    // Outstanding balance = net of any partial payments (matches Aging by Customer)
+    const bal = (i: any) => Math.max(0, (i.total || 0) - (i.paid || 0));
     const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
 
     // ── Aging buckets — based purely on due date vs today ──────
