@@ -36,7 +36,7 @@ export default function CustomerDetailPage() {
   const custComms = useMemo(() => communications.filter(c => c.customerId === id), [communications, id]);
   const custTasks = tasks.filter(t => t.customerId === id);
 
-  const open = custInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+  const open = custInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
@@ -180,7 +180,7 @@ export default function CustomerDetailPage() {
           <div className="grid grid-cols-2 gap-3">
             {custProjects.map(p => {
               const projInvoices = invoices.filter((i: any) => i.projectId === p.id);
-              const projOpen = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+              const projOpen = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
               const projOut = projOpen.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
               const projOverdue = projOpen.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
               return (

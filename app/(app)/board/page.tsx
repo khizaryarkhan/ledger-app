@@ -50,7 +50,7 @@ const AGING_COLORS = [
 function getAgingBuckets(invs: any[]) {
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
   for (const inv of invs) {
-    if (inv.paymentStatus === "Paid") continue;
+    if (inv.paymentStatus === "Paid" || inv.txnType === "CreditMemo") continue;
     const out = inv.total - (inv.paid || 0);
     const d = daysOverdue(inv.dueDate);
     buckets.total += out;
@@ -92,7 +92,7 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
 }
 
 function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, setDraggingId }: any) {
-  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed");
+  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed" && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
@@ -169,7 +169,7 @@ export default function BoardPage() {
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
 
-      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed");
+      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed" && i.txnType !== "CreditMemo");
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       if (outstanding === 0 && open.length === 0) return;
 
@@ -213,7 +213,7 @@ export default function BoardPage() {
     const item = grouped[draggingId];
     if (!item || item.stage === stage) return;
     // Update all open invoices for this entity to the new stage
-    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed");
+    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed" && i.txnType !== "CreditMemo");
     await Promise.all(openInvs.map((i: any) => updateInvoice(i.id, { collectionStage: stage })));
     setDraggingId(null);
   };

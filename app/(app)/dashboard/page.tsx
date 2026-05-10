@@ -23,7 +23,7 @@ export default function DashboardPage() {
           return p?.regionId === regionFilter;
         })
       : invoices;
-    const open = regionInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+    const open = regionInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     const totalReceivable = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
     const overdue = open.filter(i => daysOverdue(i.dueDate) > 0);
     const totalOverdue = overdue.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
@@ -71,7 +71,7 @@ export default function DashboardPage() {
 
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
-    invoices.filter(i => i.paymentStatus !== "Paid" && daysOverdue(i.dueDate) > 0).forEach(i => {
+    invoices.filter(i => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach(i => {
       byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0));
     });
     return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find(c => c.id === cid), amount: amt }))
@@ -81,7 +81,7 @@ export default function DashboardPage() {
   // Concentration risk — top 5 customers by total open AR
   const concentrationRisk = useMemo(() => {
     const byCust: Record<string, number> = {};
-    const open = invoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+    const open = invoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     const totalAR = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
     open.forEach(i => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
     const sorted = Object.entries(byCust).map(([cid, amt]) => ({

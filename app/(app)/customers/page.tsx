@@ -129,7 +129,7 @@ export default function CustomersPage() {
   const enriched = useMemo(() => {
     return customers.map((c: any) => {
       const custInvoices = invoices.filter((i: any) => i.customerId === c.id);
-      const open = custInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off");
+      const open = custInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const rep = reps.find((r: any) => r.id === c.repId);
