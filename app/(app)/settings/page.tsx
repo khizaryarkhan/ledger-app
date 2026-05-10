@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, ChevronRight, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, ChevronRight, CheckCircle, AlertCircle, Loader } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -59,6 +59,13 @@ export default function SettingsPage() {
           : smtpStatus.configured
           ? { state: "ok", label: `From: ${smtpStatus.settings?.fromEmail || "configured"}` }
           : { state: "off", label: "Not configured" },
+    },
+    {
+      href: "/settings/stages",
+      icon: Layers,
+      title: "Collection Stages",
+      description: "Rename, recolour and show/hide the board columns to match your collections process.",
+      badge: null,
     },
   ];
 

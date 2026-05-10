@@ -15,6 +15,7 @@ export const organisations = pgTable("organisations", {
   currency: varchar("currency", { length: 8 }).notNull().default("EUR"), // home/reporting currency
   logoUrl: text("logo_url"), // org logo URL
   displayName: varchar("display_name", { length: 255 }), // optional display name override
+  stages: jsonb("stages"), // customisable collection stages array
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

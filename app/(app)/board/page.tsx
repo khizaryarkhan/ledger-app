@@ -5,39 +5,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Users, Briefcase, ChevronRight } from "lucide-react";
-
-const STAGES = [
-  "New", "Scheduled", "Reminder Sent", "Second Notice", "Final Notice",
-  "Awaiting", "Promised", "Disputed", "Escalated", "On Hold", "Closed",
-];
-
-const STAGE_COLORS: Record<string, string> = {
-  "New":           "bg-stone-100 text-stone-700",
-  "Scheduled":     "bg-blue-100 text-blue-700",
-  "Reminder Sent": "bg-blue-200 text-blue-800",
-  "Second Notice": "bg-violet-100 text-violet-700",
-  "Final Notice":  "bg-violet-200 text-violet-800",
-  "Awaiting":      "bg-amber-100 text-amber-700",
-  "Promised":      "bg-amber-100 text-amber-800",
-  "Disputed":      "bg-rose-100 text-rose-700",
-  "Escalated":     "bg-rose-200 text-rose-800",
-  "On Hold":       "bg-orange-100 text-orange-700",
-  "Closed":        "bg-emerald-100 text-emerald-700",
-  // Backward compat — old DB values map to new display colours
-  "Reminder Scheduled": "bg-blue-100 text-blue-700",
-  "Awaiting Reply":     "bg-amber-100 text-amber-700",
-  "Promise to Pay":     "bg-amber-100 text-amber-800",
-};
-
-// Map old stored values to new stage names so cards sort into correct columns
-const STAGE_NORMALIZE: Record<string, string> = {
-  "Reminder Scheduled": "Scheduled",
-  "Awaiting Reply":     "Awaiting",
-  "Promise to Pay":     "Promised",
-};
-function normalizeStage(s: string): string {
-  return STAGE_NORMALIZE[s] || s;
-}
+import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 
 const AGING_COLORS = [
   { label: "Current", color: "bg-emerald-500", key: "current" },
@@ -91,19 +59,22 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
   );
 }
 
-function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, setDraggingId }: any) {
-  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed" && i.txnType !== "CreditMemo");
+function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages }: any) {
+  const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
+  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
-  // Dominant stage (normalized)
+  // Dominant stage (resolved to current label)
   const stageCounts: Record<string, number> = {};
   open.forEach((i: any) => {
-    const ns = normalizeStage(i.collectionStage);
-    stageCounts[ns] = (stageCounts[ns] || 0) + 1;
+    const resolved = resolveStageLabel(i.collectionStage, stages);
+    stageCounts[resolved] = (stageCounts[resolved] || 0) + 1;
   });
-  const dominantStage = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
+  const dominantLabel = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? (stages[0]?.label ?? "New");
+  const dominantStage = (stages as Stage[]).find(s => s.label === dominantLabel);
+  const badgeCls = STAGE_COLOR_CLASSES[dominantStage?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
 
   return (
     <Link href={href}
@@ -122,9 +93,7 @@ function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, set
 
       <div className="flex items-center justify-between mt-2">
         <div className="text-base font-semibold tabular-nums text-stone-900">{fmt.money(outstanding, entity.currency)}</div>
-        <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${STAGE_COLORS[dominantStage] || STAGE_COLORS["New"]}`}>
-          {dominantStage}
-        </div>
+        <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
       </div>
 
       <div className="flex items-center gap-2 mt-2 text-[11px] text-stone-500">
@@ -140,6 +109,10 @@ function CollectionCard({ entity, invoices, href, updateInvoice, draggingId, set
 export default function BoardPage() {
   const { invoices, customers, projects, regions, updateInvoice, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
+  const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
+  const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
+  const closedLabel = stages.find(s => s.isClosed)?.label ?? "Closed";
+
   const [groupBy, setGroupBy] = useState<"customer" | "project">("customer");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
@@ -169,13 +142,13 @@ export default function BoardPage() {
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
 
-      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && normalizeStage(i.collectionStage) !== "Closed" && i.txnType !== "CreditMemo");
+      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       if (outstanding === 0 && open.length === 0) return;
 
       const stageValues: Record<string, number> = {};
       open.forEach((i: any) => {
-        const ns = normalizeStage(i.collectionStage);
+        const ns = resolveStageLabel(i.collectionStage, stages);
         stageValues[ns] = (stageValues[ns] || 0) + (i.total - (i.paid || 0));
       });
       const stage = Object.entries(stageValues).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
@@ -188,22 +161,23 @@ export default function BoardPage() {
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};
-    STAGES.forEach(s => result[s] = []);
+    visibleLabels.forEach(s => result[s] = []);
     Object.values(grouped).forEach(item => {
       if (result[item.stage]) result[item.stage].push(item);
+      // Overflow: items whose stage isn't visible go into first visible column
+      else if (visibleLabels.length > 0) result[visibleLabels[0]].push(item);
     });
-    // Sort by outstanding desc within each stage
     Object.keys(result).forEach(s => result[s].sort((a, b) => b.outstanding - a.outstanding));
     return result;
-  }, [grouped]);
+  }, [grouped, visibleLabels]);
 
   const stageTotals = useMemo(() => {
     const totals: Record<string, number> = {};
-    STAGES.forEach(s => {
+    visibleLabels.forEach(s => {
       totals[s] = (byStage[s] || []).reduce((sum, item) => sum + item.outstanding, 0);
     });
     return totals;
-  }, [byStage]);
+  }, [byStage, visibleLabels]);
 
   const totalAR = Object.values(stageTotals).reduce((s, v) => s + v, 0);
 
@@ -213,12 +187,12 @@ export default function BoardPage() {
     const item = grouped[draggingId];
     if (!item || item.stage === stage) return;
     // Update all open invoices for this entity to the new stage
-    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed" && i.txnType !== "CreditMemo");
+    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
     await Promise.all(openInvs.map((i: any) => updateInvoice(i.id, { collectionStage: stage })));
     setDraggingId(null);
   };
 
-  const visibleStages = stageFilter ? [stageFilter] : STAGES;
+  const visibleStages = stageFilter ? [stageFilter] : visibleLabels;
 
   return (
     <div className="flex flex-col h-screen">
@@ -243,7 +217,7 @@ export default function BoardPage() {
             className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
             <option value="">All stages</option>
-            {STAGES.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
+            {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
           </select>
 
           {/* Group by toggle */}
@@ -279,7 +253,7 @@ export default function BoardPage() {
                 {/* Column header */}
                 <div className="p-3 border-b border-stone-200 flex-shrink-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLORS[stage]}`}>{stage}</span>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLOR_CLASSES[stages.find(s => s.label === stage)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700"}`}>{stage}</span>
                     <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
                   </div>
                   <div className="text-sm font-semibold text-stone-700 tabular-nums">{fmt.money(stageTotal, ccy)}</div>
@@ -299,6 +273,7 @@ export default function BoardPage() {
                       updateInvoice={updateInvoice}
                       draggingId={draggingId}
                       setDraggingId={setDraggingId}
+                      stages={stages}
                     />
                   ))}
                   {items.length === 0 && (
