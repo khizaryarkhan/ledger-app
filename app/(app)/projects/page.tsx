@@ -83,7 +83,7 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
       <td className="px-4 py-3">
         {p.regionName ? <span className="text-[11px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{p.regionName}</span> : <span className="text-stone-400 text-[11px]">—</span>}
       </td>
-      <td className="px-4 py-3"><Badge variant={statusColor(p.status) as any} size="sm">{p.status}</Badge></td>
+      <td className="px-4 py-3"><Badge variant={statusColor(p.effectiveStatus) as any} size="sm">{p.effectiveStatus}</Badge></td>
       <td className="px-4 py-3 text-right tabular-nums">{p.openCount}</td>
       <td className="px-4 py-3 text-right font-semibold tabular-nums">{fmt.money(p.outstanding, p.customer?.currency)}</td>
       <td className={`px-4 py-3 text-right font-semibold tabular-nums ${p.overdue > 0 ? "text-rose-600" : "text-stone-500"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
@@ -111,7 +111,9 @@ export default function ProjectsPage() {
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const rep = reps.find((r: any) => r.id === p.repId);
     const region = regions.find((r: any) => r.id === p.regionId);
-    return { ...p, customer, openCount: open.length, outstanding, overdue, repName: rep?.name, regionName: region?.name };
+    // Compute status from outstanding — real-time, same logic as customers.
+    const effectiveStatus = p.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
+    return { ...p, customer, openCount: open.length, outstanding, overdue, repName: rep?.name, regionName: region?.name, effectiveStatus };
   }), [projects, customers, invoices, reps, regions]);
 
   const filtered = useMemo(() => {
@@ -124,7 +126,7 @@ export default function ProjectsPage() {
         p.customer?.name?.toLowerCase().includes(s)
       );
     }
-    if (statusFilter) res = res.filter((p: any) => p.status === statusFilter);
+    if (statusFilter) res = res.filter((p: any) => p.effectiveStatus === statusFilter);
     if (repFilter) res = res.filter((p: any) => p.repId === repFilter);
     if (regionFilter) res = res.filter((p: any) => p.regionId === regionFilter);
     return res;
@@ -166,7 +168,7 @@ export default function ProjectsPage() {
     } finally { setDeleting(false); }
   };
 
-  const statusColor = useCallback((s: string) => ({ "Active": "blue", "In Progress": "purple", "Completed": "green", "Pending": "yellow", "On Hold": "orange", "Cancelled": "neutral" }[s] || "neutral"), []);
+  const statusColor = useCallback((s: string) => ({ "Active": "blue", "Inactive": "neutral", "On Hold": "orange", "In Progress": "purple", "Completed": "green", "Pending": "yellow", "Cancelled": "neutral" }[s] || "neutral"), []);
 
   return (
     <div className="p-6 max-w-[1300px] mx-auto">

@@ -134,7 +134,10 @@ export default function CustomersPage() {
       const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const rep = reps.find((r: any) => r.id === c.repId);
       const region = regions.find((r: any) => r.id === c.regionId);
-      return { ...c, outstanding, overdue, openCount: open.length, repName: rep?.name, regionName: region?.name };
+      // Compute status from outstanding — always real-time, no sync delay needed.
+      // "On Hold" is a manual override and is preserved regardless of AR balance.
+      const effectiveStatus = c.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
+      return { ...c, outstanding, overdue, openCount: open.length, repName: rep?.name, regionName: region?.name, effectiveStatus };
     });
   }, [customers, invoices, reps, regions]);
 
@@ -145,7 +148,7 @@ export default function CustomersPage() {
       res = res.filter((c: any) => c.name.toLowerCase().includes(s) || c.code.toLowerCase().includes(s) || (c.email || "").toLowerCase().includes(s));
     }
     if (riskFilter) res = res.filter((c: any) => c.riskRating === riskFilter);
-    if (statusFilter) res = res.filter((c: any) => c.status === statusFilter);
+    if (statusFilter) res = res.filter((c: any) => c.effectiveStatus === statusFilter);
     if (repFilter) res = res.filter((c: any) => c.repId === repFilter);
     if (regionFilter) res = res.filter((c: any) => c.regionId === regionFilter);
     return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
@@ -299,7 +302,7 @@ export default function CustomersPage() {
                       {c.riskRating === "Low" && <Badge variant="green" size="sm">Low</Badge>}
                     </td>
                     <td className="px-3 py-2.5">
-                      <Badge variant={c.status === "Active" ? "green" : "neutral"} size="sm">{c.status}</Badge>
+                      <Badge variant={c.effectiveStatus === "Active" ? "green" : c.effectiveStatus === "On Hold" ? "orange" : "neutral"} size="sm">{c.effectiveStatus}</Badge>
                     </td>
                     <td className="px-3 py-2.5 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(c.outstanding, c.currency)}</td>
                     <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-600" : "text-stone-400"}`}>{fmt.money(c.overdue, c.currency)}</td>
