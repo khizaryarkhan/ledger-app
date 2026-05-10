@@ -154,18 +154,25 @@ export default function CustomerDetailPage() {
                 <th className="text-left font-semibold px-4 py-2.5">Due</th>
                 <th className="text-left font-semibold px-4 py-2.5">Status</th>
                 <th className="text-left font-semibold px-4 py-2.5">Stage</th>
-                <th className="text-right font-semibold px-4 py-2.5">Outstanding</th>
+                <th className="text-right font-semibold px-4 py-2.5">Total</th>
+                <th className="text-right font-semibold px-4 py-2.5">Open</th>
               </tr></thead>
               <tbody>
                 {custInvoices.map(inv => {
-                  const out = inv.total - (inv.paid || 0);
+                  const isCM = inv.txnType === "CreditMemo";
+                  // Invoices: open = total - paid. CMs: open = qboBalance (unapplied portion).
+                  const open = isCM ? (inv.qboBalance ?? inv.total) : (inv.total - (inv.paid || 0));
+                  const isFullyApplied = isCM && open === 0;
                   return (
-                    <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
+                    <tr key={inv.id} className={`border-b border-stone-100 hover:bg-stone-50 ${isCM ? "bg-rose-50/40" : ""}`}>
                       <td className="px-4 py-3"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] block">{inv.invoiceNumber}</Link></td>
                       <td className="px-4 py-3"><Link href={`/invoices/${inv.id}`} className="block">{fmt.shortDate(inv.dueDate)}</Link></td>
                       <td className="px-4 py-3"><Link href={`/invoices/${inv.id}`}><Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge></Link></td>
                       <td className="px-4 py-3"><Link href={`/invoices/${inv.id}`}><Badge variant={stageBadge(inv.collectionStage)}>{inv.collectionStage}</Badge></Link></td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums"><Link href={`/invoices/${inv.id}`} className="block">{fmt.money(out, inv.currency)}</Link></td>
+                      <td className="px-4 py-3 text-right tabular-nums text-stone-600"><Link href={`/invoices/${inv.id}`} className="block">{fmt.money(inv.total, inv.currency)}</Link></td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums"><Link href={`/invoices/${inv.id}`} className="block">
+                        {isFullyApplied ? <span className="text-stone-400">Applied</span> : fmt.money(open, inv.currency)}
+                      </Link></td>
                     </tr>
                   );
                 })}
