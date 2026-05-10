@@ -68,10 +68,11 @@ function isCreditMemo(inv: any): boolean {
   return inv.txnType === "CreditMemo" || String(inv.qboId || "").startsWith("CM-");
 }
 
-/** Positive for invoices, negative for credit memos — gives net revenue impact */
+/** Positive for invoices, negative for credit memos — gives net revenue impact.
+ *  CMs are stored with a positive amount (face value), so we negate them here. */
 function netAmount(inv: any): number {
-  const base = inv.amount || 0;
-  return isCreditMemo(inv) ? -Math.abs(base) : base;
+  const base = Math.abs(inv.amount || 0); // abs guards against any legacy negative CMs in DB
+  return isCreditMemo(inv) ? -base : base;
 }
 
 function SalesKPI({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: "green" | "red" | "neutral" }) {

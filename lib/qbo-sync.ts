@@ -400,8 +400,11 @@ export async function runQboSync(orgId: string, userId: string) {
   );
 
   // STEP 7: Credit memos (all — applied and unapplied)
-  // Use TotalAmt for the credit value (full face value regardless of remaining balance).
-  // qboBalance stores the remaining unapplied balance (0 for fully-applied CMs).
+  // Mirror the same model as invoices:
+  //   total      = face value (positive, ex tax)  ← the CM value
+  //   paid       = amount applied against invoices ← applied so far
+  //   outstanding = total - paid                   ← unapplied balance
+  //   qboBalance = remaining unapplied balance (positive)
   const creditsToInsert: any[] = [];
   for (const cm of openCredits) {
     const creditNumber = `CM-${cm.DocNumber || cm.Id}`;
@@ -410,12 +413,13 @@ export async function runQboSync(orgId: string, userId: string) {
     const cust = freshCustByQboId.get(tlId) || freshCustByCode.get(`QBO-${tlId}`);
     if (!cust) continue;
 
-    // Use TotalAmt (full credit value) not Balance (remaining balance) so applied CMs
-    // appear at their full value in sales reporting.
     const totalAmt  = parseFloat(cm.TotalAmt) || 0;
     const balance   = parseFloat(cm.Balance)  || 0;
     const taxAmount = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
-    const netAmt    = Math.max(0, totalAmt - taxAmount); // ex tax
+    const netAmt    = Math.max(0, totalAmt - taxAmount); // ex-tax face value (positive)
+    // Proportional unapplied balance ex-tax (Balance/TotalAmt × netAmt)
+    const netBalance = totalAmt > 0 ? Math.max(0, (balance / totalAmt) * netAmt) : 0;
+    const applied   = Math.max(0, netAmt - netBalance); // how much has been used
 
     // Resolve project: same logic as invoices — if the CM's CustomerRef points to a
     // sub-customer (QBO project), capture that project ID.
@@ -436,16 +440,16 @@ export async function runQboSync(orgId: string, userId: string) {
       invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       currency: cust.currency || "EUR",
-      amount: -netAmt,
+      amount: netAmt,       // positive face value
       taxAmount: 0,
-      total: -netAmt,
-      paid: 0,
+      total: netAmt,        // positive face value
+      paid: applied,        // amount already applied against invoices
       paymentTerms: 0,
       paymentStatus: "Unpaid" as const,
       collectionStage: "Credit Memo",
       collectionOwnerId: userId,
       qboId: `CM-${cm.Id}`,
-      qboBalance: -balance,
+      qboBalance: netBalance,  // positive unapplied balance
       qboCustomerId: cm.CustomerRef?.value,
       qboSyncedAt: new Date(),
       txnType: "CreditMemo",
@@ -812,15 +816,23 @@ export async function syncTargetedEntities(
     for (const cm of qboCredits.filter(Boolean)) {
       const existing = ledgerInvByQboId.get(`CM-${cm.Id}`);
       if (!existing) continue;
-      const balance = parseFloat(cm.Balance) || 0;
+      const totalAmt  = parseFloat(cm.TotalAmt) || 0;
+      const balance   = parseFloat(cm.Balance)  || 0;
+      const taxAmt    = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
+      const netAmt    = Math.max(0, totalAmt - taxAmt);
+      const netBal    = totalAmt > 0 ? Math.max(0, (balance / totalAmt) * netAmt) : 0;
+      const applied   = Math.max(0, netAmt - netBal);
       updatePromises.push(
         db
           .update(invoices)
           .set({
-            total: -balance,
-            qboBalance: -balance,
-            qboSyncedAt: new Date(),
-            updatedAt: new Date(),
+            // total (face value) never changes — only applied amount and balance update
+            total:         netAmt,
+            amount:        netAmt,
+            paid:          applied,
+            qboBalance:    netBal,
+            qboSyncedAt:   new Date(),
+            updatedAt:     new Date(),
             paymentStatus: balance === 0 ? "Paid" : "Unpaid",
           })
           .where(eq(invoices.id, existing.id))
