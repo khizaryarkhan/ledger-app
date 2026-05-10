@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { CustomerModal, ProjectModal } from "@/components/forms";
-import { Timeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
+import { Timeline, AuditTimeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
 import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase, Zap } from "lucide-react";
 
@@ -14,7 +14,7 @@ export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { customers, invoices, projects, contacts, communications, tasks, addNote, refresh, toast } = useData() as any;
-  const [tab, setTab] = useState<"overview" | "invoices" | "projects" | "contacts" | "timeline" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "invoices" | "projects" | "contacts" | "timeline" | "audit" | "tasks">("overview");
   const [showAddContact, setShowAddContact] = useState(false);
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
@@ -144,7 +144,8 @@ export default function CustomerDetailPage() {
             { id: "invoices", label: `Invoices (${custInvoices.length})` },
             { id: "projects", label: `Projects (${custProjects.length})` },
             { id: "contacts", label: `Contacts (${custContacts.length})` },
-            { id: "timeline", label: "Timeline" },
+            { id: "timeline", label: "Communications" },
+            { id: "audit", label: "Audit Trail" },
             { id: "tasks", label: `Tasks (${custTasks.length})` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -293,6 +294,10 @@ export default function CustomerDetailPage() {
 
       {tab === "timeline" && (
         <Timeline communications={custComms} onAddNote={(body: string) => addNote({ customerId: id, invoiceId: null, body })} />
+      )}
+
+      {tab === "audit" && (
+        <AuditTimeline customerId={id} label={customer.name} />
       )}
 
       {tab === "tasks" && (

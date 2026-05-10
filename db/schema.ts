@@ -245,6 +245,23 @@ export const reminderSchedules = pgTable("reminder_schedules", {
 });
 
 // =========================================================================
+// AUDIT EVENTS — append-only track & trace log
+// =========================================================================
+export const auditEvents = pgTable("audit_events", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+  projectId:  uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  invoiceId:  uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  eventType:  varchar("event_type", { length: 32 }).notNull(),
+  actorId:    uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+  actorName:  varchar("actor_name", { length: 255 }),
+  meta:       jsonb("meta").notNull().default({}),
+  occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+});
+export type AuditEvent = typeof auditEvents.$inferSelect;
+
+// =========================================================================
 // QBO SYNC LOG
 // =========================================================================
 export const qboSyncLog = pgTable("qbo_sync_log", {

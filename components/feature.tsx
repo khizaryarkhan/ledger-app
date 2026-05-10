@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { fmt, daysOverdue, today, daysFromNow, emailTemplates } from "@/lib/format";
 import { useData } from "./data-provider";
 import { useSession } from "next-auth/react";
-import { ArrowDownRight, ArrowUpRight, FileEdit, Link2, Save, Send, Paperclip, MessageSquare, Circle, Check, Download, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import {
+  ArrowDownRight, ArrowUpRight, FileEdit, Link2, Save, Send, Paperclip,
+  MessageSquare, Circle, Check, Download, AlertTriangle, CheckCircle, XCircle,
+  Mail, Calendar, Zap, ArrowRightLeft, CreditCard, Users, RefreshCw, FileDown,
+  Clock, Layers, StickyNote,
+} from "lucide-react";
 
 // =====================
 // TIMELINE
@@ -607,6 +612,242 @@ export function TasksList({ tasks, showAssignee = true }: any) {
         </div>
       ))}
     </Card>
+  );
+}
+
+// =====================
+// AUDIT TIMELINE
+// =====================
+const EVENT_META: Record<string, {
+  label: string;
+  Icon: React.ComponentType<any>;
+  color: string;   // tailwind ring/bg colour token
+  dot: string;     // dot bg class
+}> = {
+  email_sent:        { label: "Automated Reminder Sent",  Icon: Send,             color: "blue",   dot: "bg-blue-500" },
+  email_manual:      { label: "Manual Email Sent",        Icon: Mail,             color: "blue",   dot: "bg-blue-400" },
+  note_added:        { label: "Internal Note",            Icon: StickyNote,       color: "stone",  dot: "bg-stone-400" },
+  stage_changed:     { label: "Stage Changed",            Icon: Layers,           color: "violet", dot: "bg-violet-500" },
+  payment_recorded:  { label: "Payment Recorded",         Icon: CreditCard,       color: "emerald",dot: "bg-emerald-500" },
+  promise_to_pay:    { label: "Promise to Pay",           Icon: Calendar,         color: "amber",  dot: "bg-amber-500" },
+  dispute_raised:    { label: "Dispute Raised",           Icon: AlertTriangle,    color: "rose",   dot: "bg-rose-500" },
+  programme_toggled: { label: "Collection Programme",     Icon: Zap,              color: "orange", dot: "bg-orange-500" },
+  chase_mode_changed:{ label: "Chase Mode Changed",       Icon: ArrowRightLeft,   color: "violet", dot: "bg-violet-400" },
+  invoice_synced:    { label: "Invoice Synced (QBO)",     Icon: RefreshCw,        color: "stone",  dot: "bg-stone-300" },
+  contact_updated:   { label: "Contact Updated",          Icon: Users,            color: "stone",  dot: "bg-stone-400" },
+};
+
+const COLOR_CLASSES: Record<string, string> = {
+  blue:    "bg-blue-50 text-blue-700 ring-blue-200",
+  violet:  "bg-violet-50 text-violet-700 ring-violet-200",
+  emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  amber:   "bg-amber-50 text-amber-700 ring-amber-200",
+  rose:    "bg-rose-50 text-rose-700 ring-rose-200",
+  orange:  "bg-orange-50 text-orange-700 ring-orange-200",
+  stone:   "bg-stone-100 text-stone-600 ring-stone-200",
+};
+
+function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
+  if (!meta || typeof meta !== "object") return null;
+  const parts: React.ReactNode[] = [];
+
+  if (eventType === "stage_changed" && meta.fromStage) {
+    parts.push(
+      <span key="stage" className="flex items-center gap-1.5">
+        <span className="font-mono text-[11px] px-1.5 py-0.5 bg-stone-100 rounded">{meta.fromStage}</span>
+        <ArrowRightLeft size={11} className="text-stone-400 flex-shrink-0" />
+        <span className="font-mono text-[11px] px-1.5 py-0.5 bg-stone-900 text-white rounded">{meta.toStage}</span>
+        {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
+      </span>
+    );
+  }
+
+  if (eventType === "payment_recorded" && meta.amount != null) {
+    const isPaid = meta.isPaid;
+    parts.push(
+      <span key="pay" className="flex items-center gap-1.5">
+        <span className={`font-semibold ${isPaid ? "text-emerald-700" : "text-stone-700"}`}>
+          {meta.currency}{Number(meta.amount).toFixed(2)}
+        </span>
+        {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
+        {isPaid && <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 font-medium">Fully Paid</span>}
+        {!isPaid && <span className="text-[11px] text-stone-400">({meta.currency}{Number(meta.totalPaid).toFixed(2)} of {meta.currency}{Number(meta.invoiceTotal).toFixed(2)})</span>}
+      </span>
+    );
+  }
+
+  if (eventType === "promise_to_pay" && meta.promiseDate) {
+    parts.push(
+      <span key="promise" className="text-[12px]">
+        Promise date: <strong>{meta.promiseDate}</strong>
+        {meta.invoiceNo && <span className="text-stone-400 ml-1.5">· {meta.invoiceNo}</span>}
+      </span>
+    );
+  }
+
+  if (eventType === "dispute_raised" && meta.reason) {
+    parts.push(
+      <span key="dispute" className="text-[12px] text-rose-700">
+        {meta.reason}
+        {meta.invoiceNo && <span className="text-stone-400 ml-1.5">· {meta.invoiceNo}</span>}
+      </span>
+    );
+  }
+
+  if ((eventType === "email_sent" || eventType === "email_manual") && meta.subject) {
+    parts.push(
+      <span key="email" className="flex flex-col gap-0.5">
+        <span className="text-[12px] font-medium text-stone-800">{meta.subject}</span>
+        {meta.to && <span className="text-[11px] text-stone-400">To: {meta.to}</span>}
+      </span>
+    );
+  }
+
+  if (eventType === "note_added" && meta.body) {
+    const excerpt = (meta.body as string).slice(0, 160);
+    parts.push(
+      <span key="note" className="text-[12px] text-stone-600 italic">
+        {excerpt}{(meta.body as string).length > 160 ? "…" : ""}
+      </span>
+    );
+  }
+
+  if (eventType === "programme_toggled") {
+    parts.push(
+      <span key="prog" className={`text-[12px] font-medium ${meta.enabled ? "text-emerald-700" : "text-stone-500"}`}>
+        {meta.enabled ? "Programme enabled" : "Programme disabled"}
+        {meta.customerName && <span className="text-stone-400 font-normal ml-1.5">· {meta.customerName}</span>}
+      </span>
+    );
+  }
+
+  if (eventType === "chase_mode_changed") {
+    parts.push(
+      <span key="chase" className="text-[12px]">
+        Switched to <strong>{meta.mode}</strong>
+        {meta.customerName && <span className="text-stone-400 ml-1.5">· {meta.customerName}</span>}
+      </span>
+    );
+  }
+
+  return parts.length > 0 ? <div className="mt-1 flex flex-col gap-1">{parts}</div> : null;
+}
+
+export function AuditTimeline({ customerId, projectId, label }: {
+  customerId?: string;
+  projectId?: string;
+  label?: string;
+}) {
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!customerId && !projectId) return;
+    setLoading(true);
+    setError(false);
+    const params = new URLSearchParams();
+    if (customerId) params.set("customerId", customerId);
+    if (projectId)  params.set("projectId",  projectId);
+    fetch(`/api/audit-events?${params}`)
+      .then(r => { if (!r.ok) throw new Error("Failed"); return r.json(); })
+      .then(data => { setEvents(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => { setError(true); setLoading(false); });
+  }, [customerId, projectId]);
+
+  const exportUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (customerId) params.set("customerId", customerId);
+    if (projectId)  params.set("projectId",  projectId);
+    if (label)      params.set("name", label);
+    return `/api/audit-events/export?${params}`;
+  }, [customerId, projectId, label]);
+
+  return (
+    <div className="max-w-3xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[11px] text-stone-400 font-medium uppercase tracking-wider">
+          {loading ? "Loading…" : `${events.length} event${events.length !== 1 ? "s" : ""} · immutable audit trail`}
+        </div>
+        <a
+          href={exportUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-stone-50 ring-1 ring-stone-200 text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-colors"
+        >
+          <FileDown size={13} />
+          Export PDF
+        </a>
+      </div>
+
+      {/* Timeline */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-stone-400">
+          <Clock size={20} className="animate-spin mr-2" />
+          Loading audit trail…
+        </div>
+      ) : error ? (
+        <div className="text-center py-12 text-rose-500 text-sm">Failed to load audit events.</div>
+      ) : events.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-3">
+            <Clock size={18} className="text-stone-400" />
+          </div>
+          <div className="text-sm font-medium text-stone-600">No events recorded yet</div>
+          <div className="text-[12px] text-stone-400 mt-1">Activity will appear here as actions are taken.</div>
+        </div>
+      ) : (
+        <div className="relative">
+          {/* Vertical line */}
+          <div className="absolute left-[17px] top-4 bottom-4 w-px bg-stone-200" />
+
+          <div className="space-y-0">
+            {events.map((ev: any, i: number) => {
+              const cfg = EVENT_META[ev.eventType] ?? {
+                label: ev.eventType,
+                Icon: Circle,
+                color: "stone",
+                dot: "bg-stone-300",
+              };
+              const { Icon, dot, color, label: evLabel } = cfg;
+              const colorCls = COLOR_CLASSES[color] ?? COLOR_CLASSES.stone;
+              const isLast = i === events.length - 1;
+
+              return (
+                <div key={ev.id} className={`relative flex gap-4 ${isLast ? "pb-0" : "pb-5"}`}>
+                  {/* Dot */}
+                  <div className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ring-2 ring-white ${dot}`}>
+                    <Icon size={14} className="text-white" strokeWidth={2.5} />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 pt-1.5">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${colorCls}`}>
+                        {evLabel}
+                      </span>
+                      {ev.actorName && (
+                        <span className="text-[11px] text-stone-500">by {ev.actorName}</span>
+                      )}
+                    </div>
+
+                    <EventDetail meta={ev.meta} eventType={ev.eventType} />
+
+                    <div className="text-[11px] text-stone-400 mt-1.5">
+                      {new Date(ev.occurredAt).toLocaleString("en-GB", {
+                        day: "numeric", month: "short", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

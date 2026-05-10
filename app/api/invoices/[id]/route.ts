@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
+import { logEvent } from "@/lib/audit";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
@@ -12,11 +13,68 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
+
+  // Fetch before-state for change detection
+  const [before] = await db.select().from(invoices).where(eq(invoices.id, params.id)).limit(1);
+  if (!before) return bad("Not found", 404);
+
   const body = await req.json();
-  const [updated] = await db.update(invoices).set({ ...body, updatedAt: new Date() }).where(eq(invoices.id, params.id)).returning();
+  const [updated] = await db.update(invoices)
+    .set({ ...body, updatedAt: new Date() })
+    .where(eq(invoices.id, params.id))
+    .returning();
   if (!updated) return bad("Not found", 404);
+
+  const actorId   = (session?.user as any)?.id   ?? null;
+  const actorName = (session?.user as any)?.name  ?? null;
+  const base = {
+    orgId: orgId!,
+    customerId: updated.customerId,
+    projectId:  updated.projectId ?? null,
+    invoiceId:  updated.id,
+    actorId,
+    actorName,
+  };
+
+  // ── Stage changed ──────────────────────────────────────────────────────────
+  if (body.collectionStage && body.collectionStage !== before.collectionStage) {
+    await logEvent({
+      ...base,
+      eventType: "stage_changed",
+      meta: {
+        fromStage: before.collectionStage,
+        toStage:   body.collectionStage,
+        invoiceNo: updated.invoiceNumber,
+      },
+    });
+  }
+
+  // ── Promise to pay ─────────────────────────────────────────────────────────
+  if (body.promiseDate && body.promiseDate !== before.promiseDate) {
+    await logEvent({
+      ...base,
+      eventType: "promise_to_pay",
+      meta: {
+        promiseDate: body.promiseDate,
+        invoiceNo:   updated.invoiceNumber,
+      },
+    });
+  }
+
+  // ── Dispute raised / updated ───────────────────────────────────────────────
+  if (body.disputeReason && body.disputeReason !== before.disputeReason) {
+    await logEvent({
+      ...base,
+      eventType: "dispute_raised",
+      meta: {
+        reason:    body.disputeReason,
+        invoiceNo: updated.invoiceNumber,
+      },
+    });
+  }
+
   return ok(updated);
 }
 

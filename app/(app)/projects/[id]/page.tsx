@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
-import { EmailComposer, AddContactModal } from "@/components/feature";
+import { EmailComposer, AddContactModal, AuditTimeline } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, MessageSquare, Users, Plus, Phone } from "lucide-react";
 
@@ -13,7 +13,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { projects, customers, invoices, contacts, communications, regions } = useData() as any;
-  const [tab, setTab] = useState<"invoices" | "timeline" | "contacts">("invoices");
+  const [tab, setTab] = useState<"invoices" | "timeline" | "audit" | "contacts">("invoices");
   const [showCompose, setShowCompose] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -129,7 +129,8 @@ export default function ProjectDetailPage() {
       <div className="border-b border-stone-200 mb-5 flex items-center gap-1">
         {[
           { id: "invoices", label: `Invoices (${projInvoices.length})` },
-          { id: "timeline", label: `Timeline (${projComms.length})` },
+          { id: "timeline", label: `Communications (${projComms.length})` },
+          { id: "audit", label: "Audit Trail" },
           { id: "contacts", label: `Contacts (${totalContacts})` },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -249,6 +250,15 @@ export default function ProjectDetailPage() {
             })}
           </div>
         )
+      )}
+
+      {/* Audit Trail tab */}
+      {tab === "audit" && (
+        <AuditTimeline
+          customerId={project.customerId}
+          projectId={id}
+          label={`${project.name} (${customer.name})`}
+        />
       )}
 
       {/* Contacts tab */}

@@ -3,6 +3,7 @@ import { communications, invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { desc, eq, and } from "drizzle-orm";
+import { logEvent } from "@/lib/audit";
 
 const Schema = z.object({
   customerId: z.string().uuid(),
@@ -99,6 +100,42 @@ export async function POST(req: Request) {
       await db.update(invoices)
         .set({ lastFollowupDate: today, collectionStage: autoStage, updatedAt: new Date() })
         .where(eq(invoices.id, data.invoiceId));
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────────
+    const actorId   = (session?.user as any)?.id   ?? null;
+    const actorName = (session?.user as any)?.name ?? null;
+
+    if (data.channel === "Note") {
+      await logEvent({
+        orgId:      orgId!,
+        eventType:  "note_added",
+        customerId: data.customerId,
+        projectId:  data.projectId ?? null,
+        invoiceId:  data.invoiceId ?? null,
+        actorId,
+        actorName,
+        meta: { body: data.body ?? "" },
+      });
+    } else if (data.channel === "Email" && data.direction === "Outbound" && !data.isDraft) {
+      // Determine if this was an auto-sent reminder (subject contains "Reminder") or manual
+      const isAuto = !!autoStage;
+      await logEvent({
+        orgId:      orgId!,
+        eventType:  isAuto ? "email_sent" : "email_manual",
+        customerId: data.customerId,
+        projectId:  data.projectId ?? null,
+        invoiceId:  data.invoiceId ?? null,
+        actorId,
+        actorName,
+        meta: {
+          subject:    data.subject ?? "",
+          to:         data.recipients ?? "",
+          from:       data.sender ?? "",
+          stageAtSend: data.stageAtSend ?? currentStageForLog ?? "",
+          autoStage:  autoStage ?? null,
+        },
+      });
     }
 
     return ok(created);
