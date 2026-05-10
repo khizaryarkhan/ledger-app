@@ -42,7 +42,7 @@ export function Sidebar() {
       items: [
         { href: "/board", label: "Collections Board", icon: Kanban },
         { href: "/automations", label: "Automations", icon: Zap },
-        { href: "/inbox", label: "Inbox", icon: Inbox, count: counts.inbox },
+        { href: "/inbox", label: "Communication Notes", icon: Inbox, count: counts.inbox },
         { href: "/tasks", label: "Tasks", icon: CheckSquare, count: counts.tasks },
       ],
     },
