@@ -159,7 +159,9 @@ export async function runQboSync(orgId: string, userId: string) {
   await sleep(500);
   const allInvoicesForClose = await qboFetchAllSafe(accessToken, realmId, "Invoice");
   await sleep(500);
-  const openCredits = await qboFetchAllSafe(accessToken, realmId, "CreditMemo", "Balance > '0'");
+  // Fetch ALL credit memos (applied + unapplied) so closed CMs appear in sales reporting.
+  // AR reconciliation uses openInvoices balances only — credit memo balances are not needed there.
+  const openCredits = await qboFetchAllSafe(accessToken, realmId, "CreditMemo");
   await sleep(500);
   // Fetch all Payments — TxnDate is the actual payment date per payment transaction
   const allQboPayments = await qboFetchAllSafe(accessToken, realmId, "Payment");
@@ -397,7 +399,9 @@ export async function runQboSync(orgId: string, userId: string) {
     )
   );
 
-  // STEP 7: Unapplied credit memos
+  // STEP 7: Credit memos (all — applied and unapplied)
+  // Use TotalAmt for the credit value (full face value regardless of remaining balance).
+  // qboBalance stores the remaining unapplied balance (0 for fully-applied CMs).
   const creditsToInsert: any[] = [];
   for (const cm of openCredits) {
     const creditNumber = `CM-${cm.DocNumber || cm.Id}`;
@@ -405,7 +409,13 @@ export async function runQboSync(orgId: string, userId: string) {
     const tlId = topLevelId(cm.CustomerRef?.value, custMap);
     const cust = freshCustByQboId.get(tlId) || freshCustByCode.get(`QBO-${tlId}`);
     if (!cust) continue;
-    const balance = parseFloat(cm.Balance) || 0;
+
+    // Use TotalAmt (full credit value) not Balance (remaining balance) so applied CMs
+    // appear at their full value in sales reporting.
+    const totalAmt  = parseFloat(cm.TotalAmt) || 0;
+    const balance   = parseFloat(cm.Balance)  || 0;
+    const taxAmount = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
+    const netAmt    = Math.max(0, totalAmt - taxAmount); // ex tax
 
     // Resolve project: same logic as invoices — if the CM's CustomerRef points to a
     // sub-customer (QBO project), capture that project ID.
@@ -426,9 +436,9 @@ export async function runQboSync(orgId: string, userId: string) {
       invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
       currency: cust.currency || "EUR",
-      amount: -balance,
+      amount: -netAmt,
       taxAmount: 0,
-      total: -balance,
+      total: -netAmt,
       paid: 0,
       paymentTerms: 0,
       paymentStatus: "Unpaid" as const,
@@ -439,7 +449,7 @@ export async function runQboSync(orgId: string, userId: string) {
       qboCustomerId: cm.CustomerRef?.value,
       qboSyncedAt: new Date(),
       txnType: "CreditMemo",
-      notes: `Unapplied credit memo from QBO — ${cm.DocNumber || cm.Id}`,
+      notes: `Credit memo from QBO — ${cm.DocNumber || cm.Id}`,
     });
     results.creditsCreated++;
   }
