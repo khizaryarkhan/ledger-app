@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
@@ -8,17 +8,18 @@ import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/c
 import { CustomerModal, ProjectModal } from "@/components/forms";
 import { Timeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
-import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase, Zap } from "lucide-react";
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { customers, invoices, projects, contacts, communications, tasks, addNote } = useData();
+  const { customers, invoices, projects, contacts, communications, tasks, addNote, refresh, toast } = useData() as any;
   const [tab, setTab] = useState<"overview" | "invoices" | "projects" | "contacts" | "timeline" | "tasks">("overview");
   const [showAddContact, setShowAddContact] = useState(false);
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const [togglingChase, setTogglingChase] = useState(false);
 
   const customer = customers.find(c => c.id === id);
   if (!customer) {
@@ -43,6 +44,23 @@ export default function CustomerDetailPage() {
   open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
   // Same rule as the customers list — computed from AR, not DB status field
   const effectiveStatus = customer.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
+
+  const handleToggleChaseByProject = async () => {
+    setTogglingChase(true);
+    try {
+      await fetch(`/api/customers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chaseByProject: !customer.chaseByProject }),
+      });
+      await refresh();
+      toast(!customer.chaseByProject ? "Reminders will now be sent per project" : "Reminders will now be sent at customer level");
+    } catch {
+      toast("Failed to update chase setting", "error");
+    } finally {
+      setTogglingChase(false);
+    }
+  };
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -81,7 +99,23 @@ export default function CustomerDetailPage() {
             </div>
           </div>
         </div>
-        <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
+        <div className="flex items-center gap-3">
+          {/* Chase-by-project toggle */}
+          <button
+            onClick={handleToggleChaseByProject}
+            disabled={togglingChase}
+            title={customer.chaseByProject ? "Currently chasing per project — click to switch to customer level" : "Currently chasing at customer level — click to switch to per project"}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg ring-1 text-sm font-medium transition-colors disabled:opacity-50 ${
+              customer.chaseByProject
+                ? "bg-violet-50 ring-violet-300 text-violet-700 hover:bg-violet-100"
+                : "bg-stone-50 ring-stone-200 text-stone-500 hover:bg-stone-100 hover:text-stone-700"
+            }`}
+          >
+            <Zap size={13} className={customer.chaseByProject ? "text-violet-600" : "text-stone-400"} />
+            {customer.chaseByProject ? "Chasing by Project" : "Chase by Project"}
+          </button>
+          <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-3 mb-6">

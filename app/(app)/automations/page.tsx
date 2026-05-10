@@ -41,7 +41,15 @@ function ReminderProgramme() {
   const [emailDirty, setEmailDirty] = useState<Set<string>>(new Set());
 
   const isProjectLevel = viewLevel === "project";
-  const entities: any[] = isProjectLevel ? (projects ?? []) : (customers ?? []);
+
+  // By Customer → only customers NOT flagged chaseByProject
+  // By Project  → only projects whose parent customer IS flagged chaseByProject
+  const entities: any[] = isProjectLevel
+    ? (projects ?? []).filter((p: any) => {
+        const cust = (customers ?? []).find((c: any) => c.id === p.customerId);
+        return cust?.chaseByProject === true;
+      })
+    : (customers ?? []).filter((c: any) => !c.chaseByProject);
 
   // Initialise email inputs from active contacts (only if not dirty)
   useEffect(() => {
@@ -304,11 +312,13 @@ function ReminderProgramme() {
       <div className="flex items-center gap-3 flex-wrap">
         {/* Level toggle */}
         <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-1">
-          <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); setStatusFilter("Active"); }}
+            <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); setStatusFilter("Active"); }}
+            title="Customers chased at account level"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Users size={12} /> By Customer
           </button>
           <button onClick={() => { setViewLevel("project"); setSelected(new Set()); setStatusFilter("Active"); }}
+            title="Projects for customers flagged 'Chase by Project'"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
             <Briefcase size={12} /> By Project
           </button>
@@ -403,7 +413,11 @@ function ReminderProgramme() {
 
         {rows.length === 0 && (
           <div className="py-12 text-center text-sm text-stone-500">
-            {search ? "No results match your search" : `No ${isProjectLevel ? "projects" : "customers"} found`}
+            {search
+              ? "No results match your search"
+              : isProjectLevel
+              ? <span>No projects set to per-project chasing.<br /><span className="text-[11px] text-stone-400">Open a customer and enable <strong className="text-stone-500">Chase by Project</strong> to see their projects here.</span></span>
+              : "No customers found"}
           </div>
         )}
 

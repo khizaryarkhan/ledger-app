@@ -93,6 +93,7 @@ export const customers = pgTable("customers", {
   addressCity: varchar("address_city", { length: 128 }),
   addressPostcode: varchar("address_postcode", { length: 32 }),
   qboId: varchar("qbo_id", { length: 64 }),
+  chaseByProject: boolean("chase_by_project").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
