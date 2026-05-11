@@ -367,8 +367,8 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                   </select>
                   <Button variant="secondary" size="sm" onClick={() => setShowAddUser(false)}>Cancel</Button>
                   <Button size="sm" onClick={handleAddUser}
-                    disabled={addingUser || !addForm.email || (!addEmailExists && (!addForm.name || !addForm.password))}>
-                    {addingUser ? "Adding…" : addEmailExists ? "Link user" : "Create & link"}
+                    disabled={addingUser || !addForm.email || (!addEmailExists && !addForm.name)}>
+                    {addingUser ? "Adding…" : addEmailExists ? "Link user" : "Add user"}
                   </Button>
                 </div>
               </div>
