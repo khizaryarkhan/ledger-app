@@ -7,6 +7,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { CustomerModal, ProjectModal } from "@/components/forms";
 import { Timeline, AuditTimeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
+import { TransactionsTab } from "@/components/transactions-tab";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
 import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase, Zap } from "lucide-react";
 
@@ -14,7 +15,7 @@ export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { customers, invoices, projects, contacts, communications, tasks, addNote, refresh, toast } = useData() as any;
-  const [tab, setTab] = useState<"overview" | "invoices" | "projects" | "contacts" | "timeline" | "audit" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "transactions" | "invoices" | "projects" | "contacts" | "timeline" | "audit" | "tasks">("overview");
   const [showAddContact, setShowAddContact] = useState(false);
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
@@ -141,6 +142,7 @@ export default function CustomerDetailPage() {
         <div className="flex items-center gap-1">
           {[
             { id: "overview", label: "Overview" },
+            { id: "transactions", label: "Transactions" },
             { id: "invoices", label: `Invoices (${custInvoices.length})` },
             { id: "projects", label: `Projects (${custProjects.length})` },
             { id: "contacts", label: `Contacts (${custContacts.length})` },
@@ -187,6 +189,10 @@ export default function CustomerDetailPage() {
             </dl>
           </Card>
         </div>
+      )}
+
+      {tab === "transactions" && (
+        <TransactionsTab fetchUrl={`/api/customers/${id}/transactions`} scope="customer" />
       )}
 
       {tab === "invoices" && (

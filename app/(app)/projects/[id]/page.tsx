@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { EmailComposer, AddContactModal, AuditTimeline } from "@/components/feature";
+import { TransactionsTab } from "@/components/transactions-tab";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, MessageSquare, Users, Plus, Phone } from "lucide-react";
 
@@ -13,7 +14,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { projects, customers, invoices, contacts, communications, regions } = useData() as any;
-  const [tab, setTab] = useState<"invoices" | "timeline" | "audit" | "contacts">("invoices");
+  const [tab, setTab] = useState<"transactions" | "invoices" | "timeline" | "audit" | "contacts">("transactions");
   const [showCompose, setShowCompose] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -128,6 +129,7 @@ export default function ProjectDetailPage() {
       {/* Tabs */}
       <div className="border-b border-stone-200 mb-5 flex items-center gap-1">
         {[
+          { id: "transactions", label: "Transactions" },
           { id: "invoices", label: `Invoices (${projInvoices.length})` },
           { id: "timeline", label: `Communications (${projComms.length})` },
           { id: "audit", label: "Audit Trail" },
@@ -139,6 +141,11 @@ export default function ProjectDetailPage() {
           </button>
         ))}
       </div>
+
+      {/* Transactions tab — unified view of invoices, credit memos, payments */}
+      {tab === "transactions" && (
+        <TransactionsTab fetchUrl={`/api/projects/${id}/transactions`} scope="project" />
+      )}
 
       {/* Invoices tab */}
       {tab === "invoices" && (
