@@ -88,7 +88,7 @@ export const customers = pgTable("customers", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
-  code: varchar("code", { length: 64 }).notNull().unique(),
+  code: varchar("code", { length: 64 }).notNull(),
   country: varchar("country", { length: 64 }),
   currency: varchar("currency", { length: 8 }).notNull().default("EUR"),
   paymentTerms: integer("payment_terms").notNull().default(30),
@@ -111,7 +111,10 @@ export const customers = pgTable("customers", {
   chaseByProject: boolean("chase_by_project").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  // code is unique within an org — two orgs can share the same QBO customer code
+  orgCodeUnique: uniqueIndex("customers_org_code_unique").on(t.orgId, t.code),
+}));
 
 // =========================================================================
 // CONTACTS
