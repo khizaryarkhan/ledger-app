@@ -85,7 +85,10 @@ export async function GET() {
   }
   for (const cm of qboOpenCredits) {
     const cur = cm.CurrencyRef?.value || "EUR";
-    const bal = parseFloat(cm.Balance) || 0; // QBO CM balance is negative
+    // QBO returns CreditMemo.Balance as a POSITIVE number (= unapplied amount).
+    // We normalise to a negative number so credits + invoices = net AR consistently
+    // for both this side and the ledger side (which already stores CMs as negative).
+    const bal = -(parseFloat(cm.Balance) || 0);
     qboByCurrency[cur] = qboByCurrency[cur] || { invoices: 0, credits: 0, net: 0, count: 0 };
     qboByCurrency[cur].credits += bal;
     qboByCurrency[cur].count++;

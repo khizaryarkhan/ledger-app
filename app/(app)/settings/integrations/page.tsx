@@ -358,15 +358,17 @@ export default function IntegrationsSettingsPage() {
                   <div className="text-xs font-semibold text-stone-700 uppercase tracking-wider">AR Total — QBO vs Ledger</div>
                   <div className="text-[10px] text-stone-500">Checked {new Date(arVerifyResult.checkedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
                 </div>
-                <table className="w-full text-sm">
-                  <thead className="text-[11px] text-stone-500 uppercase">
+                <table className="w-full text-[12px]">
+                  <thead className="text-[10px] text-stone-500 uppercase">
                     <tr className="border-b border-stone-100">
-                      <th className="text-left px-3 py-2 font-medium">Currency</th>
-                      <th className="text-right px-3 py-2 font-medium">QBO Invoices</th>
-                      <th className="text-right px-3 py-2 font-medium">QBO Credits</th>
-                      <th className="text-right px-3 py-2 font-medium">QBO Net AR</th>
-                      <th className="text-right px-3 py-2 font-medium">Ledger Net AR</th>
-                      <th className="text-right px-3 py-2 font-medium">Δ</th>
+                      <th className="text-left px-2 py-2 font-medium">Cur</th>
+                      <th className="text-right px-2 py-2 font-medium">QBO Invoices</th>
+                      <th className="text-right px-2 py-2 font-medium">QBO Credits</th>
+                      <th className="text-right px-2 py-2 font-medium">QBO Net</th>
+                      <th className="text-right px-2 py-2 font-medium">Ledger Invoices</th>
+                      <th className="text-right px-2 py-2 font-medium">Ledger Credits</th>
+                      <th className="text-right px-2 py-2 font-medium">Ledger Net</th>
+                      <th className="text-right px-2 py-2 font-medium">Δ</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -375,12 +377,14 @@ export default function IntegrationsSettingsPage() {
                       const inSync = Math.abs(diff) < 0.50;
                       return (
                         <tr key={row.currency} className="border-b border-stone-50 last:border-0">
-                          <td className="px-3 py-2 font-mono text-[12px] text-stone-700">{row.currency}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.invoices, row.currency)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.credits, row.currency)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium text-stone-900">{fmt.money(row.qbo.net, row.currency)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium text-stone-900">{fmt.money(row.ledger.net, row.currency)}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${inSync ? "text-emerald-600" : "text-rose-600"}`}>
+                          <td className="px-2 py-2 font-mono text-stone-700">{row.currency}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.invoices, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.credits, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-stone-900">{fmt.money(row.qbo.net, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.ledger.invoices, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.ledger.credits, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-stone-900">{fmt.money(row.ledger.net, row.currency)}</td>
+                          <td className={`px-2 py-2 text-right tabular-nums font-semibold ${inSync ? "text-emerald-600" : "text-rose-600"}`}>
                             {inSync ? "✓" : fmt.money(diff, row.currency)}
                           </td>
                         </tr>
