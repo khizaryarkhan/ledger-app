@@ -34,9 +34,20 @@ export default function IntegrationsSettingsPage() {
   // Demo data
   const [seeding, setSeeding] = useState(false);
 
+  // Webhook health
+  const [webhookHealth, setWebhookHealth] = useState<any>(null);
+
+  const loadWebhookHealth = () => {
+    fetch("/api/qbo/webhook-health")
+      .then(r => r.ok ? r.json() : null)
+      .then(setWebhookHealth)
+      .catch(() => {});
+  };
+
   useEffect(() => {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+    loadWebhookHealth();
   }, []);
 
   useEffect(() => {
@@ -302,6 +313,127 @@ export default function IntegrationsSettingsPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Webhook health — real-time delivery status */}
+            {webhookHealth && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                    Real-time webhook health
+                  </div>
+                  <button onClick={loadWebhookHealth}
+                    className="text-[11px] text-stone-400 hover:text-stone-700 flex items-center gap-1">
+                    <RefreshCw size={10} /> Refresh
+                  </button>
+                </div>
+
+                {(() => {
+                  const lastAt = webhookHealth.lastWebhookAt ? new Date(webhookHealth.lastWebhookAt) : null;
+                  const lastSuccessAt = webhookHealth.lastSuccessAt ? new Date(webhookHealth.lastSuccessAt) : null;
+                  const minutesSinceLast = lastAt ? Math.floor((Date.now() - lastAt.getTime()) / 60000) : null;
+                  const minutesSinceSuccess = lastSuccessAt ? Math.floor((Date.now() - lastSuccessAt.getTime()) / 60000) : null;
+
+                  // Health badge logic:
+                  // - never received any webhook → "Not yet received"
+                  // - last success within 24h → "Healthy"
+                  // - last success > 24h ago → "Quiet"
+                  // - errors > 0 in last 24h → "Errors"
+                  let healthLabel = "Not yet received";
+                  let healthColor = "neutral";
+                  if (lastSuccessAt) {
+                    if (webhookHealth.errorsLast24h > 0) {
+                      healthLabel = `${webhookHealth.errorsLast24h} error(s) in 24h`;
+                      healthColor = "amber";
+                    } else if (minutesSinceSuccess! < 60 * 24) {
+                      healthLabel = "Healthy";
+                      healthColor = "emerald";
+                    } else {
+                      healthLabel = "No events in 24h";
+                      healthColor = "amber";
+                    }
+                  }
+
+                  const fmtRelative = (mins: number | null) => {
+                    if (mins === null) return "never";
+                    if (mins < 1) return "just now";
+                    if (mins < 60) return `${mins} min ago`;
+                    const h = Math.floor(mins / 60);
+                    if (h < 48) return `${h} h ago`;
+                    return `${Math.floor(h / 24)} d ago`;
+                  };
+
+                  return (
+                    <div className={`rounded-lg p-3 ring-1 ${
+                      healthColor === "emerald" ? "bg-emerald-50 ring-emerald-200" :
+                      healthColor === "amber" ? "bg-amber-50 ring-amber-200" :
+                      "bg-stone-50 ring-stone-200"
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {healthColor === "emerald" ? <CheckCircle size={14} className="text-emerald-600" /> :
+                           healthColor === "amber" ? <AlertTriangle size={14} className="text-amber-600" /> :
+                           <Clock size={14} className="text-stone-400" />}
+                          <span className={`text-sm font-medium ${
+                            healthColor === "emerald" ? "text-emerald-800" :
+                            healthColor === "amber" ? "text-amber-800" : "text-stone-700"
+                          }`}>{healthLabel}</span>
+                        </div>
+                        <span className="text-[11px] text-stone-500">
+                          {webhookHealth.last24hCount} event(s) in last 24h
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-[11px]">
+                        <div>
+                          <div className="text-stone-400 uppercase tracking-wider mb-0.5">Last event</div>
+                          <div className="text-stone-700">{fmtRelative(minutesSinceLast)}</div>
+                        </div>
+                        <div>
+                          <div className="text-stone-400 uppercase tracking-wider mb-0.5">Last success</div>
+                          <div className="text-stone-700">{fmtRelative(minutesSinceSuccess)}</div>
+                        </div>
+                        <div>
+                          <div className="text-stone-400 uppercase tracking-wider mb-0.5">Cron safety net</div>
+                          <div className="text-stone-700">{
+                            webhookHealth.lastCronSyncAt
+                              ? fmtRelative(Math.floor((Date.now() - new Date(webhookHealth.lastCronSyncAt).getTime()) / 60000))
+                              : "never"
+                          }</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-stone-200/60 text-[10px] text-stone-500">
+                        Webhooks deliver QBO changes in seconds. If we miss one, the cron sync (every 30 min) reconciles all data — nothing is permanently lost.
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Recent webhook events */}
+                {webhookHealth.recentEvents?.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {webhookHealth.recentEvents.slice(0, 5).map((ev: any) => (
+                      <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-50">
+                        {ev.status === "received" ? <CheckCircle size={11} className="text-emerald-500" /> :
+                         ev.status === "error" ? <XCircle size={11} className="text-rose-500" /> :
+                         <AlertTriangle size={11} className="text-amber-500" />}
+                        <span className="text-stone-500 w-28">
+                          {new Date(ev.receivedAt).toLocaleString("en-IE", {
+                            day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                          })}
+                        </span>
+                        <span className="text-stone-700">{ev.entityCount} change(s)</span>
+                        <span className="text-stone-400 truncate">
+                          {ev.entities?.map((e: any) => `${e.name}#${e.id}(${e.operation})`).join(", ")}
+                        </span>
+                        {ev.errorMessage && <span className="ml-auto text-rose-600">{ev.errorMessage}</span>}
+                        {ev.processingMs && !ev.errorMessage && (
+                          <span className="ml-auto text-stone-400">{ev.processingMs}ms</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -15,9 +15,9 @@
  *   4. Copy the "Verifier Token" → add to .env as QBO_WEBHOOK_VERIFIER_TOKEN
  */
 
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { db } from "@/db";
-import { qboTokens } from "@/db/schema";
+import { qboTokens, qboWebhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
 
@@ -35,19 +35,22 @@ export async function POST(req: Request) {
   if (verifierToken) {
     if (!signature) {
       console.warn("QBO webhook: missing intuit-signature header — rejecting");
+      await db.insert(qboWebhookEvents).values({
+        realmId: "unknown", status: "invalid_signature",
+        errorMessage: "Missing intuit-signature header",
+      }).catch(() => {});
       return new Response("Missing signature", { status: 401 });
     }
     const expected = createHmac("sha256", verifierToken).update(rawBody).digest("base64");
-    // Constant-time comparison to prevent timing attacks
     const sigBuf = Buffer.from(signature);
     const expBuf = Buffer.from(expected);
-    const matches = sigBuf.length === expBuf.length &&
-      (await import("crypto")).timingSafeEqual(sigBuf, expBuf);
+    const matches = sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf);
     if (!matches) {
-      console.warn("QBO webhook: signature mismatch — rejecting", {
-        received: signature.slice(0, 10) + "...",
-        expected: expected.slice(0, 10) + "...",
-      });
+      console.warn("QBO webhook: signature mismatch — rejecting");
+      await db.insert(qboWebhookEvents).values({
+        realmId: "unknown", status: "invalid_signature",
+        errorMessage: "HMAC mismatch",
+      }).catch(() => {});
       return new Response("Invalid signature", { status: 401 });
     }
   } else {
@@ -97,6 +100,8 @@ async function processWebhookEvents(
   workItems: Array<{ realmId: string; changes: QboEntityChange[] }>
 ) {
   for (const { realmId, changes } of workItems) {
+    const startedAt = Date.now();
+
     // Find the org that owns this QBO realm
     const [token] = await db
       .select({ orgId: qboTokens.orgId, userId: qboTokens.userId })
@@ -106,17 +111,31 @@ async function processWebhookEvents(
 
     if (!token?.orgId) {
       console.warn(`QBO webhook: no org found for realmId ${realmId}`);
+      await db.insert(qboWebhookEvents).values({
+        realmId, status: "unknown_realm",
+        entityCount: changes.length, entities: changes as any,
+        errorMessage: `No org connected to realmId ${realmId}`,
+      }).catch(() => {});
       continue;
     }
 
     try {
       await syncTargetedEntities(token.orgId, token.userId, changes);
-      console.log(
-        `QBO webhook: synced ${changes.length} change(s) for org ${token.orgId}`,
-        changes.map((c) => `${c.name}#${c.id}(${c.operation})`).join(", ")
-      );
+      const ms = Date.now() - startedAt;
+      console.log(`QBO webhook: synced ${changes.length} change(s) for org ${token.orgId} in ${ms}ms`);
+      await db.insert(qboWebhookEvents).values({
+        realmId, orgId: token.orgId, status: "received",
+        entityCount: changes.length, entities: changes as any,
+        processingMs: ms,
+      }).catch(() => {});
     } catch (err: any) {
+      const ms = Date.now() - startedAt;
       console.error(`QBO webhook sync failed for org ${token.orgId}:`, err.message);
+      await db.insert(qboWebhookEvents).values({
+        realmId, orgId: token.orgId, status: "error",
+        entityCount: changes.length, entities: changes as any,
+        errorMessage: err?.message || String(err), processingMs: ms,
+      }).catch(() => {});
       // Don't throw — log and continue with other orgs
     }
   }

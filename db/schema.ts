@@ -301,6 +301,27 @@ export const qboSyncLog = pgTable("qbo_sync_log", {
 export type QboSyncLog = typeof qboSyncLog.$inferSelect;
 
 // =========================================================================
+// QBO WEBHOOK EVENTS — every webhook delivery is logged here
+// Used to detect missed events and visualise webhook health per org
+// =========================================================================
+export const qboWebhookEvents = pgTable("qbo_webhook_events", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  receivedAt:       timestamp("received_at").notNull().defaultNow(),
+  realmId:          varchar("realm_id", { length: 64 }).notNull(),
+  orgId:            uuid("org_id").references(() => organisations.id, { onDelete: "set null" }),
+  // 'received' = signature valid, processed
+  // 'invalid_signature' = HMAC mismatch, rejected
+  // 'unknown_realm' = no org with that realmId
+  // 'error' = sync threw an exception
+  status:           varchar("status", { length: 32 }).notNull().default("received"),
+  entityCount:      integer("entity_count").notNull().default(0),
+  entities:         jsonb("entities"), // [{ name, id, operation }]
+  errorMessage:     text("error_message"),
+  processingMs:     integer("processing_ms"),
+});
+export type QboWebhookEvent = typeof qboWebhookEvents.$inferSelect;
+
+// =========================================================================
 // ORG SMTP SETTINGS
 // =========================================================================
 export const orgSmtpSettings = pgTable("org_smtp_settings", {
