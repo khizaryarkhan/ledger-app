@@ -590,19 +590,14 @@ export async function runQboSync(orgId: string, userId: string) {
     let paymentsSkipped = 0;
     const paymentErrors: Array<{ qboId: string; reason: string }> = [];
 
+    // STEP A: Categorise payments into insert vs update — no DB calls in the loop
+    const toInsert: any[] = [];
+    const toUpdate: Array<{ id: string; data: any }> = [];
+
     for (const qpay of allQboPayments) {
-      // Per-payment try/catch — one bad row must not abort the entire batch.
       try {
-        if (!qpay.Id) {
-          paymentsSkipped++;
-          paymentErrors.push({ qboId: "?", reason: "Missing Id" });
-          continue;
-        }
-        if (!qpay.TxnDate) {
-          paymentsSkipped++;
-          paymentErrors.push({ qboId: qpay.Id, reason: "Missing TxnDate" });
-          continue;
-        }
+        if (!qpay.Id) { paymentsSkipped++; paymentErrors.push({ qboId: "?", reason: "Missing Id" }); continue; }
+        if (!qpay.TxnDate) { paymentsSkipped++; paymentErrors.push({ qboId: qpay.Id, reason: "Missing TxnDate" }); continue; }
 
         const qboCustId = qpay.CustomerRef?.value as string | undefined;
         const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
@@ -625,53 +620,97 @@ export async function runQboSync(orgId: string, userId: string) {
           updatedAt:           new Date(),
         };
 
-        let paymentRowId: string;
         const existingId = existingPayByQboId.get(qpay.Id);
-        if (existingId) {
-          await db.update(payments).set(payload).where(eq(payments.id, existingId));
-          paymentRowId = existingId;
-          paymentsUpdated++;
-        } else {
-          const [inserted] = await db.insert(payments).values(payload).returning({ id: payments.id });
-          paymentRowId = inserted.id;
-          paymentsCreated++;
-        }
-
-        // Rebuild applications for this payment (delete + reinsert is simplest and idempotent)
-        await db.delete(paymentApplications).where(eq(paymentApplications.paymentId, paymentRowId));
-        const apps: any[] = [];
-        for (const line of (qpay.Line || [])) {
-          const amount = parseFloat(line.Amount) || 0;
-          for (const linked of (line.LinkedTxn || [])) {
-            const targetType = linked.TxnType as string;
-            const targetQboId = linked.TxnId as string;
-            if (!targetQboId || !targetType) continue;
-            // Only track AR-affecting types
-            if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
-            const invoiceId = targetType === "Invoice"
-              ? (invByQboId.get(targetQboId) ?? null)
-              : (cmByRawId.get(targetQboId) ?? null);
-            apps.push({
-              orgId, paymentId: paymentRowId,
-              invoiceId, targetQboId, targetType,
-              amountApplied: amount,
-            });
-          }
-        }
-        if (apps.length > 0) {
-          await db.insert(paymentApplications).values(apps);
-          appsCreated += apps.length;
-        }
+        if (existingId) { toUpdate.push({ id: existingId, data: payload }); }
+        else            { toInsert.push(payload); }
       } catch (e: any) {
         paymentsSkipped++;
         paymentErrors.push({ qboId: qpay.Id || "?", reason: e?.message || String(e) });
       }
     }
 
+    // STEP B: Bulk insert new payments (chunks of 100)
+    for (let i = 0; i < toInsert.length; i += 100) {
+      try {
+        await db.insert(payments).values(toInsert.slice(i, i + 100));
+        paymentsCreated += Math.min(100, toInsert.length - i);
+      } catch (e: any) {
+        // Fall back to per-row insert so one bad row in the chunk doesn't lose 100
+        for (const row of toInsert.slice(i, i + 100)) {
+          try { await db.insert(payments).values(row); paymentsCreated++; }
+          catch (err: any) {
+            paymentsSkipped++;
+            paymentErrors.push({ qboId: row.qboId, reason: err?.message || String(err) });
+          }
+        }
+      }
+    }
+
+    // STEP C: Bulk update existing payments in parallel (with chunking to avoid connection pool exhaustion)
+    for (let i = 0; i < toUpdate.length; i += 50) {
+      const chunk = toUpdate.slice(i, i + 50);
+      await Promise.all(chunk.map(({ id, data }) =>
+        db.update(payments).set(data).where(eq(payments.id, id))
+          .then(() => { paymentsUpdated++; })
+          .catch((err: any) => {
+            paymentsSkipped++;
+            paymentErrors.push({ qboId: data.qboId, reason: err?.message || String(err) });
+          })
+      ));
+    }
+
+    // STEP D: Re-fetch all payments to get current IDs (for application FKs)
+    const allPaymentsNow = await db
+      .select({ id: payments.id, qboId: payments.qboId })
+      .from(payments)
+      .where(eq(payments.orgId, orgId));
+    const paymentIdByQboId = new Map(allPaymentsNow.filter(p => p.qboId).map(p => [p.qboId!, p.id]));
+    const allPaymentDbIds = allPaymentsNow.map(p => p.id);
+
+    // STEP E: Build all applications across all payments — pure JS, no DB calls
+    const allApps: any[] = [];
+    for (const qpay of allQboPayments) {
+      const paymentRowId = paymentIdByQboId.get(qpay.Id);
+      if (!paymentRowId) continue;
+      for (const line of (qpay.Line || [])) {
+        const amount = parseFloat(line.Amount) || 0;
+        for (const linked of (line.LinkedTxn || [])) {
+          const targetType = linked.TxnType as string;
+          const targetQboId = linked.TxnId as string;
+          if (!targetQboId || !targetType) continue;
+          if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
+          const invoiceId = targetType === "Invoice"
+            ? (invByQboId.get(targetQboId) ?? null)
+            : (cmByRawId.get(targetQboId) ?? null);
+          allApps.push({ orgId, paymentId: paymentRowId, invoiceId, targetQboId, targetType, amountApplied: amount });
+        }
+      }
+    }
+
+    // STEP F: Wipe and re-insert applications for these payments (idempotent)
+    if (allPaymentDbIds.length > 0) {
+      // chunk the delete to avoid hitting parameter limits
+      for (let i = 0; i < allPaymentDbIds.length; i += 500) {
+        await db.delete(paymentApplications)
+          .where(inArray(paymentApplications.paymentId, allPaymentDbIds.slice(i, i + 500)));
+      }
+    }
+    for (let i = 0; i < allApps.length; i += 200) {
+      try {
+        await db.insert(paymentApplications).values(allApps.slice(i, i + 200));
+        appsCreated += Math.min(200, allApps.length - i);
+      } catch (e: any) {
+        // Per-row fallback for app inserts
+        for (const app of allApps.slice(i, i + 200)) {
+          try { await db.insert(paymentApplications).values(app); appsCreated++; } catch {}
+        }
+      }
+    }
+
     if (paymentsSkipped > 0) {
       console.warn(
-        `QBO sync: skipped ${paymentsSkipped} payment(s). First 5 errors:`,
-        paymentErrors.slice(0, 5)
+        `QBO sync: skipped ${paymentsSkipped} payment(s). First 10 errors:`,
+        paymentErrors.slice(0, 10)
       );
     }
 
@@ -688,6 +727,9 @@ export async function runQboSync(orgId: string, userId: string) {
     );
 
     let refundsSkipped = 0;
+    const refundsToInsert: any[] = [];
+    const refundsToUpdate: Array<{ id: string; data: any }> = [];
+
     for (const qref of allQboRefundReceipts) {
       try {
         if (!qref.Id || !qref.TxnDate) { refundsSkipped++; continue; }
@@ -710,17 +752,29 @@ export async function runQboSync(orgId: string, userId: string) {
         };
 
         const existingId = existingRefundByQboId.get(qref.Id);
-        if (existingId) {
-          await db.update(refundReceipts).set(payload).where(eq(refundReceipts.id, existingId));
-          refundsUpdated++;
-        } else {
-          await db.insert(refundReceipts).values(payload);
-          refundsCreated++;
-        }
-      } catch (e: any) {
+        if (existingId) refundsToUpdate.push({ id: existingId, data: payload });
+        else            refundsToInsert.push(payload);
+      } catch {
         refundsSkipped++;
-        console.warn(`QBO sync: skipped refund ${qref.Id || "?"}: ${e?.message || e}`);
       }
+    }
+
+    for (let i = 0; i < refundsToInsert.length; i += 100) {
+      try {
+        await db.insert(refundReceipts).values(refundsToInsert.slice(i, i + 100));
+        refundsCreated += Math.min(100, refundsToInsert.length - i);
+      } catch {
+        for (const r of refundsToInsert.slice(i, i + 100)) {
+          try { await db.insert(refundReceipts).values(r); refundsCreated++; } catch { refundsSkipped++; }
+        }
+      }
+    }
+    for (let i = 0; i < refundsToUpdate.length; i += 50) {
+      await Promise.all(refundsToUpdate.slice(i, i + 50).map(({ id, data }) =>
+        db.update(refundReceipts).set(data).where(eq(refundReceipts.id, id))
+          .then(() => { refundsUpdated++; })
+          .catch(() => { refundsSkipped++; })
+      ));
     }
 
     (results as any).paymentsCreated = paymentsCreated;

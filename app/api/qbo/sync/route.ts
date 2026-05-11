@@ -4,6 +4,11 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, desc } from "drizzle-orm";
 import { runQboSync } from "@/lib/qbo-sync";
 
+// Allow the sync to run up to 5 minutes (Vercel Pro plan max).
+// Initial backfill of payments + applications on a large org takes longer
+// than the default 10-60s limit.
+export const maxDuration = 300;
+
 export async function POST() {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
