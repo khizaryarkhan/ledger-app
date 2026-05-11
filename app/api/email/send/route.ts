@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as nodemailer from "nodemailer";
 import { db } from "@/db";
 import { invoices, qboTokens, orgSmtpSettings } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const Schema = z.object({
   to: z.string().min(1),
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
         attachmentErrors.push("QuickBooks not connected — could not fetch PDFs");
       } else {
         for (const invId of data.attachInvoiceIds) {
-          const [inv] = await db.select().from(invoices).where(eq(invoices.id, invId)).limit(1);
+          const [inv] = await db.select().from(invoices).where(and(eq(invoices.id, invId), eq(invoices.orgId, orgId!))).limit(1);
           if (!inv) { attachmentErrors.push(`Invoice not found: ${invId}`); continue; }
           if (!inv.qboId || inv.qboId.startsWith("CM-")) continue; // credit memos have no PDF
           // QBO returns 400 for Written Off / Paid / Closed invoices — skip silently

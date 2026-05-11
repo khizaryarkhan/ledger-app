@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       collectionStage: isPaid ? "Closed" : inv.collectionStage,
       ...(isPaid ? { paidAt: paidDate || today } : {}),
       updatedAt: new Date(),
-    }).where(eq(invoices.id, params.id)).returning();
+    }).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).returning();
 
     // ── Audit log ─────────────────────────────────────────────────────────────
     await logEvent({

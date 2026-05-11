@@ -35,7 +35,6 @@ export async function POST(req: Request) {
     const data = Schema.parse(await req.json());
     const [created] = await db.insert(tasks).values({
       orgId: orgId!,
-      orgId: orgId!,
       customerId: data.customerId ?? null,
       invoiceId: data.invoiceId ?? null,
       title: data.title,

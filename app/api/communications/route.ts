@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     let currentStageForLog: string | null = null;
 
     if (data.invoiceId && !data.isDraft && data.channel === "Email" && data.direction === "Outbound") {
-      const [inv] = await db.select().from(invoices).where(eq(invoices.id, data.invoiceId)).limit(1);
+      const [inv] = await db.select().from(invoices).where(and(eq(invoices.id, data.invoiceId), eq(invoices.orgId, orgId!))).limit(1);
       if (inv) {
         currentStageForLog = inv.collectionStage;
 
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       const today = new Date().toISOString().slice(0, 10);
       await db.update(invoices)
         .set({ lastFollowupDate: today, collectionStage: autoStage, updatedAt: new Date() })
-        .where(eq(invoices.id, data.invoiceId));
+        .where(and(eq(invoices.id, data.invoiceId), eq(invoices.orgId, orgId!)));
     }
 
     // ── Audit log ─────────────────────────────────────────────────────────────

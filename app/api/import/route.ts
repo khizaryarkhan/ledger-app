@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
     const customerRows = codes.length > 0 ? await db.select().from(customers).where(and(inArray(customers.code, codes), eq(customers.orgId, orgId!))) : [];
     const projectRows = projCodes.length > 0 ? await db.select().from(projects).where(and(inArray(projects.code, projCodes), eq(projects.orgId, orgId!))) : [];
-    const dupRows = existingInvNums.length > 0 ? await db.select().from(invoices).where(inArray(invoices.invoiceNumber, existingInvNums)) : [];
+    const dupRows = existingInvNums.length > 0 ? await db.select().from(invoices).where(and(inArray(invoices.invoiceNumber, existingInvNums), eq(invoices.orgId, orgId!))) : [];
 
     const customerByCode = new Map(customerRows.map(c => [c.code, c]));
     const projectByCode = new Map(projectRows.map(p => [p.code, p]));

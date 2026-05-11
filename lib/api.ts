@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
-import { userOrganisations } from "@/db/schema";
+import { userOrganisations, reps } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 
 export async function requireAuth() {
@@ -27,39 +27,59 @@ export function isSuperAdmin(session: any) {
   return (session?.user as any)?.role === "super_admin";
 }
 
-// Returns orgId from session — honours active_org_id cookie for multi-org users
+// Returns orgId, role, repId for the ACTIVE org — honours active_org_id cookie.
+// - orgId: resolved from cookie (validated against junction table), fallback JWT
+// - role: resolved from userOrganisations.role for the active org, fallback JWT
+// - repId: resolved by checking if user has a rep linked in the active org
 export async function requireOrg() {
   const session = await auth();
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
   }
-  const userId  = (session.user as any).id   as string;
-  const role    = (session.user as any).role  as string;
-  const repId   = (session.user as any).repId as string | null ?? null;
-  const defaultOrgId = (session.user as any).orgId as string | null;
+  const userId       = (session.user as any).id     as string;
+  const jwtRole      = (session.user as any).role   as string;
+  const jwtRepId     = (session.user as any).repId  as string | null ?? null;
+  const defaultOrgId = (session.user as any).orgId  as string | null;
 
   let orgId: string | null = null;
+  let orgRole: string | null = null;
 
-  // Check if user has selected a different active org via cookie
+  // 1. Resolve active org from cookie (validated)
   try {
     const cookieStore = cookies();
     const activeOrgCookie = cookieStore.get("active_org_id")?.value;
     if (activeOrgCookie) {
-      // Validate user actually belongs to that org
-      const [membership] = await db.select({ orgId: userOrganisations.orgId })
+      const [membership] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
         .from(userOrganisations)
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, activeOrgCookie)))
         .limit(1);
-      if (membership) orgId = membership.orgId;
+      if (membership) {
+        orgId = membership.orgId;
+        orgRole = membership.role;
+      }
     }
   } catch { /* cookies() unavailable in some edge contexts — fall through */ }
 
-  // Fall back to the org baked into the JWT
+  // 2. Fall back to JWT primary org
   if (!orgId) orgId = defaultOrgId;
 
   if (!orgId) {
     return { error: NextResponse.json({ error: "No organisation assigned" }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
   }
+
+  // 3. Super admin always retains super_admin role; otherwise prefer per-org role
+  const role = jwtRole === "super_admin" ? jwtRole : (orgRole || jwtRole);
+
+  // 4. Resolve repId — only valid if the user's rep actually belongs to the active org
+  let repId: string | null = null;
+  if (jwtRepId) {
+    const [rep] = await db.select({ id: reps.id })
+      .from(reps)
+      .where(and(eq(reps.id, jwtRepId), eq(reps.orgId, orgId)))
+      .limit(1);
+    if (rep) repId = rep.id;
+  }
+
   return { error: null, session, orgId, role, repId };
 }
 

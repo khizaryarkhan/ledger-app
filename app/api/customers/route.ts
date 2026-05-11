@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const data = Schema.parse(body);
-    const [existing] = await db.select().from(customers).where(eq(customers.code, data.code)).limit(1);
+    const [existing] = await db.select().from(customers).where(and(eq(customers.code, data.code), eq(customers.orgId, orgId!))).limit(1);
     if (existing) return bad(`Customer code "${data.code}" already exists`, 409);
     const [created] = await db.insert(customers).values({
       orgId: orgId!,

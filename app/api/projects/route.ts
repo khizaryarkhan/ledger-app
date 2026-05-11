@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { projects, organisations, reps } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid(),

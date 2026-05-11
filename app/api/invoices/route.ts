@@ -71,7 +71,7 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
-    const [existing] = await db.select().from(invoices).where(eq(invoices.invoiceNumber, data.invoiceNumber)).limit(1);
+    const [existing] = await db.select().from(invoices).where(and(eq(invoices.invoiceNumber, data.invoiceNumber), eq(invoices.orgId, orgId!))).limit(1);
     if (existing) return bad(`Invoice number "${data.invoiceNumber}" already exists`, 409);
     const [created] = await db.insert(invoices).values({
       orgId: orgId!,

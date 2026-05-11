@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { invoices, qboTokens } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const PDF_TIMEOUT_MS = 15_000; // 15 seconds — fail fast if QBO is slow
@@ -36,7 +36,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const { error, orgId } = await requireOrg();
   if (error) return error;
 
-  const [inv] = await db.select().from(invoices).where(eq(invoices.id, params.id)).limit(1);
+  const [inv] = await db.select().from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
   if (!inv) return bad("Invoice not found", 404);
   if (!inv.qboId || inv.qboId.startsWith("CM-")) return bad("No QBO PDF available for this invoice", 400);
 
