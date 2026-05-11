@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Card, Button, Badge, Input } from "@/components/ui";
-import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2 } from "lucide-react";
+import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function StatusBadge({ status }: { status: string }) {
@@ -286,6 +286,20 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
     } finally { setSavingUser(false); }
   };
 
+  const removeUser = async (userId: string, name: string) => {
+    if (!confirm(`Remove ${name} from this organisation? They will lose access immediately. If this is their only organisation, their account will be deactivated.`)) return;
+    setUserError("");
+    try {
+      const res = await fetch(`/api/admin/organisations/${org.id}/users?userId=${userId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setUserError(data.error || "Failed to remove user"); return; }
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      onSaved(); // refresh org user count
+    } catch (e: any) {
+      setUserError(e?.message || "Failed to remove user");
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl w-full max-w-xl shadow-xl flex flex-col max-h-[90vh]">
@@ -424,8 +438,14 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                         <RoleBadge role={u.role} />
                         <StatusBadge status={u.status} />
                         <button onClick={() => startEditUser(u)}
-                          className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors shrink-0">
+                          className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors shrink-0"
+                          title="Edit user">
                           <Pencil size={13} />
+                        </button>
+                        <button onClick={() => removeUser(u.id, u.name)}
+                          className="p-1.5 hover:bg-rose-50 rounded text-stone-400 hover:text-rose-600 transition-colors shrink-0"
+                          title="Remove from this organisation">
+                          <Trash2 size={13} />
                         </button>
                       </div>
                     )}

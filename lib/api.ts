@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
-import { userOrganisations, reps } from "@/db/schema";
+import { userOrganisations, reps, users } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 
 export async function requireAuth() {
@@ -27,50 +27,81 @@ export function isSuperAdmin(session: any) {
   return (session?.user as any)?.role === "super_admin";
 }
 
-// Returns orgId, role, repId for the ACTIVE org — honours active_org_id cookie.
-// - orgId: resolved from cookie (validated against junction table), fallback JWT
-// - role: resolved from userOrganisations.role for the active org, fallback JWT
-// - repId: resolved by checking if user has a rep linked in the active org
+// Returns orgId, role, repId for the ACTIVE org — strict membership-validated.
+//
+// Hardening (CRITICAL for multi-tenant safety):
+// 1. Verifies users.status is "Active" on EVERY request (deactivated users blocked immediately)
+// 2. Verifies user has a CURRENT user_organisations membership for the resolved orgId
+//    (super_admin exempt — they can access any org via cookie)
+// 3. Role and repId resolved against the active org, not the stale JWT
+//
+// Result: removing a user from user_organisations or setting status=Inactive
+// blocks access immediately, regardless of what's in the JWT.
 export async function requireOrg() {
   const session = await auth();
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
   }
-  const userId       = (session.user as any).id     as string;
-  const jwtRole      = (session.user as any).role   as string;
-  const jwtRepId     = (session.user as any).repId  as string | null ?? null;
-  const defaultOrgId = (session.user as any).orgId  as string | null;
+  const userId      = (session.user as any).id     as string;
+  const jwtRepId    = (session.user as any).repId  as string | null ?? null;
+
+  // STEP 1: Re-validate the user record on every request.
+  // Catches: deactivated users, deleted users, role changes.
+  const [userRow] = await db.select({
+    id: users.id, status: users.status, role: users.role, orgId: users.orgId,
+  }).from(users).where(eq(users.id, userId)).limit(1);
+
+  if (!userRow) {
+    return { error: NextResponse.json({ error: "Account no longer exists" }, { status: 401 }), session: null, orgId: null, role: null, repId: null };
+  }
+  if (userRow.status !== "Active") {
+    return { error: NextResponse.json({ error: "Account is inactive" }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+  }
+
+  const isSuperAdmin = userRow.role === "super_admin";
+
+  // STEP 2: Resolve which org the user is acting on.
+  let activeOrgCookie: string | null = null;
+  try {
+    const cookieStore = cookies();
+    activeOrgCookie = cookieStore.get("active_org_id")?.value || null;
+  } catch { /* edge case */ }
 
   let orgId: string | null = null;
   let orgRole: string | null = null;
 
-  // 1. Resolve active org from cookie (validated)
-  try {
-    const cookieStore = cookies();
-    const activeOrgCookie = cookieStore.get("active_org_id")?.value;
+  // STEP 3: Validate membership for the requested org.
+  // Super admin: can access any org if cookie is set, otherwise their default
+  // Everyone else: MUST have a user_organisations row for the org they want to access
+  if (isSuperAdmin) {
+    orgId = activeOrgCookie || userRow.orgId;
+  } else {
+    // Try cookie first
     if (activeOrgCookie) {
-      const [membership] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
+      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
         .from(userOrganisations)
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, activeOrgCookie)))
         .limit(1);
-      if (membership) {
-        orgId = membership.orgId;
-        orgRole = membership.role;
-      }
+      if (m) { orgId = m.orgId; orgRole = m.role; }
     }
-  } catch { /* cookies() unavailable in some edge contexts — fall through */ }
-
-  // 2. Fall back to JWT primary org
-  if (!orgId) orgId = defaultOrgId;
-
-  if (!orgId) {
-    return { error: NextResponse.json({ error: "No organisation assigned" }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+    // Try the JWT primary org — but ONLY if user still has a junction-table membership for it
+    if (!orgId && userRow.orgId) {
+      const [m] = await db.select({ orgId: userOrganisations.orgId, role: userOrganisations.role })
+        .from(userOrganisations)
+        .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, userRow.orgId)))
+        .limit(1);
+      if (m) { orgId = m.orgId; orgRole = m.role; }
+    }
   }
 
-  // 3. Super admin always retains super_admin role; otherwise prefer per-org role
-  const role = jwtRole === "super_admin" ? jwtRole : (orgRole || jwtRole);
+  if (!orgId) {
+    return { error: NextResponse.json({ error: "You do not have access to any organisation" }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+  }
 
-  // 4. Resolve repId — only valid if the user's rep actually belongs to the active org
+  // STEP 4: Final role — super_admin always wins; otherwise per-org role from junction
+  const role = isSuperAdmin ? "super_admin" : (orgRole || userRow.role);
+
+  // STEP 5: repId only valid if the rep belongs to the active org
   let repId: string | null = null;
   if (jwtRepId) {
     const [rep] = await db.select({ id: reps.id })

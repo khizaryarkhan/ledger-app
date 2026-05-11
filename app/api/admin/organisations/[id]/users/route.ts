@@ -67,3 +67,50 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return bad(e?.message || String(e), 500);
   }
 }
+
+// DELETE /api/admin/organisations/[id]/users?userId=...
+// Super admin: remove a user from this organisation.
+// - Removes the user_organisations row for (userId, orgId)
+// - If this was the user's primary org (users.orgId === orgId), clears that too
+// - If user has no other org memberships left, sets their status to Inactive
+//   (preserves history but immediately blocks access since requireOrg() rejects inactive users)
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { error, session } = await requireAuth();
+    if (error) return error;
+    if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+
+    const orgId = params.id;
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("userId");
+    if (!userId) return bad("userId required");
+
+    // Self-removal guard
+    const selfId = (session!.user as any).id;
+    if (userId === selfId) return bad("You cannot remove yourself", 400);
+
+    // 1. Remove the junction-table row for this org
+    await db.delete(userOrganisations)
+      .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId)));
+
+    // 2. If this was their primary org, clear it
+    const [u] = await db.select({ id: users.id, orgId: users.orgId })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    if (u?.orgId === orgId) {
+      await db.update(users).set({ orgId: null as any }).where(eq(users.id, userId));
+    }
+
+    // 3. If user has no other org memberships, deactivate them so JWT becomes useless
+    const remaining = await db.select({ id: userOrganisations.id })
+      .from(userOrganisations)
+      .where(eq(userOrganisations.userId, userId));
+    if (remaining.length === 0) {
+      await db.update(users).set({ status: "Inactive" }).where(eq(users.id, userId));
+    }
+
+    return ok({ removed: true, remainingOrgs: remaining.length });
+  } catch (e: any) {
+    console.error("[DELETE /api/admin/organisations/[id]/users] error:", e);
+    return bad(e?.message || String(e), 500);
+  }
+}
