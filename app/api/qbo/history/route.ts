@@ -8,7 +8,7 @@ export async function GET() {
   if (error) return error;
   const userId = (session!.user as any).id;
   const logs = await db.select().from(qboSyncLog)
-    .where(eq(qboSyncLog.userId, userId))
+    .where(eq(qboSyncLog.orgId, orgId!))
     .orderBy(desc(qboSyncLog.syncedAt))
     .limit(10);
   return ok(logs);
