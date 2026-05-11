@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users, userOrganisations } from "@/db/schema";
-import { requireAuth, isSuperAdmin, requireOrgAuth, ok, bad } from "@/lib/api";
+import { requireAuth, isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -19,7 +19,7 @@ const cols = {
 };
 
 export async function GET(req: Request) {
-  const { error, session, orgId } = await requireOrgAuth();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
   const isSuper = isSuperAdmin(session);
 
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { error, session, orgId } = await requireOrgAuth();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
   const isSuper = isSuperAdmin(session);
   const isAdmin = (session!.user as any).role === "company_admin";
@@ -114,7 +114,7 @@ export async function PUT(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { error, session, orgId } = await requireOrgAuth();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
   const isSuper = isSuperAdmin(session);
   const isAdmin = (session!.user as any).role === "company_admin";

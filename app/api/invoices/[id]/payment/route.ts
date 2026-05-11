@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
 
 const Schema = z.object({
@@ -15,7 +15,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (error) return error;
   try {
     const { amount, paidDate } = Schema.parse(await req.json());
-    const [inv] = await db.select().from(invoices).where(eq(invoices.id, params.id)).limit(1);
+    const [inv] = await db.select().from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
     if (!inv) return bad("Invoice not found", 404);
 
     const newPaid = (inv.paid || 0) + amount;

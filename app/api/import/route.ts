@@ -1,8 +1,8 @@
 import { db } from "@/db";
 import { invoices, customers, projects } from "@/db/schema";
-import { requireAuth, ok, bad } from "@/lib/api";
+import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { inArray } from "drizzle-orm";
+import { inArray, and, eq } from "drizzle-orm";
 
 const RowSchema = z.object({
   invoiceNumber: z.string(),
@@ -17,7 +17,7 @@ const RowSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const { error } = await requireAuth();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
   try {
     const body = await req.json();
@@ -29,8 +29,8 @@ export async function POST(req: Request) {
     const projCodes = [...new Set(rows.map(r => r.projectCode).filter(Boolean) as string[])];
     const existingInvNums = [...new Set(rows.map(r => r.invoiceNumber))];
 
-    const customerRows = codes.length > 0 ? await db.select().from(customers).where(inArray(customers.code, codes)) : [];
-    const projectRows = projCodes.length > 0 ? await db.select().from(projects).where(inArray(projects.code, projCodes)) : [];
+    const customerRows = codes.length > 0 ? await db.select().from(customers).where(and(inArray(customers.code, codes), eq(customers.orgId, orgId!))) : [];
+    const projectRows = projCodes.length > 0 ? await db.select().from(projects).where(and(inArray(projects.code, projCodes), eq(projects.orgId, orgId!))) : [];
     const dupRows = existingInvNums.length > 0 ? await db.select().from(invoices).where(inArray(invoices.invoiceNumber, existingInvNums)) : [];
 
     const customerByCode = new Map(customerRows.map(c => [c.code, c]));
