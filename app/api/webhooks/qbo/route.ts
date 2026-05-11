@@ -28,19 +28,30 @@ export async function POST(req: Request) {
   // 1. Read raw body BEFORE any parsing (signature is over raw bytes)
   const rawBody = await req.text();
 
-  // 2. Verify QBO HMAC-SHA256 signature
+  // 2. Verify QBO HMAC-SHA256 signature — STRICT (fail-closed) when verifier token is configured
   const signature = req.headers.get("intuit-signature");
   const verifierToken = process.env.QBO_WEBHOOK_VERIFIER_TOKEN;
 
-  if (verifierToken && signature) {
-    const expected = createHmac("sha256", verifierToken).update(rawBody).digest("base64");
-    if (signature !== expected) {
-      // Log mismatch but still process — helps debug token issues without blocking events
-      console.warn("QBO webhook: signature mismatch (processing anyway for now)", {
-        received: signature?.slice(0, 10) + "...",
-        expected: expected?.slice(0, 10) + "...",
-      });
+  if (verifierToken) {
+    if (!signature) {
+      console.warn("QBO webhook: missing intuit-signature header — rejecting");
+      return new Response("Missing signature", { status: 401 });
     }
+    const expected = createHmac("sha256", verifierToken).update(rawBody).digest("base64");
+    // Constant-time comparison to prevent timing attacks
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expected);
+    const matches = sigBuf.length === expBuf.length &&
+      (await import("crypto")).timingSafeEqual(sigBuf, expBuf);
+    if (!matches) {
+      console.warn("QBO webhook: signature mismatch — rejecting", {
+        received: signature.slice(0, 10) + "...",
+        expected: expected.slice(0, 10) + "...",
+      });
+      return new Response("Invalid signature", { status: 401 });
+    }
+  } else {
+    console.warn("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN not configured — webhook is UNAUTHENTICATED");
   }
 
   console.log("QBO webhook received:", rawBody.slice(0, 300));
