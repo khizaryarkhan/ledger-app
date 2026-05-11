@@ -156,7 +156,9 @@ export async function runQboSync(orgId: string, userId: string) {
   };
 
   // STEP 1: Fetch from QBO sequentially (rate-limit safe)
-  const allQboCustomers = await qboFetchAllSafe(accessToken, realmId, "Customer", "Active = true");
+  // NOTE: no `Active = true` filter — we pull every customer (including inactive)
+  // so historical transactions and payments can resolve their customer FK.
+  const allQboCustomers = await qboFetchAllSafe(accessToken, realmId, "Customer");
   await sleep(500);
   const openInvoices = await qboFetchAllSafe(accessToken, realmId, "Invoice", "Balance > '0'");
   await sleep(500);
@@ -229,7 +231,9 @@ export async function runQboSync(orgId: string, userId: string) {
       paymentTerms: 30,
       taxNumber: qc.BusinessNumber || "",
       riskRating: "Low" as const,
-      status: "Active" as const,
+      // Mirror QBO active flag — inactive customers (Active=false) come in as Inactive here.
+      // QBO uses `Active` (boolean). Default to Active if the field is missing.
+      status: (qc.Active === false ? "Inactive" : "Active") as "Active" | "Inactive",
       creditLimit: qc.CreditLimit || null,
       accountOwnerId: userId,
       collectionOwnerId: userId,
@@ -583,65 +587,92 @@ export async function runQboSync(orgId: string, userId: string) {
       existingPayments.filter(p => p.qboId).map(p => [p.qboId!, p.id])
     );
 
+    let paymentsSkipped = 0;
+    const paymentErrors: Array<{ qboId: string; reason: string }> = [];
+
     for (const qpay of allQboPayments) {
-      const qboCustId = qpay.CustomerRef?.value as string | undefined;
-      const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
-      const payload = {
-        orgId,
-        qboId:               qpay.Id,
-        customerId,
-        qboCustomerId:       qboCustId ?? null,
-        txnDate:             qpay.TxnDate,
-        totalAmount:         parseFloat(qpay.TotalAmt) || 0,
-        unappliedAmount:     parseFloat(qpay.UnappliedAmt) || 0,
-        currency:            qpay.CurrencyRef?.value || "EUR",
-        exchangeRate:        qpay.ExchangeRate ? parseFloat(qpay.ExchangeRate) : null,
-        paymentMethod:       qpay.PaymentMethodRef?.name || null,
-        paymentRef:          qpay.PaymentRefNum || null,
-        depositAccountId:    qpay.DepositToAccountRef?.value || null,
-        depositAccountName:  qpay.DepositToAccountRef?.name || null,
-        privateNote:         qpay.PrivateNote || null,
-        qboSyncedAt:         new Date(),
-        updatedAt:           new Date(),
-      };
-
-      let paymentRowId: string;
-      const existingId = existingPayByQboId.get(qpay.Id);
-      if (existingId) {
-        await db.update(payments).set(payload).where(eq(payments.id, existingId));
-        paymentRowId = existingId;
-        paymentsUpdated++;
-      } else {
-        const [inserted] = await db.insert(payments).values(payload).returning({ id: payments.id });
-        paymentRowId = inserted.id;
-        paymentsCreated++;
-      }
-
-      // Rebuild applications for this payment (delete + reinsert is simplest and idempotent)
-      await db.delete(paymentApplications).where(eq(paymentApplications.paymentId, paymentRowId));
-      const apps: any[] = [];
-      for (const line of (qpay.Line || [])) {
-        const amount = parseFloat(line.Amount) || 0;
-        for (const linked of (line.LinkedTxn || [])) {
-          const targetType = linked.TxnType as string;
-          const targetQboId = linked.TxnId as string;
-          if (!targetQboId || !targetType) continue;
-          // Only track AR-affecting types
-          if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
-          const invoiceId = targetType === "Invoice"
-            ? (invByQboId.get(targetQboId) ?? null)
-            : (cmByRawId.get(targetQboId) ?? null);
-          apps.push({
-            orgId, paymentId: paymentRowId,
-            invoiceId, targetQboId, targetType,
-            amountApplied: amount,
-          });
+      // Per-payment try/catch — one bad row must not abort the entire batch.
+      try {
+        if (!qpay.Id) {
+          paymentsSkipped++;
+          paymentErrors.push({ qboId: "?", reason: "Missing Id" });
+          continue;
         }
+        if (!qpay.TxnDate) {
+          paymentsSkipped++;
+          paymentErrors.push({ qboId: qpay.Id, reason: "Missing TxnDate" });
+          continue;
+        }
+
+        const qboCustId = qpay.CustomerRef?.value as string | undefined;
+        const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+        const payload = {
+          orgId,
+          qboId:               qpay.Id,
+          customerId,
+          qboCustomerId:       qboCustId ?? null,
+          txnDate:             qpay.TxnDate,
+          totalAmount:         parseFloat(qpay.TotalAmt) || 0,
+          unappliedAmount:     parseFloat(qpay.UnappliedAmt) || 0,
+          currency:            qpay.CurrencyRef?.value || "EUR",
+          exchangeRate:        qpay.ExchangeRate ? parseFloat(qpay.ExchangeRate) : null,
+          paymentMethod:       qpay.PaymentMethodRef?.name || null,
+          paymentRef:          qpay.PaymentRefNum || null,
+          depositAccountId:    qpay.DepositToAccountRef?.value || null,
+          depositAccountName:  qpay.DepositToAccountRef?.name || null,
+          privateNote:         qpay.PrivateNote || null,
+          qboSyncedAt:         new Date(),
+          updatedAt:           new Date(),
+        };
+
+        let paymentRowId: string;
+        const existingId = existingPayByQboId.get(qpay.Id);
+        if (existingId) {
+          await db.update(payments).set(payload).where(eq(payments.id, existingId));
+          paymentRowId = existingId;
+          paymentsUpdated++;
+        } else {
+          const [inserted] = await db.insert(payments).values(payload).returning({ id: payments.id });
+          paymentRowId = inserted.id;
+          paymentsCreated++;
+        }
+
+        // Rebuild applications for this payment (delete + reinsert is simplest and idempotent)
+        await db.delete(paymentApplications).where(eq(paymentApplications.paymentId, paymentRowId));
+        const apps: any[] = [];
+        for (const line of (qpay.Line || [])) {
+          const amount = parseFloat(line.Amount) || 0;
+          for (const linked of (line.LinkedTxn || [])) {
+            const targetType = linked.TxnType as string;
+            const targetQboId = linked.TxnId as string;
+            if (!targetQboId || !targetType) continue;
+            // Only track AR-affecting types
+            if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
+            const invoiceId = targetType === "Invoice"
+              ? (invByQboId.get(targetQboId) ?? null)
+              : (cmByRawId.get(targetQboId) ?? null);
+            apps.push({
+              orgId, paymentId: paymentRowId,
+              invoiceId, targetQboId, targetType,
+              amountApplied: amount,
+            });
+          }
+        }
+        if (apps.length > 0) {
+          await db.insert(paymentApplications).values(apps);
+          appsCreated += apps.length;
+        }
+      } catch (e: any) {
+        paymentsSkipped++;
+        paymentErrors.push({ qboId: qpay.Id || "?", reason: e?.message || String(e) });
       }
-      if (apps.length > 0) {
-        await db.insert(paymentApplications).values(apps);
-        appsCreated += apps.length;
-      }
+    }
+
+    if (paymentsSkipped > 0) {
+      console.warn(
+        `QBO sync: skipped ${paymentsSkipped} payment(s). First 5 errors:`,
+        paymentErrors.slice(0, 5)
+      );
     }
 
     // ----- REFUND RECEIPTS -----
@@ -656,44 +687,53 @@ export async function runQboSync(orgId: string, userId: string) {
       existingRefunds.filter(r => r.qboId).map(r => [r.qboId!, r.id])
     );
 
+    let refundsSkipped = 0;
     for (const qref of allQboRefundReceipts) {
-      const qboCustId = qref.CustomerRef?.value as string | undefined;
-      const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
-      const payload = {
-        orgId,
-        qboId:                  qref.Id,
-        customerId,
-        qboCustomerId:          qboCustId ?? null,
-        txnDate:                qref.TxnDate,
-        totalAmount:            parseFloat(qref.TotalAmt) || 0,
-        currency:               qref.CurrencyRef?.value || "EUR",
-        paymentMethod:          qref.PaymentMethodRef?.name || null,
-        refundFromAccountId:    qref.DepositToAccountRef?.value || null,
-        refundFromAccountName:  qref.DepositToAccountRef?.name || null,
-        privateNote:            qref.PrivateNote || null,
-        qboSyncedAt:            new Date(),
-        updatedAt:              new Date(),
-      };
+      try {
+        if (!qref.Id || !qref.TxnDate) { refundsSkipped++; continue; }
+        const qboCustId = qref.CustomerRef?.value as string | undefined;
+        const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+        const payload = {
+          orgId,
+          qboId:                  qref.Id,
+          customerId,
+          qboCustomerId:          qboCustId ?? null,
+          txnDate:                qref.TxnDate,
+          totalAmount:            parseFloat(qref.TotalAmt) || 0,
+          currency:               qref.CurrencyRef?.value || "EUR",
+          paymentMethod:          qref.PaymentMethodRef?.name || null,
+          refundFromAccountId:    qref.DepositToAccountRef?.value || null,
+          refundFromAccountName:  qref.DepositToAccountRef?.name || null,
+          privateNote:            qref.PrivateNote || null,
+          qboSyncedAt:            new Date(),
+          updatedAt:              new Date(),
+        };
 
-      const existingId = existingRefundByQboId.get(qref.Id);
-      if (existingId) {
-        await db.update(refundReceipts).set(payload).where(eq(refundReceipts.id, existingId));
-        refundsUpdated++;
-      } else {
-        await db.insert(refundReceipts).values(payload);
-        refundsCreated++;
+        const existingId = existingRefundByQboId.get(qref.Id);
+        if (existingId) {
+          await db.update(refundReceipts).set(payload).where(eq(refundReceipts.id, existingId));
+          refundsUpdated++;
+        } else {
+          await db.insert(refundReceipts).values(payload);
+          refundsCreated++;
+        }
+      } catch (e: any) {
+        refundsSkipped++;
+        console.warn(`QBO sync: skipped refund ${qref.Id || "?"}: ${e?.message || e}`);
       }
     }
 
     (results as any).paymentsCreated = paymentsCreated;
     (results as any).paymentsUpdated = paymentsUpdated;
     (results as any).paymentApplicationsCreated = appsCreated;
+    (results as any).paymentsSkipped = paymentsSkipped;
     (results as any).refundsCreated = refundsCreated;
     (results as any).refundsUpdated = refundsUpdated;
+    (results as any).refundsSkipped = refundsSkipped;
 
     console.log(
-      `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications), ` +
-      `refunds (${refundsCreated} new, ${refundsUpdated} updated) for org ${orgId}`
+      `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications, ${paymentsSkipped} skipped), ` +
+      `refunds (${refundsCreated} new, ${refundsUpdated} updated, ${refundsSkipped} skipped) for org ${orgId}`
     );
   } catch (e: any) {
     // Most likely cause: migration `db/migration-payments.sql` not yet applied.
