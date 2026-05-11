@@ -721,33 +721,46 @@ export async function runQboSync(orgId: string, userId: string) {
 
     // STEP E: Build all applications across all payments — pure JS, no DB calls
     //
-    // IMPORTANT: Skip applications from zero-amount payments. QBO uses
-    // TotalAmt=0 Payments as bookkeeping records to "apply" credits (from
-    // JEs / CMs) to close specific invoices. They're not real cash movements.
-    // The actual reduction is already captured by the JE / CM that supplied
-    // the credit. Including these would double-count and overstate paid
-    // amounts, falsely closing invoices that JEs should be offsetting.
+    // Special handling for zero-amount payments (TotalAmt = 0):
+    // QBO uses these as bookkeeping records to "apply" existing credits
+    // against invoices. The credit source can be either:
+    //   (A) A CreditMemo — the CM is in the same Line's LinkedTxn[]
+    //   (B) A Journal Entry credit to AR — usually NOT in LinkedTxn[]
+    //
+    // For case (A) we MUST keep the application, otherwise the invoice will
+    // appear open in our AR even though the CM closed it.
+    // For case (B) we MUST skip the application, otherwise we double-count
+    // (the JE_AR_line already captures the reduction).
+    //
+    // Heuristic: for a zero-amount payment line, keep the application only
+    // if that line's LinkedTxn[] includes a CreditMemo (case A signal).
     const allApps: any[] = [];
     for (const qpay of allQboPayments) {
       const paymentRowId = paymentIdByQboId.get(qpay.Id);
       if (!paymentRowId) continue;
 
       const paymentTotal = parseFloat(qpay.TotalAmt) || 0;
-      if (paymentTotal < 0.005) {
-        // Count for visibility but don't create applications
-        for (const line of (qpay.Line || [])) {
-          for (const linked of (line.LinkedTxn || [])) {
-            if (linked?.TxnType === "Invoice" || linked?.TxnType === "CreditMemo") zeroPaymentApps++;
-          }
-        }
-        continue;
-      }
+      const isZeroPayment = paymentTotal < 0.005;
 
       for (const line of (qpay.Line || [])) {
+        const linked = line.LinkedTxn || [];
+
+        // For zero-amount payments, gate on CM presence in this line's LinkedTxn
+        if (isZeroPayment) {
+          const hasCm = linked.some((l: any) => l?.TxnType === "CreditMemo");
+          if (!hasCm) {
+            // Likely JE-backed — skip to avoid double-counting with JE_AR_line
+            for (const l of linked) {
+              if (l?.TxnType === "Invoice" || l?.TxnType === "CreditMemo") zeroPaymentApps++;
+            }
+            continue;
+          }
+        }
+
         const amount = parseFloat(line.Amount) || 0;
-        for (const linked of (line.LinkedTxn || [])) {
-          const targetType = linked.TxnType as string;
-          const targetQboId = linked.TxnId as string;
+        for (const l of linked) {
+          const targetType = l.TxnType as string;
+          const targetQboId = l.TxnId as string;
           if (!targetQboId || !targetType) continue;
           if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
           const invoiceId = targetType === "Invoice"
@@ -758,7 +771,7 @@ export async function runQboSync(orgId: string, userId: string) {
       }
     }
     if (zeroPaymentApps > 0) {
-      console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from zero-amount payments (bookkeeping records that don't move cash)`);
+      console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from JE-backed zero-amount payments (CM-backed zero-payments were retained)`);
     }
 
     // STEP F: Wipe and re-insert applications for these payments (idempotent)
