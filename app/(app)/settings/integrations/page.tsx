@@ -66,6 +66,28 @@ export default function IntegrationsSettingsPage() {
     }
   };
 
+  // AR amount verification
+  const [verifyingAR, setVerifyingAR] = useState(false);
+  const [arVerifyResult, setArVerifyResult] = useState<any>(null);
+
+  const handleVerifyAR = async () => {
+    setVerifyingAR(true);
+    setArVerifyResult(null);
+    try {
+      const res = await fetch("/api/qbo/verify-ar");
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "AR verification failed", "error");
+      } else {
+        setArVerifyResult(data);
+      }
+    } catch {
+      toast("AR verification failed", "error");
+    } finally {
+      setVerifyingAR(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
@@ -257,6 +279,17 @@ export default function IntegrationsSettingsPage() {
                   </span>
                 )}
               </Button>
+              <Button variant="secondary" size="sm" onClick={handleVerifyAR} disabled={verifyingAR}>
+                {verifyingAR ? (
+                  <span className="flex items-center gap-2">
+                    <Loader size={14} className="animate-spin" />Comparing AR…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Database size={14} />Verify AR total
+                  </span>
+                )}
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleQboDisconnect} disabled={disconnecting}>
                 <Unlink size={14} className="mr-1.5" />
                 {disconnecting ? "Disconnecting…" : "Disconnect"}
@@ -313,6 +346,54 @@ export default function IntegrationsSettingsPage() {
                     {verifyResult.rows.every((r: any) => r.qbo === r.ledger)
                       ? <span className="text-emerald-700 font-medium">✓ Ledger matches QBO</span>
                       : <span className="text-amber-700">Run Sync to pull missing data</span>}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* AR verification result */}
+            {arVerifyResult && (
+              <div className="rounded-md ring-1 ring-stone-200 overflow-hidden">
+                <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+                  <div className="text-xs font-semibold text-stone-700 uppercase tracking-wider">AR Total — QBO vs Ledger</div>
+                  <div className="text-[10px] text-stone-500">Checked {new Date(arVerifyResult.checkedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] text-stone-500 uppercase">
+                    <tr className="border-b border-stone-100">
+                      <th className="text-left px-3 py-2 font-medium">Currency</th>
+                      <th className="text-right px-3 py-2 font-medium">QBO Invoices</th>
+                      <th className="text-right px-3 py-2 font-medium">QBO Credits</th>
+                      <th className="text-right px-3 py-2 font-medium">QBO Net AR</th>
+                      <th className="text-right px-3 py-2 font-medium">Ledger Net AR</th>
+                      <th className="text-right px-3 py-2 font-medium">Δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {arVerifyResult.byCurrency.map((row: any) => {
+                      const diff = row.ledger.net - row.qbo.net;
+                      const inSync = Math.abs(diff) < 0.50;
+                      return (
+                        <tr key={row.currency} className="border-b border-stone-50 last:border-0">
+                          <td className="px-3 py-2 font-mono text-[12px] text-stone-700">{row.currency}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.invoices, row.currency)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.credits, row.currency)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium text-stone-900">{fmt.money(row.qbo.net, row.currency)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium text-stone-900">{fmt.money(row.ledger.net, row.currency)}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${inSync ? "text-emerald-600" : "text-rose-600"}`}>
+                            {inSync ? "✓" : fmt.money(diff, row.currency)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 bg-stone-50 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
+                  <span>QBO open: {arVerifyResult.qbo.openInvoiceCount} invoices, {arVerifyResult.qbo.openCmCount} credit memos</span>
+                  <span>
+                    {Math.abs(arVerifyResult.difference) < 0.50
+                      ? <span className="text-emerald-700 font-medium">✓ AR totals match QBO</span>
+                      : <span className="text-amber-700">Ledger AR differs by {fmt.money(Math.abs(arVerifyResult.difference), "EUR")}</span>}
                   </span>
                 </div>
               </div>
