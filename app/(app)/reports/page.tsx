@@ -6,6 +6,7 @@ import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ArAgingReport } from "@/components/ar-aging-report";
 
 // ============================================================
 // SALES REPORT — Net (Ex VAT) only. Uses invoice.amount field.
@@ -1521,7 +1522,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
 
-type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
+type ReportId = "ar-aging" | "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
 
 interface ReportItem {
   id: ReportId;
@@ -1538,6 +1539,7 @@ const REPORT_GROUPS: ReportGroup[] = [
   {
     label: "Receivables",
     items: [
+      { id: "ar-aging",       label: "AR Aging",          description: "Report-date aging with Summary & Detail views" },
       { id: "ar-health",      label: "AR Health",         description: "AR quality score and portfolio overview" },
       { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
       { id: "aging-project",  label: "Aging by Project",  description: "Outstanding balances grouped by project" },
@@ -1571,7 +1573,7 @@ const SALES_BREAKDOWN: Partial<Record<ReportId, "customer" | "project" | "rep" |
 export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
-  const [report, setReport] = useState<ReportId>("ar-health");
+  const [report, setReport] = useState<ReportId>("ar-aging");
   const [regionFilter, setRegionFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -1697,6 +1699,10 @@ export default function ReportsPage() {
 
         {/* Report body */}
         <div className="p-6">
+          {report === "ar-aging" && (
+            <ArAgingReport />
+          )}
+
           {report === "ar-health" && (
             <ArHealthReport
               invoices={invoices}
