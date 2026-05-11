@@ -71,8 +71,13 @@ export default function IntegrationsSettingsPage() {
       } else {
         setSyncResult(data.synced);
         const diff = data.synced.difference || 0;
-        if (diff < 1) toast("Sync complete — AR reconciled ✓");
-        else toast(`Sync complete — €${diff.toFixed(2)} variance, check reconciliation`, "info");
+        if (data.synced.paymentsPersistenceError) {
+          toast(`Payments not stored: ${data.synced.paymentsPersistenceError}`, "error");
+        } else if (diff < 1) {
+          toast("Sync complete — AR reconciled ✓");
+        } else {
+          toast(`Sync complete — €${diff.toFixed(2)} variance, check reconciliation`, "info");
+        }
         await refresh();
         fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
       }

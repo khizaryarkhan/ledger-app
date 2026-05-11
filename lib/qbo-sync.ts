@@ -553,7 +553,9 @@ export async function runQboSync(orgId: string, userId: string) {
   // STEP 7.6: Persist Payments + Applications + Refund Receipts
   // (Phase 1 of event-sourced AR: store every transaction that hits AR
   // so historical AR aging and true DSO can be computed.)
-  {
+  // FAIL-SOFT: any error here logs + sets a flag and continues — sync must not
+  // be blocked by event-store failures (e.g. migration not yet applied).
+  try {
     // Refresh ledger state for FK resolution (we may have just inserted new invoices)
     const freshCustomers = await db.select({ id: customers.id, qboId: customers.qboId })
       .from(customers).where(eq(customers.orgId, orgId));
@@ -693,6 +695,18 @@ export async function runQboSync(orgId: string, userId: string) {
       `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications), ` +
       `refunds (${refundsCreated} new, ${refundsUpdated} updated) for org ${orgId}`
     );
+  } catch (e: any) {
+    // Most likely cause: migration `db/migration-payments.sql` not yet applied.
+    // Surface a clear warning but let the rest of the sync (invoices, customers,
+    // aging, reconciliation) complete normally.
+    const msg = e?.message || String(e);
+    console.warn(`QBO sync STEP 7.6 (payments persistence) skipped due to error: ${msg}`);
+    (results as any).paymentsCreated = 0;
+    (results as any).paymentsUpdated = 0;
+    (results as any).paymentApplicationsCreated = 0;
+    (results as any).refundsCreated = 0;
+    (results as any).refundsUpdated = 0;
+    (results as any).paymentsPersistenceError = msg;
   }
 
   // STEP 8: Auto-close fully paid invoices
