@@ -262,8 +262,8 @@ export async function runQboSync(orgId: string, userId: string) {
     )
   );
 
-  // Reload customers
-  const freshCustomers = await db.select().from(customers);
+  // Reload customers — scoped to THIS org (pre-existing data-isolation fix)
+  const freshCustomers = await db.select().from(customers).where(eq(customers.orgId, orgId));
   const freshCustByQboId = new Map(
     freshCustomers.filter((c) => c.qboId).map((c) => [c.qboId!, c])
   );
@@ -294,13 +294,23 @@ export async function runQboSync(orgId: string, userId: string) {
   }
 
   // STEP 5: Sub-customers as projects
+  //
+  // Handles nested cases (e.g. Customer → Job → Sub-job) by walking the
+  // ParentRef chain via custMap (which holds ALL QBO customers, both top-level
+  // and sub) up to the root, then linking the project to that top-level customer.
+  // Without this, sub-sub-customers were silently dropped because their direct
+  // parent isn't in the `customers` table.
+  let projectsSkipped = 0;
   const projsToInsert: any[] = [];
   for (const qc of subCustomers) {
-    if (!qc.ParentRef?.value) continue;
+    // Walk up to the top-level customer id (some sub-customers don't have ParentRef
+    // but are still marked Job=true — those get skipped here as a safety net)
+    if (!qc.ParentRef?.value && !qc.Job) { projectsSkipped++; continue; }
+    const rootQboCustId = qc.ParentRef?.value ? topLevelId(qc.ParentRef.value, custMap) : qc.Id;
     const parentCust =
-      freshCustByQboId.get(qc.ParentRef.value) ||
-      freshCustByCode.get(`QBO-${qc.ParentRef.value}`);
-    if (!parentCust) continue;
+      freshCustByQboId.get(rootQboCustId) ||
+      freshCustByCode.get(`QBO-${rootQboCustId}`);
+    if (!parentCust) { projectsSkipped++; continue; }
     const code = `QBO-PROJ-${qc.Id}`;
     if (!ledgerProjByCode.has(code)) {
       projsToInsert.push({
@@ -310,7 +320,7 @@ export async function runQboSync(orgId: string, userId: string) {
         code,
         qboId: qc.Id,
         ownerId: userId,
-        status: "Active" as const,
+        status: (qc.Active === false ? "Inactive" : "Active") as "Active" | "Inactive",
       });
       results.projects++;
     }
@@ -319,9 +329,13 @@ export async function runQboSync(orgId: string, userId: string) {
     for (let i = 0; i < projsToInsert.length; i += 100)
       await db.insert(projects).values(projsToInsert.slice(i, i + 100));
   }
+  if (projectsSkipped > 0) {
+    console.warn(`QBO sync: skipped ${projectsSkipped} sub-customer(s) — could not resolve parent customer`);
+  }
+  (results as any).projectsSkipped = projectsSkipped;
 
-  // Reload projects
-  const freshProjects = await db.select().from(projects);
+  // Reload projects — scoped to THIS org (fix pre-existing data-isolation bug)
+  const freshProjects = await db.select().from(projects).where(eq(projects.orgId, orgId));
   const freshProjByQboId = new Map(
     freshProjects.filter((p) => p.qboId).map((p) => [p.qboId!, p])
   );
