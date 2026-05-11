@@ -18,10 +18,18 @@ const cols = {
   email: users.email, role: users.role, status: users.status, createdAt: users.createdAt,
 };
 
-export async function GET() {
+export async function GET(req: Request) {
   const { error, session, orgId } = await requireOrgAuth();
   if (error) return error;
   const isSuper = isSuperAdmin(session);
+
+  // ?email= lookup (used by org creation modal to check if user exists)
+  const emailParam = new URL(req.url).searchParams.get("email");
+  if (emailParam) {
+    const [found] = await db.select(cols).from(users).where(eq(users.email, emailParam.toLowerCase())).limit(1);
+    return ok(found ? [found] : []);
+  }
+
   const rows = isSuper
     ? await db.select(cols).from(users)
     : await db.select(cols).from(users).where(eq(users.orgId, orgId!));

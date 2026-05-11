@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Card, Button, Badge, Input } from "@/components/ui";
 import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw } from "lucide-react";
@@ -28,7 +28,24 @@ function CreateOrgModal({ onClose, onCreated }: any) {
   const [showPw, setShowPw] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailExists, setEmailExists] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  // Check if email already exists in the system
+  useEffect(() => {
+    if (!form.adminEmail || !/\S+@\S+\.\S+/.test(form.adminEmail)) { setEmailExists(false); return; }
+    const timer = setTimeout(async () => {
+      setCheckingEmail(true);
+      try {
+        const res = await fetch(`/api/admin/users?email=${encodeURIComponent(form.adminEmail)}`);
+        const data = await res.json();
+        setEmailExists(Array.isArray(data) ? data.some((u: any) => u.email === form.adminEmail.toLowerCase()) : false);
+      } catch { setEmailExists(false); }
+      finally { setCheckingEmail(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [form.adminEmail]);
 
   const handleSubmit = async () => {
     setSaving(true); setError("");
@@ -45,6 +62,7 @@ function CreateOrgModal({ onClose, onCreated }: any) {
   };
 
   const autoSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const canSubmit = !saving && !!form.name && !!form.slug && !!form.adminEmail && (emailExists || !!form.adminPassword);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -67,19 +85,34 @@ function CreateOrgModal({ onClose, onCreated }: any) {
             <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">First Company Admin account</div>
             <div className="space-y-2">
               <Input value={form.adminName} onChange={(e: any) => set("adminName", e.target.value)} placeholder="Admin full name" />
-              <Input type="email" value={form.adminEmail} onChange={(e: any) => set("adminEmail", e.target.value)} placeholder="admin@company.com" />
               <div className="relative">
-                <Input type={showPw ? "text" : "password"} value={form.adminPassword} onChange={(e: any) => set("adminPassword", e.target.value)} placeholder="Temporary password (min 8 chars)" />
-                <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
-                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
+                <Input type="email" value={form.adminEmail} onChange={(e: any) => set("adminEmail", e.target.value)} placeholder="admin@company.com" />
+                {checkingEmail && <span className="absolute right-3 top-2.5 text-[10px] text-stone-400">checking…</span>}
               </div>
+
+              {/* Existing user notice */}
+              {emailExists && (
+                <div className="flex items-start gap-2 text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded ring-1 ring-blue-200">
+                  <Check size={13} className="mt-0.5 shrink-0" />
+                  <span>This user already exists and will be linked to the new organisation. No new password needed.</span>
+                </div>
+              )}
+
+              {/* Password field — only shown for new users */}
+              {!emailExists && (
+                <div className="relative">
+                  <Input type={showPw ? "text" : "password"} value={form.adminPassword} onChange={(e: any) => set("adminPassword", e.target.value)} placeholder="Temporary password (min 8 chars)" />
+                  <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
+                    {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
         <div className="px-5 py-3 border-t border-stone-200 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={saving || !form.name || !form.slug || !form.adminEmail || !form.adminPassword}>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
             {saving ? "Creating…" : "Create organisation"}
           </Button>
         </div>
