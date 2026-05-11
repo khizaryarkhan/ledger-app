@@ -9,7 +9,7 @@
 import { db } from "@/db";
 import {
   qboTokens, qboSyncLog, customers, projects, invoices, contacts,
-  payments, paymentApplications, refundReceipts,
+  payments, paymentApplications, refundReceipts, journalEntryArLines,
 } from "@/db/schema";
 import { eq, inArray, and, isNull } from "drizzle-orm";
 
@@ -173,6 +173,22 @@ export async function runQboSync(orgId: string, userId: string) {
   await sleep(500);
   // Fetch all RefundReceipts — money paid out to customers
   const allQboRefundReceipts = await qboFetchAllSafe(accessToken, realmId, "RefundReceipt");
+  await sleep(500);
+  // Fetch all JournalEntries — needed for AR adjustments (write-offs, audit corrections,
+  // inter-company transfers). Without these, customer AR can be wildly overstated.
+  const allQboJournalEntries = await qboFetchAllSafe(accessToken, realmId, "JournalEntry");
+  await sleep(300);
+  // Discover Accounts Receivable account ID(s) — usually one per currency
+  const arAccountsRaw = await qboQuery(
+    accessToken, realmId,
+    `SELECT Id, Name, CurrencyRef FROM Account WHERE AccountType = 'Accounts Receivable'`
+  );
+  const arAccountIds = new Set<string>(
+    (arAccountsRaw?.QueryResponse?.Account || []).map((a: any) => String(a.Id))
+  );
+  const arAccountNameById = new Map<string, string>(
+    (arAccountsRaw?.QueryResponse?.Account || []).map((a: any) => [String(a.Id), a.Name as string])
+  );
 
   // Build: invoiceQboId → latest payment TxnDate
   // For invoices paid in multiple instalments, take the LATEST payment date
@@ -812,6 +828,95 @@ export async function runQboSync(orgId: string, userId: string) {
       ));
     }
 
+    // ----- JOURNAL ENTRY AR LINES -----
+    // Walk every JournalEntry, extract lines posting to the AR account,
+    // and persist as journal_entry_ar_lines. These are critical for accurate
+    // customer AR aging (audit adjustments, write-offs, inter-co transfers).
+    let jeLinesCreated = 0, jeLinesUpdated = 0, jeLinesSkipped = 0;
+    if (arAccountIds.size > 0) {
+      // Pre-load existing AR JE lines for upsert
+      const existing = await db
+        .select({ id: journalEntryArLines.id, qboJournalId: journalEntryArLines.qboJournalId, qboLineId: journalEntryArLines.qboLineId })
+        .from(journalEntryArLines)
+        .where(eq(journalEntryArLines.orgId, orgId));
+      const existingKey = (jid: string, lid: string | null) => `${jid}|${lid ?? ""}`;
+      const existingMap = new Map(existing.map(r => [existingKey(r.qboJournalId, r.qboLineId), r.id]));
+
+      const toInsert: any[] = [];
+      const toUpdate: Array<{ id: string; data: any }> = [];
+
+      for (const je of allQboJournalEntries) {
+        try {
+          if (!je.Id || !je.TxnDate) { jeLinesSkipped++; continue; }
+          for (const line of (je.Line || [])) {
+            const detail = line.JournalEntryLineDetail;
+            if (!detail) continue;
+            const accountId = String(detail.AccountRef?.value || "");
+            if (!arAccountIds.has(accountId)) continue; // not an AR line — skip
+
+            const lineId = line.Id || null;
+            const postingType = detail.PostingType as string; // 'Debit' or 'Credit'
+            const rawAmount = parseFloat(line.Amount) || 0;
+            // Signed amount: Debit AR = +ve (increases customer balance);
+            // Credit AR = -ve (decreases / writes off)
+            const signedAmount = postingType === "Credit" ? -rawAmount : rawAmount;
+
+            // Customer reference (only AR lines should have an Entity, but be defensive)
+            const entityRef = detail.Entity?.EntityRef;
+            const qboCustId = entityRef?.value ? String(entityRef.value) : null;
+            const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+
+            const data = {
+              orgId,
+              qboJournalId: String(je.Id),
+              qboLineId: lineId,
+              docNumber: je.DocNumber || null,
+              customerId,
+              qboCustomerId: qboCustId,
+              accountId,
+              accountName: arAccountNameById.get(accountId) || null,
+              txnDate: je.TxnDate,
+              amount: signedAmount,
+              currency: je.CurrencyRef?.value || "EUR",
+              exchangeRate: je.ExchangeRate ? parseFloat(je.ExchangeRate) : null,
+              description: line.Description || je.PrivateNote || null,
+              voided: false,
+              qboSyncedAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            const existingId = existingMap.get(existingKey(data.qboJournalId, data.qboLineId));
+            if (existingId) toUpdate.push({ id: existingId, data });
+            else            toInsert.push(data);
+          }
+        } catch (e: any) {
+          jeLinesSkipped++;
+          console.warn(`JE ${je.Id || "?"}: ${e?.message || e}`);
+        }
+      }
+
+      // Bulk insert
+      for (let i = 0; i < toInsert.length; i += 100) {
+        try {
+          await db.insert(journalEntryArLines).values(toInsert.slice(i, i + 100));
+          jeLinesCreated += Math.min(100, toInsert.length - i);
+        } catch {
+          for (const row of toInsert.slice(i, i + 100)) {
+            try { await db.insert(journalEntryArLines).values(row); jeLinesCreated++; }
+            catch { jeLinesSkipped++; }
+          }
+        }
+      }
+      // Parallel updates
+      for (let i = 0; i < toUpdate.length; i += 50) {
+        await Promise.all(toUpdate.slice(i, i + 50).map(({ id, data }) =>
+          db.update(journalEntryArLines).set(data).where(eq(journalEntryArLines.id, id))
+            .then(() => { jeLinesUpdated++; })
+            .catch(() => { jeLinesSkipped++; })
+        ));
+      }
+    }
+
     (results as any).paymentsCreated = paymentsCreated;
     (results as any).paymentsUpdated = paymentsUpdated;
     (results as any).paymentApplicationsCreated = appsCreated;
@@ -819,10 +924,14 @@ export async function runQboSync(orgId: string, userId: string) {
     (results as any).refundsCreated = refundsCreated;
     (results as any).refundsUpdated = refundsUpdated;
     (results as any).refundsSkipped = refundsSkipped;
+    (results as any).jeArLinesCreated = jeLinesCreated;
+    (results as any).jeArLinesUpdated = jeLinesUpdated;
+    (results as any).jeArLinesSkipped = jeLinesSkipped;
 
     console.log(
       `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications, ${paymentsSkipped} skipped), ` +
-      `refunds (${refundsCreated} new, ${refundsUpdated} updated, ${refundsSkipped} skipped) for org ${orgId}`
+      `refunds (${refundsCreated} new, ${refundsUpdated} updated, ${refundsSkipped} skipped), ` +
+      `JE AR lines (${jeLinesCreated} new, ${jeLinesUpdated} updated, ${jeLinesSkipped} skipped) for org ${orgId}`
     );
   } catch (e: any) {
     // Most likely cause: migration `db/migration-payments.sql` not yet applied.

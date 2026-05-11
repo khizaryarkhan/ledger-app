@@ -126,12 +126,13 @@ export async function GET(req: Request) {
   } else {
     const reasons: string[] = [];
     if (ledger.flags.unappliedCredits > 0) {
-      reasons.push(`${ledger.flags.unappliedCredits} unapplied credit memo(s) — direct CM→Invoice applications via QBO LinkedTxn not yet captured (known v1 limitation)`);
+      reasons.push(`${ledger.flags.unappliedCredits} unapplied credit memo(s) — direct CM→Invoice applications via QBO LinkedTxn not yet captured`);
     }
     if (ledger.flags.missingDueDate > 0) {
       reasons.push(`${ledger.flags.missingDueDate} transaction(s) without a due date — using transaction date as fallback`);
     }
-    reasons.push("Journal entries hitting AR are not yet tracked (Phase 3 work)");
+    reasons.push("Refund Receipts not yet linked back to invoices (rare in practice)");
+    reasons.push("Deposit lines posting to AR (uncommon) not yet captured");
     explanation = `Variance of ${variance!.toFixed(2)}. Likely causes: ${reasons.join("; ")}.`;
   }
 

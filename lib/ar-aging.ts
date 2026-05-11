@@ -24,7 +24,7 @@
  */
 
 import { db } from "@/db";
-import { invoices, payments, paymentApplications } from "@/db/schema";
+import { invoices, payments, paymentApplications, journalEntryArLines } from "@/db/schema";
 import { and, eq, lte } from "drizzle-orm";
 
 export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "91+";
@@ -41,20 +41,20 @@ export type DetailRow = {
   customerId: string;
   customerQboId: string | null;
   projectId: string | null;
-  txnType: "Invoice" | "Credit Memo";
+  txnType: "Invoice" | "Credit Memo" | "Journal Entry";
   txnNumber: string;
   txnId: string;            // our internal ID
   qboId: string | null;
   txnDate: string;
   dueDate: string;
-  originalAmount: number;   // gross face value (signed: invoices positive, CMs negative)
+  originalAmount: number;   // gross face value (signed: invoices positive, CMs/JE credits negative)
   applied: AppliedTxn[];    // payments/credits applied on or before reportDate
   totalApplied: number;     // sum of amountApplied across applied[]
   openBalance: number;      // remaining open as of reportDate (signed)
   daysPastDue: number;      // reportDate − dueDate; <=0 means current
   bucket: AgingBucket;
   currency: string;
-  flags: string[];          // e.g., 'missing-due-date', 'unapplied-credit', 'negative-balance'
+  flags: string[];          // e.g., 'missing-due-date', 'unapplied-credit', 'negative-balance', 'journal-entry'
 };
 
 export type SummaryRow = {
@@ -139,6 +139,16 @@ export async function computeArAging(orgId: string, asOf: string): Promise<Aging
     appsByInvoiceId.set(app.invoiceId, arr);
   }
 
+  // 3b. Load Journal Entry AR lines dated on or before asOf — capture AR
+  // write-offs, audit adjustments, inter-company transfers. Critical for
+  // accurate customer balances.
+  const jeArRows = await db.select().from(journalEntryArLines)
+    .where(and(
+      eq(journalEntryArLines.orgId, orgId),
+      lte(journalEntryArLines.txnDate, asOf),
+      eq(journalEntryArLines.voided, false),
+    ));
+
   // 4. Build detail rows
   const detail: DetailRow[] = [];
   let missingDueDate = 0, voidedSuspected = 0, unappliedCredits = 0;
@@ -216,6 +226,39 @@ export async function computeArAging(orgId: string, asOf: string): Promise<Aging
     });
   }
 
+  // 4b. Add Journal Entry AR lines as their own detail rows.
+  // Each JE line is a discrete AR-affecting event with no payments applied to it
+  // (JEs reduce/increase customer AR directly, not through invoices).
+  // Bucket by txnDate vs asOf since JEs don't have due dates per se.
+  for (const je of jeArRows) {
+    if (!je.customerId) continue; // JE line without customer entity — skip (can't attribute)
+    if (Math.abs(je.amount) < 0.005) continue;
+
+    const dpd = daysBetween(asOf, je.txnDate);
+    const bucket = bucketFor(dpd);
+    const flags = ["journal-entry"];
+
+    detail.push({
+      customerId: je.customerId,
+      customerQboId: je.qboCustomerId,
+      projectId: null,
+      txnType: "Journal Entry",
+      txnNumber: je.docNumber || `JE-${je.qboJournalId}`,
+      txnId: je.id,
+      qboId: je.qboJournalId,
+      txnDate: je.txnDate,
+      dueDate: je.txnDate, // JEs are immediately "due"
+      originalAmount: je.amount,
+      applied: [],
+      totalApplied: 0,
+      openBalance: je.amount, // JE amount IS the AR change (signed)
+      daysPastDue: dpd,
+      bucket,
+      currency: je.currency,
+      flags,
+    });
+  }
+
   // 5. Build per-customer summary
   const byCustomer = new Map<string, SummaryRow>();
   for (const row of detail) {
@@ -262,6 +305,7 @@ export async function computeArAging(orgId: string, asOf: string): Promise<Aging
       creditMemoCount: detail.filter(r => r.txnType === "Credit Memo").length,
       paymentCount: validPayments.length,
       applicationCount: allApps.length,
-    },
+      journalEntryCount: detail.filter(r => r.txnType === "Journal Entry").length,
+    } as any,
   };
 }

@@ -289,6 +289,51 @@ export const refundReceipts = pgTable("refund_receipts", {
 export type RefundReceipt = typeof refundReceipts.$inferSelect;
 
 // =========================================================================
+// JOURNAL ENTRY AR LINES
+// One row per Journal Entry LINE that posts to the Accounts Receivable account.
+// JEs are the QBO mechanism for AR write-offs, audit adjustments, inter-company
+// transfers, etc. Without capturing these, customer AR balances can be wildly
+// overstated (e.g. a customer with €1.5M of invoices and a -€1.5M JE
+// adjustment should show ~€0 AR, not €1.5M).
+//
+// We store only the AR-affecting lines — full JE structure isn't needed for
+// AR Aging. `amount` is signed:
+//   positive = debit to AR (increases what the customer owes)
+//   negative = credit to AR (decreases / writes off)
+// =========================================================================
+export const journalEntryArLines = pgTable("journal_entry_ar_lines", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  qboJournalId:    varchar("qbo_journal_id", { length: 64 }).notNull(),  // QBO JournalEntry.Id
+  qboLineId:       varchar("qbo_line_id", { length: 64 }),               // QBO Line.Id (unique per line)
+  docNumber:       varchar("doc_number", { length: 64 }),                // user-facing JE number
+
+  customerId:      uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  qboCustomerId:   varchar("qbo_customer_id", { length: 64 }),
+
+  accountId:       varchar("account_id", { length: 64 }),      // QBO Account.Id (AR account)
+  accountName:     varchar("account_name", { length: 255 }),
+
+  txnDate:         varchar("txn_date", { length: 16 }).notNull(), // YYYY-MM-DD
+  amount:          real("amount").notNull(),                     // SIGNED: + = debit AR, - = credit AR
+  currency:        varchar("currency", { length: 8 }).notNull().default("EUR"),
+  exchangeRate:    real("exchange_rate"),
+
+  description:     text("description"),
+  voided:          boolean("voided").notNull().default(false),
+
+  qboSyncedAt:     timestamp("qbo_synced_at"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgJournalLineUnique: uniqueIndex("je_ar_lines_org_journal_line_unique")
+    .on(t.orgId, t.qboJournalId, t.qboLineId),
+  orgCustomerDateIdx: uniqueIndex("je_ar_lines_org_customer_date_idx")
+    .on(t.orgId, t.customerId, t.txnDate),
+}));
+export type JournalEntryArLine = typeof journalEntryArLines.$inferSelect;
+
+// =========================================================================
 // COMMUNICATIONS (emails + notes)
 // =========================================================================
 export const communications = pgTable("communications", {
