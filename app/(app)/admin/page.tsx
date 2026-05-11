@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Card, Button, Badge, Input } from "@/components/ui";
-import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw } from "lucide-react";
+import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function StatusBadge({ status }: { status: string }) {
@@ -183,6 +183,176 @@ function CreateUserModal({ onClose, onCreated }: any) {
 }
 
 // ============================================================
+// EDIT ORG MODAL (Super Admin only)
+// ============================================================
+function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void; onSaved: () => void }) {
+  const [orgName, setOrgName] = useState(org.name);
+  const [orgStatus, setOrgStatus] = useState(org.status);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // Users list
+  const [users, setUsers] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+
+  // Edit user inline
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", email: "", role: "" });
+  const [savingUser, setSavingUser] = useState(false);
+  const [userError, setUserError] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/admin/users?orgId=${org.id}`)
+      .then(r => r.json())
+      .then(data => { setUsers(Array.isArray(data) ? data : []); setUsersLoading(false); })
+      .catch(() => setUsersLoading(false));
+  }, [org.id]);
+
+  const saveOrg = async () => {
+    setSaving(true); setError("");
+    try {
+      const res = await fetch("/api/admin/organisations", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: org.id, name: orgName, status: orgStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Failed to update"); return; }
+      onSaved();
+    } finally { setSaving(false); }
+  };
+
+  const startEditUser = (u: any) => {
+    setEditingUser(u.id);
+    setEditForm({ name: u.name, email: u.email, role: u.role });
+    setUserError("");
+  };
+
+  const saveUser = async (userId: string) => {
+    setSavingUser(true); setUserError("");
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, ...editForm }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setUserError(data.error || "Failed to update user"); return; }
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...data } : u));
+      setEditingUser(null);
+    } finally { setSavingUser(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl w-full max-w-xl shadow-xl flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="font-semibold text-stone-900">Edit organisation</h2>
+            <p className="text-xs text-stone-500 mt-0.5 font-mono">/{org.slug}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded"><X size={16} /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {/* Org settings */}
+          <div className="p-5 space-y-3">
+            {error && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{error}</div>}
+            <div>
+              <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Organisation name</label>
+              <Input value={orgName} onChange={(e: any) => setOrgName(e.target.value)} placeholder="Organisation name" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Status</label>
+              <select value={orgStatus} onChange={(e: any) => setOrgStatus(e.target.value)}
+                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={saveOrg} disabled={saving || !orgName.trim()}>
+                {saving ? "Saving…" : "Save organisation"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Users section */}
+          <div className="border-t border-stone-100 px-5 pb-5">
+            <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mt-4 mb-3">
+              Users in this organisation
+            </div>
+            {usersLoading ? (
+              <div className="flex items-center gap-2 text-sm text-stone-400 py-3">
+                <Loader2 size={14} className="animate-spin" /> Loading users…
+              </div>
+            ) : users.length === 0 ? (
+              <div className="text-sm text-stone-400 py-3">No users found in this organisation.</div>
+            ) : (
+              <div className="space-y-2">
+                {userError && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{userError}</div>}
+                {users.map(u => (
+                  <div key={u.id} className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+                    {editingUser === u.id ? (
+                      <div className="p-3 space-y-2 bg-stone-50">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Name</label>
+                            <Input value={editForm.name} onChange={(e: any) => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Email</label>
+                            <Input type="email" value={editForm.email} onChange={(e: any) => setEditForm(p => ({ ...p, email: e.target.value }))} placeholder="email@company.com" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
+                          <select value={editForm.role} onChange={(e: any) => setEditForm(p => ({ ...p, role: e.target.value }))}
+                            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                            <option value="company_user">User</option>
+                            <option value="company_admin">Company Admin</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <Button variant="secondary" size="sm" onClick={() => setEditingUser(null)}>Cancel</Button>
+                          <Button size="sm" onClick={() => saveUser(u.id)} disabled={savingUser}>
+                            {savingUser ? "Saving…" : "Save"}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 px-3 py-2.5">
+                        <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-stone-700 text-xs font-semibold shrink-0">
+                          {u.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-stone-900 truncate">{u.name}</div>
+                          <div className="text-[11px] text-stone-500 truncate">{u.email}</div>
+                        </div>
+                        <RoleBadge role={u.role} />
+                        <StatusBadge status={u.status} />
+                        <button onClick={() => startEditUser(u)}
+                          className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors shrink-0">
+                          <Pencil size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-stone-200 flex justify-end shrink-0">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN ADMIN PAGE
 // ============================================================
 export default function AdminPage() {
@@ -197,6 +367,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [editingOrg, setEditingOrg] = useState<any | null>(null);
   const [tab, setTab] = useState<"orgs" | "users">(isSuperAdmin ? "orgs" : "users");
 
   useEffect(() => {
@@ -279,6 +450,11 @@ export default function AdminPage() {
                 <div className="flex items-center gap-3 text-sm text-stone-500">
                   <span>{org.userCount} users</span>
                   <StatusBadge status={org.status} />
+                  <button onClick={() => setEditingOrg(org)}
+                    className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors"
+                    title="Edit organisation">
+                    <Pencil size={14} />
+                  </button>
                 </div>
               </Card>
             ))}
@@ -338,6 +514,13 @@ export default function AdminPage() {
 
       {showCreateOrg && <CreateOrgModal onClose={() => setShowCreateOrg(false)} onCreated={loadData} />}
       {showCreateUser && <CreateUserModal onClose={() => setShowCreateUser(false)} onCreated={loadData} />}
+      {editingOrg && (
+        <EditOrgModal
+          org={editingOrg}
+          onClose={() => setEditingOrg(null)}
+          onSaved={() => { loadData(); setEditingOrg(null); }}
+        />
+      )}
     </div>
   );
 }

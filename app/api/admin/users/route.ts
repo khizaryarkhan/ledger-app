@@ -23,11 +23,21 @@ export async function GET(req: Request) {
   if (error) return error;
   const isSuper = isSuperAdmin(session);
 
+  const url = new URL(req.url);
+
   // ?email= lookup (used by org creation modal to check if user exists)
-  const emailParam = new URL(req.url).searchParams.get("email");
+  const emailParam = url.searchParams.get("email");
   if (emailParam) {
     const [found] = await db.select(cols).from(users).where(eq(users.email, emailParam.toLowerCase())).limit(1);
     return ok(found ? [found] : []);
+  }
+
+  // ?orgId= lookup — super admin fetching users of a specific org
+  const orgIdParam = url.searchParams.get("orgId");
+  if (orgIdParam) {
+    if (!isSuper) return bad("Forbidden", 403);
+    const rows = await db.select(cols).from(users).where(eq(users.orgId, orgIdParam));
+    return ok(rows);
   }
 
   const rows = isSuper
@@ -59,6 +69,39 @@ export async function POST(req: Request) {
   } catch (e: any) {
     if (e?.issues) return bad(e.issues[0].message);
     return bad("Failed to create user", 500);
+  }
+}
+
+export async function PUT(req: Request) {
+  const { error, session } = await requireAuth();
+  if (error) return error;
+  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+
+  try {
+    const { userId, name, email, role } = await req.json();
+    if (!userId) return bad("userId required");
+
+    const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+    if (!target) return bad("User not found", 404);
+
+    const updates: Record<string, any> = {};
+    if (name?.trim()) updates.name = name.trim();
+    if (email?.trim()) {
+      const normalised = email.toLowerCase().trim();
+      if (normalised !== target.email) {
+        const [clash] = await db.select({ id: users.id }).from(users).where(eq(users.email, normalised)).limit(1);
+        if (clash) return bad(`Email "${normalised}" is already registered`, 409);
+        updates.email = normalised;
+      }
+    }
+    if (role && ["company_admin", "company_user"].includes(role)) updates.role = role;
+
+    if (Object.keys(updates).length === 0) return bad("Nothing to update");
+    await db.update(users).set(updates).where(eq(users.id, userId));
+    const [updated] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+    return ok(updated);
+  } catch (e: any) {
+    return bad("Failed to update user", 500);
   }
 }
 

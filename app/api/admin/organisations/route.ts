@@ -72,10 +72,29 @@ export async function POST(req: Request) {
     return ok({
       org: { ...org, userCount: 1 },
       admin,
-      linked: !!existingUser, // flag so the UI can show the right message
+      linked: !!existingUser,
     });
   } catch (e: any) {
     if (e?.issues) return bad(e.issues[0].message);
     return bad("Failed to create organisation", 500);
   }
+}
+
+export async function PATCH(req: Request) {
+  const { error, session } = await requireAuth();
+  if (error) return error;
+  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+
+  const { orgId, name, status } = await req.json();
+  if (!orgId) return bad("orgId required");
+
+  const updates: Record<string, any> = { updatedAt: new Date() };
+  if (name?.trim()) updates.name = name.trim();
+  if (status && ["Active", "Inactive"].includes(status)) updates.status = status;
+
+  if (Object.keys(updates).length === 1) return bad("Nothing to update");
+
+  await db.update(organisations).set(updates).where(eq(organisations.id, orgId));
+  const [updated] = await db.select().from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  return ok(updated);
 }
