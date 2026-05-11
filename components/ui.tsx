@@ -41,7 +41,7 @@ export const dueStatusBadge = (status: string) => {
 
 export const Button = ({ children, variant = "primary", size = "md", onClick, disabled, icon: Icon, type = "button", className = "" }: any) => {
   const variants: Record<string, string> = {
-    primary: "bg-stone-900 text-white hover:bg-stone-800 disabled:bg-stone-300",
+    primary: "bg-brand-orange text-white hover:bg-brand-orange-dark disabled:bg-stone-300",
     secondary: "bg-white text-stone-700 ring-1 ring-stone-200 hover:bg-stone-50 hover:ring-stone-300",
     ghost: "text-stone-600 hover:bg-stone-100 hover:text-stone-900",
     danger: "bg-rose-600 text-white hover:bg-rose-700",
@@ -60,14 +60,14 @@ export const Input = ({ value, onChange, placeholder, type = "text", className =
   <div className={`relative ${className}`}>
     {Icon && <Icon size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" strokeWidth={2} />}
     <input type={type} value={value ?? ""} onChange={onChange} placeholder={placeholder}
-      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none placeholder-stone-400 bg-white`}
+      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-brand-navy focus:outline-none placeholder-stone-400 bg-white`}
       {...rest} />
   </div>
 );
 
 export const Select = ({ value, onChange, options, placeholder, className = "" }: any) => (
   <select value={value ?? ""} onChange={onChange}
-    className={`h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white appearance-none bg-no-repeat ${className}`}
+    className={`h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-brand-navy focus:outline-none bg-white appearance-none bg-no-repeat ${className}`}
     style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}>
     {placeholder && <option value="">{placeholder}</option>}
     {options.map((o: any) => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}

@@ -10,6 +10,13 @@ module.exports = {
         sans: ['Geist', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
+      colors: {
+        brand: {
+          navy:  '#092759',
+          orange:'#E46310',
+          'orange-dark': '#c85508',
+        },
+      },
     },
   },
   plugins: [],

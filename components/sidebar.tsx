@@ -72,19 +72,11 @@ export function Sidebar() {
     <aside className="w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen sticky top-0">
       <div className="px-4 py-4 border-b border-stone-200">
         <div className="flex items-center gap-2.5">
-          {orgSettings?.logoUrl ? (
-            <img src={orgSettings.logoUrl} alt="Logo" className="w-7 h-7 rounded-md object-contain bg-stone-100" />
-          ) : (
-            <div className="w-7 h-7 rounded-md bg-stone-900 flex items-center justify-center">
-              <span className="text-white text-[11px] font-bold tracking-tight">AR</span>
-            </div>
-          )}
-          <div>
-            <div className="text-sm font-semibold text-stone-900 tracking-tight leading-none">
-              {orgSettings?.displayName || orgSettings?.name || "Ledger"}
-            </div>
-            <div className="text-[10px] text-stone-500 mt-0.5 tracking-wide">COLLECTIONS CRM</div>
-          </div>
+          <img
+            src={orgSettings?.logoUrl || "https://www.primeaccountax.com/wp-content/uploads/2025/09/logo-1.png"}
+            alt="Prime Accountax"
+            className="h-8 w-auto object-contain"
+          />
         </div>
       </div>
 
@@ -105,20 +97,20 @@ export function Sidebar() {
                   href={item.href}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     isActive
-                      ? "bg-white text-stone-900 shadow-sm ring-1 ring-stone-200"
+                      ? "bg-brand-navy text-white"
                       : "text-stone-600 hover:bg-stone-100/70 hover:text-stone-900"
                   }`}
                 >
                   <Icon
                     size={15}
                     strokeWidth={isActive ? 2.25 : 2}
-                    className={isActive ? "text-stone-900" : "text-stone-500"}
+                    className={isActive ? "text-white" : "text-stone-500"}
                   />
                   <span className="flex-1">{item.label}</span>
                   {item.count != null && item.count > 0 && (
                     <span
                       className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                        isActive ? "bg-stone-100 text-stone-700" : "bg-stone-200/60 text-stone-600"
+                        isActive ? "bg-white/20 text-white" : "bg-stone-200/60 text-stone-600"
                       }`}
                     >
                       {item.count}
