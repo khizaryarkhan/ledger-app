@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronDown, Check, Loader2 } from "lucide-react";
+import { Building2, ChevronDown, Check, Loader2, Search, Shield } from "lucide-react";
 
 type OrgOption = {
   id: string;
@@ -18,6 +18,7 @@ export function OrgSwitcher() {
   const [orgs, setOrgs] = useState<OrgOption[]>([]);
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,17 +31,30 @@ export function OrgSwitcher() {
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   const active = orgs.find(o => o.isActive) ?? orgs[0];
+  const isSuperAdmin = orgs.some(o => o.role === "super_admin");
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return orgs;
+    const q = query.toLowerCase();
+    return orgs.filter(o => (o.displayName || o.name).toLowerCase().includes(q));
+  }, [orgs, query]);
+
   if (!active) return null;
 
-  // Only one org — show static label, no dropdown
-  if (orgs.length === 1) {
+  // Only one org AND not super admin — show static label, no dropdown.
+  // Super admin always gets the switcher even if there's only one org so they
+  // can see they're acting as super admin and access the list.
+  if (orgs.length === 1 && !isSuperAdmin) {
     return (
       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-stone-50 ring-1 ring-stone-200">
         <Building2 size={13} className="text-stone-400 shrink-0" />
@@ -76,7 +90,9 @@ export function OrgSwitcher() {
         onClick={() => setOpen(p => !p)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-stone-50 ring-1 ring-stone-200 hover:bg-stone-100 transition-colors"
       >
-        <Building2 size={13} className="text-stone-400 shrink-0" />
+        {isSuperAdmin
+          ? <Shield size={13} className="text-brand-orange shrink-0" />
+          : <Building2 size={13} className="text-stone-400 shrink-0" />}
         <span className="text-[12px] font-medium text-stone-700 max-w-[160px] truncate">
           {active.displayName || active.name}
         </span>
@@ -87,12 +103,42 @@ export function OrgSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-xl shadow-lg ring-1 ring-stone-200 z-50 overflow-hidden">
-          <div className="px-3 py-2 border-b border-stone-100">
-            <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Switch Organisation</p>
+        <div className="absolute right-0 top-full mt-1.5 w-72 bg-white rounded-xl shadow-lg ring-1 ring-stone-200 z-50 overflow-hidden flex flex-col">
+          <div className="px-3 py-2 border-b border-stone-100 flex items-center justify-between">
+            <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">
+              {isSuperAdmin ? `All Organisations (${orgs.length})` : "Switch Organisation"}
+            </p>
+            {isSuperAdmin && (
+              <span className="text-[9px] font-semibold text-brand-orange uppercase tracking-wider flex items-center gap-1">
+                <Shield size={9} /> Super Admin
+              </span>
+            )}
           </div>
-          <div className="py-1">
-            {orgs.map(org => (
+
+          {/* Search — visible when there are many orgs (super admin case) */}
+          {orgs.length > 8 && (
+            <div className="px-2 py-2 border-b border-stone-100">
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search organisations…"
+                  autoFocus
+                  className="w-full text-[12px] pl-7 pr-2 py-1.5 rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="py-1 max-h-80 overflow-y-auto">
+            {filtered.length === 0 && (
+              <div className="px-3 py-4 text-center text-[11px] text-stone-400">
+                No organisations match "{query}"
+              </div>
+            )}
+            {filtered.map(org => (
               <button
                 key={org.id}
                 onClick={() => handleSwitch(org.id)}
