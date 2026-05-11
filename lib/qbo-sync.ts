@@ -639,6 +639,7 @@ export async function runQboSync(orgId: string, userId: string) {
     );
 
     let paymentsSkipped = 0;
+    let zeroPaymentApps = 0; // count of applications skipped because payment.TotalAmt = 0
     const paymentErrors: Array<{ qboId: string; reason: string }> = [];
 
     // STEP A: Categorise payments into insert vs update — no DB calls in the loop
@@ -719,10 +720,29 @@ export async function runQboSync(orgId: string, userId: string) {
     const allPaymentDbIds = allPaymentsNow.map(p => p.id);
 
     // STEP E: Build all applications across all payments — pure JS, no DB calls
+    //
+    // IMPORTANT: Skip applications from zero-amount payments. QBO uses
+    // TotalAmt=0 Payments as bookkeeping records to "apply" credits (from
+    // JEs / CMs) to close specific invoices. They're not real cash movements.
+    // The actual reduction is already captured by the JE / CM that supplied
+    // the credit. Including these would double-count and overstate paid
+    // amounts, falsely closing invoices that JEs should be offsetting.
     const allApps: any[] = [];
     for (const qpay of allQboPayments) {
       const paymentRowId = paymentIdByQboId.get(qpay.Id);
       if (!paymentRowId) continue;
+
+      const paymentTotal = parseFloat(qpay.TotalAmt) || 0;
+      if (paymentTotal < 0.005) {
+        // Count for visibility but don't create applications
+        for (const line of (qpay.Line || [])) {
+          for (const linked of (line.LinkedTxn || [])) {
+            if (linked?.TxnType === "Invoice" || linked?.TxnType === "CreditMemo") zeroPaymentApps++;
+          }
+        }
+        continue;
+      }
+
       for (const line of (qpay.Line || [])) {
         const amount = parseFloat(line.Amount) || 0;
         for (const linked of (line.LinkedTxn || [])) {
@@ -736,6 +756,9 @@ export async function runQboSync(orgId: string, userId: string) {
           allApps.push({ orgId, paymentId: paymentRowId, invoiceId, targetQboId, targetType, amountApplied: amount });
         }
       }
+    }
+    if (zeroPaymentApps > 0) {
+      console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from zero-amount payments (bookkeeping records that don't move cash)`);
     }
 
     // STEP F: Wipe and re-insert applications for these payments (idempotent)
@@ -921,6 +944,7 @@ export async function runQboSync(orgId: string, userId: string) {
     (results as any).paymentsUpdated = paymentsUpdated;
     (results as any).paymentApplicationsCreated = appsCreated;
     (results as any).paymentsSkipped = paymentsSkipped;
+    (results as any).zeroPaymentAppsSkipped = zeroPaymentApps;
     (results as any).refundsCreated = refundsCreated;
     (results as any).refundsUpdated = refundsUpdated;
     (results as any).refundsSkipped = refundsSkipped;
