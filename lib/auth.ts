@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, userOrganisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -23,6 +23,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user || user.status !== "Active") return null;
         const valid = await bcrypt.compare(String(credentials.password), user.passwordHash);
         if (!valid) return null;
+
+        // Block login if the user has no organisation access.
+        // Super admin is exempt (they can access any org).
+        if (user.role !== "super_admin") {
+          const memberships = await db
+            .select({ id: userOrganisations.id })
+            .from(userOrganisations)
+            .where(eq(userOrganisations.userId, user.id))
+            .limit(1);
+          if (memberships.length === 0) {
+            // No memberships — refuse login. Also deactivate so future attempts
+            // fail fast without hitting the junction table.
+            await db.update(users).set({ status: "Inactive" }).where(eq(users.id, user.id));
+            return null;
+          }
+        }
+
         return {
           id: user.id,
           email: user.email,
