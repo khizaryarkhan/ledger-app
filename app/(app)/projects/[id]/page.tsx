@@ -130,7 +130,6 @@ export default function ProjectDetailPage() {
       <div className="border-b border-stone-200 mb-5 flex items-center gap-1">
         {[
           { id: "transactions", label: "Transactions" },
-          { id: "invoices", label: `Invoices (${projInvoices.length})` },
           { id: "timeline", label: `Communications (${projComms.length})` },
           { id: "audit", label: "Audit Trail" },
           { id: "contacts", label: `Contacts (${totalContacts})` },

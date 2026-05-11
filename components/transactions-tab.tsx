@@ -13,6 +13,7 @@ type Txn = {
   type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt";
   number: string | null;
   amount: number;
+  balance: number;
   currency: string;
   status: string;
   memo: string | null;
@@ -105,12 +106,14 @@ export function TransactionsTab({
 
   // Running totals for the visible set
   const totals = useMemo(() => {
-    let arIncrease = 0, arDecrease = 0;
+    let arIncrease = 0, arDecrease = 0, openBalance = 0;
     for (const r of filtered) {
       if (r.type === "Invoice" || r.type === "Refund Receipt") arIncrease += r.amount;
       if (r.type === "Credit Memo" || r.type === "Payment") arDecrease += Math.abs(r.amount);
+      // Open balance only counts invoices (CM unapplied is negative AR, not open AR)
+      if (r.type === "Invoice") openBalance += r.balance;
     }
-    return { arIncrease, arDecrease, net: arIncrease - arDecrease };
+    return { arIncrease, arDecrease, net: arIncrease - arDecrease, openBalance };
   }, [filtered]);
 
   return (
@@ -141,12 +144,16 @@ export function TransactionsTab({
           {filtered.length > 0 && (
             <div className="ml-auto flex items-center gap-4 text-[11px]">
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">AR ↑</div>
+                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Billed</div>
                 <div className="text-stone-700 tabular-nums">{fmt.money(totals.arIncrease, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">AR ↓</div>
+                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Received</div>
                 <div className="text-stone-700 tabular-nums">{fmt.money(totals.arDecrease, filtered[0]?.currency || "EUR")}</div>
+              </div>
+              <div>
+                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Open AR</div>
+                <div className="font-semibold tabular-nums text-rose-700">{fmt.money(totals.openBalance, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
                 <div className="text-stone-400 uppercase tracking-wider mb-0.5">Net</div>
@@ -163,52 +170,64 @@ export function TransactionsTab({
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
               <th className="text-left font-semibold px-4 py-3 w-28">Date</th>
-              <th className="text-left font-semibold px-4 py-3 w-44">Type</th>
-              <th className="text-left font-semibold px-4 py-3 w-32">Number</th>
+              <th className="text-left font-semibold px-4 py-3 w-40">Type</th>
+              <th className="text-left font-semibold px-4 py-3 w-28">Number</th>
               <th className="text-left font-semibold px-4 py-3">Memo</th>
-              <th className="text-right font-semibold px-4 py-3 w-32">Amount</th>
-              <th className="text-left font-semibold px-4 py-3 w-32">Status</th>
-              <th className="text-right font-semibold px-4 py-3 w-20"></th>
+              <th className="text-right font-semibold px-4 py-3 w-28">Total</th>
+              <th className="text-right font-semibold px-4 py-3 w-28">Balance</th>
+              <th className="text-left font-semibold px-4 py-3 w-28">Status</th>
+              <th className="text-right font-semibold px-4 py-3 w-16"></th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400 text-sm">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400 text-sm">Loading…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400 text-sm">No transactions found for this filter.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400 text-sm">No transactions found for this filter.</td></tr>
             )}
-            {filtered.map(r => (
-              <tr key={r.id} className="border-b border-stone-100 hover:bg-stone-50">
-                <td className="px-4 py-3 text-stone-700 tabular-nums text-[12px]">
-                  {new Date(r.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {typeIcon(r.type)}
-                    <span className="text-stone-800">{r.type}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-stone-600 tabular-nums text-[12px]">{r.number || "—"}</td>
-                <td className="px-4 py-3 text-stone-500 text-[12px] truncate max-w-[300px]">{r.memo || ""}</td>
-                <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-stone-500" : "text-stone-900"}`}>
-                  {fmt.money(Math.abs(r.amount), r.currency)}
-                </td>
-                <td className="px-4 py-3">{statusBadge(r.status)}</td>
-                <td className="px-4 py-3 text-right">
-                  {(r.type === "Invoice" || r.type === "Credit Memo") && (
-                    <Link href={`/invoices/${r.refId}`} className="text-[12px] text-brand-orange hover:text-brand-orange-dark font-medium">
-                      View
-                    </Link>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {filtered.map(r => {
+              const showBalance = r.balance > 0.005;
+              return (
+                <tr key={r.id} className="border-b border-stone-100 hover:bg-stone-50">
+                  <td className="px-4 py-3 text-stone-700 tabular-nums text-[12px]">
+                    {new Date(r.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {typeIcon(r.type)}
+                      <span className="text-stone-800">{r.type}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-stone-600 tabular-nums text-[12px]">{r.number || "—"}</td>
+                  <td className="px-4 py-3 text-stone-500 text-[12px] truncate max-w-[300px]">{r.memo || ""}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-stone-500" : "text-stone-900"}`}>
+                    {fmt.money(Math.abs(r.amount), r.currency)}
+                  </td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${
+                    showBalance
+                      ? (r.type === "Invoice" ? "text-rose-700" : "text-amber-700")
+                      : "text-stone-300"
+                  }`}>
+                    {showBalance ? fmt.money(r.balance, r.currency) : "—"}
+                  </td>
+                  <td className="px-4 py-3">{statusBadge(r.status)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {(r.type === "Invoice" || r.type === "Credit Memo") && (
+                      <Link href={`/invoices/${r.refId}`} className="text-[12px] text-brand-orange hover:text-brand-orange-dark font-medium">
+                        View
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {!loading && filtered.length > 0 && (
           <div className="px-4 py-2 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
             <span>Showing {filtered.length} of {rows.length} transactions</span>
+            <span className="text-stone-400">Balance shown for unpaid invoices and partially-applied credits/payments only</span>
           </div>
         )}
       </Card>

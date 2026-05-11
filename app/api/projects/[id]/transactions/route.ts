@@ -53,6 +53,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   for (const inv of invs) {
     const isCm = inv.txnType === "CreditMemo";
+    const balance = isCm
+      ? Math.abs(inv.qboBalance ?? inv.total)
+      : Math.max(0, inv.qboBalance ?? (inv.total - (inv.paid || 0)));
     rows.push({
       id: `inv-${inv.id}`,
       refId: inv.id,
@@ -60,6 +63,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       type: isCm ? "Credit Memo" : "Invoice",
       number: inv.invoiceNumber,
       amount: isCm ? -Math.abs(inv.total) : inv.total,
+      balance,
       currency: inv.currency,
       status: inv.paymentStatus === "Paid" ? "Paid"
             : inv.collectionStage === "Closed" ? "Closed"
@@ -68,7 +72,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       meta: {
         dueDate: inv.dueDate,
         paid: inv.paid,
-        balance: inv.qboBalance ?? Math.max(0, inv.total - (inv.paid || 0)),
         collectionStage: inv.collectionStage,
       },
     });
@@ -82,13 +85,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       type: "Payment",
       number: p.paymentRef,
       amount: -p.totalAmount,
+      balance: p.unappliedAmount || 0,
       currency: p.currency,
       status: p.unappliedAmount > 0.005 ? "Partially Applied" : "Applied",
       memo: p.privateNote,
       meta: {
         method: p.paymentMethod,
         depositAccount: p.depositAccountName,
-        unapplied: p.unappliedAmount,
       },
     });
   }

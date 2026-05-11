@@ -143,7 +143,6 @@ export default function CustomerDetailPage() {
           {[
             { id: "overview", label: "Overview" },
             { id: "transactions", label: "Transactions" },
-            { id: "invoices", label: `Invoices (${custInvoices.length})` },
             { id: "projects", label: `Projects (${custProjects.length})` },
             { id: "contacts", label: `Contacts (${custContacts.length})` },
             { id: "timeline", label: "Communications" },

@@ -19,6 +19,7 @@ export type CustomerTxn = {
   type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt";
   number: string | null;  // invoice number, payment ref, etc.
   amount: number;         // signed: positive = increases AR, negative = decreases AR
+  balance: number;        // open balance (invoice unpaid, CM/payment unapplied) — always >= 0
   currency: string;
   status: string;         // "Paid" | "Partially Paid" | "Unpaid" | "Voided" | "Closed" | ...
   memo: string | null;
@@ -48,6 +49,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // Invoices + Credit Memos (both live in invoices table, distinguished by txnType)
   for (const inv of invs) {
     const isCm = inv.txnType === "CreditMemo";
+    // Open balance:
+    //   - Invoice: total - paid (or qbo_balance if QBO reported it)
+    //   - Credit Memo: unapplied portion = absolute value of qboBalance
+    const balance = isCm
+      ? Math.abs(inv.qboBalance ?? inv.total)
+      : Math.max(0, inv.qboBalance ?? (inv.total - (inv.paid || 0)));
     rows.push({
       id: `inv-${inv.id}`,
       refId: inv.id,
@@ -55,6 +62,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       type: isCm ? "Credit Memo" : "Invoice",
       number: inv.invoiceNumber,
       amount: isCm ? -Math.abs(inv.total) : inv.total,
+      balance,
       currency: inv.currency,
       status: inv.paymentStatus === "Paid" ? "Paid"
             : inv.collectionStage === "Closed" ? "Closed"
@@ -63,13 +71,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       meta: {
         dueDate: inv.dueDate,
         paid: inv.paid,
-        balance: inv.qboBalance ?? Math.max(0, inv.total - (inv.paid || 0)),
         collectionStage: inv.collectionStage,
       },
     });
   }
 
-  // Payments (negative — reduces AR)
+  // Payments — balance is the unapplied portion
   for (const p of pmts) {
     rows.push({
       id: `pay-${p.id}`,
@@ -78,19 +85,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       type: "Payment",
       number: p.paymentRef,
       amount: -p.totalAmount,
+      balance: p.unappliedAmount || 0,
       currency: p.currency,
       status: p.unappliedAmount > 0.005 ? "Partially Applied" : "Applied",
       memo: p.privateNote,
       meta: {
         method: p.paymentMethod,
         depositAccount: p.depositAccountName,
-        unapplied: p.unappliedAmount,
       },
     });
   }
 
-  // Refund Receipts (positive in this list — money paid back out from a customer credit position;
-  //   semantically a refund increases AR from the customer's perspective, so show positive)
+  // Refund Receipts — balance is 0 (already paid out)
   for (const r of refs) {
     rows.push({
       id: `ref-${r.id}`,
@@ -99,6 +105,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       type: "Refund Receipt",
       number: null,
       amount: r.totalAmount,
+      balance: 0,
       currency: r.currency,
       status: "Closed",
       memo: r.privateNote,
