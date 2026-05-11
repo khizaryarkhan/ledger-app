@@ -201,12 +201,57 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
   const [savingUser, setSavingUser] = useState(false);
   const [userError, setUserError] = useState("");
 
-  useEffect(() => {
+  // Add user section
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [addForm, setAddForm] = useState({ name: "", email: "", password: "", role: "company_admin" });
+  const [addShowPw, setAddShowPw] = useState(false);
+  const [addEmailExists, setAddEmailExists] = useState(false);
+  const [checkingAddEmail, setCheckingAddEmail] = useState(false);
+  const [addingUser, setAddingUser] = useState(false);
+  const [addError, setAddError] = useState("");
+  const setAdd = (k: string, v: string) => setAddForm(p => ({ ...p, [k]: v }));
+
+  const loadUsers = () => {
+    setUsersLoading(true);
     fetch(`/api/admin/users?orgId=${org.id}`)
       .then(r => r.json())
       .then(data => { setUsers(Array.isArray(data) ? data : []); setUsersLoading(false); })
       .catch(() => setUsersLoading(false));
-  }, [org.id]);
+  };
+
+  useEffect(() => { loadUsers(); }, [org.id]);
+
+  // Debounced email check for add user form
+  useEffect(() => {
+    if (!addForm.email || !/\S+@\S+\.\S+/.test(addForm.email)) { setAddEmailExists(false); return; }
+    const timer = setTimeout(async () => {
+      setCheckingAddEmail(true);
+      try {
+        const res = await fetch(`/api/admin/users?email=${encodeURIComponent(addForm.email)}`);
+        const data = await res.json();
+        setAddEmailExists(Array.isArray(data) ? data.some((u: any) => u.email === addForm.email.toLowerCase()) : false);
+      } catch { setAddEmailExists(false); }
+      finally { setCheckingAddEmail(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [addForm.email]);
+
+  const handleAddUser = async () => {
+    setAddingUser(true); setAddError("");
+    try {
+      const res = await fetch(`/api/admin/organisations/${org.id}/users`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAddError(data.error || "Failed to add user"); return; }
+      setShowAddUser(false);
+      setAddForm({ name: "", email: "", password: "", role: "company_admin" });
+      setAddEmailExists(false);
+      loadUsers();
+      onSaved(); // refresh org count
+    } finally { setAddingUser(false); }
+  };
 
   const saveOrg = async () => {
     setSaving(true); setError("");
@@ -217,7 +262,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed to update"); return; }
-      onSaved();
+      onSaved(); // refresh parent list
     } finally { setSaving(false); }
   };
 
@@ -278,15 +323,63 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
 
           {/* Users section */}
           <div className="border-t border-stone-100 px-5 pb-5">
-            <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mt-4 mb-3">
-              Users in this organisation
+            <div className="flex items-center justify-between mt-4 mb-3">
+              <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                Users in this organisation
+              </div>
+              <button onClick={() => { setShowAddUser(p => !p); setAddError(""); }}
+                className="flex items-center gap-1 text-xs font-medium text-brand-orange hover:text-brand-orange-dark transition-colors">
+                <Plus size={12} /> Add user
+              </button>
             </div>
+
+            {/* Add user form */}
+            {showAddUser && (
+              <div className="mb-3 p-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 space-y-2">
+                <div className="text-xs font-semibold text-stone-600 mb-1">Add / link a user to this organisation</div>
+                {addError && <div className="text-xs text-rose-600 bg-rose-50 px-2 py-1.5 rounded">{addError}</div>}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="relative">
+                    <Input type="email" value={addForm.email} onChange={(e: any) => setAdd("email", e.target.value)} placeholder="email@company.com" />
+                    {checkingAddEmail && <span className="absolute right-2 top-2.5 text-[10px] text-stone-400">checking…</span>}
+                  </div>
+                  <Input value={addForm.name} onChange={(e: any) => setAdd("name", e.target.value)} placeholder="Full name" disabled={addEmailExists} />
+                </div>
+                {addEmailExists && (
+                  <div className="flex items-start gap-2 text-xs bg-blue-50 text-blue-700 px-2 py-1.5 rounded ring-1 ring-blue-200">
+                    <Check size={12} className="mt-0.5 shrink-0" />
+                    <span>User already exists — they will be linked to this organisation.</span>
+                  </div>
+                )}
+                {!addEmailExists && (
+                  <div className="relative">
+                    <Input type={addShowPw ? "text" : "password"} value={addForm.password} onChange={(e: any) => setAdd("password", e.target.value)} placeholder="Temporary password (min 8 chars)" />
+                    <button onClick={() => setAddShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
+                      {addShowPw ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <select value={addForm.role} onChange={(e: any) => setAdd("role", e.target.value)}
+                    className="flex-1 h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                    <option value="company_admin">Company Admin</option>
+                    <option value="company_user">User</option>
+                  </select>
+                  <Button variant="secondary" size="sm" onClick={() => setShowAddUser(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleAddUser}
+                    disabled={addingUser || !addForm.email || (!addEmailExists && (!addForm.name || !addForm.password))}>
+                    {addingUser ? "Adding…" : addEmailExists ? "Link user" : "Create & link"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {usersLoading ? (
               <div className="flex items-center gap-2 text-sm text-stone-400 py-3">
                 <Loader2 size={14} className="animate-spin" /> Loading users…
               </div>
             ) : users.length === 0 ? (
-              <div className="text-sm text-stone-400 py-3">No users found in this organisation.</div>
+              <div className="text-sm text-stone-400 py-3">No users yet. Use "Add user" above to get started.</div>
             ) : (
               <div className="space-y-2">
                 {userError && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{userError}</div>}

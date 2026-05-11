@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, userOrganisations } from "@/db/schema";
 import { requireAuth, isSuperAdmin, requireOrgAuth, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 const UserSchema = z.object({
@@ -32,11 +32,19 @@ export async function GET(req: Request) {
     return ok(found ? [found] : []);
   }
 
-  // ?orgId= lookup — super admin fetching users of a specific org
+  // ?orgId= lookup — super admin fetching users of a specific org (via junction table)
   const orgIdParam = url.searchParams.get("orgId");
   if (orgIdParam) {
     if (!isSuper) return bad("Forbidden", 403);
-    const rows = await db.select(cols).from(users).where(eq(users.orgId, orgIdParam));
+    const rows = await db
+      .select({
+        id: users.id, orgId: users.orgId, name: users.name,
+        email: users.email, role: userOrganisations.role,
+        status: users.status, createdAt: users.createdAt,
+      })
+      .from(userOrganisations)
+      .innerJoin(users, eq(users.id, userOrganisations.userId))
+      .where(eq(userOrganisations.orgId, orgIdParam));
     return ok(rows);
   }
 

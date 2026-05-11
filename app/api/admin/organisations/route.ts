@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { organisations, users, userOrganisations } from "@/db/schema";
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 const OrgSchema = z.object({
@@ -19,10 +19,11 @@ export async function GET() {
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const orgs = await db.select().from(organisations).orderBy(desc(organisations.createdAt));
+  // Count via junction table — includes users linked from other orgs
   const userCounts = await db
-    .select({ orgId: users.orgId, count: sql<number>`count(*)::int` })
-    .from(users)
-    .groupBy(users.orgId);
+    .select({ orgId: userOrganisations.orgId, count: sql<number>`count(*)::int` })
+    .from(userOrganisations)
+    .groupBy(userOrganisations.orgId);
   const countMap = Object.fromEntries(userCounts.map(r => [r.orgId, r.count]));
   return ok(orgs.map(org => ({ ...org, userCount: countMap[org.id] || 0 })));
 }
