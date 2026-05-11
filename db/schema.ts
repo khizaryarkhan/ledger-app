@@ -195,6 +195,100 @@ export const invoices = pgTable("invoices", {
 }));
 
 // =========================================================================
+// PAYMENTS (QBO Receive Payment)
+// One row per QBO Payment. The payment may apply to one or more invoices
+// or credit memos via payment_applications. Used to:
+//   - reconcile AR at any historical point in time
+//   - compute true DSO (days from invoice to payment receipt)
+//   - drive the Cash Collections report
+// =========================================================================
+export const payments = pgTable("payments", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  qboId:             varchar("qbo_id", { length: 64 }),
+  customerId:        uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  qboCustomerId:     varchar("qbo_customer_id", { length: 64 }),
+
+  // Payment header
+  txnDate:           varchar("txn_date", { length: 16 }).notNull(), // YYYY-MM-DD — QBO Payment.TxnDate
+  totalAmount:       real("total_amount").notNull(),
+  unappliedAmount:   real("unapplied_amount").notNull().default(0),
+  currency:          varchar("currency", { length: 8 }).notNull().default("EUR"),
+  exchangeRate:      real("exchange_rate"), // for non-base currency; null = 1.0
+
+  // QBO descriptive fields
+  paymentMethod:     varchar("payment_method", { length: 64 }),  // e.g. "Cash", "Cheque", "EFT"
+  paymentRef:        varchar("payment_ref", { length: 128 }),    // QBO PaymentRefNum (cheque number etc)
+  depositAccountId:  varchar("deposit_account_id", { length: 64 }), // QBO bank account it landed in
+  depositAccountName:varchar("deposit_account_name", { length: 255 }),
+  privateNote:       text("private_note"),
+
+  // Sync metadata
+  qboSyncedAt:       timestamp("qbo_synced_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgQboIdUnique: uniqueIndex("payments_org_qbo_id_unique")
+    .on(t.orgId, t.qboId)
+    .where(sql`${t.qboId} IS NOT NULL`),
+  orgCustomerIdx: uniqueIndex("payments_org_customer_date_idx")
+    .on(t.orgId, t.customerId, t.txnDate),
+}));
+export type Payment = typeof payments.$inferSelect;
+
+// =========================================================================
+// PAYMENT_APPLICATIONS — how each payment was applied
+// One row per (payment, target) where target is an invoice or credit memo.
+// targetType discriminates which table the targetQboId points to.
+// =========================================================================
+export const paymentApplications = pgTable("payment_applications", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  paymentId:    uuid("payment_id").notNull().references(() => payments.id, { onDelete: "cascade" }),
+  // Linked transaction — either an invoice or a credit memo (CMs live in invoices table with txnType='CreditMemo')
+  invoiceId:    uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  targetQboId:  varchar("target_qbo_id", { length: 64 }).notNull(), // raw QBO id of the linked txn
+  targetType:   varchar("target_type", { length: 32 }).notNull(),   // "Invoice" | "CreditMemo"
+  amountApplied:real("amount_applied").notNull(),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  paymentTargetUnique: uniqueIndex("payment_applications_payment_target_unique")
+    .on(t.paymentId, t.targetQboId, t.targetType),
+}));
+export type PaymentApplication = typeof paymentApplications.$inferSelect;
+
+// =========================================================================
+// REFUND RECEIPTS (QBO RefundReceipt — money paid out to a customer)
+// Reduces a customer's AR or unapplied credits. Less common than Payments
+// but needed for accurate historical AR.
+// =========================================================================
+export const refundReceipts = pgTable("refund_receipts", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  qboId:             varchar("qbo_id", { length: 64 }),
+  customerId:        uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  qboCustomerId:     varchar("qbo_customer_id", { length: 64 }),
+
+  txnDate:           varchar("txn_date", { length: 16 }).notNull(),
+  totalAmount:       real("total_amount").notNull(),
+  currency:          varchar("currency", { length: 8 }).notNull().default("EUR"),
+
+  paymentMethod:     varchar("payment_method", { length: 64 }),
+  refundFromAccountId:  varchar("refund_from_account_id", { length: 64 }),
+  refundFromAccountName:varchar("refund_from_account_name", { length: 255 }),
+  privateNote:       text("private_note"),
+
+  qboSyncedAt:       timestamp("qbo_synced_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgQboIdUnique: uniqueIndex("refund_receipts_org_qbo_id_unique")
+    .on(t.orgId, t.qboId)
+    .where(sql`${t.qboId} IS NOT NULL`),
+}));
+export type RefundReceipt = typeof refundReceipts.$inferSelect;
+
+// =========================================================================
 // COMMUNICATIONS (emails + notes)
 // =========================================================================
 export const communications = pgTable("communications", {

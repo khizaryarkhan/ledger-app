@@ -7,7 +7,10 @@
  */
 
 import { db } from "@/db";
-import { qboTokens, qboSyncLog, customers, projects, invoices, contacts } from "@/db/schema";
+import {
+  qboTokens, qboSyncLog, customers, projects, invoices, contacts,
+  payments, paymentApplications, refundReceipts,
+} from "@/db/schema";
 import { eq, inArray, and, isNull } from "drizzle-orm";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
@@ -165,6 +168,9 @@ export async function runQboSync(orgId: string, userId: string) {
   await sleep(500);
   // Fetch all Payments — TxnDate is the actual payment date per payment transaction
   const allQboPayments = await qboFetchAllSafe(accessToken, realmId, "Payment");
+  await sleep(500);
+  // Fetch all RefundReceipts — money paid out to customers
+  const allQboRefundReceipts = await qboFetchAllSafe(accessToken, realmId, "RefundReceipt");
 
   // Build: invoiceQboId → latest payment TxnDate
   // For invoices paid in multiple instalments, take the LATEST payment date
@@ -541,6 +547,151 @@ export async function runQboSync(orgId: string, userId: string) {
       paidToUpdate.map(({ id, data }) =>
         db.update(invoices).set(data).where(eq(invoices.id, id))
       )
+    );
+  }
+
+  // STEP 7.6: Persist Payments + Applications + Refund Receipts
+  // (Phase 1 of event-sourced AR: store every transaction that hits AR
+  // so historical AR aging and true DSO can be computed.)
+  {
+    // Refresh ledger state for FK resolution (we may have just inserted new invoices)
+    const freshCustomers = await db.select({ id: customers.id, qboId: customers.qboId })
+      .from(customers).where(eq(customers.orgId, orgId));
+    const freshInvoices = await db.select({ id: invoices.id, qboId: invoices.qboId })
+      .from(invoices).where(eq(invoices.orgId, orgId));
+    const custByQboId = new Map(freshCustomers.filter(c => c.qboId).map(c => [c.qboId!, c.id]));
+    const invByQboId = new Map(freshInvoices.filter(i => i.qboId).map(i => [i.qboId!, i.id]));
+    // Credit memos are stored in `invoices` with qboId prefixed `CM-`
+    const cmByRawId = new Map<string, string>();
+    for (const inv of freshInvoices) {
+      if (inv.qboId?.startsWith("CM-")) cmByRawId.set(inv.qboId.slice(3), inv.id);
+    }
+
+    // ----- PAYMENTS -----
+    let paymentsCreated = 0;
+    let paymentsUpdated = 0;
+    let appsCreated = 0;
+
+    // Pre-load existing payments so we can do upsert manually
+    const existingPayments = await db
+      .select({ id: payments.id, qboId: payments.qboId })
+      .from(payments)
+      .where(eq(payments.orgId, orgId));
+    const existingPayByQboId = new Map(
+      existingPayments.filter(p => p.qboId).map(p => [p.qboId!, p.id])
+    );
+
+    for (const qpay of allQboPayments) {
+      const qboCustId = qpay.CustomerRef?.value as string | undefined;
+      const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+      const payload = {
+        orgId,
+        qboId:               qpay.Id,
+        customerId,
+        qboCustomerId:       qboCustId ?? null,
+        txnDate:             qpay.TxnDate,
+        totalAmount:         parseFloat(qpay.TotalAmt) || 0,
+        unappliedAmount:     parseFloat(qpay.UnappliedAmt) || 0,
+        currency:            qpay.CurrencyRef?.value || "EUR",
+        exchangeRate:        qpay.ExchangeRate ? parseFloat(qpay.ExchangeRate) : null,
+        paymentMethod:       qpay.PaymentMethodRef?.name || null,
+        paymentRef:          qpay.PaymentRefNum || null,
+        depositAccountId:    qpay.DepositToAccountRef?.value || null,
+        depositAccountName:  qpay.DepositToAccountRef?.name || null,
+        privateNote:         qpay.PrivateNote || null,
+        qboSyncedAt:         new Date(),
+        updatedAt:           new Date(),
+      };
+
+      let paymentRowId: string;
+      const existingId = existingPayByQboId.get(qpay.Id);
+      if (existingId) {
+        await db.update(payments).set(payload).where(eq(payments.id, existingId));
+        paymentRowId = existingId;
+        paymentsUpdated++;
+      } else {
+        const [inserted] = await db.insert(payments).values(payload).returning({ id: payments.id });
+        paymentRowId = inserted.id;
+        paymentsCreated++;
+      }
+
+      // Rebuild applications for this payment (delete + reinsert is simplest and idempotent)
+      await db.delete(paymentApplications).where(eq(paymentApplications.paymentId, paymentRowId));
+      const apps: any[] = [];
+      for (const line of (qpay.Line || [])) {
+        const amount = parseFloat(line.Amount) || 0;
+        for (const linked of (line.LinkedTxn || [])) {
+          const targetType = linked.TxnType as string;
+          const targetQboId = linked.TxnId as string;
+          if (!targetQboId || !targetType) continue;
+          // Only track AR-affecting types
+          if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
+          const invoiceId = targetType === "Invoice"
+            ? (invByQboId.get(targetQboId) ?? null)
+            : (cmByRawId.get(targetQboId) ?? null);
+          apps.push({
+            orgId, paymentId: paymentRowId,
+            invoiceId, targetQboId, targetType,
+            amountApplied: amount,
+          });
+        }
+      }
+      if (apps.length > 0) {
+        await db.insert(paymentApplications).values(apps);
+        appsCreated += apps.length;
+      }
+    }
+
+    // ----- REFUND RECEIPTS -----
+    let refundsCreated = 0;
+    let refundsUpdated = 0;
+
+    const existingRefunds = await db
+      .select({ id: refundReceipts.id, qboId: refundReceipts.qboId })
+      .from(refundReceipts)
+      .where(eq(refundReceipts.orgId, orgId));
+    const existingRefundByQboId = new Map(
+      existingRefunds.filter(r => r.qboId).map(r => [r.qboId!, r.id])
+    );
+
+    for (const qref of allQboRefundReceipts) {
+      const qboCustId = qref.CustomerRef?.value as string | undefined;
+      const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+      const payload = {
+        orgId,
+        qboId:                  qref.Id,
+        customerId,
+        qboCustomerId:          qboCustId ?? null,
+        txnDate:                qref.TxnDate,
+        totalAmount:            parseFloat(qref.TotalAmt) || 0,
+        currency:               qref.CurrencyRef?.value || "EUR",
+        paymentMethod:          qref.PaymentMethodRef?.name || null,
+        refundFromAccountId:    qref.DepositToAccountRef?.value || null,
+        refundFromAccountName:  qref.DepositToAccountRef?.name || null,
+        privateNote:            qref.PrivateNote || null,
+        qboSyncedAt:            new Date(),
+        updatedAt:              new Date(),
+      };
+
+      const existingId = existingRefundByQboId.get(qref.Id);
+      if (existingId) {
+        await db.update(refundReceipts).set(payload).where(eq(refundReceipts.id, existingId));
+        refundsUpdated++;
+      } else {
+        await db.insert(refundReceipts).values(payload);
+        refundsCreated++;
+      }
+    }
+
+    (results as any).paymentsCreated = paymentsCreated;
+    (results as any).paymentsUpdated = paymentsUpdated;
+    (results as any).paymentApplicationsCreated = appsCreated;
+    (results as any).refundsCreated = refundsCreated;
+    (results as any).refundsUpdated = refundsUpdated;
+
+    console.log(
+      `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications), ` +
+      `refunds (${refundsCreated} new, ${refundsUpdated} updated) for org ${orgId}`
     );
   }
 
