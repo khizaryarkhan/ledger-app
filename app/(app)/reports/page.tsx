@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
@@ -1577,6 +1577,28 @@ export default function ReportsPage() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asAtDate, setAsAtDate] = useState(todayIso);
 
+  // Historical AR snapshot — fetched from /api/reports/ar-snapshot when asAtDate is in the past.
+  // For today, we use the live invoices array from useData() (instant, no extra round-trip).
+  const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const isHistorical = asAtDate !== todayIso;
+
+  useEffect(() => {
+    if (!isHistorical) {
+      setSnapshotInvoices(null);
+      return;
+    }
+    setSnapshotLoading(true);
+    fetch(`/api/reports/ar-snapshot?asOf=${asAtDate}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setSnapshotInvoices(Array.isArray(data) ? data : []))
+      .catch(() => setSnapshotInvoices([]))
+      .finally(() => setSnapshotLoading(false));
+  }, [asAtDate, isHistorical]);
+
+  // Use snapshot when historical, live data when today
+  const effectiveInvoices = isHistorical && snapshotInvoices ? snapshotInvoices : invoices;
+
   const isArReport    = AR_REPORTS.includes(report);
   const isSalesReport = SALES_REPORTS.includes(report);
   const currentItem   = REPORT_GROUPS.flatMap(g => g.items).find(i => i.id === report);
@@ -1714,17 +1736,22 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {report === "aging-customer" && (
-                <AgingByCustomer invoices={invoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
+              {snapshotLoading && (
+                <div className="px-4 py-8 text-center text-sm text-stone-400">
+                  Computing AR snapshot as at {asAtDate}…
+                </div>
               )}
-              {report === "aging-project" && (
-                <AgingByProject invoices={invoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
+              {!snapshotLoading && report === "aging-customer" && (
+                <AgingByCustomer invoices={effectiveInvoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
               )}
-              {report === "regional" && (
-                <RegionalReport invoices={invoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} asAt={asAtDate} />
+              {!snapshotLoading && report === "aging-project" && (
+                <AgingByProject invoices={effectiveInvoices} customers={customers} projects={projects} regionFilter={regionFilter} asAt={asAtDate} />
               )}
-              {report === "by-rep" && (
-                <AgingByRep invoices={invoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} asAt={asAtDate} />
+              {!snapshotLoading && report === "regional" && (
+                <RegionalReport invoices={effectiveInvoices} customers={customers} projects={projects} regions={regions} regionFilter={regionFilter} asAt={asAtDate} />
+              )}
+              {!snapshotLoading && report === "by-rep" && (
+                <AgingByRep invoices={effectiveInvoices} customers={customers} projects={projects} reps={reps ?? []} regionFilter={regionFilter} asAt={asAtDate} />
               )}
             </Card>
           )}
