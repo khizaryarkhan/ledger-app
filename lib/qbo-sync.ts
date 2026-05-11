@@ -630,8 +630,8 @@ export async function runQboSync(orgId: string, userId: string) {
     }
   }
 
-  // STEP 9: Reconciliation totals
-  const currentInvoices = await db.select().from(invoices);
+  // STEP 9: Reconciliation totals — scoped to THIS org only
+  const currentInvoices = await db.select().from(invoices).where(eq(invoices.orgId, orgId));
   results.ledgerTotalAR = currentInvoices
     .filter(
       (i) =>
