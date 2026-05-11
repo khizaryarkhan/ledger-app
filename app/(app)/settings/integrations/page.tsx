@@ -44,6 +44,28 @@ export default function IntegrationsSettingsPage() {
       .catch(() => {});
   };
 
+  // QBO data verification
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+
+  const handleVerify = async () => {
+    setVerifying(true);
+    setVerifyResult(null);
+    try {
+      const res = await fetch("/api/qbo/verify");
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "Verification failed", "error");
+      } else {
+        setVerifyResult(data);
+      }
+    } catch {
+      toast("Verification failed", "error");
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
@@ -224,11 +246,77 @@ export default function IntegrationsSettingsPage() {
                   </span>
                 )}
               </Button>
+              <Button variant="secondary" size="sm" onClick={handleVerify} disabled={verifying}>
+                {verifying ? (
+                  <span className="flex items-center gap-2">
+                    <Loader size={14} className="animate-spin" />Comparing…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Database size={14} />Verify QBO data
+                  </span>
+                )}
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleQboDisconnect} disabled={disconnecting}>
                 <Unlink size={14} className="mr-1.5" />
                 {disconnecting ? "Disconnecting…" : "Disconnect"}
               </Button>
             </div>
+
+            {/* Verify result — side-by-side counts */}
+            {verifyResult && (
+              <div className="rounded-md ring-1 ring-stone-200 overflow-hidden">
+                <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+                  <div className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
+                    QBO vs Ledger
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    Checked {new Date(verifyResult.checkedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] text-stone-500 uppercase">
+                    <tr className="border-b border-stone-100">
+                      <th className="text-left px-3 py-2 font-medium">Entity</th>
+                      <th className="text-right px-3 py-2 font-medium">In QBO</th>
+                      <th className="text-right px-3 py-2 font-medium">In Ledger</th>
+                      <th className="text-right px-3 py-2 font-medium">Δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {verifyResult.rows.map((row: any) => {
+                      const diff = row.ledger - row.qbo;
+                      const inSync = diff === 0;
+                      const ledgerLow = diff < 0;
+                      return (
+                        <tr key={row.entity} className="border-b border-stone-50 last:border-0">
+                          <td className="px-3 py-2 text-stone-800">{row.entity}</td>
+                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                            {row.qbo === -1 ? "—" : row.qbo.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                            {row.ledger.toLocaleString()}
+                          </td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${
+                            inSync ? "text-emerald-600" : ledgerLow ? "text-rose-600" : "text-amber-600"
+                          }`}>
+                            {inSync ? "✓" : (diff > 0 ? "+" : "") + diff.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 bg-stone-50 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
+                  <span>Payment applications stored: <span className="font-medium text-stone-700">{verifyResult.paymentApplications?.toLocaleString() ?? 0}</span></span>
+                  <span>
+                    {verifyResult.rows.every((r: any) => r.qbo === r.ledger)
+                      ? <span className="text-emerald-700 font-medium">✓ Ledger matches QBO</span>
+                      : <span className="text-amber-700">Run Sync to pull missing data</span>}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Backfill result */}
             {backfillResult && (
