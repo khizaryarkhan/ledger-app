@@ -51,11 +51,10 @@ export type Region = typeof regions.$inferSelect;
 // USER → ORGANISATION membership (many-to-many)
 // =========================================================================
 export const userOrganisations = pgTable("user_organisations", {
-  id:        uuid("id").defaultRandom().primaryKey(),
-  userId:    uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  role:      varchar("role", { length: 32 }).notNull().default("company_user"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  id:     uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId:  uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  role:   varchar("role", { length: 32 }).notNull().default("company_user"),
 });
 export type UserOrganisation = typeof userOrganisations.$inferSelect;
 
