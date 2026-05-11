@@ -63,8 +63,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     return ok({ user: userRecord, linked: !!existing, alreadyLinked: !!alreadyLinked });
   } catch (e: any) {
-    // Surface the real error in development; generic in prod
-    const msg = process.env.NODE_ENV === "development" ? (e?.message || String(e)) : "Failed to add user";
-    return bad(msg, 500);
+    console.error("[POST /api/admin/organisations/[id]/users] error:", e);
+    return bad(e?.message || String(e), 500);
   }
 }
