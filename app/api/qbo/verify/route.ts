@@ -12,7 +12,7 @@
 
 import { db } from "@/db";
 import {
-  qboTokens, customers, invoices, payments, paymentApplications, refundReceipts,
+  qboTokens, customers, invoices, payments, paymentApplications, refundReceipts, projects,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, sql, and } from "drizzle-orm";
@@ -62,8 +62,14 @@ export async function GET() {
     : token.accessToken;
 
   // QBO counts (read-only API calls)
-  const [qboCustomers, qboInvoices, qboCreditMemos, qboPayments, qboRefunds] = await Promise.all([
-    qboCount(accessToken, token.realmId, "Customer"),
+  // Customer table in QBO contains BOTH top-level customers and sub-customers (jobs).
+  // Our app splits them: top-level → customers table, sub-customers → projects table.
+  // So we count them separately.
+  const [
+    qboTopCustomers, qboSubCustomers, qboInvoices, qboCreditMemos, qboPayments, qboRefunds,
+  ] = await Promise.all([
+    qboCount(accessToken, token.realmId, "Customer", "Job = false"),
+    qboCount(accessToken, token.realmId, "Customer", "Job = true"),
     qboCount(accessToken, token.realmId, "Invoice"),
     qboCount(accessToken, token.realmId, "CreditMemo"),
     qboCount(accessToken, token.realmId, "Payment"),
@@ -72,10 +78,11 @@ export async function GET() {
 
   // Ledger counts (org-scoped)
   const [
-    ledgerCustomers, ledgerInvoices, ledgerCreditMemos, ledgerPayments,
+    ledgerCustomers, ledgerProjects, ledgerInvoices, ledgerCreditMemos, ledgerPayments,
     ledgerApplications, ledgerRefunds,
   ] = await Promise.all([
     db.select({ n: sql<number>`count(*)::int` }).from(customers).where(eq(customers.orgId, orgId!)),
+    db.select({ n: sql<number>`count(*)::int` }).from(projects).where(eq(projects.orgId, orgId!)),
     db.select({ n: sql<number>`count(*)::int` }).from(invoices).where(and(eq(invoices.orgId, orgId!), eq(invoices.txnType, "Invoice"))),
     db.select({ n: sql<number>`count(*)::int` }).from(invoices).where(and(eq(invoices.orgId, orgId!), eq(invoices.txnType, "CreditMemo"))),
     db.select({ n: sql<number>`count(*)::int` }).from(payments).where(eq(payments.orgId, orgId!)),
@@ -84,7 +91,8 @@ export async function GET() {
   ]);
 
   const rows = [
-    { entity: "Customers",      qbo: qboCustomers,    ledger: ledgerCustomers[0]?.n ?? 0 },
+    { entity: "Customers (top-level)", qbo: qboTopCustomers, ledger: ledgerCustomers[0]?.n ?? 0 },
+    { entity: "Projects (sub-customers)", qbo: qboSubCustomers, ledger: ledgerProjects[0]?.n ?? 0 },
     { entity: "Invoices",       qbo: qboInvoices,     ledger: ledgerInvoices[0]?.n ?? 0 },
     { entity: "Credit Memos",   qbo: qboCreditMemos,  ledger: ledgerCreditMemos[0]?.n ?? 0 },
     { entity: "Payments",       qbo: qboPayments,     ledger: ledgerPayments[0]?.n ?? 0 },
