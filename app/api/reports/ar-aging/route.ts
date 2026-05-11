@@ -19,10 +19,11 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const asOf = url.searchParams.get("asOf");
+  const includeClosed = url.searchParams.get("includeClosed") === "true";
   if (!asOf) return bad("asOf=YYYY-MM-DD required");
 
   try {
-    const result = await computeArAging(orgId!, asOf);
+    const result = await computeArAging(orgId!, asOf, includeClosed);
     return ok(result);
   } catch (e: any) {
     return bad(e?.message || "Failed to compute AR aging", 500);

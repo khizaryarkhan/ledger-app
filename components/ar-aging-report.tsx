@@ -82,6 +82,7 @@ export function ArAgingReport() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asOf, setAsOf] = useState(todayIso);
   const [view, setView] = useState<"summary" | "detail">("summary");
+  const [includeClosed, setIncludeClosed] = useState(false);
   const [data, setData] = useState<AgingPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [recon, setRecon] = useState<ReconcilePayload | null>(null);
@@ -90,13 +91,13 @@ export function ArAgingReport() {
 
   const load = () => {
     setLoading(true);
-    fetch(`/api/reports/ar-aging?asOf=${asOf}`)
+    fetch(`/api/reports/ar-aging?asOf=${asOf}&includeClosed=${includeClosed}`)
       .then(r => r.ok ? r.json() : null)
       .then(setData)
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [asOf]);
+  useEffect(() => { load(); }, [asOf, includeClosed]);
 
   const customerById = useMemo(() => new Map(customers.map((c: any) => [c.id, c])), [customers]);
 
@@ -153,6 +154,17 @@ export function ArAgingReport() {
                 Detail
               </button>
             </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+              Diagnostics
+            </label>
+            <label className="flex items-center gap-1.5 h-8 px-2 rounded-md ring-1 ring-stone-200 bg-white cursor-pointer">
+              <input type="checkbox" checked={includeClosed} onChange={e => setIncludeClosed(e.target.checked)}
+                className="rounded" />
+              <span className="text-[12px] text-stone-700">Show closed transactions</span>
+            </label>
           </div>
 
           <div className="ml-auto flex items-center gap-2">

@@ -103,8 +103,12 @@ function emptyBuckets(): Record<AgingBucket, number> {
 
 /**
  * Compute AR Aging as of a specific date for an org.
+ *
+ * @param includeClosed - when true, also returns transactions whose computed
+ *   open balance is 0 (paid invoices, fully-applied CMs, applied payments).
+ *   Useful for diagnosing why a customer's total differs from QBO.
  */
-export async function computeArAging(orgId: string, asOf: string): Promise<AgingResult> {
+export async function computeArAging(orgId: string, asOf: string, includeClosed = false): Promise<AgingResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     throw new Error("asOf must be YYYY-MM-DD");
   }
@@ -194,7 +198,8 @@ export async function computeArAging(orgId: string, asOf: string): Promise<Aging
     }
 
     // Exclude fully-closed items from the detail (open balance = 0)
-    if (Math.abs(openBalance) < 0.005) continue;
+    // unless caller asked for them (diagnostic mode).
+    if (!includeClosed && Math.abs(openBalance) < 0.005) continue;
 
     // Due date and aging
     const effectiveDueDate = inv.dueDate || inv.invoiceDate;
