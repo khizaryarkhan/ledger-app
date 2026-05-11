@@ -8,7 +8,7 @@
 
 import { db } from "@/db";
 import { qboTokens, qboSyncLog, customers, projects, invoices, contacts } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, isNull } from "drizzle-orm";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -628,6 +628,36 @@ export async function runQboSync(orgId: string, userId: string) {
         .set({ status: "Inactive", updatedAt: new Date() })
         .where(inArray(projects.id, projectsToDeactivate.map(p => p.id)));
     }
+  }
+
+  // STEP 8c: Auto-backfill paidAt for historical paid invoices
+  // The regular sync only updates paidAt on invoices it actively processes.
+  // Historical paid invoices (already Paid in our ledger with paidAt = NULL)
+  // are not re-fetched, so they stay un-backfilled. Run a small pass here
+  // using the paymentDateByInvId map we already built earlier in this sync.
+  {
+    const unpopulated = await db
+      .select({ id: invoices.id, qboId: invoices.qboId })
+      .from(invoices)
+      .where(and(
+        eq(invoices.orgId, orgId),
+        eq(invoices.paymentStatus, "Paid"),
+        isNull(invoices.paidAt),
+      ));
+
+    let backfilled = 0;
+    for (const inv of unpopulated) {
+      const paidDate = inv.qboId ? paymentDateByInvId.get(inv.qboId) : undefined;
+      if (!paidDate) continue;
+      await db.update(invoices)
+        .set({ paidAt: paidDate, updatedAt: new Date() })
+        .where(and(eq(invoices.id, inv.id), eq(invoices.orgId, orgId)));
+      backfilled++;
+    }
+    if (backfilled > 0) {
+      console.log(`QBO sync: auto-backfilled paidAt on ${backfilled} historical invoice(s) for org ${orgId}`);
+    }
+    (results as any).paidAtBackfilled = backfilled;
   }
 
   // STEP 9: Reconciliation totals — scoped to THIS org only

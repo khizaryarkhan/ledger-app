@@ -103,7 +103,7 @@ export async function POST() {
       if (!paidDate) { skipped++; continue; }
       await db.update(invoices)
         .set({ paidAt: paidDate, updatedAt: new Date() })
-        .where(eq(invoices.id, inv.id));
+        .where(and(eq(invoices.id, inv.id), eq(invoices.orgId, orgId!)));
       backfilled++;
     }
 

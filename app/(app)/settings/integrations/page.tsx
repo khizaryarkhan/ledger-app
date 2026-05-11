@@ -298,13 +298,14 @@ export default function IntegrationsSettingsPage() {
                   <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
                     This sync
                   </div>
-                  <div className="grid grid-cols-5 gap-2 text-center">
+                  <div className="grid grid-cols-6 gap-2 text-center">
                     {[
                       { label: "Customers", value: syncResult.customers },
                       { label: "Contacts", value: syncResult.contacts },
                       { label: "New invoices", value: syncResult.invoicesCreated },
                       { label: "Updated", value: syncResult.invoicesUpdated },
                       { label: "Auto-closed", value: syncResult.invoicesClosed },
+                      { label: "Paid-dates fixed", value: syncResult.paidAtBackfilled || 0 },
                     ].map(({ label, value }) => (
                       <div key={label}>
                         <div className="text-xl font-semibold text-stone-900">{value}</div>
