@@ -430,9 +430,10 @@ export async function runQboSync(orgId: string, userId: string) {
   //   paid       = 0 (CMs don't have a "received" concept)
   // Display code uses qboBalance for CM open balance, total - paid for invoices.
   const creditsToInsert: any[] = [];
+  const creditsToUpdate: Array<{ id: string; data: any }> = [];
+
   for (const cm of openCredits) {
     const creditNumber = `CM-${cm.DocNumber || cm.Id}`;
-    if (ledgerInvByNumber.has(creditNumber) || ledgerInvByQboId.has(`CM-${cm.Id}`)) continue;
     const tlId = topLevelId(cm.CustomerRef?.value, custMap);
     const cust = freshCustByQboId.get(tlId) || freshCustByCode.get(`QBO-${tlId}`);
     if (!cust) continue;
@@ -441,8 +442,6 @@ export async function runQboSync(orgId: string, userId: string) {
     const balance   = parseFloat(cm.Balance)  || 0;
     const taxAmount = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
     const netAmt    = Math.max(0, totalAmt - taxAmount); // ex-tax face value
-    // Proportional unapplied balance ex-tax
-    const netBalance = totalAmt > 0 ? Math.max(0, (balance / totalAmt) * netAmt) : 0;
 
     // Resolve project: same logic as invoices — if the CM's CustomerRef points to a
     // sub-customer (QBO project), capture that project ID.
@@ -455,32 +454,54 @@ export async function runQboSync(orgId: string, userId: string) {
       if (proj) cmProjectId = proj.id;
     }
 
-    creditsToInsert.push({
-      orgId,
-      invoiceNumber: creditNumber,
-      customerId: cust.id,
-      projectId: cmProjectId,
-      invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
-      dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
-      currency: cust.currency || "EUR",
-      amount: -netAmt,      // negative face value
-      taxAmount: 0,
-      total: -netAmt,       // negative face value (the "CM Total")
-      paid: 0,              // not applicable for credit memos
-      paymentTerms: 0,
-      paymentStatus: "Unpaid" as const,
-      collectionStage: "Credit Memo",
-      collectionOwnerId: userId,
-      qboId: `CM-${cm.Id}`,
-      qboBalance: -netBalance,  // negative unapplied balance (the "CM Open")
+    // Match invoice convention: amount = ex-tax, total + qboBalance = gross.
+    // (Previously total/qboBalance were ex-tax, which under-counted CM open
+    //  amounts by the VAT — caused AR Aging to differ from QBO by tax%.)
+    const cmFields = {
+      amount: -netAmt,         // negative ex-tax face value (for sales reporting)
+      taxAmount: -taxAmount,   // negative tax amount
+      total: -totalAmt,        // negative GROSS face value (matches QBO TotalAmt)
+      paid: 0,                 // not applicable for credit memos
+      qboBalance: -balance,    // negative GROSS unapplied balance (matches QBO.Balance)
       qboCustomerId: cm.CustomerRef?.value,
       qboSyncedAt: new Date(),
-      txnType: "CreditMemo",
-      notes: `Credit memo from QBO — ${cm.DocNumber || cm.Id}`,
-    });
-    results.creditsCreated++;
+      updatedAt: new Date(),
+    };
+
+    const existing = ledgerInvByNumber.get(creditNumber) || ledgerInvByQboId.get(`CM-${cm.Id}`);
+    if (existing) {
+      // Update existing — applies the gross-balance fix to historical CMs on next sync.
+      creditsToUpdate.push({ id: existing.id, data: cmFields });
+    } else {
+      creditsToInsert.push({
+        orgId,
+        invoiceNumber: creditNumber,
+        customerId: cust.id,
+        projectId: cmProjectId,
+        invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
+        dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
+        currency: cust.currency || "EUR",
+        ...cmFields,
+        paymentTerms: 0,
+        paymentStatus: "Unpaid" as const,
+        collectionStage: "Credit Memo",
+        collectionOwnerId: userId,
+        qboId: `CM-${cm.Id}`,
+        txnType: "CreditMemo",
+        notes: `Credit memo from QBO — ${cm.DocNumber || cm.Id}`,
+      });
+      results.creditsCreated++;
+    }
   }
   if (creditsToInsert.length > 0) await db.insert(invoices).values(creditsToInsert);
+  if (creditsToUpdate.length > 0) {
+    for (let i = 0; i < creditsToUpdate.length; i += 50) {
+      const chunk = creditsToUpdate.slice(i, i + 50);
+      await Promise.all(chunk.map(({ id, data }) =>
+        db.update(invoices).set(data).where(eq(invoices.id, id))
+      ));
+    }
+  }
 
   // STEP 7.5: Sync paid invoices (Balance = 0) for sales history and DSO calculation
   // allInvoicesForClose is already in memory — no extra QBO API calls needed
@@ -1173,15 +1194,16 @@ export async function syncTargetedEntities(
       const balance   = parseFloat(cm.Balance)  || 0;
       const taxAmt    = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
       const netAmt    = Math.max(0, totalAmt - taxAmt);
-      const netBal    = totalAmt > 0 ? Math.max(0, (balance / totalAmt) * netAmt) : 0;
       updatePromises.push(
         db
           .update(invoices)
           .set({
-            total:         -netAmt,   // face value stays negative
-            amount:        -netAmt,
+            // Match invoice convention: total + qboBalance = GROSS; amount = ex-tax.
+            total:         -totalAmt, // negative GROSS face value (matches QBO TotalAmt)
+            amount:        -netAmt,   // negative ex-tax (for sales reporting)
+            taxAmount:     -taxAmt,
             paid:          0,         // not applicable for CMs
-            qboBalance:    -netBal,   // negative unapplied balance
+            qboBalance:    -balance,  // negative GROSS unapplied balance (matches QBO.Balance)
             qboSyncedAt:   new Date(),
             updatedAt:     new Date(),
             paymentStatus: balance === 0 ? "Paid" : "Unpaid",
