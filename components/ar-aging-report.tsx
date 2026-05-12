@@ -54,6 +54,8 @@ type AgingPayload = {
     paymentCount: number;
     applicationCount: number;
   };
+  source?: "qbo" | "local";
+  qboFallbackReason?: string;
 };
 
 type ReconcilePayload = {
@@ -405,8 +407,12 @@ export function ArAgingReport() {
       {!loading && data && (
         <div className="text-[10px] text-stone-400 px-2">
           {data.meta.invoiceCount} invoice(s) + {data.meta.creditMemoCount} credit memo(s) open as of {asOf}.
-          Computed from {data.meta.paymentCount} payment(s) and {data.meta.applicationCount} application(s).
-          Method: Report Date / Accrual basis.
+          {data.source === "qbo"
+            ? <> Sourced directly from QBO AgedReceivableDetail (Report Date / Accrual).</>
+            : <> Computed from {data.meta.paymentCount} payment(s) and {data.meta.applicationCount} application(s). Method: Report Date / Accrual basis.</>}
+          {data.qboFallbackReason && (
+            <span className="text-amber-600"> · QBO call failed, fell back to local engine ({data.qboFallbackReason}).</span>
+          )}
         </div>
       )}
     </div>
