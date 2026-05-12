@@ -152,10 +152,17 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     appsByInvoiceId.set(app.invoiceId, arr);
   }
 
-  // 3b. Load Journal Entry AR lines dated on or before asOf — capture AR
-  // write-offs, audit adjustments, inter-company transfers. Critical for
-  // accurate customer balances.
-  const jeArRows = await db.select().from(journalEntryArLines)
+  // 3b. Load Journal Entry AR lines dated on or before asOf — only for HISTORICAL views.
+  //
+  // For TODAY's view: JEs have typically already been "applied" via QBO
+  // zero-amount payments, which closes invoices in the snapshot. The invoice
+  // snapshot already reflects these closures. Including JE rows on top would
+  // double-count the reduction. So we skip JEs entirely for today's view —
+  // the snapshot is the source of truth.
+  //
+  // For HISTORICAL: applications-based reconstruction needs the JE rows to
+  // accurately show AR at past dates (especially before zero-payment closures).
+  const jeArRows = isToday ? [] : await db.select().from(journalEntryArLines)
     .where(and(
       eq(journalEntryArLines.orgId, orgId),
       lte(journalEntryArLines.txnDate, asOf),
