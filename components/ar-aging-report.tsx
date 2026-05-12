@@ -99,7 +99,7 @@ export function ArAgingReport() {
 
   useEffect(() => { load(); }, [asOf, includeClosed]);
 
-  const customerById = useMemo(() => new Map(customers.map((c: any) => [c.id, c])), [customers]);
+  const customerById = useMemo(() => new Map<string, any>(customers.map((c: any) => [c.id, c])), [customers]);
 
   const runReconcile = () => {
     setReconLoading(true);

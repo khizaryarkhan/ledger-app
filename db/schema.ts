@@ -149,7 +149,9 @@ export const projects = pgTable("projects", {
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
+  qboId: varchar("qbo_id", { length: 64 }), // QBO sub-customer Id
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // =========================================================================

@@ -1205,8 +1205,8 @@ export async function syncTargetedEntities(
     const existing     = ledgerInvByQboId.get(qi.Id);
     const billingEmail = buildBillingEmails(qi);
 
-    // Payment date: prefer explicitly-passed date (from Payment.TxnDate), else paymentDateByInvId map
-    const qboPaidAt = isPaid ? (paymentDate || paymentDateByInvId.get(qi.Id) || null) : null;
+    // Payment date comes from the caller (Payment.TxnDate passed by the webhook handler).
+    const qboPaidAt = isPaid ? (paymentDate || null) : null;
 
     if (existing) {
       updatePromises.push(

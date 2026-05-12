@@ -183,49 +183,64 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     }
 
     // Compute open balance:
-    //   Invoice: total - sum(applied <= asOf)
-    //   CM:     own negative balance (gross). Direct CM-to-invoice applications
-    //           via QBO LinkedTxn aren't captured yet — known limitation.
-    //           Application via Payment (where targetType='CreditMemo') IS captured
-    //           and reduces the CM's unapplied amount when computed as part of
-    //           historical state. For now we use the current CM qboBalance as a
-    //           proxy if the report date is today; otherwise we approximate by
-    //           subtracting applications-via-payment.
+    //   Today:      qboBalance (QBO snapshot) — captures write-offs, direct CM
+    //               applications, and refund receipts that have no application rows.
+    //   Historical: paidAt shortcut for fully-paid invoices (more reliable than
+    //               payment_applications completeness); applications-based for
+    //               partial/open invoices. CMs reconstructed from payment_applications
+    //               if available, otherwise fall back to current qboBalance.
     let openBalance: number;
     let totalApplied = 0;
     const applied: AppliedTxn[] = [];
 
     if (isCm) {
       // CM's stored qboBalance is the CURRENT unapplied amount (negative).
-      // For historical, walk applications where this CM was used as a target
-      // (target_type='CreditMemo') via payments dated <= asOf — those uses
-      // reduce the unapplied amount as of asOf.
-      // CM applications via payments aren't currently linked back to the CM row
-      // by invoiceId (invoiceId on the application points to the linked Invoice
-      // for the payment line, not the CM target). So we fall back to current
-      // qboBalance for CMs in v1.
-      openBalance = inv.qboBalance ?? inv.total; // negative
+      // For today: trust the QBO snapshot directly.
+      // For historical: reconstruct using payment_applications dated <= asOf,
+      // falling back to qboBalance if no applications exist for this CM.
+      if (isToday) {
+        openBalance = inv.qboBalance ?? inv.total; // negative
+      } else {
+        const cmApps = appsByInvoiceId.get(inv.id) || [];
+        applied.push(...cmApps);
+        totalApplied = cmApps.reduce((s, a) => s + a.amount, 0);
+        // CM total is negative; applications reduce the unapplied credit toward 0.
+        // If no application records exist, fall back to current qboBalance.
+        openBalance = cmApps.length > 0
+          ? Math.min(0, inv.total + totalApplied)
+          : (inv.qboBalance ?? inv.total);
+      }
       if (openBalance < -0.005) unappliedCredits++;
     } else {
       const apps = appsByInvoiceId.get(inv.id) || [];
       applied.push(...apps);
       totalApplied = apps.reduce((s, a) => s + a.amount, 0);
-      const applicationsBasedOpen = Math.max(0, inv.total - totalApplied);
 
       if (isToday) {
-        // For today's view, the sync's snapshot is the truth. It captures
-        // closures that may not be in our payment_applications data
-        // (direct CM applications via LinkedTxn on the CM, refund-based
-        // closures, edge cases). If the snapshot shows the invoice closed
-        // (qbo_balance ~= 0 OR payment_status = "Paid"), respect that.
+        // For today's view use qboBalance directly — it is the QBO source of
+        // truth and captures closures not yet in payment_applications
+        // (direct CM applications, refund receipts, write-offs, etc.).
         const snapshotOpen = inv.qboBalance ?? Math.max(0, inv.total - (inv.paid || 0));
         const isSnapshotClosed = (snapshotOpen < 0.005) ||
                                  inv.paymentStatus === "Paid" ||
                                  inv.collectionStage === "Closed";
-        openBalance = isSnapshotClosed ? 0 : applicationsBasedOpen;
+        openBalance = isSnapshotClosed ? 0 : snapshotOpen;
       } else {
-        // Historical: applications-based only — captures past state
-        openBalance = applicationsBasedOpen;
+        // Historical reconstruction.
+        // paidAt is the authoritative payment receipt date from QBO. If it falls
+        // on or before asOf the invoice was fully settled by the report date.
+        // This is more reliable than payment_applications completeness.
+        const fullyPaidByDate =
+          (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") &&
+          inv.paidAt != null &&
+          inv.paidAt <= asOf;
+
+        if (fullyPaidByDate) {
+          openBalance = 0;
+        } else {
+          // Partially paid or unpaid: reconstruct from payment_applications.
+          openBalance = Math.max(0, inv.total - totalApplied);
+        }
       }
     }
 
