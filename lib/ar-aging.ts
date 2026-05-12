@@ -107,11 +107,20 @@ function emptyBuckets(): Record<AgingBucket, number> {
  * @param includeClosed - when true, also returns transactions whose computed
  *   open balance is 0 (paid invoices, fully-applied CMs, applied payments).
  *   Useful for diagnosing why a customer's total differs from QBO.
+ *
+ * Methodology:
+ *   - For TODAY: trusts the invoice's sync snapshot (qbo_balance / paid)
+ *     as the source of truth. Captures closures we don't have event data for
+ *     (direct CM-to-Invoice applications, write-offs, refund receipts, etc.).
+ *   - For HISTORICAL dates: walks payment_applications to reconstruct the
+ *     state at that date. Best accuracy where we have event data.
  */
 export async function computeArAging(orgId: string, asOf: string, includeClosed = false): Promise<AgingResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     throw new Error("asOf must be YYYY-MM-DD");
   }
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = asOf >= today;
 
   // 1. Load all invoices + credit memos dated on or before asOf
   const allInvs = await db.select().from(invoices)
@@ -194,7 +203,23 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       const apps = appsByInvoiceId.get(inv.id) || [];
       applied.push(...apps);
       totalApplied = apps.reduce((s, a) => s + a.amount, 0);
-      openBalance = Math.max(0, inv.total - totalApplied);
+      const applicationsBasedOpen = Math.max(0, inv.total - totalApplied);
+
+      if (isToday) {
+        // For today's view, the sync's snapshot is the truth. It captures
+        // closures that may not be in our payment_applications data
+        // (direct CM applications via LinkedTxn on the CM, refund-based
+        // closures, edge cases). If the snapshot shows the invoice closed
+        // (qbo_balance ~= 0 OR payment_status = "Paid"), respect that.
+        const snapshotOpen = inv.qboBalance ?? Math.max(0, inv.total - (inv.paid || 0));
+        const isSnapshotClosed = (snapshotOpen < 0.005) ||
+                                 inv.paymentStatus === "Paid" ||
+                                 inv.collectionStage === "Closed";
+        openBalance = isSnapshotClosed ? 0 : applicationsBasedOpen;
+      } else {
+        // Historical: applications-based only — captures past state
+        openBalance = applicationsBasedOpen;
+      }
     }
 
     // Exclude fully-closed items from the detail (open balance = 0)
