@@ -128,7 +128,13 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
 
   // 2. Load all payments dated on or before asOf
   const validPayments = await db
-    .select({ id: payments.id, qboId: payments.qboId, txnDate: payments.txnDate })
+    .select({
+      id: payments.id,
+      qboId: payments.qboId,
+      txnDate: payments.txnDate,
+      customerId: payments.customerId,
+      unappliedAmount: payments.unappliedAmount,
+    })
     .from(payments)
     .where(and(eq(payments.orgId, orgId), lte(payments.txnDate, asOf)));
   const paymentById = new Map(validPayments.map(p => [p.id, p]));
@@ -328,6 +334,34 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     s.total += row.openBalance;
   }
   const summary = [...byCustomer.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+
+  // 5b. Deduct unapplied payment amounts per customer.
+  //
+  // Matches PBI methodology: payments received but not yet applied to any
+  // invoice reduce the customer's net AR balance. QBO records these as
+  // UnappliedAmt on the Payment. We deduct them from the Current bucket
+  // first, then spill into older buckets — the customer overpaid or paid
+  // early and the credit sits on account.
+  const unappliedByCustomer = new Map<string, number>();
+  for (const p of validPayments) {
+    if (!p.customerId || (p.unappliedAmount ?? 0) < 0.005) continue;
+    unappliedByCustomer.set(
+      p.customerId,
+      (unappliedByCustomer.get(p.customerId) ?? 0) + (p.unappliedAmount ?? 0),
+    );
+  }
+  for (const s of summary) {
+    let remaining = unappliedByCustomer.get(s.customerId) ?? 0;
+    if (remaining < 0.005) continue;
+    // Apply credit to Current bucket first, then 1-30, 31-60, 61-90, 91+
+    for (const b of BUCKETS) {
+      if (remaining < 0.005) break;
+      const reduce = Math.min(remaining, Math.max(0, s.buckets[b]));
+      s.buckets[b] -= reduce;
+      s.total      -= reduce;
+      remaining    -= reduce;
+    }
+  }
 
   // 6. Grand totals
   const grandTotals = { ...emptyBuckets(), total: 0 };
