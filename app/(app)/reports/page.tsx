@@ -1735,7 +1735,7 @@ export default function ReportsPage() {
                     : report === "regional" ? "Regional AR Analysis"
                     : "AR by Sales Rep"}
                 </div>
-                <div className="text-sm text-stone-500 mt-0.5">EDC - Engineering Design Consultants Limited</div>
+                <div className="text-sm text-stone-500 mt-0.5">{orgSettings?.displayName || orgSettings?.name || "Foodready Collection Manager"}</div>
                 <div className="text-xs text-stone-400 mt-0.5">
                   As at {new Date(asAtDate + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
                   {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}

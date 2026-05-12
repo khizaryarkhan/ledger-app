@@ -73,8 +73,8 @@ export function Sidebar() {
       <div className="px-4 py-4 border-b border-stone-200">
         <div className="flex items-center gap-2.5">
           <img
-            src={orgSettings?.logoUrl || "https://www.primeaccountax.com/wp-content/uploads/2025/09/logo-1.png"}
-            alt="Prime Accountax"
+            src={orgSettings?.logoUrl || "https://app.foodready.ai/app/assets/foodready_logo.AOW0PckZ.svg"}
+            alt="Foodready Collection Manager"
             className="h-8 w-auto object-contain"
           />
         </div>
