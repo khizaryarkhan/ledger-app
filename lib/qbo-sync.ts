@@ -208,6 +208,22 @@ export async function runQboSync(orgId: string, userId: string) {
     }
   }
 
+  // Fallback closing-date map: built from the Invoice's own LinkedTxn field.
+  // QBO populates LinkedTxn on every Invoice with whatever closed it —
+  // credit memos, journal entries, write-offs, etc. For invoices not in
+  // paymentDateByInvId (no cash payment), this gives us the actual close date
+  // so paidAt is populated even for CM/JE-settled invoices.
+  const linkedTxnDateByInvId = new Map<string, string>();
+  for (const qi of allInvoicesForClose) {
+    if (!qi.Id || !Array.isArray(qi.LinkedTxn) || qi.LinkedTxn.length === 0) continue;
+    const dates = (qi.LinkedTxn as any[])
+      .map((l: any) => l.TxnDate)
+      .filter((d: any) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d));
+    if (dates.length > 0) {
+      linkedTxnDateByInvId.set(qi.Id, [...dates].sort().at(-1)!);
+    }
+  }
+
   const custMap = new Map(allQboCustomers.map((c: any) => [c.Id, c]));
   const parentCustomers = allQboCustomers.filter((c: any) => !c.Job && !c.ParentRef);
   const subCustomers = allQboCustomers.filter((c: any) => c.Job || c.ParentRef);
@@ -534,8 +550,11 @@ export async function runQboSync(orgId: string, userId: string) {
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
     const billingEmail  = buildBillingEmails(qi);
 
-    // Use actual Payment TxnDate — accurate date payment was received
-    const qboPaidAt = paymentDateByInvId.get(qi.Id) || null;
+    // Prefer payment TxnDate; fall back to most recent LinkedTxn date on the
+    // invoice itself (covers CM applications, JE write-offs, direct adjustments).
+    const qboPaidAt = paymentDateByInvId.get(qi.Id)
+      || linkedTxnDateByInvId.get(qi.Id)
+      || null;
 
     const paidData = {
       total:         paidTotal,
@@ -1087,7 +1106,9 @@ export async function runQboSync(orgId: string, userId: string) {
 
     let backfilled = 0;
     for (const inv of unpopulated) {
-      const paidDate = inv.qboId ? paymentDateByInvId.get(inv.qboId) : undefined;
+      const paidDate = inv.qboId
+        ? (paymentDateByInvId.get(inv.qboId) || linkedTxnDateByInvId.get(inv.qboId))
+        : undefined;
       if (!paidDate) continue;
       await db.update(invoices)
         .set({ paidAt: paidDate, updatedAt: new Date() })

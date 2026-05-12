@@ -243,6 +243,19 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
 
         if (fullyPaidByDate) {
           openBalance = 0;
+        } else if (
+          (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") &&
+          inv.paidAt == null &&
+          totalApplied < 0.005
+        ) {
+          // Invoice is definitively closed in QBO (paymentStatus=Paid) but we have
+          // no payment date (paidAt=null) and no application records. This happens
+          // for invoices settled via credit memo or journal entry where no cash
+          // Payment transaction exists. We cannot determine the historical close
+          // date until the next QBO sync (which will populate paidAt via LinkedTxn).
+          // Exclude from ALL historical dates to avoid ghost AR — the next sync will
+          // backfill paidAt and restore accurate point-in-time reporting.
+          openBalance = 0;
         } else {
           // Partially paid or unpaid: reconstruct from payment_applications.
           openBalance = Math.max(0, inv.total - totalApplied);
