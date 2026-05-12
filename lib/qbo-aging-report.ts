@@ -59,7 +59,13 @@ function daysBetween(later: string, earlier: string): number {
 }
 
 /**
- * Iterate every leaf (type='Data') row in a QBO report's hierarchical Rows tree.
+ * Iterate every leaf data row in a QBO report's hierarchical Rows tree.
+ *
+ * QBO reports nest Section rows (which contain Header / Rows.Row / Summary)
+ * around the actual data rows. The data rows themselves often have NO
+ * `type` field — only Section rows are tagged with `type: "Section"`.
+ * So we identify leaves as nodes that carry ColData and do NOT have a
+ * `Rows.Row` child (which would mean they're a section, not a leaf).
  */
 function* walkRows(node: any): Generator<any> {
   if (!node) return;
@@ -67,10 +73,15 @@ function* walkRows(node: any): Generator<any> {
     for (const r of node) yield* walkRows(r);
     return;
   }
-  if (node.type === "Data" && Array.isArray(node.ColData)) {
+  // Recurse into Section / grouping rows.
+  if (node.Rows?.Row) {
+    yield* walkRows(node.Rows.Row);
+    return;
+  }
+  // Leaf data row.
+  if (Array.isArray(node.ColData) && node.type !== "Section") {
     yield node;
   }
-  if (node.Rows?.Row) yield* walkRows(node.Rows.Row);
 }
 
 /**
@@ -90,7 +101,7 @@ function extractColumnIndex(columns: any[], titles: string[]): number {
   return -1;
 }
 
-export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingResult> {
+export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingResult & { _debug?: any }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     throw new Error("asOf must be YYYY-MM-DD");
   }
@@ -117,6 +128,7 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     throw new Error(`QBO AgedReceivableDetail ${res.status}: ${text}`);
   }
   const report = await res.json();
+  console.log(`[QBO aging] asOf=${asOf} columns=${report?.Columns?.Column?.length ?? 0} topRows=${report?.Rows?.Row?.length ?? 0}`);
 
   const columns: any[] = report?.Columns?.Column || [];
   const colDate    = extractColumnIndex(columns, ["date"]);
@@ -162,8 +174,10 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
   const detail: DetailRow[] = [];
   let missingDueDate = 0;
   let invoiceCount = 0, creditMemoCount = 0;
+  let leafRowCount = 0;
 
   for (const row of walkRows(report?.Rows?.Row)) {
+    leafRowCount++;
     const cd = row.ColData;
     if (!Array.isArray(cd) || cd.length === 0) continue;
 
@@ -221,6 +235,16 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
       currency:     ourInv?.currency ?? "EUR",
       flags,
     });
+  }
+
+  console.log(`[QBO aging] asOf=${asOf} leafRows=${leafRowCount} detailRowsKept=${detail.length} customers=${new Set(detail.map(d => d.customerId)).size}`);
+
+  if (leafRowCount === 0) {
+    // Could be column-name mismatch, or genuinely no open AR. Look at columns.
+    const colTitles = (report?.Columns?.Column || []).map((c: any) => c?.ColTitle).filter(Boolean);
+    if (colTitles.length > 0 && (report?.Rows?.Row?.length ?? 0) > 0) {
+      throw new Error(`QBO report parsed 0 leaf rows; columns were [${colTitles.join(", ")}] — parser may need a new alias`);
+    }
   }
 
   // Per-customer summary
