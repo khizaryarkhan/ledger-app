@@ -59,7 +59,15 @@ export async function getValidToken(orgId: string) {
         refresh_token: token.refreshToken,
       }),
     });
-    if (!res.ok) return token;
+    if (!res.ok) {
+      // Refresh failed — most commonly because the refresh token expired
+      // (100-day rolling window) or was revoked from inside QuickBooks. The
+      // stale access token is unusable; returning it just produces a
+      // confusing 401 downstream. Surface a clear error so the user
+      // reconnects QBO via Settings → Integrations.
+      const body = await res.text().catch(() => "");
+      throw new Error(`QBO refresh token rejected (HTTP ${res.status}). Reconnect QuickBooks under Settings → Integrations. Detail: ${body.slice(0, 200)}`);
+    }
     const d = await res.json();
     const updated = {
       ...token,
