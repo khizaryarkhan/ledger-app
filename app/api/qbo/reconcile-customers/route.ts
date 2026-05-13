@@ -35,15 +35,20 @@ type RowOut = {
   customerCode:      string;
   qboId:             string | null;
   currency:          string;
-  qboBalance:        number | null;        // null = couldn't fetch
-  qboBalanceWithJobs: number | null;
+  qboBalance:        number | null;        // Customer.Balance (parent only)
+  qboBalanceWithJobs: number | null;       // Customer.BalanceWithJobs (incl. sub-customers)
   ourOpenInvoiceBalance: number;
   ourCmCredit:       number;
   ourPaymentCredit:  number;
   ourJeBalance:      number;
   ourDepositCredit:  number;
   ourNetBalance:     number;
-  delta:             number | null;        // ourNetBalance - qboBalance
+  // Delta uses BalanceWithJobs because our local data aggregates the parent
+  // customer with all its sub-customers (sub-customers are stored as projects
+  // under the parent in our schema — see invoices.projectId). Comparing
+  // against Balance alone would falsely flag every parent with sub-customer
+  // AR as drifted.
+  delta:             number | null;
   status:            "match" | "drift" | "no-qbo-id" | "qbo-error";
   error?:            string;
 };
@@ -169,9 +174,11 @@ export async function GET(req: Request) {
       } else {
         const data = await res.json();
         const q = data.Customer || data;
-        const qboBalance        = parseFloat(q.Balance)         || 0;
+        const qboBalance         = parseFloat(q.Balance)         || 0;
         const qboBalanceWithJobs = parseFloat(q.BalanceWithJobs) || qboBalance;
-        const delta = ourNetBalance - qboBalance;
+        // Compare against BalanceWithJobs — our customer record aggregates
+        // its sub-customer (project) AR under the parent customerId.
+        const delta = ourNetBalance - qboBalanceWithJobs;
         const status: RowOut["status"] = Math.abs(delta) < tolerance ? "match" : "drift";
         rows.push({ ...base, qboBalance, qboBalanceWithJobs, delta, status });
         fetched++;
@@ -198,7 +205,7 @@ export async function GET(req: Request) {
     customersInMatch: rows.filter(r => r.status === "match").length,
     customersWithoutQboId: rows.filter(r => r.status === "no-qbo-id").length,
     ourTotalNetAR:    rows.reduce((s, r) => s + r.ourNetBalance, 0),
-    qboTotalNetAR:    rows.reduce((s, r) => s + (r.qboBalance ?? 0), 0),
+    qboTotalNetAR:    rows.reduce((s, r) => s + (r.qboBalanceWithJobs ?? r.qboBalance ?? 0), 0),
   };
 
   return ok({

@@ -34,10 +34,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .limit(1);
   if (!cust) return bad("Customer not found", 404);
 
-  // Authoritative path: ask QBO directly. Customer.Balance is QBO's net AR for
-  // the customer — exactly what its UI shows. This avoids reconstructing
-  // anything from our local copy of JE / payment / CM applications (which is
-  // incomplete because we don't track every LinkedTxn relationship).
+  // Authoritative path: ask QBO directly. We return BalanceWithJobs (parent
+  // customer's open AR + every sub-customer's open AR) because in our ledger
+  // a customer record aggregates its sub-customers via projects.customerId.
+  // The plain Customer.Balance is parent-only and would understate the
+  // customer's true exposure whenever AR lives on a sub-customer / project.
   if (cust.qboId) {
     try {
       const token = await getValidToken(orgId!);
@@ -49,8 +50,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         if (res.ok) {
           const data = await res.json();
           const c = data.Customer || data;
-          const qboBalance     = parseFloat(c.Balance)        || 0;
-          const qboWithJobs    = parseFloat(c.BalanceWithJobs) || qboBalance;
+          const qboBalance         = parseFloat(c.Balance)         || 0;
+          const qboBalanceWithJobs = parseFloat(c.BalanceWithJobs) || qboBalance;
           return ok({
             currency:           cust.currency,
             openInvoiceBalance: 0,
@@ -59,8 +60,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             paymentCredit:      0,
             jeBalance:          0,
             depositCredit:      0,
-            netBalance:         qboBalance,
-            netBalanceWithJobs: qboWithJobs, // includes sub-customer balances
+            netBalance:         qboBalanceWithJobs, // parent + sub-customers
+            qboBalanceParentOnly: qboBalance,       // exposed for diagnostics
+            netBalanceWithJobs:   qboBalanceWithJobs,
             source:             "qbo-live",
             qboCheckedAt:       new Date().toISOString(),
           });

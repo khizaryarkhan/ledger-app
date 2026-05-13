@@ -168,8 +168,9 @@ export default function ReconcilePage() {
                 <th className="text-right font-semibold px-3 py-3">JE Bal</th>
                 <th className="text-right font-semibold px-3 py-3">Deposit</th>
                 <th className="text-right font-semibold px-3 py-3 bg-stone-100">Our Net</th>
-                <th className="text-right font-semibold px-3 py-3 bg-stone-100">QBO Bal</th>
-                <th className="text-right font-semibold px-3 py-3 bg-stone-100">Δ</th>
+                <th className="text-right font-semibold px-3 py-3 bg-stone-100" title="Customer.Balance — parent customer only, excludes sub-customer AR">QBO Parent</th>
+                <th className="text-right font-semibold px-3 py-3 bg-stone-100" title="Customer.BalanceWithJobs — parent + all sub-customers. This is the field we reconcile against because our ledger aggregates sub-customers under the parent.">QBO incl. Jobs</th>
+                <th className="text-right font-semibold px-3 py-3 bg-stone-100">Δ vs Jobs</th>
                 <th className="text-left font-semibold px-3 py-3">Status</th>
               </tr>
             </thead>
@@ -188,7 +189,8 @@ export default function ReconcilePage() {
                   <td className={`px-3 py-2.5 text-right tabular-nums ${r.ourJeBalance < 0 ? "text-amber-700" : "text-stone-600"}`}>{r.ourJeBalance ? fmt.money(r.ourJeBalance, r.currency) : "—"}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{r.ourDepositCredit ? fmt.money(r.ourDepositCredit, r.currency) : "—"}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-semibold bg-stone-50">{fmt.money(r.ourNetBalance, r.currency)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums font-semibold bg-stone-50">{r.qboBalance != null ? fmt.money(r.qboBalance, r.currency) : "—"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-500 bg-stone-50">{r.qboBalance != null ? fmt.money(r.qboBalance, r.currency) : "—"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums font-semibold bg-stone-50">{r.qboBalanceWithJobs != null ? fmt.money(r.qboBalanceWithJobs, r.currency) : "—"}</td>
                   <td className={`px-3 py-2.5 text-right tabular-nums font-bold bg-stone-50 ${
                     r.delta == null ? "text-stone-300"
                     : Math.abs(r.delta) < tolerance ? "text-emerald-700"
