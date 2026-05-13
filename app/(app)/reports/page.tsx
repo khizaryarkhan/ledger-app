@@ -736,10 +736,20 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       }
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
+      const proj = inv.projectId ? projects.find((p: any) => p.id === inv.projectId) : null;
 
-      // No project assignment — bucket under the customer's "Unassigned" row.
-      if (!inv.projectId) {
-        if (regionFilter && cust?.regionId !== regionFilter) continue;
+      // Region filter applies to BOTH paths (project-assigned and unassigned).
+      // Matches AgingByCustomer / RegionalReport / AgingByRep behaviour.
+      if (regionFilter) {
+        const inRegion = cust?.regionId === regionFilter || proj?.regionId === regionFilter;
+        if (!inRegion) continue;
+      }
+
+      // Unassigned path: either no projectId at all OR projectId points to a
+      // project that no longer exists in our ledger (deleted/orphaned). Either
+      // way, bucket under a synthetic "— No project —" row keyed by customer so
+      // the report's grand total reconciles with the other aging views.
+      if (!proj) {
         const custId = inv.customerId || "_orphan";
         if (!unassignedByCustomer[custId]) {
           unassignedByCustomer[custId] = { customer: cust, invoices: [], buckets: emptyBuckets() };
@@ -749,12 +759,6 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
         unassignedByCustomer[custId].buckets = addBuckets(unassignedByCustomer[custId].buckets, b);
         continue;
       }
-
-      const proj = projects.find((p: any) => p.id === inv.projectId);
-      if (regionFilter) {
-        if (cust?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
-      }
-      if (!proj) continue;
 
       if (!projMap[proj.id]) projMap[proj.id] = { project: proj, customer: cust, invoices: [], buckets: emptyBuckets() };
       const b = invBuckets(inv, asAtDate);
