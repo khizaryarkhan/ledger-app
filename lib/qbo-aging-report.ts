@@ -167,7 +167,23 @@ function extractQboGrandTotals(
   return g;
 }
 
-export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingResult & { _debug?: any }> {
+export type FetchQboAgingOptions = {
+  /**
+   * QBO aging method:
+   *   - "Report_Date" (default): bucket by report_date - due_date. Matches
+   *     what QBO's UI shows when the report date is a fixed historical date.
+   *   - "Current": bucket by today - due_date regardless of report_date.
+   *     A common QBO UI default that often makes the buckets disagree with
+   *     a Report_Date-based reconstruction.
+   */
+  agingMethod?: "Report_Date" | "Current";
+};
+
+export async function fetchQboAging(
+  orgId: string,
+  asOf: string,
+  opts: FetchQboAgingOptions = {},
+): Promise<AgingResult & { _debug?: any }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     throw new Error("asOf must be YYYY-MM-DD");
   }
@@ -175,12 +191,14 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
   const token = await getValidToken(orgId);
   if (!token) throw new Error("QuickBooks not connected");
 
-  // Call QBO's AgedReceivableDetail with Report_Date aging method.
-  // num_periods=4 + Current gives us the 5 buckets we display.
+  const agingMethod = opts.agingMethod ?? "Report_Date";
+
+  // Call QBO's AgedReceivableDetail. num_periods=4 + Current gives us the
+  // 5 buckets we display.
   const url =
     `${QBO_API}/${token.realmId}/reports/AgedReceivableDetail` +
     `?report_date=${asOf}` +
-    `&aging_method=Report_Date` +
+    `&aging_method=${agingMethod}` +
     `&accounting_method=Accrual` +
     `&num_periods=4` +
     `&aging_period=30` +

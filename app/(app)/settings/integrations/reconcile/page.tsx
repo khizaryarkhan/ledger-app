@@ -43,18 +43,35 @@ export default function ReconcilePage() {
   const [asOf, setAsOf] = useState<string | null>(null);
   const [driftOnly, setDriftOnly] = useState(true);
   const [tolerance, setTolerance] = useState(1);
+  const [error, setError] = useState<string>("");
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   const run = async () => {
     setRunning(true);
+    setError("");
+    setRows([]);
+    setTotals(null);
+    setAsOf(null);
+    const started = Date.now();
+    // Live elapsed counter so the user sees progress instead of a frozen page.
+    const tick = setInterval(() => setElapsedMs(Date.now() - started), 250);
     try {
       const res = await fetch(`/api/qbo/reconcile-customers?driftOnly=${driftOnly}&tolerance=${tolerance}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRows(data.rows || []);
-        setTotals(data.totals || null);
-        setAsOf(data.asOf || null);
+      const text = await res.text();
+      if (!res.ok) {
+        setError(`Reconciliation failed (HTTP ${res.status}). ${text.slice(0, 300)}`);
+        return;
       }
+      let data: any;
+      try { data = JSON.parse(text); }
+      catch { setError(`Response was not JSON: ${text.slice(0, 200)}`); return; }
+      setRows(data.rows || []);
+      setTotals(data.totals || null);
+      setAsOf(data.asOf || null);
+    } catch (e: any) {
+      setError(`Network error: ${e?.message || String(e)}. The endpoint may have exceeded the 5-minute timeout — try increasing tolerance or running during off-peak hours.`);
     } finally {
+      clearInterval(tick);
       setRunning(false);
     }
   };
@@ -94,6 +111,17 @@ export default function ReconcilePage() {
           <div className="text-[11px] text-stone-400 mt-3">
             Last run {new Date(asOf).toLocaleString()}.
             Each customer triggers one live QBO API call — large orgs may take a couple of minutes.
+          </div>
+        )}
+        {running && (
+          <div className="text-[11px] text-stone-500 mt-3 flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            Reconciling… {Math.floor(elapsedMs / 1000)}s elapsed. One live QBO call per customer at ~30 req/sec; please don't navigate away.
+          </div>
+        )}
+        {error && (
+          <div className="mt-3 px-3 py-2 rounded-md bg-rose-50 ring-1 ring-rose-200 text-[12px] text-rose-700 whitespace-pre-wrap">
+            {error}
           </div>
         )}
       </Card>

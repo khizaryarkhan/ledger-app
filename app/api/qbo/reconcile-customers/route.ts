@@ -21,6 +21,11 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { getValidToken } from "@/lib/qbo-sync";
 import { and, eq } from "drizzle-orm";
 
+// Reconciliation iterates every customer with one QBO API call each. For an
+// org with 200+ customers the default 10–60s serverless timeout kills the
+// request and the UI sees no response. Bump to the Vercel Pro max.
+export const maxDuration = 300;
+
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -179,8 +184,9 @@ export async function GET(req: Request) {
       });
     }
 
-    // Throttle so we don't exhaust QBO's 500/min rate limit on large orgs.
-    await sleep(100);
+    // Light throttle so we don't exhaust QBO's 500/min rate limit on large
+    // orgs. 30ms = ~33 req/sec which leaves plenty of headroom.
+    await sleep(30);
   }
 
   const filtered = onlyDrifted ? rows.filter(r => r.status === "drift") : rows;
