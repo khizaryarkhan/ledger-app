@@ -238,14 +238,11 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     const txnType: DetailRow["txnType"] =
       isCm ? "Credit Memo" : isJe ? "Journal Entry" : "Invoice";
 
-    // Match PBI methodology: Journal Entries are excluded from the aging
-    // balance. PBI defines JournalBalance/JournalPayments measures but
-    // never uses them in the Aging Balance Result calculation. JEs in
-    // QBO are typically internal AR adjustments (write-offs, accruals,
-    // intercompany reclasses) and surface as "open" credits/debits that
-    // distort customer aging. Skip them here so the report matches PBI.
-    if (isJe) continue;
-
+    // Include JEs in the aging total. QBO's own UI report shows them, and
+    // matching QBO's grand total is the user's reconciliation reference.
+    // (Prior version filtered JEs to match a PBI formula that defined but
+    // never used journal balance variables — that diverged the total from
+    // QBO by the net JE impact, typically ~20% for orgs with write-offs.)
     if (isCm) creditMemoCount++; else if (txnType === "Invoice") invoiceCount++;
 
     const effectiveDueDate = dueDate || txnDate;
