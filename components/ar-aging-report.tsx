@@ -263,6 +263,15 @@ export function ArAgingReport() {
                 const isExpanded = expanded.has(row.customerId);
                 const custDetail = data.detail.filter(d => d.customerId === row.customerId)
                   .sort((a, b) => (a.dueDate > b.dueDate ? 1 : -1));
+                // Fallback name: QBO's customer name carried on the row's flags
+                // when our customers table has no matching record (sub-customer
+                // that hasn't been imported yet, etc.). Strip the prefix.
+                const qboNameFlag = custDetail
+                  .map(d => d.flags.find(f => f.startsWith("qbo-name:")))
+                  .find(Boolean);
+                const qboFallbackName = qboNameFlag?.slice("qbo-name:".length);
+                const displayName = cust?.name || qboFallbackName || row.customerId;
+                const isExternal = !cust;
                 return (
                   <>
                     <tr key={row.customerId}
@@ -272,11 +281,18 @@ export function ArAgingReport() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {isExpanded ? <ChevronDown size={13} className="text-stone-400" /> : <ChevronRight size={13} className="text-stone-400" />}
-                          <Link href={`/customers/${row.customerId}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-stone-800 hover:text-brand-orange font-medium">
-                            {cust?.name || row.customerId}
-                          </Link>
+                          {isExternal ? (
+                            <span className="text-stone-800 font-medium">{displayName}</span>
+                          ) : (
+                            <Link href={`/customers/${row.customerId}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-stone-800 hover:text-brand-orange font-medium">
+                              {displayName}
+                            </Link>
+                          )}
+                          {isExternal && (
+                            <span className="text-[10px] text-stone-400 ml-1">(not synced)</span>
+                          )}
                         </div>
                       </td>
                       {BUCKETS.map(b => (

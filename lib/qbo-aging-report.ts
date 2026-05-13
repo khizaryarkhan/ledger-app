@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/db";
-import { qboTokens, customers, invoices } from "@/db/schema";
+import { qboTokens, customers, invoices, projects } from "@/db/schema";
 import { getValidToken } from "@/lib/qbo-sync";
 import { and, eq } from "drizzle-orm";
 import type { AgingBucket, AgingResult, DetailRow, SummaryRow } from "@/lib/ar-aging";
@@ -140,8 +140,14 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
   const colAmount  = extractColumnIndex(columns, ["open balance", "amount", "balance"]);
 
   // Map QBO customer Id → our internal customerId UUID.
-  // Some QBO rows may carry a sub-customer (project) Id; we attribute the row
-  // to the top-level customer that owns it.
+  // QBO's aging report attributes transactions to whichever entity (parent
+  // customer OR sub-customer) actually owns the invoice. In QBO sub-customers
+  // are first-class — they have their own Id. In our model sub-customers
+  // map to the `projects` table (parent customer + project record).
+  // So we maintain three lookup maps:
+  //   1. QBO Id → our customer (direct match on customers.qboId)
+  //   2. QBO Id → our project's parent customer (match on projects.qboId)
+  //   3. QBO name → our customer (case-insensitive fallback)
   const ourCustomers = await db.select({
     id: customers.id,
     name: customers.name,
@@ -153,6 +159,21 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     if (c.qboId) ourCustByQboId.set(c.qboId, { id: c.id, name: c.name });
     ourCustByName.set(c.name.toLowerCase(), { id: c.id, name: c.name });
   }
+
+  // Sub-customer (project) lookup: QBO Id of the project → its parent customer.
+  // Requires the qbo_id column on projects (added in migration-projects-qbo.sql)
+  // to be populated. The QBO sync writes it on every sub-customer it imports.
+  const ourProjects = await db.select({
+    id: projects.id,
+    qboId: projects.qboId,
+    customerId: projects.customerId,
+  }).from(projects).where(eq(projects.orgId, orgId));
+  const projectByQboId = new Map<string, { projectId: string; customerId: string }>();
+  for (const p of ourProjects) {
+    if (p.qboId) projectByQboId.set(p.qboId, { projectId: p.id, customerId: p.customerId });
+  }
+  const customerNameById = new Map<string, string>();
+  for (const c of ourCustomers) customerNameById.set(c.id, c.name);
 
   // Map QBO invoice Id → our internal invoice UUID (so the report can deep-link
   // back to the invoice page in our UI).
@@ -194,10 +215,21 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     if (!custName && !custQboId) continue;             // Section subtotal rows
     if (Math.abs(openBalance) < 0.005) continue;       // Skip zero rows
 
-    const ourCust =
+    // 1. Direct match on customers.qboId
+    let ourCust =
       (custQboId ? ourCustByQboId.get(String(custQboId)) : null) ||
       (custName  ? ourCustByName.get(String(custName).toLowerCase()) : null) ||
       null;
+    // 2. Sub-customer match: QBO Id matches a project; attribute to its parent customer
+    let projectId: string | null = null;
+    if (!ourCust && custQboId) {
+      const proj = projectByQboId.get(String(custQboId));
+      if (proj) {
+        projectId = proj.projectId;
+        const parentName = customerNameById.get(proj.customerId);
+        if (parentName) ourCust = { id: proj.customerId, name: parentName };
+      }
+    }
 
     const ourInv = txnQboId ? ourInvByQboId.get(String(txnQboId)) : null;
 
@@ -216,10 +248,18 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     const dpd = agingDays || (effectiveDueDate ? daysBetween(asOf, effectiveDueDate) : 0);
     const bucket = normaliseBucket(undefined, dpd);
 
+    const resolvedCustomerId =
+      ourCust?.id ?? (custQboId ? `qbo:${custQboId}` : `name:${custName}`);
+    // Stash the QBO name on the row so the UI can render it when our
+    // customers table has no matching record. We piggyback on `flags`
+    // with a special prefix so we don't have to change the shared
+    // DetailRow type.
+    if (!ourCust && custName) flags.push(`qbo-name:${custName}`);
+
     detail.push({
-      customerId:   ourCust?.id ?? (custQboId ? `qbo:${custQboId}` : `name:${custName}`),
+      customerId:   resolvedCustomerId,
       customerQboId: custQboId ?? null,
-      projectId:    null,
+      projectId,
       txnType,
       txnNumber:    String(txnNumber || ""),
       txnId:        ourInv?.id ?? (txnQboId ? `qbo:${txnQboId}` : ""),
