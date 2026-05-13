@@ -73,6 +73,15 @@ export async function POST(req: Request) {
     const [created] = await db.insert(users).values({
       orgId: targetOrgId, name: data.name, email: data.email, passwordHash, role: data.role,
     }).returning(cols);
+
+    // CRITICAL: also create the user_organisations junction row.
+    // requireOrg() validates membership against this table on every request —
+    // without this insert, the new user logs in but every API call returns 403.
+    await db.insert(userOrganisations).values({
+      userId: created.id,
+      orgId:  targetOrgId,
+      role:   data.role,
+    });
     return ok(created);
   } catch (e: any) {
     if (e?.issues) return bad(e.issues[0].message);

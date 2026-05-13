@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { users, reps } from "@/db/schema";
+import { users, reps, userOrganisations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -36,6 +36,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   if (existing) {
     await db.update(users).set({ passwordHash: hash, status: "Active" }).where(eq(users.id, existing.id));
+    // Make sure the junction row exists — required by requireOrg() so the
+    // rep's session can actually access this org's data. Skip if already linked.
+    const [link] = await db.select({ id: userOrganisations.id })
+      .from(userOrganisations)
+      .where(and(eq(userOrganisations.userId, existing.id), eq(userOrganisations.orgId, orgId!)))
+      .limit(1);
+    if (!link) {
+      await db.insert(userOrganisations).values({ userId: existing.id, orgId: orgId!, role: "rep" });
+    }
     return ok({ updated: true, email: existing.email });
   }
 
@@ -48,6 +57,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     repId: repId,
     status: "Active",
   }).returning();
+
+  // Link the rep user to this org via the junction table. Without this row
+  // requireOrg() rejects every API call — the rep portal stays blank.
+  await db.insert(userOrganisations).values({
+    userId: created.id,
+    orgId:  orgId!,
+    role:   "rep",
+  });
 
   return ok({ created: true, email: created.email });
 }

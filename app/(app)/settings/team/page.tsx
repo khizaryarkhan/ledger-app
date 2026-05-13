@@ -6,11 +6,12 @@ import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import {
-  ChevronLeft, Users, MapPin, Plus, Trash2, KeyRound, Eye, EyeOff, Shield,
+  ChevronLeft, Users, MapPin, Plus, Trash2, KeyRound, Eye, EyeOff, Shield, UserPlus,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type LoginInfo = { hasLogin: boolean; email: string | null; status: string | null };
+type TeamMember = { id: string; name: string; email: string; role: string; status: string };
 
 // ── Login modal (shared for reps and ED/RDs) ───────────────────────────────
 function LoginModal({
@@ -140,6 +141,51 @@ export default function TeamSettingsPage() {
   // Add region
   const [newRegionName, setNewRegionName] = useState("");
   const [addingRegion, setAddingRegion] = useState(false);
+
+  // Team Members (company users) — owned by this page, not the data provider
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "company_user" });
+  const [addingMember, setAddingMember] = useState(false);
+  const [memberError, setMemberError] = useState("");
+
+  const loadMembers = async () => {
+    setLoadingMembers(true);
+    try {
+      const res = await fetch("/api/admin/users");
+      if (res.ok) setMembers(await res.json());
+    } finally { setLoadingMembers(false); }
+  };
+  useEffect(() => { if (isAdmin) loadMembers(); }, [isAdmin]);
+
+  const addMember = async () => {
+    setMemberError("");
+    if (!newMember.name.trim()) { setMemberError("Name is required"); return; }
+    if (!/.+@.+\..+/.test(newMember.email)) { setMemberError("Valid email is required"); return; }
+    if (newMember.password.length < 8) { setMemberError("Password must be at least 8 characters"); return; }
+    setAddingMember(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newMember),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMemberError(data?.error || "Failed to create user"); return; }
+      setNewMember({ name: "", email: "", password: "", role: "company_user" });
+      await loadMembers();
+    } finally { setAddingMember(false); }
+  };
+
+  const toggleMemberStatus = async (m: TeamMember) => {
+    const next = m.status === "Active" ? "Inactive" : "Active";
+    const res = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: m.id, status: next }),
+    });
+    if (res.ok) await loadMembers();
+  };
 
   const edRds = (reps ?? []).filter((r: any) => r.tier === "ed" || r.tier === "rd");
   const regularReps = (reps ?? []).filter((r: any) => r.tier !== "ed" && r.tier !== "rd");
@@ -308,6 +354,93 @@ export default function TeamSettingsPage() {
             ? "Rep and Region are assigned at the Customer level."
             : "Rep and Region are assigned at the Project level."}
         </p>
+      </Card>
+
+      {/* Team Members (company users) */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <UserPlus size={15} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Team Members</h3>
+          <span className="ml-auto text-[11px] text-stone-400">{members.length}</span>
+        </div>
+        <p className="text-[12px] text-stone-500 mb-3">
+          Users in this organisation who log in and manage receivables. Reps are managed below in their own section.
+        </p>
+
+        <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
+          {loadingMembers && <div className="text-sm text-stone-400 py-1">Loading…</div>}
+          {!loadingMembers && members.length === 0 && (
+            <div className="text-sm text-stone-400 py-1">No team members yet.</div>
+          )}
+          {members.map(m => (
+            <div key={m.id} className="flex items-center justify-between px-3 py-2 rounded-md bg-stone-50 ring-1 ring-stone-100">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-stone-800">{m.name}</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide bg-stone-200 text-stone-700">
+                    {m.role === "company_admin" ? "Admin" : m.role === "super_admin" ? "Super" : "User"}
+                  </span>
+                  <span className={`text-[10px] ${m.status === "Active" ? "text-emerald-600" : "text-stone-400"}`}>
+                    {m.status}
+                  </span>
+                </div>
+                <div className="text-[11px] text-stone-500">{m.email}</div>
+              </div>
+              {isAdmin && m.role !== "super_admin" && (
+                <button
+                  onClick={() => toggleMemberStatus(m)}
+                  className="text-[11px] px-2 py-1 rounded ring-1 ring-stone-200 text-stone-600 hover:bg-stone-100"
+                >
+                  {m.status === "Active" ? "Deactivate" : "Activate"}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {isAdmin && (
+          <div className="space-y-1.5 pt-3 border-t border-stone-100">
+            <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Add team member</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <input
+                value={newMember.name}
+                onChange={e => setNewMember({ ...newMember, name: e.target.value })}
+                placeholder="Full name *"
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              />
+              <input
+                value={newMember.email}
+                onChange={e => setNewMember({ ...newMember, email: e.target.value })}
+                placeholder="Email *"
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              />
+              <input
+                type="password"
+                value={newMember.password}
+                onChange={e => setNewMember({ ...newMember, password: e.target.value })}
+                placeholder="Initial password (8+ chars) *"
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              />
+              <select
+                value={newMember.role}
+                onChange={e => setNewMember({ ...newMember, role: e.target.value })}
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+              >
+                <option value="company_user">User</option>
+                {role === "super_admin" && <option value="company_admin">Company Admin</option>}
+              </select>
+            </div>
+            {memberError && (
+              <div className="text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded px-2 py-1.5">{memberError}</div>
+            )}
+            <Button size="sm" icon={Plus} disabled={addingMember} onClick={addMember}>
+              {addingMember ? "Adding…" : "Add team member"}
+            </Button>
+            <p className="text-[10px] text-stone-400">
+              Share the email + initial password with the user; they can change it after first login.
+            </p>
+          </div>
+        )}
       </Card>
 
       {/* ED/RD + Reps side by side */}
