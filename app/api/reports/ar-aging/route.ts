@@ -31,10 +31,6 @@ export async function GET(req: Request) {
   const asOf = url.searchParams.get("asOf");
   const includeClosed = url.searchParams.get("includeClosed") === "true";
   const source = url.searchParams.get("source"); // "qbo" | "local" | null
-  // QBO UI defaults: it hides customers whose net is at or below zero (credit
-  // balances are listed in a separate Credit section, not in the aging total).
-  // Match that by default; clients can opt back in via ?includeCredits=true.
-  const includeCredits = url.searchParams.get("includeCredits") === "true";
   const agingMethodParam = url.searchParams.get("agingMethod"); // "Current" | "Report_Date"
   if (!asOf) return bad("asOf=YYYY-MM-DD required");
 
@@ -46,46 +42,26 @@ export async function GET(req: Request) {
     source === "qbo" ||
     (source !== "local" && isHistorical);
 
-  const applyDisplayFilters = (result: any) => {
-    if (includeCredits) return result;
-    // QBO UI default: drop summary rows whose total is <= 0. The customer
-    // still has those open transactions in QBO, but the UI shows them as
-    // credits, not as part of the AR aging buckets.
-    const filteredSummary = (result.summary || []).filter((s: any) => s.total > 0.005);
-    const hiddenIds = new Set(
-      (result.summary || []).filter((s: any) => s.total <= 0.005).map((s: any) => s.customerId),
-    );
-    const filteredDetail = (result.detail || []).filter((d: any) => !hiddenIds.has(d.customerId));
-    // Recompute grand totals from the visible rows so the headline ties to
-    // the displayed table. Anything hidden contributed <= 0 to the total.
-    const grandTotals: any = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "91+": 0, total: 0 };
-    for (const d of filteredDetail) {
-      grandTotals[d.bucket] += d.openBalance;
-      grandTotals.total    += d.openBalance;
-    }
-    return { ...result, summary: filteredSummary, detail: filteredDetail, grandTotals };
-  };
-
   try {
     if (useQbo) {
       try {
         const result = await fetchQboAging(orgId!, asOf, {
           agingMethod: agingMethodParam === "Current" ? "Current" : "Report_Date",
         });
-        return ok({ ...applyDisplayFilters(result), source: "qbo" as const });
+        return ok({ ...result, source: "qbo" as const });
       } catch (qboErr: any) {
         // QBO call failed (token expired, no connection, rate limit, etc.).
         // Fall back to the local engine so the report still loads.
         const result = await computeArAging(orgId!, asOf, includeClosed);
         return ok({
-          ...applyDisplayFilters(result),
+          ...result,
           source: "local" as const,
           qboFallbackReason: qboErr?.message || String(qboErr),
         });
       }
     }
     const result = await computeArAging(orgId!, asOf, includeClosed);
-    return ok({ ...applyDisplayFilters(result), source: "local" as const });
+    return ok({ ...result, source: "local" as const });
   } catch (e: any) {
     return bad(e?.message || "Failed to compute AR aging", 500);
   }

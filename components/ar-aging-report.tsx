@@ -85,9 +85,6 @@ export function ArAgingReport() {
   const [asOf, setAsOf] = useState(todayIso);
   const [view, setView] = useState<"summary" | "detail">("summary");
   const [includeClosed, setIncludeClosed] = useState(false);
-  // QBO UI hides credit-balance customers from the aging report by default.
-  // Toggling this on includes them (useful for full visibility / audit).
-  const [includeCredits, setIncludeCredits] = useState(false);
   // QBO offers two aging methods: Report_Date (age by report-date - due-date)
   // and Current (age by today's date - due-date). UI defaults vary, so we
   // expose the toggle to match whatever the user is comparing against.
@@ -103,7 +100,6 @@ export function ArAgingReport() {
     const qs = new URLSearchParams({
       asOf,
       includeClosed: String(includeClosed),
-      includeCredits: String(includeCredits),
       agingMethod,
     });
     fetch(`/api/reports/ar-aging?${qs.toString()}`)
@@ -112,7 +108,7 @@ export function ArAgingReport() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [asOf, includeClosed, includeCredits, agingMethod]);
+  useEffect(() => { load(); }, [asOf, includeClosed, agingMethod]);
 
   const customerById = useMemo(() => new Map<string, any>(customers.map((c: any) => [c.id, c])), [customers]);
 
@@ -187,20 +183,13 @@ export function ArAgingReport() {
 
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
-              Display
+              Diagnostics
             </label>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 h-8 px-2 rounded-md ring-1 ring-stone-200 bg-white cursor-pointer">
-                <input type="checkbox" checked={includeCredits} onChange={e => setIncludeCredits(e.target.checked)}
-                  className="rounded" />
-                <span className="text-[12px] text-stone-700">Show credit balances</span>
-              </label>
-              <label className="flex items-center gap-1.5 h-8 px-2 rounded-md ring-1 ring-stone-200 bg-white cursor-pointer">
-                <input type="checkbox" checked={includeClosed} onChange={e => setIncludeClosed(e.target.checked)}
-                  className="rounded" />
-                <span className="text-[12px] text-stone-700">Show closed txns</span>
-              </label>
-            </div>
+            <label className="flex items-center gap-1.5 h-8 px-2 rounded-md ring-1 ring-stone-200 bg-white cursor-pointer">
+              <input type="checkbox" checked={includeClosed} onChange={e => setIncludeClosed(e.target.checked)}
+                className="rounded" />
+              <span className="text-[12px] text-stone-700">Show closed transactions</span>
+            </label>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
