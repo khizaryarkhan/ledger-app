@@ -4,13 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Badge } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen } from "lucide-react";
 
 type Txn = {
   id: string;
   refId: string;
   txnDate: string;
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry";
   number: string | null;
   amount: number;
   balance: number;
@@ -26,6 +26,7 @@ const TYPE_FILTERS: Array<{ id: string; label: string }> = [
   { id: "Credit Memo", label: "Credit Memos" },
   { id: "Payment", label: "Payments" },
   { id: "Refund Receipt", label: "Refund Receipts" },
+  { id: "Journal Entry", label: "Journal Entries" },
 ];
 
 const DATE_FILTERS: Array<{ id: string; label: string }> = [
@@ -42,6 +43,7 @@ function typeIcon(type: string) {
     case "Credit Memo":     return <FileMinus size={13} className="text-amber-600" />;
     case "Payment":         return <ArrowDownLeft size={13} className="text-emerald-600" />;
     case "Refund Receipt":  return <ArrowUpRight size={13} className="text-rose-600" />;
+    case "Journal Entry":   return <BookOpen size={13} className="text-stone-500" />;
     default:                return <FileX size={13} className="text-stone-400" />;
   }
 }
@@ -55,6 +57,7 @@ function statusBadge(status: string) {
     "Closed":            { variant: "green",  label: "Closed" },
     "Applied":           { variant: "green",  label: "Applied" },
     "Partially Applied": { variant: "amber",  label: "Partially Applied" },
+    "Posted":            { variant: "neutral",label: "Posted" },
   };
   const cfg = map[status] || { variant: "neutral", label: status };
   return <Badge variant={cfg.variant} size="sm">{cfg.label}</Badge>;

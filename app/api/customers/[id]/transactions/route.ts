@@ -8,7 +8,7 @@
  */
 
 import { db } from "@/db";
-import { customers, invoices, payments, refundReceipts } from "@/db/schema";
+import { customers, invoices, payments, refundReceipts, journalEntryArLines } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, desc } from "drizzle-orm";
 
@@ -16,7 +16,7 @@ export type CustomerTxn = {
   id: string;
   refId: string;          // route param for opening detail (invoice id, etc.)
   txnDate: string;        // YYYY-MM-DD
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry";
   number: string | null;  // invoice number, payment ref, etc.
   amount: number;         // signed: positive = increases AR, negative = decreases AR
   balance: number;        // open balance (invoice unpaid, CM/payment unapplied) — always >= 0
@@ -37,11 +37,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .limit(1);
   if (!cust) return bad("Customer not found", 404);
 
-  // Fetch all four entity types in parallel
-  const [invs, pmts, refs] = await Promise.all([
+  // Fetch all entity types in parallel
+  const [invs, pmts, refs, jes] = await Promise.all([
     db.select().from(invoices).where(and(eq(invoices.orgId, orgId!), eq(invoices.customerId, cust.id))),
     db.select().from(payments).where(and(eq(payments.orgId, orgId!), eq(payments.customerId, cust.id))),
     db.select().from(refundReceipts).where(and(eq(refundReceipts.orgId, orgId!), eq(refundReceipts.customerId, cust.id))),
+    db.select().from(journalEntryArLines).where(and(eq(journalEntryArLines.orgId, orgId!), eq(journalEntryArLines.customerId, cust.id))),
   ]);
 
   const rows: CustomerTxn[] = [];
@@ -96,6 +97,27 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
   }
 
+  // Journal Entries hitting AR (one row per AR-affecting line for this customer)
+  for (const je of jes) {
+    if ((je as any).voided) continue;
+    rows.push({
+      id: `je-${je.id}`,
+      refId: je.id,
+      txnDate: je.txnDate,
+      type: "Journal Entry",
+      number: je.docNumber || je.qboJournalId,
+      amount: je.amount,           // signed
+      balance: 0,                  // JEs are immediately posted, no open balance concept
+      currency: je.currency,
+      status: "Posted",
+      memo: (je as any).privateNote || (je as any).description || null,
+      meta: {
+        accountName: je.accountName,
+        qboJournalId: je.qboJournalId,
+      },
+    });
+  }
+
   // Refund Receipts — balance is 0 (already paid out)
   for (const r of refs) {
     rows.push({
@@ -127,6 +149,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       "Credit Memo": rows.filter(r => r.type === "Credit Memo").length,
       Payment: rows.filter(r => r.type === "Payment").length,
       "Refund Receipt": rows.filter(r => r.type === "Refund Receipt").length,
+      "Journal Entry": rows.filter(r => r.type === "Journal Entry").length,
     },
   });
 }
