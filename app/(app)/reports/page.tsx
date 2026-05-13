@@ -1579,27 +1579,26 @@ export default function ReportsPage() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asAtDate, setAsAtDate] = useState(todayIso);
 
-  // Historical AR snapshot — fetched from /api/reports/ar-snapshot when asAtDate is in the past.
-  // For today, we use the live invoices array from useData() (instant, no extra round-trip).
+  // AR snapshot — single source of truth for every aging tab. For historical
+  // dates we hit QBO's AgedReceivableDetail directly via /api/reports/ar-snapshot;
+  // for today we use the local engine that respects qboBalance. Either way, all
+  // aging-by-X reports consume the same `effectiveInvoices` derived here so
+  // numbers reconcile across tabs.
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const isHistorical = asAtDate !== todayIso;
 
   useEffect(() => {
-    if (!isHistorical) {
-      setSnapshotInvoices(null);
-      return;
-    }
     setSnapshotLoading(true);
     fetch(`/api/reports/ar-snapshot?asOf=${asAtDate}`)
       .then(r => r.ok ? r.json() : [])
       .then(data => setSnapshotInvoices(Array.isArray(data) ? data : []))
       .catch(() => setSnapshotInvoices([]))
       .finally(() => setSnapshotLoading(false));
-  }, [asAtDate, isHistorical]);
+  }, [asAtDate]);
 
-  // Use snapshot when historical, live data when today
-  const effectiveInvoices = isHistorical && snapshotInvoices ? snapshotInvoices : invoices;
+  // Always use the snapshot — keeps every aging tab on the same data source.
+  const effectiveInvoices = snapshotInvoices ?? invoices;
 
   const isArReport    = AR_REPORTS.includes(report);
   const isSalesReport = SALES_REPORTS.includes(report);

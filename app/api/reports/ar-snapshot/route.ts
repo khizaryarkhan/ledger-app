@@ -1,30 +1,31 @@
 /**
- * AR Snapshot at any historical date.
+ * AR Snapshot at any historical date — QBO-native.
  *
  * GET /api/reports/ar-snapshot?asOf=YYYY-MM-DD
  *
- * For each invoice + credit memo in the org, projects what its balance was
- * on the given date by walking payment_applications and including only those
- * applied via payments that had `txn_date <= asOf`.
+ * Returns an array shaped like rows from the invoices table. Every downstream
+ * aging report (AgingByCustomer, AgingByProject, AgingByRegion, AgingByRep,
+ * ArHealthReport) consumes this list, so all of them get QBO-native data
+ * automatically without UI changes.
  *
- * Returns an array shaped exactly like rows from the invoices table, with
- * `paid`, `qboBalance`, `paymentStatus`, `paidAt` recomputed for that date.
- * The existing AgingByCustomer / AgingByProject / AgingByRep / RegionalReport
- * components consume this directly — no client changes needed.
+ * Implementation: defers to the same engine that powers /api/reports/ar-aging.
+ *   - Historical dates → QBO AgedReceivableDetail (authoritative)
+ *   - Today           → local engine with qboBalance snapshot
  *
- * Limitations (acceptable for v1):
- *   - Direct credit-memo applications (QBO LinkedTxn on the CM itself,
- *     without a Payment intermediary) aren't yet captured in the data layer.
- *     CMs are projected using their current balance only — this means CM
- *     unapplied amounts in historical views are approximate. Will be tightened
- *     when CM->Invoice direct applications are added in Phase 2.
- *   - Journal Entries hitting AR aren't yet captured (Phase 3 work).
+ * Each detail row from the aging engine is converted into a synthetic
+ * invoice-shaped record so the aging UI functions can bucket it.
+ *
+ * Note: Journal Entries are filtered out at the aging-engine layer (to match
+ * the user's PBI methodology), so they will not appear in any AR report.
  */
 
 import { db } from "@/db";
-import { invoices, payments, paymentApplications } from "@/db/schema";
+import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { computeArAging } from "@/lib/ar-aging";
+import { fetchQboAging } from "@/lib/qbo-aging-report";
+import type { DetailRow } from "@/lib/ar-aging";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -36,76 +37,98 @@ export async function GET(req: Request) {
     return bad("asOf=YYYY-MM-DD required");
   }
 
-  // Load all invoices + CMs that existed by asOf
-  const allInvs = await db.select().from(invoices)
-    .where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf)));
+  const today = new Date().toISOString().slice(0, 10);
+  const isHistorical = asOf < today;
 
-  if (allInvs.length === 0) return ok([]);
-
-  // Load all payments dated on or before asOf, with their applications
-  const validPayments = await db
-    .select({ id: payments.id, txnDate: payments.txnDate })
-    .from(payments)
-    .where(and(eq(payments.orgId, orgId!), lte(payments.txnDate, asOf)));
-
-  if (validPayments.length === 0) {
-    // No payments by asOf → every invoice still has its full balance
-    return ok(allInvs.map(inv => projectInvoice(inv, 0, null)));
+  // Fetch aging — QBO for historical, local for today.
+  let detail: DetailRow[];
+  try {
+    if (isHistorical) {
+      const qboResult = await fetchQboAging(orgId!, asOf);
+      detail = qboResult.detail;
+    } else {
+      const localResult = await computeArAging(orgId!, asOf, false);
+      detail = localResult.detail;
+    }
+  } catch (e: any) {
+    // QBO call failed (token expired, etc.) — fall back to local engine
+    const localResult = await computeArAging(orgId!, asOf, false);
+    detail = localResult.detail;
   }
 
-  const validPaymentIds = new Set(validPayments.map(p => p.id));
-  const paymentDateById = new Map(validPayments.map(p => [p.id, p.txnDate]));
+  // Load metadata from our invoices table so we can hydrate currency / customer /
+  // project linkage on the rows we know about. QBO rows that don't map to
+  // anything in our ledger still get a synthetic row so the totals tie.
+  const ourInvs = await db.select({
+    id:           invoices.id,
+    customerId:   invoices.customerId,
+    projectId:    invoices.projectId,
+    currency:     invoices.currency,
+    total:        invoices.total,
+    invoiceDate:  invoices.invoiceDate,
+    dueDate:      invoices.dueDate,
+    qboId:        invoices.qboId,
+    txnType:      invoices.txnType,
+  }).from(invoices).where(eq(invoices.orgId, orgId!));
+  const ourInvById = new Map(ourInvs.map(i => [i.id, i]));
 
-  // Load applications for these payments
-  const allApps = await db
-    .select()
-    .from(paymentApplications)
-    .where(eq(paymentApplications.orgId, orgId!));
+  const rows = detail.map((d) => {
+    const owned = ourInvById.get(d.txnId);
+    const isCm = d.txnType === "Credit Memo";
 
-  // Filter to applications where the payment is dated <= asOf
-  // and group by invoiceId
-  type AppForInv = { amountApplied: number; paymentDate: string };
-  const appsByInvoiceId = new Map<string, AppForInv[]>();
-  for (const app of allApps) {
-    if (!app.invoiceId) continue;
-    if (!validPaymentIds.has(app.paymentId)) continue;
-    const paymentDate = paymentDateById.get(app.paymentId);
-    if (!paymentDate) continue;
-    const arr = appsByInvoiceId.get(app.invoiceId) || [];
-    arr.push({ amountApplied: app.amountApplied, paymentDate });
-    appsByInvoiceId.set(app.invoiceId, arr);
-  }
+    // For a CM: openBalance is negative (unapplied credit).
+    // For an Invoice: openBalance is the positive remaining amount.
+    // Map to our invoice row shape so invBuckets() and downstream functions
+    // work without modification.
+    if (isCm) {
+      return {
+        id:              d.txnId,
+        customerId:      owned?.customerId ?? d.customerId,
+        projectId:       owned?.projectId ?? d.projectId ?? null,
+        invoiceNumber:   d.txnNumber,
+        invoiceDate:     d.txnDate,
+        dueDate:         d.dueDate,
+        currency:        d.currency,
+        total:           owned?.total ?? d.openBalance, // CMs' face value is negative
+        paid:            0,
+        qboBalance:      d.openBalance,
+        paymentStatus:   "Unpaid",
+        collectionStage: "New",
+        paidAt:          null,
+        qboId:           d.qboId,
+        txnType:         "CreditMemo",
+        amount:          d.openBalance,
+        taxAmount:       0,
+        paymentTerms:    30,
+      };
+    }
 
-  // Project each invoice's state at asOf
-  const projected = allInvs.map(inv => {
-    const apps = appsByInvoiceId.get(inv.id) || [];
-    const totalApplied = apps.reduce((s, a) => s + a.amountApplied, 0);
-    // Date of the LAST payment that closed the invoice (if fully paid)
-    const isFullyPaid = totalApplied >= inv.total - 0.005;
-    const paidAt = isFullyPaid && apps.length > 0
-      ? apps.reduce((latest, a) => (a.paymentDate > latest ? a.paymentDate : latest), apps[0].paymentDate)
-      : null;
-    return projectInvoice(inv, totalApplied, paidAt);
+    // Invoice
+    return {
+      id:              d.txnId,
+      customerId:      owned?.customerId ?? d.customerId,
+      projectId:       owned?.projectId ?? d.projectId ?? null,
+      invoiceNumber:   d.txnNumber,
+      invoiceDate:     d.txnDate,
+      dueDate:         d.dueDate,
+      currency:        d.currency,
+      // Use the open balance as both total and qboBalance so the downstream
+      // bucketers (which use total - paid OR qboBalance) compute the right
+      // open amount. We don't have the original gross amount on historical
+      // dates without the snapshot.
+      total:           owned?.total ?? d.openBalance,
+      paid:            owned ? Math.max(0, (owned.total ?? 0) - d.openBalance) : 0,
+      qboBalance:      d.openBalance,
+      paymentStatus:   "Unpaid",
+      collectionStage: "New",
+      paidAt:          null,
+      qboId:           d.qboId,
+      txnType:         "Invoice",
+      amount:          d.openBalance,
+      taxAmount:       0,
+      paymentTerms:    30,
+    };
   });
 
-  return ok(projected);
-}
-
-function projectInvoice(inv: any, totalApplied: number, paidAt: string | null) {
-  const balance = Math.max(0, inv.total - totalApplied);
-  const paid = Math.min(inv.total, totalApplied);
-  const paymentStatus =
-    balance < 0.005 ? "Paid"
-    : paid > 0.005 ? "Partially Paid"
-    : "Unpaid";
-
-  return {
-    ...inv,
-    paid,
-    qboBalance: balance,
-    paymentStatus,
-    paidAt,
-    // Collection stage: if fully paid by asOf, treat as Closed; otherwise preserve
-    collectionStage: paymentStatus === "Paid" ? "Closed" : inv.collectionStage,
-  };
+  return ok(rows);
 }
