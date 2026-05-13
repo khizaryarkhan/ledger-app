@@ -101,6 +101,72 @@ function extractColumnIndex(columns: any[], titles: string[]): number {
   return -1;
 }
 
+/**
+ * Read QBO's report-level grand totals row directly from the response.
+ *
+ * QBO's report payloads append a Summary row at the top-level Rows.Row with a
+ * label like "TOTAL" in the first column and per-bucket totals in the bucket
+ * columns. Using these directly guarantees our headline numbers match QBO's
+ * UI report 1:1 (the UI reads the same totals row).
+ */
+function extractQboGrandTotals(
+  rowsRoot: any,
+  columns: any[],
+): (Record<AgingBucket, number> & { total: number }) | null {
+  if (!rowsRoot || !Array.isArray(columns) || columns.length === 0) return null;
+
+  // Map bucket → column index in the QBO report columns.
+  // QBO bucket titles vary by minor version — match on substrings.
+  const bucketTitleMap: Array<{ bucket: AgingBucket; match: string[] }> = [
+    { bucket: "Current", match: ["current"] },
+    { bucket: "1-30",    match: ["1 - 30", "1-30", "1 to 30"] },
+    { bucket: "31-60",   match: ["31 - 60", "31-60", "31 to 60"] },
+    { bucket: "61-90",   match: ["61 - 90", "61-90", "61 to 90"] },
+    { bucket: "91+",     match: ["91 and over", "91+", "91 over", "> 90", "over 90"] },
+  ];
+  const bucketColIdx: Partial<Record<AgingBucket, number>> = {};
+  for (let i = 0; i < columns.length; i++) {
+    const title = String(columns[i]?.ColTitle || "").toLowerCase();
+    for (const { bucket, match } of bucketTitleMap) {
+      if (match.some(m => title.includes(m))) { bucketColIdx[bucket] = i; break; }
+    }
+  }
+  const totalColIdx = columns.findIndex(c => String(c?.ColTitle || "").toLowerCase() === "total");
+
+  // Find the top-level Summary row (the report grand total).
+  // It may live directly on Rows.Row[i].Summary.ColData, or as a row whose
+  // first ColData value is "TOTAL".
+  const candidates = Array.isArray(rowsRoot) ? rowsRoot : [rowsRoot];
+  let summaryCols: any[] | null = null;
+  for (const node of candidates) {
+    if (!node) continue;
+    if (node.Summary?.ColData) summaryCols = node.Summary.ColData;
+    if (Array.isArray(node?.ColData) && /^total/i.test(String(node.ColData[0]?.value || ""))) {
+      summaryCols = node.ColData; break;
+    }
+  }
+  // Some QBO payloads put the report-level summary as the last entry in
+  // Rows.Row directly (without wrapping in Section). Look there too.
+  if (!summaryCols) {
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const node = candidates[i];
+      if (node?.Summary?.ColData) { summaryCols = node.Summary.ColData; break; }
+    }
+  }
+  if (!summaryCols) return null;
+
+  const g: Record<AgingBucket, number> & { total: number } = {
+    ...emptyBuckets(), total: 0,
+  };
+  for (const bucket of ["Current", "1-30", "31-60", "61-90", "91+"] as AgingBucket[]) {
+    const idx = bucketColIdx[bucket];
+    if (idx !== undefined) g[bucket] = parseMoney(summaryCols[idx]?.value);
+  }
+  if (totalColIdx >= 0) g.total = parseMoney(summaryCols[totalColIdx]?.value);
+  else g.total = g["Current"] + g["1-30"] + g["31-60"] + g["61-90"] + g["91+"];
+  return g;
+}
+
 export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingResult & { _debug?: any }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     throw new Error("asOf must be YYYY-MM-DD");
@@ -215,18 +281,21 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     if (!custName && !custQboId) continue;             // Section subtotal rows
     if (Math.abs(openBalance) < 0.005) continue;       // Skip zero rows
 
-    // QBO returns the customer column as either "Parent" or "Parent:Sub" for
-    // sub-customer rows. We need both pieces so we can roll up sub-customers
-    // under their parent for the summary view — that's what QBO's own UI does.
-    const rawName    = String(custName || "");
-    const parentName = rawName.includes(":") ? rawName.split(":")[0].trim() : rawName;
+    // Faithful-mirror policy: every row QBO returns gets a row in our output,
+    // grouped by exactly the customer entity QBO attributed it to. We do NOT
+    // roll up sub-customers under their parent, do NOT net the parent's JEs
+    // against a sub-customer's AR, and do NOT hide zero-net rollups. QBO's
+    // own AgedReceivableDetail UI is the source of truth — if EDC London Ltd
+    // (the parent entity) has an open JE on the report date and its
+    // sub-customers' invoices were paid by then, QBO returns that JE alone
+    // and that's exactly what we show.
+    const rawName = String(custName || "");
 
-    // 1. Direct match on customers.qboId — works for parent customers
-    //    (and for sub-customers if they happen to be stored at customer level).
+    // ourCust resolution is for UX only (display name, deep-link to our
+    // customer page). It must NOT change the row's grouping identity.
     let ourCust =
       (custQboId ? ourCustByQboId.get(String(custQboId)) : null) ||
       null;
-    // 2. Sub-customer match: QBO Id matches a project; attribute to its parent customer
     let projectId: string | null = null;
     if (!ourCust && custQboId) {
       const proj = projectByQboId.get(String(custQboId));
@@ -235,15 +304,6 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
         const pName = customerNameById.get(proj.customerId);
         if (pName) ourCust = { id: proj.customerId, name: pName };
       }
-    }
-    // 3. Parent-name match — handles the common case where the sub-customer
-    //    isn't synced yet (no project record), but the parent customer IS in
-    //    our ledger. Without this fallback every sub-customer gets its own
-    //    synthetic id and the parent's JE row sits alone in the report while
-    //    the offsetting sub-customer invoices appear separately.
-    if (!ourCust && parentName) {
-      const byName = ourCustByName.get(parentName.toLowerCase());
-      if (byName) ourCust = byName;
     }
 
     const ourInv = txnQboId ? ourInvByQboId.get(String(txnQboId)) : null;
@@ -264,23 +324,25 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     const flags: string[] = [];
     if (!dueDate) { flags.push("missing-due-date"); missingDueDate++; }
 
-    // Prefer QBO's stated "Aging" days; fall back to computing from dueDate.
-    const dpd = agingDays || (effectiveDueDate ? daysBetween(asOf, effectiveDueDate) : 0);
+    // Trust QBO's stated "Aging" days from the report column — that's the
+    // exact same value QBO's UI uses to decide which bucket a row lands in.
+    // Only fall back to computing from due date if the Aging column wasn't
+    // present in the response (defensive — QBO has always returned it).
+    const dpd = (Number.isFinite(agingDays) && agingDays !== 0)
+      ? agingDays
+      : (effectiveDueDate ? daysBetween(asOf, effectiveDueDate) : 0);
     const bucket = normaliseBucket(undefined, dpd);
 
-    // Group rows by PARENT identity. If our DB has the parent, use its UUID
-    // (so detail rows link back to /customers/[id] correctly). Otherwise
-    // synthesise a stable id from the parent name so all of that parent's
-    // sub-customer rows still roll up to the same summary row — exactly
-    // mirroring how QBO's UI groups the AgedReceivableDetail report.
+    // Grouping identity: keyed by QBO's customer id so each row groups exactly
+    // the way QBO returned it. If our ledger has a matching record we use its
+    // UUID instead (so the customer page deep-link works), but we never roll
+    // up or net rows across QBO entities.
     const resolvedCustomerId =
       ourCust?.id ??
-      (parentName ? `parent:${parentName.toLowerCase()}`
-        : custQboId ? `qbo:${custQboId}`
-        : `name:${rawName}`);
-    // Stash the QBO name on the row so the UI can render the parent name
-    // when our customers table has no matching record.
-    if (!ourCust && parentName) flags.push(`qbo-name:${parentName}`);
+      (custQboId ? `qbo:${custQboId}` : `name:${rawName}`);
+    // Stash the QBO name on the row so the UI can render it when our
+    // customers table has no matching record.
+    if (!ourCust && rawName) flags.push(`qbo-name:${rawName}`);
 
     detail.push({
       customerId:   resolvedCustomerId,
@@ -313,12 +375,8 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     }
   }
 
-  // Per-customer summary — rolled up by parent identity. Sub-customer rows
-  // share their parent's resolved customerId, so the JE on a parent customer
-  // nets against the open invoices on its sub-customers and produces a single
-  // honest balance per parent. Customers whose net is approximately zero
-  // (typically a JE write-off fully offset by sub-customer AR) are dropped
-  // from the summary later — QBO's UI hides those too.
+  // Per-customer summary keyed by QBO customer identity. No filtering, no
+  // rollups, no netting — every row QBO returned is represented.
   const byCustomer = new Map<string, SummaryRow>();
   for (const row of detail) {
     let s = byCustomer.get(row.customerId);
@@ -334,22 +392,20 @@ export async function fetchQboAging(orgId: string, asOf: string): Promise<AgingR
     s.buckets[row.bucket] += row.openBalance;
     s.total               += row.openBalance;
   }
-  const summary = [...byCustomer.values()]
-    // Drop customers whose net rolled-up balance is approximately zero — these
-    // are typically parents whose JE write-off perfectly offsets sub-customer
-    // AR (e.g. EDC London Ltd). QBO's own AR Aging Detail UI hides them too.
-    .filter(s => Math.abs(s.total) > 0.005)
-    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  const summary = [...byCustomer.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
 
-  // Grand totals computed from the full detail list (NOT the filtered summary)
-  // so the headline number still accounts for the zero-net customers' rows.
-  // Mathematically identical to summing the filtered summary since the hidden
-  // customers contribute 0, but this is robust to any future filter tweaks.
-  const grandTotals = { ...emptyBuckets(), total: 0 };
-  for (const row of detail) {
-    grandTotals[row.bucket] += row.openBalance;
-    grandTotals.total       += row.openBalance;
-  }
+  // Grand totals — prefer QBO's own Summary row at the top of report.Rows so
+  // the headline number matches QBO's UI exactly. Fall back to summing detail
+  // rows only if the response didn't include a totals row.
+  const qboTotals = extractQboGrandTotals(report?.Rows?.Row, columns);
+  const grandTotals = qboTotals ?? (() => {
+    const g = { ...emptyBuckets(), total: 0 };
+    for (const row of detail) {
+      g[row.bucket] += row.openBalance;
+      g.total       += row.openBalance;
+    }
+    return g;
+  })();
 
   const negativeCustomerBalances = summary
     .filter(s => s.total < -0.005)
