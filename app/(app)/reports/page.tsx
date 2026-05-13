@@ -715,6 +715,10 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
 
   const data = useMemo(() => {
     const projMap: Record<string, { project: any; customer: any; invoices: any[]; buckets: any }> = {};
+    // Group invoices without a projectId by customer so the totals reconcile
+    // with the other aging reports — otherwise these rows are silently dropped
+    // and the by-project grand total is smaller than by-customer / by-region.
+    const unassignedByCustomer: Record<string, { customer: any; invoices: any[]; buckets: any }> = {};
 
     for (const inv of invoices) {
       if (asAt && inv.invoiceDate > asAt) continue;
@@ -730,15 +734,26 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
           if ((inv.total - (inv.paid || 0)) <= 0) continue;
         }
       }
-      if (!inv.projectId) continue;
+
+      const cust = customers.find((c: any) => c.id === inv.customerId);
+
+      // No project assignment — bucket under the customer's "Unassigned" row.
+      if (!inv.projectId) {
+        if (regionFilter && cust?.regionId !== regionFilter) continue;
+        const custId = inv.customerId || "_orphan";
+        if (!unassignedByCustomer[custId]) {
+          unassignedByCustomer[custId] = { customer: cust, invoices: [], buckets: emptyBuckets() };
+        }
+        const b = invBuckets(inv, asAtDate);
+        unassignedByCustomer[custId].invoices.push(inv);
+        unassignedByCustomer[custId].buckets = addBuckets(unassignedByCustomer[custId].buckets, b);
+        continue;
+      }
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
-
       if (regionFilter) {
-        const cust2 = customers.find((c: any) => c.id === inv.customerId);
-        if (cust2?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
+        if (cust?.regionId !== regionFilter && proj?.regionId !== regionFilter) continue;
       }
-      const cust = customers.find((c: any) => c.id === inv.customerId);
       if (!proj) continue;
 
       if (!projMap[proj.id]) projMap[proj.id] = { project: proj, customer: cust, invoices: [], buckets: emptyBuckets() };
@@ -747,7 +762,20 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       projMap[proj.id].buckets = addBuckets(projMap[proj.id].buckets, b);
     }
 
-    return Object.values(projMap).filter(r => r.buckets.total !== 0).sort((a, b) => b.buckets.total - a.buckets.total);
+    const projectRows = Object.values(projMap).filter(r => r.buckets.total !== 0);
+
+    // Synthesise a pseudo-project row per customer for invoices without a project.
+    // Use a stable synthetic id so React keys don't collide and expand state works.
+    const unassignedRows = Object.entries(unassignedByCustomer)
+      .filter(([, r]) => r.buckets.total !== 0)
+      .map(([custId, r]) => ({
+        project: { id: `__unassigned__${custId}`, name: "— No project —", code: r.customer?.code ?? "" },
+        customer: r.customer,
+        invoices: r.invoices,
+        buckets: r.buckets,
+      }));
+
+    return [...projectRows, ...unassignedRows].sort((a, b) => b.buckets.total - a.buckets.total);
   }, [invoices, customers, projects, regionFilter, asAtDate]);
 
   const grandTotals = useMemo(() => data.reduce((acc, r) => addBuckets(acc, r.buckets), emptyBuckets()), [data]);
