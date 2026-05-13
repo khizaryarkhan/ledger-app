@@ -57,14 +57,15 @@ export async function GET(req: Request) {
 
     const [existing] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
     if (existing) {
+      // Existing connection: preserve the original userId, just refresh tokens.
       await db.update(qboTokens).set({
-        realmId, accessToken: access_token, refreshToken: refresh_token,
+        userId, realmId, accessToken: access_token, refreshToken: refresh_token,
         accessTokenExpiresAt, refreshTokenExpiresAt, companyName,
-        connectedByUserId: userId, updatedAt: new Date(),
+        updatedAt: new Date(),
       }).where(eq(qboTokens.orgId, orgId));
     } else {
       await db.insert(qboTokens).values({
-        orgId, userId, connectedByUserId: userId, realmId,
+        orgId, userId, realmId,
         accessToken: access_token, refreshToken: refresh_token,
         accessTokenExpiresAt, refreshTokenExpiresAt, companyName,
       });
