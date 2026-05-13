@@ -71,12 +71,18 @@ export function Sidebar() {
   return (
     <aside className="w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen sticky top-0">
       <div className="px-4 py-4 border-b border-stone-200">
-        <div className="flex items-center gap-2.5">
-          <img
-            src={orgSettings?.logoUrl || "https://app.foodready.ai/app/assets/foodready_logo.AOW0PckZ.svg"}
-            alt="Foodready Collection Manager"
-            className="h-8 w-auto object-contain"
-          />
+        <div className="flex items-center gap-2.5 h-8">
+          {orgSettings?.logoUrl ? (
+            <img
+              src={orgSettings.logoUrl}
+              alt={orgSettings?.displayName || orgSettings?.name || "Logo"}
+              className="h-8 w-auto object-contain"
+            />
+          ) : (
+            <span className="text-sm font-semibold text-stone-800 tracking-tight">
+              {orgSettings?.displayName || orgSettings?.name || ""}
+            </span>
+          )}
         </div>
       </div>
 
