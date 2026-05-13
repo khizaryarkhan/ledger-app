@@ -15,7 +15,7 @@
 
 import { db } from "@/db";
 import {
-  customers, invoices, payments, journalEntryArLines, deposits,
+  customers, invoices, payments, journalEntryArLines, deposits, paymentApplications,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { getValidToken } from "@/lib/qbo-sync";
@@ -66,7 +66,7 @@ export async function GET(req: Request) {
 
   // Load every customer in the org along with all AR-affecting transactions
   // in one pass — cheaper than per-customer queries when reconciling many.
-  const [allCusts, allInvs, allPmts, allJes, allDeps] = await Promise.all([
+  const [allCusts, allInvs, allPmts, allJes, allDeps, allJeApps] = await Promise.all([
     db.select({
       id: customers.id, name: customers.name, code: customers.code,
       currency: customers.currency, qboId: customers.qboId,
@@ -83,6 +83,7 @@ export async function GET(req: Request) {
     }).from(payments).where(eq(payments.orgId, orgId!)),
     db.select({
       customerId: journalEntryArLines.customerId,
+      qboJournalId: journalEntryArLines.qboJournalId,
       amount: journalEntryArLines.amount,
       voided: journalEntryArLines.voided,
     }).from(journalEntryArLines).where(eq(journalEntryArLines.orgId, orgId!)),
@@ -90,7 +91,22 @@ export async function GET(req: Request) {
       customerId: deposits.customerId,
       amount: deposits.amount,
     }).from(deposits).where(eq(deposits.orgId, orgId!)),
+    db.select({
+      targetQboId:   paymentApplications.targetQboId,
+      amountApplied: paymentApplications.amountApplied,
+    }).from(paymentApplications).where(and(
+      eq(paymentApplications.orgId, orgId!),
+      eq(paymentApplications.targetType, "JournalEntry"),
+    )),
   ]);
+
+  // Sum applied amount per JE qboJournalId so the per-customer balance pass
+  // can net it against the JE's signed amount.
+  const appliedByJeQboId = new Map<string, number>();
+  for (const a of allJeApps) {
+    if (!a.targetQboId) continue;
+    appliedByJeQboId.set(a.targetQboId, (appliedByJeQboId.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0));
+  }
 
   // Index by customerId for O(1) lookup during the per-customer pass.
   const invsByCust = new Map<string, typeof allInvs>();
@@ -136,7 +152,19 @@ export async function GET(req: Request) {
       }
     }
     const paymentCredit = -(pmtsByCust.get(c.id) ?? []).reduce((s, p) => s + (p.unappliedAmount ?? 0), 0);
-    const jeBalance     =  (jesByCust.get(c.id) ?? []).filter(j => !j.voided).reduce((s, j) => s + (j.amount ?? 0), 0);
+
+    // JE net open balance: signed amount with any applications subtracted
+    // from its magnitude. A JE that QBO has fully applied via a zero-amount
+    // payment will have an offsetting application captured during sync, so
+    // it contributes zero here.
+    const jeBalance = (jesByCust.get(c.id) ?? [])
+      .filter(j => !j.voided)
+      .reduce((s, j) => {
+        const applied = appliedByJeQboId.get(j.qboJournalId) ?? 0;
+        const openMagnitude = Math.max(0, Math.abs(j.amount ?? 0) - applied);
+        return s + Math.sign(j.amount ?? 0) * openMagnitude;
+      }, 0);
+
     const depositCredit =  (depsByCust.get(c.id) ?? []).reduce((s, d) => s + (d.amount ?? 0), 0);
     const ourNetBalance = openInvoiceBalance + cmCredit + paymentCredit + jeBalance + depositCredit;
 

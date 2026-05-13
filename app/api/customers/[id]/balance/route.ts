@@ -16,7 +16,7 @@
 
 import { db } from "@/db";
 import {
-  customers, invoices, payments, journalEntryArLines, deposits,
+  customers, invoices, payments, journalEntryArLines, deposits, paymentApplications,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
@@ -73,7 +73,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     }
   }
 
-  const [invs, pmts, jes, deps] = await Promise.all([
+  const [invs, pmts, jes, deps, jeApps] = await Promise.all([
     db.select({
       total:           invoices.total,
       paid:            invoices.paid,
@@ -85,12 +85,28 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     db.select({
       unappliedAmount: payments.unappliedAmount,
     }).from(payments).where(and(eq(payments.orgId, orgId!), eq(payments.customerId, cust.id))),
-    db.select({ amount: journalEntryArLines.amount, voided: journalEntryArLines.voided })
+    db.select({
+      qboJournalId: journalEntryArLines.qboJournalId,
+      amount: journalEntryArLines.amount,
+      voided: journalEntryArLines.voided,
+    })
       .from(journalEntryArLines)
       .where(and(eq(journalEntryArLines.orgId, orgId!), eq(journalEntryArLines.customerId, cust.id))),
     db.select({ amount: deposits.amount })
       .from(deposits)
       .where(and(eq(deposits.orgId, orgId!), eq(deposits.customerId, cust.id))),
+    // Applications targeting JEs — captures zero-amount payments that QBO uses
+    // to apply a JE to an invoice. Once we see one for a JE, that JE has been
+    // closed and should not contribute to AR.
+    db.select({
+      targetQboId:   paymentApplications.targetQboId,
+      amountApplied: paymentApplications.amountApplied,
+    })
+      .from(paymentApplications)
+      .where(and(
+        eq(paymentApplications.orgId, orgId!),
+        eq(paymentApplications.targetType, "JournalEntry"),
+      )),
   ]);
 
   // Open invoices: sum (total - paid) for invoices not Paid/Closed and not CMs
@@ -114,7 +130,24 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 
   const paymentCredit = -pmts.reduce((s, p) => s + (p.unappliedAmount ?? 0), 0);
-  const jeBalance     = jes.filter(j => !(j as any).voided).reduce((s, j) => s + (j.amount ?? 0), 0);
+
+  // JE open amount = signed amount reduced by the magnitude of any applications
+  // captured in payment_applications (zero-amount payments that linked the JE
+  // to an offsetting transaction). A fully-applied JE contributes zero.
+  const appliedByJeQboId = new Map<string, number>();
+  for (const a of jeApps) {
+    if (!a.targetQboId) continue;
+    appliedByJeQboId.set(a.targetQboId, (appliedByJeQboId.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0));
+  }
+  const jeBalance = jes
+    .filter(j => !(j as any).voided)
+    .reduce((s, j) => {
+      const applied = appliedByJeQboId.get(j.qboJournalId) ?? 0;
+      const openMagnitude = Math.max(0, Math.abs(j.amount ?? 0) - applied);
+      const openAmount    = Math.sign(j.amount ?? 0) * openMagnitude;
+      return s + openAmount;
+    }, 0);
+
   const depositCredit = deps.reduce((s, d) => s + (d.amount ?? 0), 0);
 
   const netBalance =

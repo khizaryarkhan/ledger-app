@@ -45,8 +45,6 @@ export default function ReconcilePage() {
   const [tolerance, setTolerance] = useState(1);
   const [error, setError] = useState<string>("");
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [refreshingJe, setRefreshingJe] = useState(false);
-  const [jeRefreshResult, setJeRefreshResult] = useState<string>("");
 
   const run = async () => {
     setRunning(true);
@@ -105,36 +103,10 @@ export default function ReconcilePage() {
             />
             <span className="text-stone-500">per customer</span>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={refreshingJe || running}
-            onClick={async () => {
-              setRefreshingJe(true);
-              setJeRefreshResult("");
-              try {
-                const res = await fetch("/api/qbo/refresh-je-state", { method: "POST" });
-                const data = await res.json();
-                if (!res.ok) {
-                  setJeRefreshResult(`Failed: ${data?.error || res.statusText}`);
-                } else {
-                  setJeRefreshResult(data.note || "Refreshed.");
-                }
-              } finally { setRefreshingJe(false); }
-            }}
-            className="ml-auto"
-          >
-            {refreshingJe ? "Refreshing JE state…" : "Refresh JE state from QBO"}
-          </Button>
-          <Button onClick={run} disabled={running} icon={RefreshCw}>
+          <Button onClick={run} disabled={running} icon={RefreshCw} className="ml-auto">
             {running ? "Reconciling…" : "Run reconciliation"}
           </Button>
         </div>
-        {jeRefreshResult && (
-          <div className="text-[11px] text-stone-600 mt-3 px-3 py-2 rounded-md bg-stone-50 ring-1 ring-stone-200">
-            {jeRefreshResult}
-          </div>
-        )}
         {asOf && (
           <div className="text-[11px] text-stone-400 mt-3">
             Last run {new Date(asOf).toLocaleString()}.

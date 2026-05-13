@@ -774,33 +774,37 @@ export async function runQboSync(orgId: string, userId: string) {
       const paymentTotal = parseFloat(qpay.TotalAmt) || 0;
       const isZeroPayment = paymentTotal < 0.005;
 
+      // Capture every LinkedTxn target on every payment line (cash and
+      // zero-amount). This is the authoritative event log of how AR is
+      // settled in QBO:
+      //   - Invoice         → invoice has been (partially) paid
+      //   - CreditMemo      → CM has been applied
+      //   - JournalEntry    → JE has been applied (zero-amount payment trick).
+      //                       Without this, JEs live forever in our balance
+      //                       calc even after QBO has netted them out.
+      //
+      // Previously zero-amount payments without a CreditMemo in LinkedTxn
+      // were dropped wholesale to "avoid double-counting" — but the JE_AR_line
+      // table only records the JE's existence and gross amount, it has no
+      // way to know the JE has been applied. The application record is what
+      // closes that loop, so we capture it.
       for (const line of (qpay.Line || [])) {
         const linked = line.LinkedTxn || [];
-
-        // For zero-amount payments, gate on CM presence in this line's LinkedTxn
-        if (isZeroPayment) {
-          const hasCm = linked.some((l: any) => l?.TxnType === "CreditMemo");
-          if (!hasCm) {
-            // Likely JE-backed — skip to avoid double-counting with JE_AR_line
-            for (const l of linked) {
-              if (l?.TxnType === "Invoice" || l?.TxnType === "CreditMemo") zeroPaymentApps++;
-            }
-            continue;
-          }
-        }
-
         const amount = parseFloat(line.Amount) || 0;
         for (const l of linked) {
           const targetType = l.TxnType as string;
           const targetQboId = l.TxnId as string;
           if (!targetQboId || !targetType) continue;
-          if (targetType !== "Invoice" && targetType !== "CreditMemo") continue;
+          if (!["Invoice", "CreditMemo", "JournalEntry"].includes(targetType)) continue;
           const invoiceId = targetType === "Invoice"
             ? (invByQboId.get(targetQboId) ?? null)
-            : (cmByRawId.get(targetQboId) ?? null);
+            : targetType === "CreditMemo"
+              ? (cmByRawId.get(targetQboId) ?? null)
+              : null; // JournalEntry has no FK to invoices table
           allApps.push({ orgId, paymentId: paymentRowId, invoiceId, targetQboId, targetType, amountApplied: amount });
         }
       }
+      void isZeroPayment; // kept for future use; no longer used to gate
     }
     if (zeroPaymentApps > 0) {
       console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from JE-backed zero-amount payments (CM-backed zero-payments were retained)`);
