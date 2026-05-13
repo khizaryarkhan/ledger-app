@@ -8,7 +8,7 @@
  */
 
 import { db } from "@/db";
-import { customers, invoices, payments, refundReceipts, journalEntryArLines } from "@/db/schema";
+import { customers, invoices, payments, refundReceipts, journalEntryArLines, deposits } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, desc } from "drizzle-orm";
 
@@ -16,7 +16,7 @@ export type CustomerTxn = {
   id: string;
   refId: string;          // route param for opening detail (invoice id, etc.)
   txnDate: string;        // YYYY-MM-DD
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit";
   number: string | null;  // invoice number, payment ref, etc.
   amount: number;         // signed: positive = increases AR, negative = decreases AR
   balance: number;        // open balance (invoice unpaid, CM/payment unapplied) — always >= 0
@@ -38,11 +38,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!cust) return bad("Customer not found", 404);
 
   // Fetch all entity types in parallel
-  const [invs, pmts, refs, jes] = await Promise.all([
+  const [invs, pmts, refs, jes, deps] = await Promise.all([
     db.select().from(invoices).where(and(eq(invoices.orgId, orgId!), eq(invoices.customerId, cust.id))),
     db.select().from(payments).where(and(eq(payments.orgId, orgId!), eq(payments.customerId, cust.id))),
     db.select().from(refundReceipts).where(and(eq(refundReceipts.orgId, orgId!), eq(refundReceipts.customerId, cust.id))),
     db.select().from(journalEntryArLines).where(and(eq(journalEntryArLines.orgId, orgId!), eq(journalEntryArLines.customerId, cust.id))),
+    db.select().from(deposits).where(and(eq(deposits.orgId, orgId!), eq(deposits.customerId, cust.id))),
   ]);
 
   const rows: CustomerTxn[] = [];
@@ -118,6 +119,26 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
   }
 
+  // Deposits hitting AR (one row per AR-affecting deposit line for this customer)
+  for (const d of deps) {
+    rows.push({
+      id: `dep-${d.id}`,
+      refId: d.id,
+      txnDate: d.txnDate,
+      type: "Deposit",
+      number: d.qboId,
+      amount: d.amount, // signed (negative = customer credit)
+      balance: 0,
+      currency: d.currency,
+      status: "Posted",
+      memo: d.description || d.privateNote,
+      meta: {
+        accountName: d.accountName,
+        qboId: d.qboId,
+      },
+    });
+  }
+
   // Refund Receipts — balance is 0 (already paid out)
   for (const r of refs) {
     rows.push({
@@ -150,6 +171,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       Payment: rows.filter(r => r.type === "Payment").length,
       "Refund Receipt": rows.filter(r => r.type === "Refund Receipt").length,
       "Journal Entry": rows.filter(r => r.type === "Journal Entry").length,
+      "Deposit": rows.filter(r => r.type === "Deposit").length,
     },
   });
 }

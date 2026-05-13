@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
@@ -39,10 +39,25 @@ export default function CustomerDetailPage() {
   const custTasks = tasks.filter(t => t.customerId === id);
 
   const open = custInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-  const outstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+  const invoiceOutstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
   open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
+
+  // Net balance from the dedicated endpoint — includes JEs, deposits, unapplied
+  // CMs and payments so the card ties to QBO's Customer.Balance.
+  const [netBalance, setNetBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/customers/${id}/balance`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setNetBalance(d?.netBalance ?? null))
+      .catch(() => setNetBalance(null));
+  }, [id]);
+
+  // Display: net balance once it loads (matches QBO); fall back to invoice-only
+  // computation while the request is in flight.
+  const outstanding = netBalance ?? invoiceOutstanding;
   // Same rule as the customers list — computed from AR, not DB status field
   const effectiveStatus = customer.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
 

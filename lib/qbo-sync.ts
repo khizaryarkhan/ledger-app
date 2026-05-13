@@ -10,6 +10,7 @@ import { db } from "@/db";
 import {
   qboTokens, qboSyncLog, customers, projects, invoices, contacts,
   payments, paymentApplications, refundReceipts, journalEntryArLines,
+  deposits,
 } from "@/db/schema";
 import { eq, inArray, and, isNull } from "drizzle-orm";
 
@@ -177,6 +178,10 @@ export async function runQboSync(orgId: string, userId: string) {
   // Fetch all JournalEntries — needed for AR adjustments (write-offs, audit corrections,
   // inter-company transfers). Without these, customer AR can be wildly overstated.
   const allQboJournalEntries = await qboFetchAllSafe(accessToken, realmId, "JournalEntry");
+  await sleep(300);
+  // Fetch all Deposits — some deposit lines hit the AR account directly and
+  // need to be captured so customer balances tie to QBO.
+  const allQboDeposits = await qboFetchAllSafe(accessToken, realmId, "Deposit");
   await sleep(300);
   // Discover Accounts Receivable account ID(s) — usually one per currency
   const arAccountsRaw = await qboQuery(
@@ -971,6 +976,97 @@ export async function runQboSync(orgId: string, userId: string) {
         ));
       }
     }
+
+    // ----- DEPOSITS (AR-affecting lines) -----
+    // A QBO Deposit transaction can include lines that post directly to the
+    // AR account for a customer — typical for recording overpayments or
+    // funds received without a matching Payment. Mirror the JE pattern:
+    // one row per Deposit.Line where AccountRef matches an AR account.
+    let depositsCreated = 0, depositsUpdated = 0, depositsSkipped = 0;
+    if (arAccountIds.size > 0) {
+      const existingDeps = await db
+        .select({ id: deposits.id, qboId: deposits.qboId, qboLineId: deposits.qboLineId })
+        .from(deposits)
+        .where(eq(deposits.orgId, orgId));
+      const depKey = (jid: string, lid: string | null) => `${jid}|${lid ?? ""}`;
+      const existingDepMap = new Map(existingDeps.map(r => [depKey(r.qboId, r.qboLineId), r.id]));
+
+      const depsToInsert: any[] = [];
+      const depsToUpdate: Array<{ id: string; data: any }> = [];
+
+      for (const dep of allQboDeposits) {
+        try {
+          if (!dep.Id || !dep.TxnDate) { depositsSkipped++; continue; }
+          for (const line of (dep.Line || [])) {
+            const detail = line.DepositLineDetail;
+            if (!detail) continue;
+            const accountId = String(detail.AccountRef?.value || "");
+            if (!arAccountIds.has(accountId)) continue; // not an AR line — skip
+
+            const lineId = line.Id || null;
+            // For a Deposit, the offset to the deposit-into account is a CREDIT
+            // to whatever account is in DepositLineDetail.AccountRef. So a line
+            // hitting AR is reducing AR — store as negative (customer credit).
+            const rawAmount = parseFloat(line.Amount) || 0;
+            const signedAmount = -Math.abs(rawAmount);
+
+            // Customer reference on the deposit line
+            const entityRef = detail.Entity;
+            const qboCustId =
+              entityRef?.value ? String(entityRef.value)
+              : entityRef?.EntityRef?.value ? String(entityRef.EntityRef.value)
+              : null;
+            const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+
+            const data = {
+              orgId,
+              qboId:         String(dep.Id),
+              qboLineId:     lineId,
+              customerId,
+              qboCustomerId: qboCustId,
+              accountId,
+              accountName:   arAccountNameById.get(accountId) || null,
+              txnDate:       dep.TxnDate,
+              amount:        signedAmount,
+              currency:      dep.CurrencyRef?.value || "EUR",
+              description:   line.Description || null,
+              privateNote:   dep.PrivateNote || null,
+              qboSyncedAt:   new Date(),
+              updatedAt:     new Date(),
+            };
+
+            const existingId = existingDepMap.get(depKey(data.qboId, data.qboLineId));
+            if (existingId) depsToUpdate.push({ id: existingId, data });
+            else            depsToInsert.push(data);
+          }
+        } catch (e: any) {
+          depositsSkipped++;
+          console.warn(`Deposit ${dep.Id || "?"}: ${e?.message || e}`);
+        }
+      }
+
+      for (let i = 0; i < depsToInsert.length; i += 100) {
+        try {
+          await db.insert(deposits).values(depsToInsert.slice(i, i + 100));
+          depositsCreated += Math.min(100, depsToInsert.length - i);
+        } catch {
+          for (const row of depsToInsert.slice(i, i + 100)) {
+            try { await db.insert(deposits).values(row); depositsCreated++; }
+            catch { depositsSkipped++; }
+          }
+        }
+      }
+      for (let i = 0; i < depsToUpdate.length; i += 50) {
+        await Promise.all(depsToUpdate.slice(i, i + 50).map(({ id, data }) =>
+          db.update(deposits).set(data).where(eq(deposits.id, id))
+            .then(() => { depositsUpdated++; })
+            .catch(() => { depositsSkipped++; })
+        ));
+      }
+    }
+    (results as any).depositsCreated = depositsCreated;
+    (results as any).depositsUpdated = depositsUpdated;
+    (results as any).depositsSkipped = depositsSkipped;
 
     (results as any).paymentsCreated = paymentsCreated;
     (results as any).paymentsUpdated = paymentsUpdated;

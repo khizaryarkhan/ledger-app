@@ -291,6 +291,43 @@ export const refundReceipts = pgTable("refund_receipts", {
 export type RefundReceipt = typeof refundReceipts.$inferSelect;
 
 // =========================================================================
+// DEPOSITS — AR-affecting deposit lines.
+// In QBO a Deposit transaction can include lines that post to the AR account
+// for a specific customer (typical for recording funds received outside of a
+// regular Payment, or recording an overpayment as a customer credit). One row
+// per AR-affecting line. The `amount` is signed: negative reduces customer
+// AR (customer credit on account), positive increases it.
+// =========================================================================
+export const deposits = pgTable("deposits", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  qboId:           varchar("qbo_id", { length: 64 }).notNull(),       // QBO Deposit.Id
+  qboLineId:       varchar("qbo_line_id", { length: 64 }),            // QBO Line.Id within the Deposit
+
+  customerId:      uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  qboCustomerId:   varchar("qbo_customer_id", { length: 64 }),
+
+  accountId:       varchar("account_id", { length: 64 }),             // QBO AR Account.Id
+  accountName:     varchar("account_name", { length: 255 }),
+
+  txnDate:         varchar("txn_date", { length: 16 }).notNull(),     // YYYY-MM-DD
+  amount:          real("amount").notNull(),                          // SIGNED — negative = AR credit
+  currency:        varchar("currency", { length: 8 }).notNull().default("EUR"),
+
+  description:     text("description"),
+  privateNote:     text("private_note"),
+
+  qboSyncedAt:     timestamp("qbo_synced_at"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgQboLineUnique: uniqueIndex("deposits_org_qbo_line_unique")
+    .on(t.orgId, t.qboId, t.qboLineId)
+    .where(sql`${t.qboLineId} IS NOT NULL`),
+}));
+export type Deposit = typeof deposits.$inferSelect;
+
+// =========================================================================
 // JOURNAL ENTRY AR LINES
 // One row per Journal Entry LINE that posts to the Accounts Receivable account.
 // JEs are the QBO mechanism for AR write-offs, audit adjustments, inter-company
