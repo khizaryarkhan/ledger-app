@@ -109,13 +109,16 @@ export function TransactionsTab({
     return true;
   }), [rows, typeFilter, dateFilter]);
 
-  // Running totals for the visible set
+  // Running totals for the visible set.
+  // Every row's signed amount feeds the running net so JEs and Deposits are
+  // included — those types weren't being summed before and made the Net
+  // footer disagree with the customer's actual AR position.
   const totals = useMemo(() => {
     let arIncrease = 0, arDecrease = 0, openBalance = 0;
     for (const r of filtered) {
-      if (r.type === "Invoice" || r.type === "Refund Receipt") arIncrease += r.amount;
-      if (r.type === "Credit Memo" || r.type === "Payment") arDecrease += Math.abs(r.amount);
-      // Open balance only counts invoices (CM unapplied is negative AR, not open AR)
+      const a = r.amount;
+      if (a > 0) arIncrease += a;
+      else       arDecrease += Math.abs(a);
       if (r.type === "Invoice") openBalance += r.balance;
     }
     return { arIncrease, arDecrease, net: arIncrease - arDecrease, openBalance };
@@ -206,8 +209,8 @@ export function TransactionsTab({
                   </td>
                   <td className="px-4 py-3 text-stone-600 tabular-nums text-[12px]">{r.number || "—"}</td>
                   <td className="px-4 py-3 text-stone-500 text-[12px] truncate max-w-[300px]">{r.memo || ""}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-stone-500" : "text-stone-900"}`}>
-                    {fmt.money(Math.abs(r.amount), r.currency)}
+                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-amber-700" : "text-stone-900"}`}>
+                    {fmt.money(r.amount, r.currency)}
                   </td>
                   <td className={`px-4 py-3 text-right tabular-nums font-semibold ${
                     showBalance

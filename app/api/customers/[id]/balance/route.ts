@@ -20,16 +20,56 @@ import {
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
+import { getValidToken } from "@/lib/qbo-sync";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
 
-  const [cust] = await db.select({ id: customers.id, currency: customers.currency })
+  const [cust] = await db.select({
+    id: customers.id, currency: customers.currency, qboId: customers.qboId,
+  })
     .from(customers)
     .where(and(eq(customers.id, params.id), eq(customers.orgId, orgId!)))
     .limit(1);
   if (!cust) return bad("Customer not found", 404);
+
+  // Authoritative path: ask QBO directly. Customer.Balance is QBO's net AR for
+  // the customer — exactly what its UI shows. This avoids reconstructing
+  // anything from our local copy of JE / payment / CM applications (which is
+  // incomplete because we don't track every LinkedTxn relationship).
+  if (cust.qboId) {
+    try {
+      const token = await getValidToken(orgId!);
+      if (token) {
+        const res = await fetch(
+          `https://quickbooks.api.intuit.com/v3/company/${token.realmId}/customer/${cust.qboId}?minorversion=65`,
+          { headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const c = data.Customer || data;
+          const qboBalance     = parseFloat(c.Balance)        || 0;
+          const qboWithJobs    = parseFloat(c.BalanceWithJobs) || qboBalance;
+          return ok({
+            currency:           cust.currency,
+            openInvoiceBalance: 0,
+            openInvoiceCount:   0,
+            cmCredit:           0,
+            paymentCredit:      0,
+            jeBalance:          0,
+            depositCredit:      0,
+            netBalance:         qboBalance,
+            netBalanceWithJobs: qboWithJobs, // includes sub-customer balances
+            source:             "qbo-live",
+            qboCheckedAt:       new Date().toISOString(),
+          });
+        }
+      }
+    } catch (e) {
+      // Fall through to local reconstruction below
+    }
+  }
 
   const [invs, pmts, jes, deps] = await Promise.all([
     db.select({
