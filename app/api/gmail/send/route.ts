@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { gmailTokens } from "@/db/schema";
-import { requireAuth, ok, bad } from "@/lib/api";
+import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,8 +11,11 @@ const Schema = z.object({
   replyTo: z.string().optional(),
 });
 
-async function getValidGmailToken(userId: string) {
-  const [token] = await db.select().from(gmailTokens).where(eq(gmailTokens.userId, userId)).limit(1);
+// Resolve the ORG's shared Gmail connection. Any user in the org can send
+// through it — the OAuth was authorised once by an admin and the token is
+// the org's, not an individual user's.
+async function getValidGmailToken(orgId: string) {
+  const [token] = await db.select().from(gmailTokens).where(eq(gmailTokens.orgId, orgId)).limit(1);
   if (!token) return null;
 
   const now = Date.now();
@@ -36,7 +39,7 @@ async function getValidGmailToken(userId: string) {
       accessToken: data.access_token,
       accessTokenExpiresAt: new Date(now + (data.expires_in || 3600) * 1000),
       updatedAt: new Date(),
-    }).where(eq(gmailTokens.userId, userId));
+    }).where(eq(gmailTokens.id, token.id));
     return { ...token, accessToken: data.access_token };
   }
 
@@ -44,12 +47,11 @@ async function getValidGmailToken(userId: string) {
 }
 
 export async function POST(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
 
-  const userId = (session!.user as any).id;
-  const token = await getValidGmailToken(userId);
-  if (!token) return bad("Gmail not connected. Go to Settings to connect.", 400);
+  const token = await getValidGmailToken(orgId!);
+  if (!token) return bad("Gmail not connected for this organisation. An admin can connect it from Settings → Integrations.", 400);
 
   try {
     const data = Schema.parse(await req.json());

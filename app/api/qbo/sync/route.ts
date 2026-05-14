@@ -19,7 +19,8 @@ export async function POST() {
     return ok({ success: true, synced: results });
   } catch (e: any) {
     console.error("QBO sync error:", e);
-    // Log the error
+    // Log the error against the ORG (with userId for audit) so every user in
+    // the org sees the same sync history.
     await db
       .insert(qboSyncLog)
       .values({ userId, orgId, status: "error", errorMessage: e.message })
@@ -29,19 +30,20 @@ export async function POST() {
 }
 
 export async function GET() {
-  const { error, session, orgId } = await requireOrg();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
-  const userId = (session!.user as any).id;
   const [token] = await db
     .select()
     .from(qboTokens)
     .where(eq(qboTokens.orgId, orgId!))
     .limit(1);
   if (!token) return ok({ connected: false });
+  // Latest sync for the ORGANISATION, not the current user. Any user in the
+  // org should see the same "last sync" / "connection state" view.
   const syncLogs = await db
     .select()
     .from(qboSyncLog)
-    .where(eq(qboSyncLog.userId, userId))
+    .where(eq(qboSyncLog.orgId, orgId!))
     .orderBy(desc(qboSyncLog.syncedAt))
     .limit(1);
   return ok({

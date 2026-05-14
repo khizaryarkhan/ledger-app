@@ -1,11 +1,16 @@
 import { db } from "@/db";
 import { gmailTokens } from "@/db/schema";
-import { requireAuth, ok } from "@/lib/api";
+import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 
 export async function POST() {
-  const { error, session } = await requireAuth();
+  // Disconnect the org's Gmail integration. Allowed for admins so any admin
+  // in the org can manage the shared connection (matches Settings UI gating).
+  const { error, orgId, role } = await requireOrg();
   if (error) return error;
-  await db.delete(gmailTokens).where(eq(gmailTokens.userId, (session!.user as any).id));
+  if (!["company_admin", "super_admin"].includes(role!)) {
+    return bad("Only company admins can disconnect Gmail", 403);
+  }
+  await db.delete(gmailTokens).where(eq(gmailTokens.orgId, orgId!));
   return ok({ disconnected: true });
 }

@@ -469,6 +469,10 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 // =========================================================================
 export const qboSyncLog = pgTable("qbo_sync_log", {
   id: uuid("id").defaultRandom().primaryKey(),
+  // Org-scoped so every user in the org sees the same sync history. userId
+  // remains for audit (which user triggered the sync) but is not the
+  // visibility key.
+  orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   syncedAt: timestamp("synced_at").notNull().defaultNow(),
   status: varchar("status", { length: 16 }).notNull().default("success"),
@@ -548,6 +552,10 @@ export type QboToken = typeof qboTokens.$inferSelect;
 // =========================================================================
 export const gmailTokens = pgTable("gmail_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
+  // Org-scoped: one Gmail connection per org. Every user in the org can
+  // see whether Gmail is connected (and use it for outbound mail).
+  // userId records the human who authorised it (needed for OAuth refresh).
+  orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   email: varchar("email", { length: 255 }).notNull(),
   accessToken: text("access_token").notNull(),
