@@ -52,20 +52,24 @@ function ReminderProgramme() {
       })
     : (customers ?? []);
 
-  // Initialise email inputs from contacts / customer record (only if not dirty).
-  // Fallback chain for project-level view:
-  //   1. Project contact with receivesAuto
-  //   2. Customer contact with receivesAuto
-  //   3. Any project Billing contact
-  //   4. Any project contact
-  //   5. Any customer Billing contact
-  //   6. Any customer contact
-  //   7. Customer's own email field
-  // For customer-level view:
-  //   1. Customer contact with receivesAuto
-  //   2. Any customer Billing contact
-  //   3. Any customer contact
-  //   4. Customer's own email field
+  // Initialise email inputs (only if not dirty by the user).
+  //
+  // Project-level fallback chain:
+  //   1. Project contact already flagged receivesAuto  (already configured — keep it)
+  //   2. billingEmail from the most recent invoice for that project  ← primary default
+  //   3. Customer contact flagged receivesAuto
+  //   4. Any project Billing contact
+  //   5. Any project contact
+  //   6. Any customer Billing contact
+  //   7. Any customer contact
+  //   8. Customer's own email field
+  //
+  // Customer-level fallback chain:
+  //   1. Customer contact flagged receivesAuto
+  //   2. billingEmail from the most recent invoice for that customer
+  //   3. Any customer Billing contact
+  //   4. Any customer contact
+  //   5. Customer's own email field
   useEffect(() => {
     setEmails((prev) => {
       const next = { ...prev };
@@ -73,11 +77,19 @@ function ReminderProgramme() {
         if (emailDirty.has(entity.id)) return;
 
         if (isProjectLevel) {
-          const projContacts  = (contacts ?? []).filter((c: any) => c.projectId === entity.id);
-          const custContacts  = (contacts ?? []).filter((c: any) => c.customerId === entity.customerId && !c.projectId);
-          const parentCust    = (customers ?? []).find((c: any) => c.id === entity.customerId);
+          // Most recent invoice for this project with a non-empty billingEmail
+          const latestProjInvoiceEmail = (invoices ?? [])
+            .filter((inv: any) => inv.projectId === entity.id && inv.billingEmail)
+            .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
+            ?.billingEmail ?? "";
+
+          const projContacts = (contacts ?? []).filter((c: any) => c.projectId === entity.id);
+          const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.customerId && !c.projectId);
+          const parentCust   = (customers ?? []).find((c: any) => c.id === entity.customerId);
+
           next[entity.id] =
             projContacts.find((c: any) => c.receivesAuto)?.email ??
+            latestProjInvoiceEmail ||
             custContacts.find((c: any) => c.receivesAuto)?.email ??
             projContacts.find((c: any) => c.type === "Billing")?.email ??
             projContacts[0]?.email ??
@@ -86,9 +98,16 @@ function ReminderProgramme() {
             parentCust?.email ??
             "";
         } else {
+          const latestCustInvoiceEmail = (invoices ?? [])
+            .filter((inv: any) => inv.customerId === entity.id && !inv.projectId && inv.billingEmail)
+            .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
+            ?.billingEmail ?? "";
+
           const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.id && !c.projectId);
+
           next[entity.id] =
             custContacts.find((c: any) => c.receivesAuto)?.email ??
+            latestCustInvoiceEmail ||
             custContacts.find((c: any) => c.type === "Billing")?.email ??
             custContacts[0]?.email ??
             entity.email ??
@@ -98,7 +117,7 @@ function ReminderProgramme() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts, customers, isProjectLevel]);
+  }, [contacts, customers, invoices, isProjectLevel]);
 
   // ── Derived row data ──────────────────────────
   const rows = useMemo(() => {
