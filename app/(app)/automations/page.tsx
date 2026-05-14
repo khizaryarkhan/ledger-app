@@ -167,6 +167,33 @@ function ReminderProgramme() {
   const offCount = rows.filter((r) => !r.isOn).length;
   const noEmailCount = rows.filter((r) => !r.localEmail).length;
 
+  // ── Manual trigger ("Run Now") ───────────────
+  const [triggerState, setTriggerState] = useState<"idle" | "running" | "done">("idle");
+  const [triggerResult, setTriggerResult] = useState<any>(null);
+
+  const handleRunNow = useCallback(async (dryRun: boolean) => {
+    setTriggerState("running");
+    setTriggerResult(null);
+    try {
+      const res = await fetch("/api/cron/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error ?? "Failed to trigger", "error");
+        setTriggerState("idle");
+        return;
+      }
+      setTriggerResult({ ...data, dryRun });
+      setTriggerState("done");
+    } catch {
+      toast("Request failed", "error");
+      setTriggerState("idle");
+    }
+  }, [toast]);
+
   // ── API helpers ──────────────────────────────
   const patchContact = useCallback(async (contactId: string, data: any) => {
     const res = await fetch(`/api/contacts/${contactId}`, {
@@ -554,6 +581,94 @@ function ReminderProgramme() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Run Now panel ── */}
+      <div className="bg-white rounded-xl ring-1 ring-stone-200 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-sm font-semibold text-stone-900">Manual trigger</div>
+          <div className="text-[11px] text-stone-400 mt-0.5">
+            Send reminder emails now for all contacts with open invoices due or overdue.
+            Use <span className="font-medium text-stone-600">Preview</span> first to see what would go out.
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => handleRunNow(true)}
+            disabled={triggerState === "running"}
+            className="h-8 px-4 text-xs font-medium rounded-md ring-1 ring-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-50 transition-colors"
+          >
+            {triggerState === "running" ? "Running…" : "Preview"}
+          </button>
+          <button
+            onClick={() => handleRunNow(false)}
+            disabled={triggerState === "running"}
+            className="h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
+          >
+            {triggerState === "running" ? "Sending…" : "Send Now"}
+          </button>
+          {triggerState === "done" && (
+            <button onClick={() => { setTriggerState("idle"); setTriggerResult(null); }}
+              className="h-8 px-3 text-xs text-stone-400 hover:text-stone-700">✕</button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Trigger result ── */}
+      {triggerResult && (
+        <div className={`rounded-xl ring-1 px-5 py-4 text-sm ${triggerResult.dryRun ? "bg-amber-50 ring-amber-200" : "bg-emerald-50 ring-emerald-200"}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-semibold text-stone-900">
+              {triggerResult.dryRun
+                ? `Preview — ${triggerResult.sent} email${triggerResult.sent !== 1 ? "s" : ""} would be sent`
+                : `✓ ${triggerResult.sent} email${triggerResult.sent !== 1 ? "s" : ""} sent`}
+              {triggerResult.skipped > 0 && (
+                <span className="ml-2 text-[11px] font-normal text-stone-500">· {triggerResult.skipped} skipped (no pending invoices)</span>
+              )}
+            </div>
+          </div>
+          {triggerResult.details?.length > 0 && (
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-stone-500 border-b border-stone-200">
+                  <th className="text-left font-semibold pb-1.5 pr-3">Contact</th>
+                  <th className="text-left font-semibold pb-1.5 pr-3">Entity</th>
+                  <th className="text-left font-semibold pb-1.5 pr-3">Type</th>
+                  <th className="text-left font-semibold pb-1.5">Invoices</th>
+                  <th className="text-left font-semibold pb-1.5 pl-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {triggerResult.details.map((d: any, i: number) => (
+                  <tr key={i} className="border-b border-stone-100 last:border-0">
+                    <td className="py-1.5 pr-3 text-stone-700 font-mono">{d.contact}</td>
+                    <td className="py-1.5 pr-3 text-stone-700">{d.entity}</td>
+                    <td className="py-1.5 pr-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        d.reminderType === "final-notice"  ? "bg-rose-100 text-rose-700"   :
+                        d.reminderType === "second-notice" ? "bg-orange-100 text-orange-700" :
+                        d.reminderType === "first-notice"  ? "bg-amber-100 text-amber-700" :
+                                                             "bg-blue-100 text-blue-700"
+                      }`}>{d.reminderType}</span>
+                    </td>
+                    <td className="py-1.5 text-stone-600">{d.invoices?.join(", ")}</td>
+                    <td className="py-1.5 pl-3">
+                      {d.error
+                        ? <span className="text-rose-600">✗ {d.error}</span>
+                        : triggerResult.dryRun
+                          ? <span className="text-amber-700">would send</span>
+                          : <span className="text-emerald-700">✓ sent</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {triggerResult.details?.length === 0 && (
+            <div className="text-stone-500 text-[12px]">No pending reminders — all invoices are either not yet due, already paid, or paused.</div>
+          )}
+        </div>
+      )}
+
       {/* KPI cards */}
       <div className="grid grid-cols-3 gap-3">
         {[

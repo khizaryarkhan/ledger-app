@@ -1,0 +1,265 @@
+/**
+ * POST /api/cron/trigger
+ *
+ * Manually run the reminder email pass for the requesting org.
+ * Protected by normal session auth — no CRON_SECRET needed.
+ *
+ * Unlike the scheduled cron, this does NOT restrict to exact day milestones.
+ * It fires for every open invoice that meets ANY reminder threshold
+ * (pre-due ≤ 3 days, or overdue ≥ 1 day), so the user gets immediate feedback
+ * on the full pending queue.
+ *
+ * Body: { dryRun?: boolean }
+ *   dryRun = true  → compute what would be sent, return the list, send nothing
+ *   dryRun = false → send emails and return the same list with sent = true
+ *
+ * Response:
+ *   { sent: number, skipped: number, dryRun: boolean,
+ *     details: { contact, entity, invoices, reminderType, wouldSend }[] }
+ */
+
+import { NextResponse } from "next/server";
+import { db } from "@/db";
+import {
+  invoices, contacts, customers, projects, orgSmtpSettings, qboTokens,
+  organisations,
+} from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+import { requireOrg } from "@/lib/api";
+import * as nodemailer from "nodemailer";
+
+// ─── shared helpers (mirrors cron/route.ts) ───────────────────────────────────
+
+function daysFromDate(dateStr: string): number {
+  const due = new Date(dateStr + "T12:00:00Z").getTime();
+  return Math.floor((Date.now() - due) / 86400000);
+}
+
+const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
+
+/** For manual trigger: fire for any invoice that is pre-due (≤3 days) or overdue */
+function getReminderType(daysOverdue: number): string | null {
+  if (daysOverdue <= -1 && daysOverdue >= -3) return "pre-due";
+  if (daysOverdue >= 1 && daysOverdue < 8)   return "first-notice";
+  if (daysOverdue >= 8 && daysOverdue < 21)  return "second-notice";
+  if (daysOverdue >= 21)                     return "final-notice";
+  return null;
+}
+
+const REMINDER_SUBJECTS: Record<string, string> = {
+  "pre-due":      "Upcoming Payment Reminder",
+  "first-notice": "Payment Reminder — Invoice Now Overdue",
+  "second-notice":"Second Notice — Outstanding Invoice",
+  "final-notice": "Final Notice — Immediate Payment Required",
+};
+
+const REMINDER_BODIES: Record<string, (name: string, lines: string[]) => string> = {
+  "pre-due": (name, lines) =>
+    `Dear ${name},\n\nThis is a friendly reminder that the following invoice${lines.length > 1 ? "s" : ""} will be due in the coming days. Please arrange payment at your earliest convenience.\n\n${lines.join("\n")}\n\nIf payment has already been made please disregard this message.\n\nKind regards`,
+  "first-notice": (name, lines) =>
+    `Dear ${name},\n\nWe would like to bring to your attention that the following invoice${lines.length > 1 ? "s" : ""} ${lines.length > 1 ? "are" : "is"} now overdue.\n\n${lines.join("\n")}\n\nPlease arrange payment as soon as possible.\n\nKind regards`,
+  "second-notice": (name, lines) =>
+    `Dear ${name},\n\nDespite our previous reminder, the following invoice${lines.length > 1 ? "s remain" : " remains"} outstanding.\n\n${lines.join("\n")}\n\nWe kindly request immediate payment or contact us to discuss arrangements.\n\nKind regards`,
+  "final-notice": (name, lines) =>
+    `Dear ${name},\n\nThis is our final notice regarding the following overdue invoice${lines.length > 1 ? "s" : ""}.\n\n${lines.join("\n")}\n\nImmediate payment is required to avoid further action.\n\nKind regards`,
+};
+
+async function getRefreshedToken(orgId: string) {
+  const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
+  if (!token) return null;
+  const now = Date.now();
+  if (new Date(token.accessTokenExpiresAt).getTime() - now < 5 * 60 * 1000) {
+    const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
+      },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
+    });
+    if (!res.ok) return token;
+    const d = await res.json();
+    await db.update(qboTokens).set({
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token || token.refreshToken,
+      accessTokenExpiresAt: new Date(now + (d.expires_in || 3600) * 1000),
+      updatedAt: new Date(),
+    }).where(eq(qboTokens.orgId, orgId));
+    return { ...token, accessToken: d.access_token };
+  }
+  return token;
+}
+
+// ─── handler ─────────────────────────────────────────────────────────────────
+
+export async function POST(req: Request) {
+  const { error, orgId } = await requireOrg();
+  if (error) return error;
+
+  const body = await req.json().catch(() => ({}));
+  const dryRun: boolean = body.dryRun === true;
+
+  // 1. Load SMTP config for this org
+  const [smtp] = await db
+    .select()
+    .from(orgSmtpSettings)
+    .where(eq(orgSmtpSettings.orgId, orgId!))
+    .limit(1);
+
+  if (!smtp?.host || !smtp?.user || !smtp?.pass || !smtp?.fromEmail) {
+    return NextResponse.json(
+      { error: "No SMTP configuration found. Set up email in Settings → Integrations before triggering." },
+      { status: 422 },
+    );
+  }
+
+  // 2. Load all auto contacts for this org
+  const autoContacts = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.orgId, orgId!), eq(contacts.receivesAuto, true)));
+
+  const enabledContacts = autoContacts.filter((c) => c.email);
+  if (enabledContacts.length === 0) {
+    return NextResponse.json({ sent: 0, skipped: 0, dryRun, details: [], message: "No contacts with automation enabled." });
+  }
+
+  // 3. Load all open invoices for this org
+  const orgInvoices = await db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.orgId, orgId!));
+
+  // 4. Build transporter
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: false,
+    auth: { user: smtp.user, pass: smtp.pass },
+  });
+  const from = smtp.fromName ? `"${smtp.fromName}" <${smtp.fromEmail}>` : smtp.fromEmail;
+
+  const qboToken = await getRefreshedToken(orgId!).catch(() => null);
+  const QBO_API  = "https://quickbooks.api.intuit.com/v3/company";
+
+  // 5. Process each contact
+  type Detail = {
+    contact: string;
+    entity: string;
+    reminderType: string;
+    invoices: string[];
+    sent: boolean;
+    error?: string;
+  };
+  const details: Detail[] = [];
+  let sent = 0;
+  let skipped = 0;
+
+  for (const contact of enabledContacts) {
+    // Open invoices for this contact's scope
+    const relatedInvoices = orgInvoices.filter((inv) => {
+      if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return false;
+      if ((inv.total - (inv.paid || 0)) <= 0) return false;
+      if (PAUSE_STAGES.includes(inv.collectionStage)) return false;
+      if (contact.projectId) return inv.projectId === contact.projectId;
+      return inv.customerId === contact.customerId;
+    });
+
+    if (relatedInvoices.length === 0) { skipped++; continue; }
+
+    // Collect invoices that match any reminder threshold
+    const triggeredInvoices = relatedInvoices.filter((inv) => getReminderType(daysFromDate(inv.dueDate)) !== null);
+    if (triggeredInvoices.length === 0) { skipped++; continue; }
+
+    // Pick highest-priority type
+    const typePriority = ["final-notice", "second-notice", "first-notice", "pre-due"];
+    const types = triggeredInvoices.map((inv) => getReminderType(daysFromDate(inv.dueDate))!);
+    const reminderType = typePriority.find((t) => types.includes(t)) ?? types[0];
+
+    // Entity name
+    let entityName = "";
+    let entityRef  = "";
+    if (contact.projectId) {
+      const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
+      entityName = proj?.name ?? contact.projectId;
+      entityRef  = proj?.code ?? "";
+    } else {
+      const [cust] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
+      entityName = cust?.name ?? contact.customerId;
+      entityRef  = cust?.code ?? "";
+    }
+
+    const invRefs   = triggeredInvoices.map((inv) => inv.invoiceNumber);
+    const invRefStr = invRefs.join(", ");
+
+    const subjectParts = [REMINDER_SUBJECTS[reminderType]];
+    if (entityRef) subjectParts.push(entityRef);
+    subjectParts.push(`Ref: ${invRefStr}`);
+    const subject = subjectParts.join(" | ");
+
+    const invoiceLines = triggeredInvoices.map((inv) => {
+      const balance = inv.total - (inv.paid || 0);
+      const d = daysFromDate(inv.dueDate);
+      const overdueStr = d > 0 ? `${d} days overdue` : d === 0 ? "due today" : `due in ${Math.abs(d)} days`;
+      return `  • ${inv.invoiceNumber} — Balance: ${balance.toLocaleString("en-IE", { style: "currency", currency: inv.currency || "EUR" })} (${overdueStr})`;
+    });
+
+    const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
+    const bodyText  = REMINDER_BODIES[reminderType](greeting, invoiceLines);
+
+    const detail: Detail = {
+      contact: contact.email!,
+      entity:  entityName,
+      reminderType,
+      invoices: invRefs,
+      sent: false,
+    };
+
+    if (!dryRun) {
+      try {
+        // Fetch PDFs
+        const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
+        if (qboToken) {
+          for (const inv of triggeredInvoices) {
+            if (!inv.qboId || inv.qboId.startsWith("CM-")) continue;
+            try {
+              const pdfRes = await fetch(
+                `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
+                { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } }
+              );
+              if (pdfRes.ok) {
+                const buf = Buffer.from(await pdfRes.arrayBuffer());
+                if (buf.byteLength > 0)
+                  attachments.push({ filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" });
+              }
+            } catch { /* non-fatal */ }
+          }
+        }
+
+        await transporter.sendMail({
+          from,
+          to: contact.email!,
+          bcc: smtp.fromEmail || undefined,
+          subject,
+          text: bodyText,
+          html: bodyText.replace(/\n/g, "<br>"),
+          attachments: attachments.length > 0 ? attachments : undefined,
+        });
+
+        detail.sent = true;
+        sent++;
+      } catch (e: any) {
+        detail.error = e.message;
+        skipped++;
+      }
+    } else {
+      // Dry run — count as "would send"
+      detail.sent = true; // means "would send"
+      sent++;
+    }
+
+    details.push(detail);
+  }
+
+  return NextResponse.json({ sent, skipped, dryRun, details });
+}
