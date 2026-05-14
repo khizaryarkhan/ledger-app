@@ -69,6 +69,11 @@ export type AgingResult = {
   detail: DetailRow[];
   summary: SummaryRow[];
   grandTotals: Record<AgingBucket, number> & { total: number };
+  /** Per-customer unapplied payment totals (keyed by our customerId).
+   *  These are payments received but not yet applied to any invoice.
+   *  Consumers (e.g. ar-snapshot) add these as synthetic credit rows so
+   *  every downstream report agrees with the main AR Aging grand total. */
+  unappliedByCustomer: Record<string, number>;
   flags: {
     missingDueDate: number;
     negativeCustomerBalances: string[]; // customerIds with overall negative AR
@@ -542,6 +547,7 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     detail,
     summary,
     grandTotals,
+    unappliedByCustomer: Object.fromEntries(unappliedByCustomer),
     flags: {
       missingDueDate,
       negativeCustomerBalances,

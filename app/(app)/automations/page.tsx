@@ -52,26 +52,53 @@ function ReminderProgramme() {
       })
     : (customers ?? []);
 
-  // Initialise email inputs from active contacts (only if not dirty)
+  // Initialise email inputs from contacts / customer record (only if not dirty).
+  // Fallback chain for project-level view:
+  //   1. Project contact with receivesAuto
+  //   2. Customer contact with receivesAuto
+  //   3. Any project Billing contact
+  //   4. Any project contact
+  //   5. Any customer Billing contact
+  //   6. Any customer contact
+  //   7. Customer's own email field
+  // For customer-level view:
+  //   1. Customer contact with receivesAuto
+  //   2. Any customer Billing contact
+  //   3. Any customer contact
+  //   4. Customer's own email field
   useEffect(() => {
     setEmails((prev) => {
       const next = { ...prev };
       entities.forEach((entity) => {
-        if (!emailDirty.has(entity.id)) {
-          const active = (contacts ?? []).find((c: any) =>
-            (isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id) && c.receivesAuto
-          );
-          // If no project-specific auto contact, fall back to customer-level
-          const fallback = !isProjectLevel
-            ? null
-            : (contacts ?? []).find((c: any) => c.customerId === entity.customerId && !c.projectId && c.receivesAuto);
-          next[entity.id] = active?.email ?? fallback?.email ?? "";
+        if (emailDirty.has(entity.id)) return;
+
+        if (isProjectLevel) {
+          const projContacts  = (contacts ?? []).filter((c: any) => c.projectId === entity.id);
+          const custContacts  = (contacts ?? []).filter((c: any) => c.customerId === entity.customerId && !c.projectId);
+          const parentCust    = (customers ?? []).find((c: any) => c.id === entity.customerId);
+          next[entity.id] =
+            projContacts.find((c: any) => c.receivesAuto)?.email ??
+            custContacts.find((c: any) => c.receivesAuto)?.email ??
+            projContacts.find((c: any) => c.type === "Billing")?.email ??
+            projContacts[0]?.email ??
+            custContacts.find((c: any) => c.type === "Billing")?.email ??
+            custContacts[0]?.email ??
+            parentCust?.email ??
+            "";
+        } else {
+          const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.id && !c.projectId);
+          next[entity.id] =
+            custContacts.find((c: any) => c.receivesAuto)?.email ??
+            custContacts.find((c: any) => c.type === "Billing")?.email ??
+            custContacts[0]?.email ??
+            entity.email ??
+            "";
         }
       });
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts, isProjectLevel]);
+  }, [contacts, customers, isProjectLevel]);
 
   // ── Derived row data ──────────────────────────
   const rows = useMemo(() => {

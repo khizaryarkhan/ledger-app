@@ -59,6 +59,13 @@ export async function GET(req: Request) {
   }).from(invoices).where(eq(invoices.orgId, orgId!));
   const ourInvById = new Map(ourInvs.map(i => [i.id, i]));
 
+  // Unapplied payment amounts per customer. The main AR Aging engine deducts
+  // these from the per-customer summary but NOT from the individual detail rows.
+  // We inject synthetic CreditMemo-shaped rows here so every downstream report
+  // (Aging by Project / Customer / Region / Rep) produces the same grand total
+  // as the main AR Aging report.
+  const unappliedByCustomer: Record<string, number> = localResult.unappliedByCustomer ?? {};
+
   const rows = detail.map((d) => {
     const owned = ourInvById.get(d.txnId);
     const isCm = d.txnType === "Credit Memo";
@@ -116,6 +123,33 @@ export async function GET(req: Request) {
       paymentTerms:    30,
     };
   });
+
+  // Add one synthetic CreditMemo row per customer for their unapplied payment
+  // balance. invBuckets() on the client places CMs with negative qboBalance into
+  // the Current bucket, exactly matching how the main AR Aging summary handles it.
+  for (const [custId, unapplied] of Object.entries(unappliedByCustomer)) {
+    if (unapplied < 0.005) continue;
+    rows.push({
+      id:              `__unapplied__${custId}`,
+      customerId:      custId,
+      projectId:       null,       // no project — surfaces under "No project" in AgingByProject
+      invoiceNumber:   "Unapplied Payment",
+      invoiceDate:     asOf,
+      dueDate:         asOf,
+      currency:        "EUR",
+      total:           -unapplied, // negative so total-paid = negative open balance
+      paid:            0,
+      qboBalance:      -unapplied, // negative → invBuckets CM path → Current bucket credit
+      paymentStatus:   "Unpaid",
+      collectionStage: "New",
+      paidAt:          null,
+      qboId:           null,
+      txnType:         "CreditMemo",
+      amount:          -unapplied,
+      taxAmount:       0,
+      paymentTerms:    0,
+    });
+  }
 
   return ok(rows);
 }

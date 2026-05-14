@@ -6,7 +6,6 @@ import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { ArAgingReport } from "@/components/ar-aging-report";
 
 // ============================================================
 // SALES REPORT — Net (Ex VAT) only. Uses invoice.amount field.
@@ -1551,296 +1550,10 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 }
 
 // ============================================================
-// CUSTOMER STATEMENT — itemised AR ledger for a single customer
-// ============================================================
-function CustomerStatementReport({ customers, asOf }: { customers: any[]; asOf: string }) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
-  const [customerId, setCustomerId] = useState<string>("");
-  const [from, setFrom] = useState<string>("");
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  const load = () => {
-    if (!customerId) return;
-    setLoading(true);
-    const qs = new URLSearchParams({ customerId, asOf });
-    if (from) qs.set("from", from);
-    fetch(`/api/reports/statement?${qs.toString()}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setData)
-      .finally(() => setLoading(false));
-  };
-  useEffect(() => { if (customerId) load(); }, [customerId, asOf, from]);
-
-  const sortedCustomers = useMemo(
-    () => [...(customers || [])].sort((a, b) => a.name.localeCompare(b.name)),
-    [customers],
-  );
-
-  return (
-    <Card padding="none">
-      {/* Control bar */}
-      <div className="px-4 py-3 border-b border-stone-200 flex items-end gap-3 flex-wrap">
-        <div className="flex-1 min-w-[260px]">
-          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Customer</label>
-          <select value={customerId} onChange={e => setCustomerId(e.target.value)}
-            className="w-full h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white">
-            <option value="">Select a customer…</option>
-            {sortedCustomers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From (optional)</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} max={asOf}
-            className="h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white" />
-        </div>
-        <div>
-          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">As of</label>
-          <div className="h-8 px-3 inline-flex items-center text-sm text-stone-700 rounded-md ring-1 ring-stone-200 bg-stone-50 tabular-nums">{asOf}</div>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => window.print()} disabled={!data}>Print</Button>
-      </div>
-
-      {!customerId && <div className="px-4 py-12 text-center text-sm text-stone-400">Choose a customer to generate a statement.</div>}
-      {loading && <div className="px-4 py-12 text-center text-sm text-stone-400">Loading…</div>}
-
-      {!loading && data && (
-        <div className="px-6 py-5">
-          <div className="text-lg font-semibold text-stone-900">Statement of Account</div>
-          <div className="text-sm text-stone-600 mt-0.5">{data.customer.name} <span className="text-stone-400">· {data.customer.code}</span></div>
-          {data.customer.email && <div className="text-[11px] text-stone-500 mt-0.5">{data.customer.email}</div>}
-          <div className="text-[11px] text-stone-400 mt-0.5">
-            Period: {data.period.from === "all-time" ? "All time" : data.period.from} → {data.period.asOf}
-          </div>
-
-          {/* Opening / closing */}
-          <div className="grid grid-cols-4 gap-3 mt-5">
-            <div className="rounded-md ring-1 ring-stone-200 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Opening</div>
-              <div className="text-base font-semibold text-stone-900 tabular-nums mt-1">{fmt.money(data.openingBalance, ccy)}</div>
-            </div>
-            <div className="rounded-md ring-1 ring-stone-200 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Debits (charges)</div>
-              <div className="text-base font-semibold text-stone-900 tabular-nums mt-1">{fmt.money(data.summary.totalDebits, ccy)}</div>
-            </div>
-            <div className="rounded-md ring-1 ring-stone-200 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Credits (payments)</div>
-              <div className="text-base font-semibold text-stone-900 tabular-nums mt-1">{fmt.money(data.summary.totalCredits, ccy)}</div>
-            </div>
-            <div className="rounded-md ring-1 ring-stone-900 bg-stone-900 text-white p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-300 font-semibold">Closing</div>
-              <div className="text-base font-semibold tabular-nums mt-1">{fmt.money(data.closingBalance, ccy)}</div>
-            </div>
-          </div>
-
-          {/* Transactions */}
-          <table className="w-full text-sm mt-6">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-                <th className="text-left font-semibold px-3 py-2.5">Date</th>
-                <th className="text-left font-semibold px-3 py-2.5">Type</th>
-                <th className="text-left font-semibold px-3 py-2.5">Number</th>
-                <th className="text-left font-semibold px-3 py-2.5">Description</th>
-                <th className="text-right font-semibold px-3 py-2.5">Debit</th>
-                <th className="text-right font-semibold px-3 py-2.5">Credit</th>
-                <th className="text-right font-semibold px-3 py-2.5">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-stone-400">No transactions in this period.</td></tr>
-              )}
-              {data.rows.map((r: any, i: number) => (
-                <tr key={i} className="border-b border-stone-100 text-[12px]">
-                  <td className="px-3 py-2 text-stone-700 tabular-nums">{r.date}</td>
-                  <td className="px-3 py-2 text-stone-700">{r.type}</td>
-                  <td className="px-3 py-2 text-stone-600 font-mono">{r.number || "—"}</td>
-                  <td className="px-3 py-2 text-stone-500 truncate max-w-[280px]">{r.description || ""}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-stone-900">{r.debit  > 0 ? fmt.money(r.debit,  ccy) : "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-amber-700">{r.credit > 0 ? fmt.money(r.credit, ccy) : "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold text-stone-900">{fmt.money(r.runningBalance, ccy)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Aging summary */}
-          <div className="mt-6 grid grid-cols-7 gap-3 items-center">
-            <div className="col-span-2 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open balance by age (as of {data.period.asOf})</div>
-            {(["Current", "1-30", "31-60", "61-90", "91+"] as const).map(b => (
-              <div key={b} className="rounded-md ring-1 ring-stone-200 p-2 text-center">
-                <div className="text-[10px] text-stone-500">{b}</div>
-                <div className="text-[12px] font-semibold text-stone-900 tabular-nums">{fmt.money(data.aging.buckets[b], ccy)}</div>
-              </div>
-            ))}
-          </div>
-          {data.aging.creditsTotal < -0.005 && (
-            <div className="mt-3 text-[12px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-md px-3 py-2">
-              Open customer credits on account: <strong className="tabular-nums">{fmt.money(data.aging.creditsTotal, ccy)}</strong>
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ============================================================
-// CASH COLLECTIONS — money received per period
-// ============================================================
-function CashCollectionsReport({ asOf }: { asOf: string }) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const [from, setFrom] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  const load = () => {
-    setLoading(true);
-    fetch(`/api/reports/cash-collections?from=${from}&to=${asOf}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setData)
-      .finally(() => setLoading(false));
-  };
-  useEffect(() => { load(); }, [from, asOf]);
-
-  return (
-    <Card padding="none">
-      <div className="px-4 py-3 border-b border-stone-200 flex items-end gap-3 flex-wrap">
-        <div>
-          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} max={asOf}
-            className="h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white" />
-        </div>
-        <div>
-          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
-          <div className="h-8 px-3 inline-flex items-center text-sm text-stone-700 rounded-md ring-1 ring-stone-200 bg-stone-50 tabular-nums">{asOf}</div>
-        </div>
-      </div>
-
-      {loading && <div className="px-4 py-12 text-center text-sm text-stone-400">Loading…</div>}
-      {!loading && data && (
-        <div className="p-5 space-y-5">
-          <div className="grid grid-cols-4 gap-3">
-            <div className="rounded-md ring-1 ring-stone-200 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Received</div>
-              <div className="text-lg font-semibold text-stone-900 tabular-nums mt-1">{fmt.money(data.totals.received, ccy)}</div>
-              <div className="text-[10px] text-stone-400 mt-1">{data.totals.paymentCount} payment(s)</div>
-            </div>
-            <div className="rounded-md ring-1 ring-stone-200 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Refunded</div>
-              <div className="text-lg font-semibold text-amber-700 tabular-nums mt-1">{fmt.money(data.totals.refunded, ccy)}</div>
-              <div className="text-[10px] text-stone-400 mt-1">{data.totals.refundCount} refund(s)</div>
-            </div>
-            <div className="rounded-md ring-1 ring-stone-900 bg-stone-900 text-white p-3 col-span-2">
-              <div className="text-[10px] uppercase tracking-wider text-stone-300 font-semibold">Net cash inflow</div>
-              <div className="text-2xl font-semibold tabular-nums mt-1">{fmt.money(data.totals.net, ccy)}</div>
-            </div>
-          </div>
-
-          {/* By Customer */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">By Customer</div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-                  <th className="text-left font-semibold px-3 py-2">Customer</th>
-                  <th className="text-right font-semibold px-3 py-2">Received</th>
-                  <th className="text-right font-semibold px-3 py-2">Refunded</th>
-                  <th className="text-right font-semibold px-3 py-2">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.byCustomer.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-stone-400 text-sm">No customer payments in this period.</td></tr>}
-                {data.byCustomer.slice(0, 20).map((r: any) => (
-                  <tr key={r.customerId} className="border-b border-stone-100 text-[12px]">
-                    <td className="px-3 py-2 text-stone-700"><Link href={`/customers/${r.customerId}`} className="hover:text-stone-900">{r.name}</Link></td>
-                    <td className="px-3 py-2 text-right tabular-nums text-stone-900">{fmt.money(r.received, r.currency)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-amber-700">{r.refunded > 0 ? fmt.money(r.refunded, r.currency) : "—"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt.money(r.net, r.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* By Rep & Region side-by-side */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">By Rep</div>
-              {data.byRep.length === 0 ? <div className="text-stone-400 text-sm py-3">No assignments.</div> : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {data.byRep.map((r: any) => (
-                      <tr key={r.repId} className="border-b border-stone-100 text-[12px]">
-                        <td className="px-3 py-2 text-stone-700">{r.name}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt.money(r.net, ccy)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">By Region</div>
-              {data.byRegion.length === 0 ? <div className="text-stone-400 text-sm py-3">No region data.</div> : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {data.byRegion.map((r: any) => (
-                      <tr key={r.regionId} className="border-b border-stone-100 text-[12px]">
-                        <td className="px-3 py-2 text-stone-700">{r.name}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt.money(r.net, ccy)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-
-          {/* By Method */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">By Payment Method</div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-                  <th className="text-left font-semibold px-3 py-2">Method</th>
-                  <th className="text-right font-semibold px-3 py-2">Received</th>
-                  <th className="text-right font-semibold px-3 py-2">Refunded</th>
-                  <th className="text-right font-semibold px-3 py-2">Net</th>
-                  <th className="text-right font-semibold px-3 py-2">Txns</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.byMethod.map((r: any) => (
-                  <tr key={r.method} className="border-b border-stone-100 text-[12px]">
-                    <td className="px-3 py-2 text-stone-700">{r.method}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-stone-900">{fmt.money(r.received, ccy)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-amber-700">{r.refunded > 0 ? fmt.money(r.refunded, ccy) : "—"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt.money(r.net, ccy)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-stone-500">{r.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ============================================================
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
 
-type ReportId = "ar-aging" | "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "statement" | "cash-collections" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
+type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
 
 interface ReportItem {
   id: ReportId;
@@ -1857,14 +1570,11 @@ const REPORT_GROUPS: ReportGroup[] = [
   {
     label: "Receivables",
     items: [
-      { id: "ar-aging",       label: "AR Aging",          description: "Report-date aging with Summary & Detail views" },
       { id: "ar-health",      label: "AR Health",         description: "AR quality score and portfolio overview" },
       { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
       { id: "aging-project",  label: "Aging by Project",  description: "Outstanding balances grouped by project" },
       { id: "regional",       label: "Aging by Region",   description: "AR split by region with concentration view" },
       { id: "by-rep",         label: "Aging by Rep",      description: "Portfolio view per sales representative" },
-      { id: "statement",      label: "Customer Statement", description: "Itemised account history with running balance" },
-      { id: "cash-collections", label: "Cash Collections", description: "Money received per period — by day, customer, rep, region, method" },
     ],
   },
   {
@@ -1879,7 +1589,7 @@ const REPORT_GROUPS: ReportGroup[] = [
   },
 ];
 
-const AR_REPORTS: ReportId[] = ["aging-customer", "aging-project", "regional", "by-rep"];
+const AR_REPORTS: ReportId[] = ["ar-health", "aging-customer", "aging-project", "regional", "by-rep"];
 const SALES_REPORTS: ReportId[] = ["sales-overview", "sales-customer", "sales-project", "sales-region", "sales-rep"];
 
 // Map sidebar report ID → SalesReport breakdown
@@ -1893,7 +1603,7 @@ const SALES_BREAKDOWN: Partial<Record<ReportId, "customer" | "project" | "rep" |
 export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
-  const [report, setReport] = useState<ReportId>("ar-aging");
+  const [report, setReport] = useState<ReportId>("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -2018,10 +1728,6 @@ export default function ReportsPage() {
 
         {/* Report body */}
         <div className="p-6">
-          {report === "ar-aging" && (
-            <ArAgingReport />
-          )}
-
           {report === "ar-health" && (
             <ArHealthReport
               invoices={invoices}
@@ -2031,14 +1737,6 @@ export default function ReportsPage() {
               communications={communications}
               regionFilter={regionFilter}
             />
-          )}
-
-          {report === "statement" && (
-            <CustomerStatementReport customers={customers} asOf={asAtDate} />
-          )}
-
-          {report === "cash-collections" && (
-            <CashCollectionsReport asOf={asAtDate} />
           )}
 
           {isSalesReport && (
