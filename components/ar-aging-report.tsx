@@ -89,6 +89,10 @@ export function ArAgingReport() {
   // and Current (age by today's date - due-date). UI defaults vary, so we
   // expose the toggle to match whatever the user is comparing against.
   const [agingMethod, setAgingMethod] = useState<"Report_Date" | "Current">("Report_Date");
+  // Source selector. Default = "auto" (QBO API for historical, local engine
+  // for today). User can force "qbo" to always hit QBO live or "local" to
+  // always use our engine — useful for verifying reconciliation behaviour.
+  const [sourceMode, setSourceMode] = useState<"auto" | "qbo" | "local">("auto");
   const [data, setData] = useState<AgingPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [recon, setRecon] = useState<ReconcilePayload | null>(null);
@@ -102,13 +106,15 @@ export function ArAgingReport() {
       includeClosed: String(includeClosed),
       agingMethod,
     });
+    if (sourceMode === "qbo")   qs.set("source", "qbo");
+    if (sourceMode === "local") qs.set("source", "local");
     fetch(`/api/reports/ar-aging?${qs.toString()}`)
       .then(r => r.ok ? r.json() : null)
       .then(setData)
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [asOf, includeClosed, agingMethod]);
+  useEffect(() => { load(); }, [asOf, includeClosed, agingMethod, sourceMode]);
 
   const customerById = useMemo(() => new Map<string, any>(customers.map((c: any) => [c.id, c])), [customers]);
 
@@ -163,6 +169,27 @@ export function ArAgingReport() {
               <button onClick={() => setView("detail")}
                 className={`px-3 text-[12px] font-medium transition-colors ${view === "detail" ? "bg-stone-900 text-white" : "bg-white text-stone-600 hover:bg-stone-50"}`}>
                 Detail
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Source</label>
+            <div className="flex h-8 rounded-md ring-1 ring-stone-200 overflow-hidden">
+              <button onClick={() => setSourceMode("auto")}
+                className={`px-3 text-[12px] font-medium transition-colors ${sourceMode === "auto" ? "bg-stone-900 text-white" : "bg-white text-stone-600 hover:bg-stone-50"}`}
+                title="QBO API for historical dates, local engine for today">
+                Auto
+              </button>
+              <button onClick={() => setSourceMode("qbo")}
+                className={`px-3 text-[12px] font-medium transition-colors ${sourceMode === "qbo" ? "bg-stone-900 text-white" : "bg-white text-stone-600 hover:bg-stone-50"}`}
+                title="Always fetch QBO AgedReceivableDetail live">
+                QBO
+              </button>
+              <button onClick={() => setSourceMode("local")}
+                className={`px-3 text-[12px] font-medium transition-colors ${sourceMode === "local" ? "bg-stone-900 text-white" : "bg-white text-stone-600 hover:bg-stone-50"}`}
+                title="Compute locally from synced invoices, payments, CMs, JEs, deposits (with application netting)">
+                Local
               </button>
             </div>
           </div>

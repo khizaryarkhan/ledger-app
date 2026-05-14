@@ -158,22 +158,47 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     appsByInvoiceId.set(app.invoiceId, arr);
   }
 
-  // 3b. Load Journal Entry AR lines dated on or before asOf — only for HISTORICAL views.
-  //
-  // For TODAY's view: JEs have typically already been "applied" via QBO
-  // zero-amount payments, which closes invoices in the snapshot. The invoice
-  // snapshot already reflects these closures. Including JE rows on top would
-  // double-count the reduction. So we skip JEs entirely for today's view —
-  // the snapshot is the source of truth.
-  //
-  // For HISTORICAL: applications-based reconstruction needs the JE rows to
-  // accurately show AR at past dates (especially before zero-payment closures).
-  const jeArRows = isToday ? [] : await db.select().from(journalEntryArLines)
+  // 3b. Load every Journal Entry AR line dated on or before asOf (both today
+  // and historical). Earlier versions of this engine skipped JEs for today on
+  // the (wrong) assumption that the invoice snapshot already accounted for
+  // their effect — it doesn't. The JE is a separate AR-posting transaction
+  // and must be summed in its own right.
+  const jeArRows = await db.select().from(journalEntryArLines)
     .where(and(
       eq(journalEntryArLines.orgId, orgId),
       lte(journalEntryArLines.txnDate, asOf),
       eq(journalEntryArLines.voided, false),
     ));
+
+  // 3c. Load payment_applications that target Journal Entries. QBO's
+  // "zero-amount payment" mechanism applies a JE to an invoice and records
+  // BOTH sides as LinkedTxn entries on the same payment line. We capture
+  // them during sync. Each JE's open amount is its gross signed amount
+  // reduced (in magnitude) by the sum of applications targeting it.
+  const jeApps = await db
+    .select({
+      targetQboId:   paymentApplications.targetQboId,
+      amountApplied: paymentApplications.amountApplied,
+      paymentId:     paymentApplications.paymentId,
+    })
+    .from(paymentApplications)
+    .where(and(
+      eq(paymentApplications.orgId, orgId),
+      eq(paymentApplications.targetType, "JournalEntry"),
+    ));
+  const appliedByJeQboId = new Map<string, number>();
+  for (const a of jeApps) {
+    // Only count applications whose underlying payment is dated <= asOf — a
+    // future-dated application shouldn't reduce the JE's open amount as of
+    // a historical report date.
+    const pay = paymentById.get(a.paymentId);
+    if (!pay) continue;
+    if (!a.targetQboId) continue;
+    appliedByJeQboId.set(
+      a.targetQboId,
+      (appliedByJeQboId.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0),
+    );
+  }
 
   // 4. Build detail rows
   const detail: DetailRow[] = [];
@@ -297,17 +322,29 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     });
   }
 
-  // 4b. Add Journal Entry AR lines as their own detail rows.
-  // Each JE line is a discrete AR-affecting event with no payments applied to it
-  // (JEs reduce/increase customer AR directly, not through invoices).
-  // Bucket by txnDate vs asOf since JEs don't have due dates per se.
+  // 4b. Add Journal Entry AR lines as their own detail rows, NET of any
+  // applications captured during sync (zero-amount payments that linked the
+  // JE to an offsetting invoice or other transaction).
+  //
+  // open amount = signed amount with magnitude reduced by applications.
+  // Examples:
+  //   JE -€1,000,000, no applications      → open = -€1,000,000 (fully open credit)
+  //   JE -€1,000,000, €400,000 applied     → open = -€600,000   (partially applied)
+  //   JE -€1,000,000, €1,000,000 applied   → open = €0          (fully applied; row dropped)
+  //   JE +€500,000,  no applications       → open = +€500,000   (fully open debit)
   for (const je of jeArRows) {
-    if (!je.customerId) continue; // JE line without customer entity — skip (can't attribute)
+    if (!je.customerId) continue;
     if (Math.abs(je.amount) < 0.005) continue;
+
+    const appliedAmount  = appliedByJeQboId.get(je.qboJournalId) ?? 0;
+    const openMagnitude  = Math.max(0, Math.abs(je.amount) - appliedAmount);
+    const jeOpenBalance  = Math.sign(je.amount) * openMagnitude;
+    if (!includeClosed && Math.abs(jeOpenBalance) < 0.005) continue;
 
     const dpd = daysBetween(asOf, je.txnDate);
     const bucket = bucketFor(dpd);
     const flags = ["journal-entry"];
+    if (appliedAmount > 0.005 && openMagnitude > 0.005) flags.push("partially-applied");
 
     detail.push({
       customerId: je.customerId,
@@ -319,10 +356,10 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       qboId: je.qboJournalId,
       txnDate: je.txnDate,
       dueDate: je.txnDate, // JEs are immediately "due"
-      originalAmount: je.amount,
+      originalAmount: je.amount, // keep the gross for transparency
       applied: [],
-      totalApplied: 0,
-      openBalance: je.amount, // JE amount IS the AR change (signed)
+      totalApplied: appliedAmount,
+      openBalance: jeOpenBalance,
       daysPastDue: dpd,
       bucket,
       currency: je.currency,
