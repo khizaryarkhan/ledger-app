@@ -24,7 +24,6 @@ import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
-import { fetchQboAging } from "@/lib/qbo-aging-report";
 import type { DetailRow } from "@/lib/ar-aging";
 
 export async function GET(req: Request) {
@@ -37,24 +36,12 @@ export async function GET(req: Request) {
     return bad("asOf=YYYY-MM-DD required");
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const isHistorical = asOf < today;
-
-  // Fetch aging — QBO for historical, local for today.
-  let detail: DetailRow[];
-  try {
-    if (isHistorical) {
-      const qboResult = await fetchQboAging(orgId!, asOf);
-      detail = qboResult.detail;
-    } else {
-      const localResult = await computeArAging(orgId!, asOf, false);
-      detail = localResult.detail;
-    }
-  } catch (e: any) {
-    // QBO call failed (token expired, etc.) — fall back to local engine
-    const localResult = await computeArAging(orgId!, asOf, false);
-    detail = localResult.detail;
-  }
+  // Always use the local engine. The Aging by Customer / Project / Region /
+  // Rep tabs all consume this snapshot, so they're now all computed from our
+  // synced data — invoices, payments, payment_applications (incl. JE
+  // applications with per-line netting), JEs, deposits.
+  const localResult = await computeArAging(orgId!, asOf, false);
+  const detail: DetailRow[] = localResult.detail;
 
   // Load metadata from our invoices table so we can hydrate currency / customer /
   // project linkage on the rows we know about. QBO rows that don't map to

@@ -34,13 +34,10 @@ export async function GET(req: Request) {
   const agingMethodParam = url.searchParams.get("agingMethod"); // "Current" | "Report_Date"
   if (!asOf) return bad("asOf=YYYY-MM-DD required");
 
-  const today = new Date().toISOString().slice(0, 10);
-  const isHistorical = asOf < today;
-
-  // Decide which engine to use.
-  const useQbo =
-    source === "qbo" ||
-    (source !== "local" && isHistorical);
+  // Default to the LOCAL engine for all dates. QBO API mode is opt-in only
+  // (source=qbo) and exists for forensic comparison; the report is otherwise
+  // built from our synced data so we control the math.
+  const useQbo = source === "qbo";
 
   try {
     if (useQbo) {

@@ -89,10 +89,10 @@ export function ArAgingReport() {
   // and Current (age by today's date - due-date). UI defaults vary, so we
   // expose the toggle to match whatever the user is comparing against.
   const [agingMethod, setAgingMethod] = useState<"Report_Date" | "Current">("Report_Date");
-  // Source selector. Default = "auto" (QBO API for historical, local engine
-  // for today). User can force "qbo" to always hit QBO live or "local" to
-  // always use our engine — useful for verifying reconciliation behaviour.
-  const [sourceMode, setSourceMode] = useState<"auto" | "qbo" | "local">("auto");
+  // Source selector. Default = "local" — the report is computed from our
+  // synced data, not pulled from QBO live. QBO mode exists as an opt-in
+  // comparison ("verify what QBO would say for the same date").
+  const [sourceMode, setSourceMode] = useState<"auto" | "qbo" | "local">("local");
   const [data, setData] = useState<AgingPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [recon, setRecon] = useState<ReconcilePayload | null>(null);

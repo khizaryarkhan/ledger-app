@@ -24,7 +24,7 @@
  */
 
 import { db } from "@/db";
-import { invoices, payments, paymentApplications, journalEntryArLines } from "@/db/schema";
+import { invoices, payments, paymentApplications, journalEntryArLines, deposits } from "@/db/schema";
 import { and, eq, lte } from "drizzle-orm";
 
 export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "91+";
@@ -217,6 +217,17 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   // JE has multiple AR lines, so we distribute the header total across the
   // JE's AR lines proportional to their |amount|. This is computed lazily
   // inside the JE detail loop when needed.
+
+  // 3d. Load AR-affecting Deposits dated on or before asOf. A QBO Deposit
+  // line that posts to AR for a specific customer is a one-shot AR change
+  // (typically negative — a customer credit / overpayment sitting on
+  // account). No application-netting concept — each deposit row stands
+  // alone the way a JE line does.
+  const depositRows = await db.select().from(deposits)
+    .where(and(
+      eq(deposits.orgId, orgId),
+      lte(deposits.txnDate, asOf),
+    ));
 
   // 4. Build detail rows
   const detail: DetailRow[] = [];
@@ -433,6 +444,38 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       bucket,
       currency: je.currency,
       flags,
+    });
+  }
+
+  // 4c. Add Deposit AR lines. These are AR-posting Deposit lines synced from
+  // QBO with their customer assignment (typically customer overpayments
+  // sitting as a credit). Each deposit stands alone — no application netting
+  // because QBO doesn't link Deposit applications the way it links payment
+  // applications. Sign matches what's stored (negative = customer credit).
+  for (const d of depositRows) {
+    if (!d.customerId) continue;
+    if (Math.abs(d.amount) < 0.005) continue;
+
+    const dpd    = daysBetween(asOf, d.txnDate);
+    const bucket = bucketFor(dpd);
+    detail.push({
+      customerId:    d.customerId,
+      customerQboId: d.qboCustomerId,
+      projectId:     null,
+      txnType:       "Journal Entry", // closest existing type for grouping; deposit-line ARs behave the same
+      txnNumber:     d.qboId,
+      txnId:         d.id,
+      qboId:         d.qboId,
+      txnDate:       d.txnDate,
+      dueDate:       d.txnDate,
+      originalAmount: d.amount,
+      applied:       [],
+      totalApplied:  0,
+      openBalance:   d.amount,
+      daysPastDue:   dpd,
+      bucket,
+      currency:      d.currency,
+      flags:         ["deposit"],
     });
   }
 
