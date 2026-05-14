@@ -86,7 +86,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       unappliedAmount: payments.unappliedAmount,
     }).from(payments).where(and(eq(payments.orgId, orgId!), eq(payments.customerId, cust.id))),
     db.select({
+      id: journalEntryArLines.id,
       qboJournalId: journalEntryArLines.qboJournalId,
+      qboLineId: journalEntryArLines.qboLineId,
       amount: journalEntryArLines.amount,
       voided: journalEntryArLines.voided,
     })
@@ -95,11 +97,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     db.select({ amount: deposits.amount })
       .from(deposits)
       .where(and(eq(deposits.orgId, orgId!), eq(deposits.customerId, cust.id))),
-    // Applications targeting JEs — captures zero-amount payments that QBO uses
-    // to apply a JE to an invoice. Once we see one for a JE, that JE has been
-    // closed and should not contribute to AR.
+    // Applications targeting JEs. Captures the partial-applied case: a
+    // zero-amount payment with Payment.Line.LinkedTxn pointing at the JE and
+    // Payment.Line.Amount equal to the applied portion. TxnLineId may be
+    // present (best) or absent (falls back to header-level netting).
     db.select({
       targetQboId:   paymentApplications.targetQboId,
+      targetLineId:  paymentApplications.targetLineId,
       amountApplied: paymentApplications.amountApplied,
     })
       .from(paymentApplications)
@@ -131,21 +135,54 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const paymentCredit = -pmts.reduce((s, p) => s + (p.unappliedAmount ?? 0), 0);
 
-  // JE open amount = signed amount reduced by the magnitude of any applications
-  // captured in payment_applications (zero-amount payments that linked the JE
-  // to an offsetting transaction). A fully-applied JE contributes zero.
-  const appliedByJeQboId = new Map<string, number>();
+  // JE open amount per LINE (not per header). Match applications via
+  // (qboJournalId, qboLineId) when available; fall back to a proportional
+  // share of header-level applications when QBO omits TxnLineId.
+  const appliedByJeLine   = new Map<string, number>();
+  const appliedByJeHeader = new Map<string, number>();
   for (const a of jeApps) {
     if (!a.targetQboId) continue;
-    appliedByJeQboId.set(a.targetQboId, (appliedByJeQboId.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0));
+    if (a.targetLineId) {
+      const k = `${a.targetQboId}|${a.targetLineId}`;
+      appliedByJeLine.set(k, (appliedByJeLine.get(k) ?? 0) + (a.amountApplied ?? 0));
+    } else {
+      appliedByJeHeader.set(a.targetQboId, (appliedByJeHeader.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0));
+    }
+  }
+  // Pre-distribute header-level applied amounts across this customer's JE
+  // lines under the same JE header (proportional to |amount|).
+  const headerAllocationByJe = new Map<string, number>();
+  if (appliedByJeHeader.size > 0) {
+    const linesByHeader = new Map<string, { id: string; abs: number }[]>();
+    for (const j of jes) {
+      if ((j as any).voided) continue;
+      const abs = Math.abs(j.amount ?? 0);
+      if (abs < 0.005) continue;
+      const arr = linesByHeader.get(j.qboJournalId) ?? [];
+      arr.push({ id: (j as any).id ?? "", abs });
+      linesByHeader.set(j.qboJournalId, arr);
+    }
+    for (const [header, totalApplied] of appliedByJeHeader.entries()) {
+      const lines = linesByHeader.get(header);
+      if (!lines || lines.length === 0) continue;
+      const sumAbs = lines.reduce((s, l) => s + l.abs, 0);
+      if (sumAbs < 0.005) continue;
+      let remaining = totalApplied;
+      for (let i = 0; i < lines.length; i++) {
+        const share = i === lines.length - 1 ? remaining : (lines[i].abs / sumAbs) * totalApplied;
+        if (lines[i].id) headerAllocationByJe.set(lines[i].id, share);
+        remaining -= share;
+      }
+    }
   }
   const jeBalance = jes
     .filter(j => !(j as any).voided)
     .reduce((s, j) => {
-      const applied = appliedByJeQboId.get(j.qboJournalId) ?? 0;
+      let applied = 0;
+      if (j.qboLineId) applied = appliedByJeLine.get(`${j.qboJournalId}|${j.qboLineId}`) ?? 0;
+      if (applied === 0) applied = headerAllocationByJe.get((j as any).id) ?? 0;
       const openMagnitude = Math.max(0, Math.abs(j.amount ?? 0) - applied);
-      const openAmount    = Math.sign(j.amount ?? 0) * openMagnitude;
-      return s + openAmount;
+      return s + Math.sign(j.amount ?? 0) * openMagnitude;
     }, 0);
 
   const depositCredit = deps.reduce((s, d) => s + (d.amount ?? 0), 0);

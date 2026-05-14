@@ -792,8 +792,14 @@ export async function runQboSync(orgId: string, userId: string) {
         const linked = line.LinkedTxn || [];
         const amount = parseFloat(line.Amount) || 0;
         for (const l of linked) {
-          const targetType = l.TxnType as string;
-          const targetQboId = l.TxnId as string;
+          const targetType  = l.TxnType  as string;
+          const targetQboId = l.TxnId    as string;
+          // TxnLineId identifies the specific sub-line on the target txn.
+          // Crucial for JEs: one JE header can carry multiple AR lines for
+          // different customers, so the application has to know which line
+          // it applies to. May be absent on some payloads — the aging
+          // engine falls back to customer/account matching when null.
+          const targetLineId = (l.TxnLineId as string | undefined) ?? null;
           if (!targetQboId || !targetType) continue;
           if (!["Invoice", "CreditMemo", "JournalEntry"].includes(targetType)) continue;
           const invoiceId = targetType === "Invoice"
@@ -801,7 +807,11 @@ export async function runQboSync(orgId: string, userId: string) {
             : targetType === "CreditMemo"
               ? (cmByRawId.get(targetQboId) ?? null)
               : null; // JournalEntry has no FK to invoices table
-          allApps.push({ orgId, paymentId: paymentRowId, invoiceId, targetQboId, targetType, amountApplied: amount });
+          allApps.push({
+            orgId, paymentId: paymentRowId,
+            invoiceId, targetQboId, targetType, targetLineId,
+            amountApplied: amount,
+          });
         }
       }
       void isZeroPayment; // kept for future use; no longer used to gate

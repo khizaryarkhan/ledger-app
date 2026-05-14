@@ -170,14 +170,23 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       eq(journalEntryArLines.voided, false),
     ));
 
-  // 3c. Load payment_applications that target Journal Entries. QBO's
-  // "zero-amount payment" mechanism applies a JE to an invoice and records
-  // BOTH sides as LinkedTxn entries on the same payment line. We capture
-  // them during sync. Each JE's open amount is its gross signed amount
-  // reduced (in magnitude) by the sum of applications targeting it.
+  // 3c. Load payment_applications that target Journal Entries.
+  //
+  // Per Intuit docs, a Payment.Line.LinkedTxn with TxnType=JournalEntry
+  // identifies a JE application; Payment.Line.Amount is the partial amount
+  // applied to that JE. The optional Payment.Line.LinkedTxn.TxnLineId
+  // identifies which specific AR line of the JE the payment hit — important
+  // because one JE header can carry multiple AR lines for different
+  // customers and they age independently.
+  //
+  // We aggregate applied amounts two ways so the JE-line netting can pick
+  // whichever is most precise:
+  //   - keyed by (qboJournalId, qboLineId) when TxnLineId is present
+  //   - keyed by qboJournalId when TxnLineId is absent (header-level fallback)
   const jeApps = await db
     .select({
       targetQboId:   paymentApplications.targetQboId,
+      targetLineId:  paymentApplications.targetLineId,
       amountApplied: paymentApplications.amountApplied,
       paymentId:     paymentApplications.paymentId,
     })
@@ -186,19 +195,28 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       eq(paymentApplications.orgId, orgId),
       eq(paymentApplications.targetType, "JournalEntry"),
     ));
-  const appliedByJeQboId = new Map<string, number>();
+  const appliedByJeLine   = new Map<string, number>(); // key = `${qboJournalId}|${qboLineId}`
+  const appliedByJeHeader = new Map<string, number>(); // key = qboJournalId (fallback)
   for (const a of jeApps) {
-    // Only count applications whose underlying payment is dated <= asOf — a
-    // future-dated application shouldn't reduce the JE's open amount as of
-    // a historical report date.
+    // Skip applications whose underlying payment is dated after asOf — they
+    // shouldn't reduce the JE's open amount as of a historical report date.
     const pay = paymentById.get(a.paymentId);
     if (!pay) continue;
     if (!a.targetQboId) continue;
-    appliedByJeQboId.set(
-      a.targetQboId,
-      (appliedByJeQboId.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0),
-    );
+    if (a.targetLineId) {
+      const k = `${a.targetQboId}|${a.targetLineId}`;
+      appliedByJeLine.set(k, (appliedByJeLine.get(k) ?? 0) + (a.amountApplied ?? 0));
+    } else {
+      appliedByJeHeader.set(
+        a.targetQboId,
+        (appliedByJeHeader.get(a.targetQboId) ?? 0) + (a.amountApplied ?? 0),
+      );
+    }
   }
+  // For the header-fallback case (TxnLineId absent), we'd over-apply if a
+  // JE has multiple AR lines, so we distribute the header total across the
+  // JE's AR lines proportional to their |amount|. This is computed lazily
+  // inside the JE detail loop when needed.
 
   // 4. Build detail rows
   const detail: DetailRow[] = [];
@@ -323,22 +341,73 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   }
 
   // 4b. Add Journal Entry AR lines as their own detail rows, NET of any
-  // applications captured during sync (zero-amount payments that linked the
-  // JE to an offsetting invoice or other transaction).
+  // applications captured during sync.
   //
-  // open amount = signed amount with magnitude reduced by applications.
+  // Critical detail: the netting is PER JE LINE, not per JE header. A JE can
+  // post multiple AR lines (e.g. to different customers) under one header,
+  // and a payment that applies to one of them must not reduce the others.
+  //
+  // Matching priority:
+  //   1. If we have a per-line application (TxnLineId present), use it directly.
+  //   2. Otherwise, distribute the header-level applied total across all
+  //      AR lines under that JE proportional to their |amount|. This is
+  //      the conservative fallback for QBO payloads that omit TxnLineId.
+  //   3. If neither, the JE is fully open.
+  //
   // Examples:
-  //   JE -€1,000,000, no applications      → open = -€1,000,000 (fully open credit)
-  //   JE -€1,000,000, €400,000 applied     → open = -€600,000   (partially applied)
-  //   JE -€1,000,000, €1,000,000 applied   → open = €0          (fully applied; row dropped)
-  //   JE +€500,000,  no applications       → open = +€500,000   (fully open debit)
+  //   JE -€1,000,000 line A, €400,000 applied to line A → open = -€600,000
+  //   JE -€1,000,000 line A, fully applied              → open = €0 (dropped)
+  //   JE header +€500,000 across 2 lines, no apps       → each line shows full
+
+  // Pre-compute, for each JE header that has header-level applications, the
+  // proportional allocation across that JE's AR lines.
+  type AllocRow = { id: string; abs: number };
+  const headerAllocations = new Map<string, Map<string, number>>(); // qboJournalId → Map(jeId → allocatedAbs)
+  if (appliedByJeHeader.size > 0) {
+    const linesByHeader = new Map<string, AllocRow[]>();
+    for (const je of jeArRows) {
+      const a = Math.abs(je.amount ?? 0);
+      if (a < 0.005) continue;
+      const arr = linesByHeader.get(je.qboJournalId) ?? [];
+      arr.push({ id: je.id, abs: a });
+      linesByHeader.set(je.qboJournalId, arr);
+    }
+    for (const [header, totalApplied] of appliedByJeHeader.entries()) {
+      const lines = linesByHeader.get(header);
+      if (!lines || lines.length === 0) continue;
+      const sumAbs = lines.reduce((s, l) => s + l.abs, 0);
+      if (sumAbs < 0.005) continue;
+      const alloc = new Map<string, number>();
+      let remaining = totalApplied;
+      // Allocate proportionally, give any rounding residue to the last line.
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        let share: number;
+        if (i === lines.length - 1) share = remaining;
+        else share = (l.abs / sumAbs) * totalApplied;
+        alloc.set(l.id, share);
+        remaining -= share;
+      }
+      headerAllocations.set(header, alloc);
+    }
+  }
+
   for (const je of jeArRows) {
     if (!je.customerId) continue;
     if (Math.abs(je.amount) < 0.005) continue;
 
-    const appliedAmount  = appliedByJeQboId.get(je.qboJournalId) ?? 0;
-    const openMagnitude  = Math.max(0, Math.abs(je.amount) - appliedAmount);
-    const jeOpenBalance  = Math.sign(je.amount) * openMagnitude;
+    // Pick the line-level application if QBO gave us TxnLineId for this JE
+    // line; otherwise fall back to this line's share of the header total.
+    let appliedAmount = 0;
+    if (je.qboLineId) {
+      appliedAmount = appliedByJeLine.get(`${je.qboJournalId}|${je.qboLineId}`) ?? 0;
+    }
+    if (appliedAmount === 0) {
+      appliedAmount = headerAllocations.get(je.qboJournalId)?.get(je.id) ?? 0;
+    }
+
+    const openMagnitude = Math.max(0, Math.abs(je.amount) - appliedAmount);
+    const jeOpenBalance = Math.sign(je.amount) * openMagnitude;
     if (!includeClosed && Math.abs(jeOpenBalance) < 0.005) continue;
 
     const dpd = daysBetween(asOf, je.txnDate);
@@ -355,8 +424,8 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
       txnId: je.id,
       qboId: je.qboJournalId,
       txnDate: je.txnDate,
-      dueDate: je.txnDate, // JEs are immediately "due"
-      originalAmount: je.amount, // keep the gross for transparency
+      dueDate: je.txnDate, // JEs have no DueDate — age from TxnDate
+      originalAmount: je.amount,
       applied: [],
       totalApplied: appliedAmount,
       openBalance: jeOpenBalance,

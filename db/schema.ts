@@ -244,18 +244,26 @@ export type Payment = typeof payments.$inferSelect;
 // targetType discriminates which table the targetQboId points to.
 // =========================================================================
 export const paymentApplications = pgTable("payment_applications", {
-  id:           uuid("id").defaultRandom().primaryKey(),
-  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  paymentId:    uuid("payment_id").notNull().references(() => payments.id, { onDelete: "cascade" }),
-  // Linked transaction — either an invoice or a credit memo (CMs live in invoices table with txnType='CreditMemo')
-  invoiceId:    uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
-  targetQboId:  varchar("target_qbo_id", { length: 64 }).notNull(), // raw QBO id of the linked txn
-  targetType:   varchar("target_type", { length: 32 }).notNull(),   // "Invoice" | "CreditMemo"
-  amountApplied:real("amount_applied").notNull(),
-  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  paymentId:     uuid("payment_id").notNull().references(() => payments.id, { onDelete: "cascade" }),
+  // Linked transaction — Invoice, CreditMemo, or JournalEntry. CMs live in
+  // the invoices table with txn_type='CreditMemo'; JEs live in journal_entry_ar_lines.
+  invoiceId:     uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  targetQboId:   varchar("target_qbo_id", { length: 64 }).notNull(), // raw QBO id of the linked txn
+  targetType:    varchar("target_type", { length: 32 }).notNull(),   // "Invoice" | "CreditMemo" | "JournalEntry"
+  // Sub-line identifier on the target transaction. Critical for Journal
+  // Entries: a single JE can have multiple AR lines (potentially to different
+  // customers). The application targets a specific line, identified by
+  // Payment.Line.LinkedTxn.TxnLineId. May be null if the QBO payload omits it
+  // (in which case the aging engine falls back to customer+account matching).
+  targetLineId:  varchar("target_line_id", { length: 64 }),
+  amountApplied: real("amount_applied").notNull(),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
-  paymentTargetUnique: uniqueIndex("payment_applications_payment_target_unique")
-    .on(t.paymentId, t.targetQboId, t.targetType),
+  // Include targetLineId so multi-line JEs can have one application per line.
+  paymentTargetUnique: uniqueIndex("payment_applications_payment_target_line_unique")
+    .on(t.paymentId, t.targetQboId, t.targetType, t.targetLineId),
 }));
 export type PaymentApplication = typeof paymentApplications.$inferSelect;
 
