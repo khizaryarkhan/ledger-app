@@ -88,14 +88,14 @@ function ReminderProgramme() {
           const parentCust   = (customers ?? []).find((c: any) => c.id === entity.customerId);
 
           next[entity.id] =
-            projContacts.find((c: any) => c.receivesAuto)?.email ??
+            projContacts.find((c: any) => c.receivesAuto)?.email ||
             latestProjInvoiceEmail ||
-            custContacts.find((c: any) => c.receivesAuto)?.email ??
-            projContacts.find((c: any) => c.type === "Billing")?.email ??
-            projContacts[0]?.email ??
-            custContacts.find((c: any) => c.type === "Billing")?.email ??
-            custContacts[0]?.email ??
-            parentCust?.email ??
+            custContacts.find((c: any) => c.receivesAuto)?.email ||
+            projContacts.find((c: any) => c.type === "Billing")?.email ||
+            projContacts[0]?.email ||
+            custContacts.find((c: any) => c.type === "Billing")?.email ||
+            custContacts[0]?.email ||
+            parentCust?.email ||
             "";
         } else {
           const latestCustInvoiceEmail = (invoices ?? [])
@@ -106,11 +106,11 @@ function ReminderProgramme() {
           const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.id && !c.projectId);
 
           next[entity.id] =
-            custContacts.find((c: any) => c.receivesAuto)?.email ??
+            custContacts.find((c: any) => c.receivesAuto)?.email ||
             latestCustInvoiceEmail ||
-            custContacts.find((c: any) => c.type === "Billing")?.email ??
-            custContacts[0]?.email ??
-            entity.email ??
+            custContacts.find((c: any) => c.type === "Billing")?.email ||
+            custContacts[0]?.email ||
+            entity.email ||
             "";
         }
       });

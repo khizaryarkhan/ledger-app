@@ -434,6 +434,7 @@ export async function fetchQboAging(
     detail,
     summary,
     grandTotals,
+    unappliedByCustomer: {}, // QBO path — unapplied amounts already baked into QBO balances
     flags: {
       missingDueDate,
       negativeCustomerBalances,
