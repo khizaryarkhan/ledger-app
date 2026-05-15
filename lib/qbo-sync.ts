@@ -422,6 +422,14 @@ export async function runQboSync(orgId: string, userId: string) {
     // Also pull BillEmailCc if present and combine all into one string
     const billingEmail = buildBillingEmails(qi);
 
+    // Detect a reopened invoice: previously Paid/Closed in our ledger but
+    // QBO now shows a positive balance (e.g. accountant reversed a misapplied payment).
+    // When this happens we must reset collectionStage and clear paidAt so the
+    // invoice surfaces again in the active AR view.
+    const wasClosedOrPaid = existing && (
+      existing.paymentStatus === "Paid" || existing.collectionStage === "Closed"
+    );
+
     const syncData = {
       total,
       amount,      // Net ex tax
@@ -435,6 +443,8 @@ export async function runQboSync(orgId: string, userId: string) {
       paymentStatus: (paid > 0 ? "Partially Paid" : "Unpaid") as any,
       billingEmail,
       updatedAt: new Date(),
+      // If the invoice is being reopened, reset stage to "Open" and clear paidAt
+      ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
 
     if (existing) {
@@ -1360,7 +1370,13 @@ export async function syncTargetedEntities(
           updatedAt: new Date(),
           billingEmail,
           paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
-          ...(isPaid ? { collectionStage: "Closed" } : {}),
+          // Close when paid; reopen (reset stage + clear paidAt) when a previously
+          // paid/closed invoice regains a positive balance (e.g. reversed payment).
+          ...(isPaid
+            ? { collectionStage: "Closed" }
+            : (existing.paymentStatus === "Paid" || existing.collectionStage === "Closed")
+              ? { collectionStage: "Open", paidAt: null }
+              : {}),
           // Only set paidAt once — don't overwrite a previously recorded date
           ...(isPaid && !existing.paidAt && qboPaidAt ? { paidAt: qboPaidAt } : {}),
         }).where(eq(invoices.id, existing.id))
