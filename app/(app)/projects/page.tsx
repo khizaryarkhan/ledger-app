@@ -34,12 +34,19 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
 
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Rep to</label>
+            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Rep / ED/RM to</label>
             <select value={repId} onChange={e => setRepId(e.target.value)}
               className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
               <option value="">— No change —</option>
-              <option value="null">Unassign rep</option>
-              {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              <option value="null">Unassign</option>
+              {reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").length > 0 && (
+                reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd")
+                  .map((r: any) => <option key={r.id} value={r.id}>{r.name} (PM)</option>)
+              )}
+              {reps.filter((r: any) => r.tier === "ed" || r.tier === "rd").length > 0 && (
+                reps.filter((r: any) => r.tier === "ed" || r.tier === "rd")
+                  .map((r: any) => <option key={r.id} value={r.id}>{r.name} (ED/RM)</option>)
+              )}
             </select>
           </div>
           <div>
@@ -198,8 +205,13 @@ export default function ProjectsPage() {
           <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
             style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-            <option value="">All reps</option>
-            {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            <option value="">All reps / ED/RM</option>
+            {reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").map((r: any) =>
+              <option key={r.id} value={r.id}>{r.name} (PM)</option>
+            )}
+            {reps.filter((r: any) => r.tier === "ed" || r.tier === "rd").map((r: any) =>
+              <option key={r.id} value={r.id}>{r.name} (ED/RM)</option>
+            )}
           </select>
           <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"

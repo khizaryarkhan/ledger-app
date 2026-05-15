@@ -13,9 +13,10 @@ import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, Mes
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { projects, customers, invoices, contacts, communications, regions } = useData() as any;
+  const { projects, customers, invoices, contacts, communications, regions, reps, updateProject, refresh } = useData() as any;
   const [tab, setTab] = useState<"transactions" | "invoices" | "timeline" | "audit" | "contacts">("transactions");
   const [showCompose, setShowCompose] = useState(false);
+  const [repSaving, setRepSaving] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -64,6 +65,18 @@ export default function ProjectDetailPage() {
   // Same rule as projects list — computed from AR, not DB status field
   const effectiveStatus = project.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
 
+  const assignedRep   = (reps ?? []).find((r: any) => r.id === project?.repId) ?? null;
+  const edRms         = (reps ?? []).filter((r: any) => r.tier === "ed" || r.tier === "rd");
+  const regularReps   = (reps ?? []).filter((r: any) => r.tier !== "ed" && r.tier !== "rd");
+
+  const handleRepChange = async (newRepId: string) => {
+    setRepSaving(true);
+    try {
+      await updateProject(project.id, { repId: newRepId || null });
+      await refresh();
+    } finally { setRepSaving(false); }
+  };
+
   const handleDownloadPdf = async (e: React.MouseEvent, inv: any) => {
     e.preventDefault();
     if (!inv.qboId || inv.qboId.startsWith("CM-")) return;
@@ -100,11 +113,42 @@ export default function ProjectDetailPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-sm text-stone-500">
+          <div className="flex items-center gap-2 text-sm text-stone-500 flex-wrap">
             <span className="font-mono text-xs">{project.code}</span>
             <span>·</span>
             <Link href={`/customers/${customer.id}`} className="hover:text-stone-900">{customer.name}</Link>
             {region && <><span>·</span><span>{region}</span></>}
+            <span>·</span>
+            {/* Rep / ED/RM inline assignment */}
+            <div className="flex items-center gap-1.5">
+              {assignedRep && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                  assignedRep.tier === "ed" || assignedRep.tier === "rd"
+                    ? "bg-orange-50 text-orange-700" : "bg-emerald-50 text-emerald-700"
+                }`}>
+                  {assignedRep.tier === "ed" || assignedRep.tier === "rd" ? "ED/RM" : "PM"}
+                </span>
+              )}
+              <select
+                value={project.repId ?? ""}
+                onChange={e => handleRepChange(e.target.value)}
+                disabled={repSaving}
+                className="h-7 px-2 text-xs rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white disabled:opacity-50"
+              >
+                <option value="">— Assign Rep / ED/RM —</option>
+                {regularReps.length > 0 && (
+                  <optgroup label="Rep / PM">
+                    {regularReps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </optgroup>
+                )}
+                {edRms.length > 0 && (
+                  <optgroup label="ED / RM">
+                    {edRms.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              {repSaving && <span className="text-[10px] text-stone-400">Saving…</span>}
+            </div>
           </div>
         </div>
         <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
