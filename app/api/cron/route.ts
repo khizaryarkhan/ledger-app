@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
+import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -131,13 +132,14 @@ export async function GET(req: Request) {
 
           const template = templateByStage.get(matchedInv.collectionStage)!;
 
+          // {ref} = project full name for projects; customer code for customers
           let entityRef = "";
           if (contact.projectId) {
             const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
-            entityRef = proj?.code ?? "";
+            entityRef = proj?.name ?? proj?.code ?? "";
           } else {
             const [cust] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
-            entityRef = cust?.code ?? "";
+            entityRef = cust?.code ?? cust?.name ?? "";
           }
 
           const invoiceLines = triggeredInvoices.map((inv) => {
@@ -156,8 +158,26 @@ export async function GET(req: Request) {
 
           const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
-          // Send via SMTP
-          await sendSmtp(smtp, { to: contact.email!, subject, body: bodyText });
+          // Fetch PDF attachments from QBO for each triggered invoice (failures are silent)
+          const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
+          for (const inv of triggeredInvoices) {
+            const pdf = await fetchQboInvoicePdf(orgId, inv).catch(() => null);
+            if (pdf) {
+              attachments.push({
+                filename:    `Invoice-${inv.invoiceNumber}.pdf`,
+                content:     pdf,
+                contentType: "application/pdf",
+              });
+            }
+          }
+
+          // Send via SMTP with attachments
+          await sendSmtp(smtp, {
+            to:          contact.email!,
+            subject,
+            body:        bodyText,
+            attachments: attachments.length > 0 ? attachments : undefined,
+          });
           emailsSent++;
 
           // Log to communications so it appears in Inbox and customer/project timeline

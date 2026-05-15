@@ -23,6 +23,7 @@ import { invoices, contacts, customers, projects, emailTemplates, communications
 import { eq, and } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
+import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -144,16 +145,17 @@ export async function POST(req: Request) {
     const template = templateByStage.get(matchedInv.collectionStage)!;
 
     // Entity info
+    // {ref} = project full name (not QBO code) for projects; customer code for customers
     let entityName = "";
     let entityRef  = "";
     if (contact.projectId) {
       const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
       entityName = proj?.name ?? contact.projectId;
-      entityRef  = proj?.code ?? "";
+      entityRef  = proj?.name ?? proj?.code ?? ""; // use full project name, not QBO code
     } else {
       const [cust] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
       entityName = cust?.name ?? contact.customerId;
-      entityRef  = cust?.code ?? "";
+      entityRef  = cust?.code ?? cust?.name ?? "";
     }
 
     // Build invoice lines for the body placeholder
@@ -174,6 +176,22 @@ export async function POST(req: Request) {
 
     const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
+    // Fetch PDF attachments from QBO for each triggered invoice
+    // Failures are silent — the email still sends without the attachment
+    const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
+    if (!dryRun) {
+      for (const inv of triggeredInvoices) {
+        const pdf = await fetchQboInvoicePdf(orgId!, inv).catch(() => null);
+        if (pdf) {
+          attachments.push({
+            filename:    `Invoice-${inv.invoiceNumber}.pdf`,
+            content:     pdf,
+            contentType: "application/pdf",
+          });
+        }
+      }
+    }
+
     const detail: Detail = {
       contact:      contact.email!,
       entity:       entityName,
@@ -186,9 +204,10 @@ export async function POST(req: Request) {
     if (!dryRun) {
       try {
         await sendSmtp(smtp, {
-          to:      contact.email!,
+          to:          contact.email!,
           subject,
-          body:    bodyText,
+          body:        bodyText,
+          attachments: attachments.length > 0 ? attachments : undefined,
         });
         detail.sent = true;
         sent++;

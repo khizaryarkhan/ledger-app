@@ -12,12 +12,19 @@ import { db } from "@/db";
 import { orgSmtpSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
 export interface MailOptions {
   to: string;
   subject: string;
   body: string;
   cc?: string;
   replyTo?: string;
+  attachments?: MailAttachment[];
 }
 
 export interface SmtpConfig {
@@ -83,13 +90,18 @@ export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<v
   const cc = ccParts.length > 0 ? ccParts.join(",") : undefined;
 
   await transporter.sendMail({
-    from:    config.from,
-    to:      opts.to,
+    from:        config.from,
+    to:          opts.to,
     cc,
-    bcc:     config.fromEmail, // BCC-to-self so every sent email lands in your inbox
-    replyTo: opts.replyTo || config.fromEmail,
-    subject: opts.subject,
-    text:    opts.body,
-    html:    opts.body.replace(/\n/g, "<br>"),
+    bcc:         config.fromEmail, // BCC-to-self so every sent email lands in your inbox
+    replyTo:     opts.replyTo || config.fromEmail,
+    subject:     opts.subject,
+    text:        opts.body,
+    html:        opts.body.replace(/\n/g, "<br>"),
+    attachments: opts.attachments?.map((a) => ({
+      filename:    a.filename,
+      content:     a.content,
+      contentType: a.contentType,
+    })),
   });
 }
