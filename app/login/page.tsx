@@ -36,14 +36,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center mb-4">
-            <img
-              src="https://app.foodready.ai/app/assets/foodready_logo.AOW0PckZ.svg"
-              alt="Foodready Collection Manager"
-              className="h-10 w-auto object-contain"
-            />
-          </div>
-          <h1 className="text-xl font-semibold text-stone-900 tracking-tight">Foodready Collection Manager</h1>
+          <h1 className="text-xl font-semibold text-stone-900 tracking-tight">Collection Manager</h1>
           <p className="text-sm text-stone-500 mt-1">Sign in to your account</p>
         </div>
 
