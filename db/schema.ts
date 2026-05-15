@@ -424,14 +424,19 @@ export const tasks = pgTable("tasks", {
 
 // =========================================================================
 // EMAIL TEMPLATES
+// One template per collection stage per org.
+// subject / body support placeholders: {name} {invoiceLines} {ref}
 // =========================================================================
 export const emailTemplates = pgTable("email_templates", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  subject: varchar("subject", { length: 512 }).notNull(),
-  body: text("body").notNull(),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:            varchar("name", { length: 255 }).notNull(),
+  subject:         varchar("subject", { length: 512 }).notNull(),
+  body:            text("body").notNull(),
+  collectionStage: varchar("collection_stage", { length: 64 }),  // null = unassigned draft
+  isActive:        boolean("is_active").notNull().default(true),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 });
 
 // =========================================================================

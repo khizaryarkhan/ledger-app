@@ -4,8 +4,9 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/components/data-provider";
 import { Card, Badge } from "@/components/ui";
 import {
-  Zap, Mail, Clock, AlertOctagon, Search, AlertTriangle,
+  Zap, Mail, Clock, Search, AlertTriangle,
   Info, CheckCircle, Users, Briefcase, Check, Minus,
+  FileText, Plus, Pencil, Trash2, X, ChevronDown,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -587,8 +588,9 @@ function ReminderProgramme() {
         <div>
           <div className="text-sm font-semibold text-stone-900">Manual trigger</div>
           <div className="text-[11px] text-stone-400 mt-0.5">
-            Create Gmail drafts for all contacts with open invoices due or overdue — review and send them yourself.
+            Create Gmail drafts now using the template assigned to each invoice's collection stage.
             Use <span className="font-medium text-stone-600">Preview</span> first to see what would be drafted.
+            Contacts with no matching template are skipped.
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -632,7 +634,8 @@ function ReminderProgramme() {
                 <tr className="text-stone-500 border-b border-stone-200">
                   <th className="text-left font-semibold pb-1.5 pr-3">Contact</th>
                   <th className="text-left font-semibold pb-1.5 pr-3">Entity</th>
-                  <th className="text-left font-semibold pb-1.5 pr-3">Type</th>
+                  <th className="text-left font-semibold pb-1.5 pr-3">Stage</th>
+                  <th className="text-left font-semibold pb-1.5 pr-3">Template</th>
                   <th className="text-left font-semibold pb-1.5">Invoices</th>
                   <th className="text-left font-semibold pb-1.5 pl-3">Status</th>
                 </tr>
@@ -640,16 +643,12 @@ function ReminderProgramme() {
               <tbody>
                 {triggerResult.details.map((d: any, i: number) => (
                   <tr key={i} className="border-b border-stone-100 last:border-0">
-                    <td className="py-1.5 pr-3 text-stone-700 font-mono">{d.contact}</td>
+                    <td className="py-1.5 pr-3 text-stone-700 font-mono text-[10px]">{d.contact}</td>
                     <td className="py-1.5 pr-3 text-stone-700">{d.entity}</td>
                     <td className="py-1.5 pr-3">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                        d.reminderType === "final-notice"  ? "bg-rose-100 text-rose-700"   :
-                        d.reminderType === "second-notice" ? "bg-orange-100 text-orange-700" :
-                        d.reminderType === "first-notice"  ? "bg-amber-100 text-amber-700" :
-                                                             "bg-blue-100 text-blue-700"
-                      }`}>{d.reminderType}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-700">{d.stage}</span>
                     </td>
+                    <td className="py-1.5 pr-3 text-stone-500 text-[10px]">{d.templateName}</td>
                     <td className="py-1.5 text-stone-600">{d.invoices?.join(", ")}</td>
                     <td className="py-1.5 pl-3">
                       {d.error
@@ -856,9 +855,8 @@ function AutomationRules() {
     setSaving(ruleId);
     try {
       const next = currentlyDisabled
-        ? disabledRules.filter((id: string) => id !== ruleId)   // re-enable
-        : [...disabledRules, ruleId];                            // disable
-
+        ? disabledRules.filter((id: string) => id !== ruleId)
+        : [...disabledRules, ruleId];
       const res = await fetch("/api/org/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -874,28 +872,27 @@ function AutomationRules() {
     }
   };
 
-  const activeCount  = RULES.filter(r => !disabledRules.includes(r.id)).length;
-  const pausedCount  = RULES.filter(r =>  disabledRules.includes(r.id)).length;
+  const activeCount = RULES.filter(r => !disabledRules.includes(r.id)).length;
+  const pausedCount = RULES.filter(r =>  disabledRules.includes(r.id)).length;
 
   return (
     <div className="space-y-4">
-      {/* Gmail drafts info */}
       <Card className="bg-blue-50 ring-blue-200">
         <div className="flex items-start gap-3">
           <Info size={18} className="text-blue-700 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-blue-900">
             <div className="font-medium mb-1">Reminders are created as Gmail drafts</div>
             <div>
-              When a rule fires, a draft is placed in your connected Gmail account — you review and send each one yourself.
+              When a rule fires, a draft lands in your connected Gmail account — you review and send each one yourself.
               Connect Gmail in{" "}
-              <a href="/settings/integrations" className="underline font-medium">Settings → Integrations</a>{" "}
-              if you haven't already.
+              <a href="/settings/integrations" className="underline font-medium">Settings → Integrations</a>
+              {" "}if you haven't already. Draft content is driven by the template assigned to each invoice's collection stage — set those up in the{" "}
+              <strong>Email Templates</strong> tab.
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Summary pills */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 ring-1 ring-emerald-200 rounded-full text-[12px] font-medium text-emerald-700">
           <CheckCircle size={12} /> {activeCount} active
@@ -916,55 +913,28 @@ function AutomationRules() {
         </div>
 
         {RULES.map((r) => {
-          const isDisabled  = disabledRules.includes(r.id);
-          const isSaving    = saving === r.id;
-
+          const isDisabled = disabledRules.includes(r.id);
+          const isSaving   = saving === r.id;
           return (
-            <div
-              key={r.id}
-              className={`px-4 py-3.5 border-b border-stone-100 last:border-0 flex items-center gap-3 transition-colors ${isDisabled ? "bg-stone-50 opacity-60" : ""}`}
-            >
-              {/* Icon */}
+            <div key={r.id} className={`px-4 py-3.5 border-b border-stone-100 last:border-0 flex items-center gap-3 transition-colors ${isDisabled ? "bg-stone-50 opacity-60" : ""}`}>
               <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${isDisabled ? "bg-stone-100" : "bg-stone-900"}`}>
                 <Zap size={14} className={isDisabled ? "text-stone-400" : "text-white"} />
               </div>
-
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <div className="text-sm font-medium text-stone-900">{r.name}</div>
-                  {r.isNew && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 ring-1 ring-violet-200">NEW</span>
-                  )}
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${
-                    isDisabled
-                      ? "bg-stone-100 text-stone-400 ring-stone-200"
-                      : "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                  }`}>
+                  {r.isNew && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 ring-1 ring-violet-200">NEW</span>}
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${isDisabled ? "bg-stone-100 text-stone-400 ring-stone-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200"}`}>
                     {isDisabled ? "Paused" : "Active"}
                   </span>
                 </div>
-                <div className="text-xs text-stone-500 flex items-center gap-1.5">
-                  <Clock size={11} className="text-stone-400 shrink-0" /> {r.trigger}
-                </div>
-                <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5">
-                  <Mail size={11} className="text-stone-400 shrink-0" /> {r.action}
-                </div>
+                <div className="text-xs text-stone-500 flex items-center gap-1.5"><Clock size={11} className="text-stone-400 shrink-0" /> {r.trigger}</div>
+                <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5"><Mail size={11} className="text-stone-400 shrink-0" /> {r.action}</div>
               </div>
-
-              {/* Toggle */}
               {r.canDisable ? (
-                <button
-                  disabled={isSaving}
-                  onClick={() => toggleRule(r.id, isDisabled)}
-                  title={isDisabled ? "Click to activate this rule" : "Click to pause this rule"}
-                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 disabled:opacity-50 ${
-                    isDisabled ? "bg-stone-200" : "bg-emerald-500"
-                  }`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    isDisabled ? "translate-x-0" : "translate-x-5"
-                  }`} />
+                <button disabled={isSaving} onClick={() => toggleRule(r.id, isDisabled)}
+                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 disabled:opacity-50 ${isDisabled ? "bg-stone-200" : "bg-emerald-500"}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isDisabled ? "translate-x-0" : "translate-x-5"}`} />
                 </button>
               ) : (
                 <div className="w-11 flex items-center justify-center flex-shrink-0">
@@ -979,7 +949,7 @@ function AutomationRules() {
       <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          <strong className="text-stone-600">Pause on dispute</strong> and <strong className="text-stone-600">Pause on promise</strong> are always enforced and cannot be disabled — they protect against chasing customers who have raised a dispute or committed to a payment date.
+          <strong className="text-stone-600">Pause on dispute</strong> and <strong className="text-stone-600">Pause on promise</strong> are always enforced and cannot be disabled.
           The <strong className="text-stone-600">Weekly Monday reminder</strong> sends a consolidated reminder every Monday to all customers/projects that have overdue invoices and the programme switched ON.
         </span>
       </div>
@@ -988,33 +958,402 @@ function AutomationRules() {
 }
 
 // ─────────────────────────────────────────────
+// EMAIL TEMPLATES TAB
+// ─────────────────────────────────────────────
+
+type EmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  collectionStage: string | null;
+  isActive: boolean;
+};
+
+const BLANK_TEMPLATE: Omit<EmailTemplate, "id" | "isActive"> = {
+  name: "",
+  subject: "",
+  body: "",
+  collectionStage: null,
+};
+
+const PLACEHOLDER_HELP = [
+  { key: "{name}",         desc: "Contact's first name (e.g. John)" },
+  { key: "{invoiceLines}", desc: "Bullet list of invoice number, balance & overdue status" },
+  { key: "{ref}",          desc: "Customer / project code (e.g. ACME-001)" },
+];
+
+function EmailTemplates() {
+  const { orgSettings, toast } = useData() as any;
+
+  // All org collection stages (customisable) — fall back to common defaults
+  const orgStages: string[] = orgSettings?.stages ?? [
+    "New", "Open", "1st Reminder Sent", "2nd Reminder Sent", "Final Demand Sent",
+    "Disputed", "On Hold", "Promise to Pay", "Escalated", "Legal",
+  ];
+
+  const [templates, setTemplates]   = useState<EmailTemplate[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [editing, setEditing]       = useState<EmailTemplate | null>(null);  // null = closed
+  const [isNew, setIsNew]           = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [deleting, setDeleting]     = useState<string | null>(null);
+  const [showHelp, setShowHelp]     = useState(false);
+
+  // ── Load ──────────────────────────────────
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/email-templates");
+      if (res.ok) setTemplates(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Helpers ───────────────────────────────
+  const openNew = () => {
+    setEditing({ id: "", ...BLANK_TEMPLATE, isActive: true });
+    setIsNew(true);
+  };
+
+  const openEdit = (t: EmailTemplate) => {
+    setEditing({ ...t });
+    setIsNew(false);
+  };
+
+  const closeEditor = () => { setEditing(null); setIsNew(false); };
+
+  const handleSave = async () => {
+    if (!editing) return;
+    if (!editing.name.trim())    { toast("Template name is required", "error"); return; }
+    if (!editing.subject.trim()) { toast("Subject is required", "error"); return; }
+    if (!editing.body.trim())    { toast("Body is required", "error"); return; }
+
+    setSaving(true);
+    try {
+      const payload = {
+        name:            editing.name.trim(),
+        subject:         editing.subject.trim(),
+        body:            editing.body.trim(),
+        collectionStage: editing.collectionStage || null,
+        isActive:        editing.isActive,
+      };
+
+      if (isNew) {
+        const res = await fetch("/api/email-templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to create template");
+        toast("Template created");
+      } else {
+        const res = await fetch(`/api/email-templates/${editing.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to save template");
+        toast("Template saved");
+      }
+
+      await load();
+      closeEditor();
+    } catch (e: any) {
+      toast(e.message ?? "Failed to save", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeleting(id);
+    try {
+      await fetch(`/api/email-templates/${id}`, { method: "DELETE" });
+      toast("Template deleted");
+      await load();
+    } catch {
+      toast("Failed to delete", "error");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Stages already assigned to a template (for warning duplicate assignment)
+  const assignedStages = new Set(
+    templates.filter((t) => t.collectionStage && t.id !== (editing?.id ?? "")).map((t) => t.collectionStage!)
+  );
+
+  // ── Render ────────────────────────────────
+  return (
+    <div className="space-y-4">
+
+      {/* Info banner */}
+      <Card className="bg-blue-50 ring-blue-200">
+        <div className="flex items-start gap-3">
+          <Info size={18} className="text-blue-700 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-blue-900">
+            <div className="font-medium mb-1">You control every word — we never decide for you</div>
+            <div>
+              Write your own email for each collection stage. When a draft is created, the tool looks at the
+              invoice's current <strong>collection stage</strong> and uses the matching template.
+              No wording is ever chosen based on age numbers.
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Placeholder reference — collapsible */}
+      <div className="rounded-xl ring-1 ring-stone-200 bg-white overflow-hidden">
+        <button
+          onClick={() => setShowHelp((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50 transition-colors"
+        >
+          <span className="flex items-center gap-2"><FileText size={14} className="text-stone-400" /> Template placeholder reference</span>
+          <ChevronDown size={14} className={`text-stone-400 transition-transform ${showHelp ? "rotate-180" : ""}`} />
+        </button>
+        {showHelp && (
+          <div className="px-4 pb-4 border-t border-stone-100">
+            <p className="text-[12px] text-stone-500 mt-3 mb-2">Use these placeholders anywhere in your subject or body — they are replaced automatically when a draft is created:</p>
+            <div className="space-y-1.5">
+              {PLACEHOLDER_HELP.map(({ key, desc }) => (
+                <div key={key} className="flex items-start gap-3">
+                  <code className="text-[12px] font-mono bg-stone-100 px-2 py-0.5 rounded text-stone-800 shrink-0">{key}</code>
+                  <span className="text-[12px] text-stone-600">{desc}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-stone-400 mt-3">
+              The invoice reference and entity code are automatically appended to the subject line — you don't need to add those manually.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Template list */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-stone-900">
+          {templates.length === 0 ? "No templates yet" : `${templates.length} template${templates.length !== 1 ? "s" : ""}`}
+        </div>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 transition-colors"
+        >
+          <Plus size={13} /> New Template
+        </button>
+      </div>
+
+      {loading && <div className="text-sm text-stone-400 py-8 text-center">Loading…</div>}
+
+      {!loading && templates.length === 0 && (
+        <Card>
+          <div className="py-8 text-center">
+            <Mail size={28} className="mx-auto text-stone-300 mb-3" />
+            <div className="text-sm font-medium text-stone-600 mb-1">No email templates yet</div>
+            <div className="text-[12px] text-stone-400 mb-4 max-w-xs mx-auto">
+              Create a template for each collection stage you use — e.g. "1st Reminder Sent", "Final Demand Sent".
+            </div>
+            <button onClick={openNew} className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 transition-colors mx-auto">
+              <Plus size={13} /> Create first template
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {!loading && templates.map((t) => (
+        <Card key={t.id} padding="none">
+          <div className="px-4 py-3 flex items-start gap-3">
+            {/* Stage badge / unassigned */}
+            <div className="shrink-0 mt-0.5">
+              {t.collectionStage ? (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-900 text-white">
+                  {t.collectionStage}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-100 text-stone-500 ring-1 ring-stone-200">
+                  Unassigned
+                </span>
+              )}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-stone-900">{t.name}</span>
+                {!t.isActive && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-400 ring-1 ring-stone-200">Inactive</span>
+                )}
+              </div>
+              <div className="text-[12px] text-stone-500 mt-0.5 truncate">
+                <strong className="text-stone-700">Subject:</strong> {t.subject}
+              </div>
+              <div className="text-[11px] text-stone-400 mt-1 line-clamp-2 whitespace-pre-wrap leading-relaxed">
+                {t.body.slice(0, 180)}{t.body.length > 180 ? "…" : ""}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => openEdit(t)}
+                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-500 hover:text-stone-900 transition-colors"
+                title="Edit template"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => handleDelete(t.id)}
+                disabled={deleting === t.id}
+                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-rose-50 text-stone-400 hover:text-rose-600 transition-colors disabled:opacity-40"
+                title="Delete template"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        </Card>
+      ))}
+
+      {/* ── Editor modal ── */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+              <h2 className="text-base font-semibold text-stone-900">
+                {isNew ? "New email template" : "Edit template"}
+              </h2>
+              <button onClick={closeEditor} className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-500">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {/* Template name */}
+              <div>
+                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Template name</label>
+                <input
+                  type="text"
+                  value={editing.name}
+                  onChange={(e) => setEditing((p) => p && ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Friendly Reminder, Final Demand"
+                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                />
+              </div>
+
+              {/* Collection stage */}
+              <div>
+                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Collection stage</label>
+                <p className="text-[11px] text-stone-400 mb-1.5">
+                  Choose the invoice stage that triggers this template. Only one template per stage.
+                </p>
+                <select
+                  value={editing.collectionStage ?? ""}
+                  onChange={(e) => setEditing((p) => p && ({ ...p, collectionStage: e.target.value || null }))}
+                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                >
+                  <option value="">— Not assigned —</option>
+                  {orgStages.map((s) => (
+                    <option key={s} value={s} disabled={assignedStages.has(s)}>
+                      {s}{assignedStages.has(s) ? " (already assigned)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Email subject</label>
+                <p className="text-[11px] text-stone-400 mb-1.5">Supports <code className="font-mono bg-stone-100 px-1 rounded">{"{ref}"}</code> placeholder. Invoice numbers are appended automatically.</p>
+                <input
+                  type="text"
+                  value={editing.subject}
+                  onChange={(e) => setEditing((p) => p && ({ ...p, subject: e.target.value }))}
+                  placeholder="e.g. Payment Reminder | {ref}"
+                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Email body</label>
+                <p className="text-[11px] text-stone-400 mb-1.5">
+                  Use <code className="font-mono bg-stone-100 px-1 rounded">{"{name}"}</code> for the contact's first name,{" "}
+                  <code className="font-mono bg-stone-100 px-1 rounded">{"{invoiceLines}"}</code> for the invoice list,{" "}
+                  <code className="font-mono bg-stone-100 px-1 rounded">{"{ref}"}</code> for the entity code.
+                </p>
+                <textarea
+                  value={editing.body}
+                  onChange={(e) => setEditing((p) => p && ({ ...p, body: e.target.value }))}
+                  rows={10}
+                  placeholder={`Hi {name},\n\nI hope you are well. Please find the following invoices outstanding on your account:\n\n{invoiceLines}\n\nPlease don't hesitate to get in touch if you have any queries.\n\nMany thanks`}
+                  className="w-full px-3 py-2.5 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white resize-none font-mono leading-relaxed"
+                />
+              </div>
+
+              {/* Active toggle */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setEditing((p) => p && ({ ...p, isActive: !p.isActive }))}
+                  className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${editing.isActive ? "bg-emerald-500" : "bg-stone-200"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${editing.isActive ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
+                <span className="text-sm text-stone-600">{editing.isActive ? "Active — will be used when drafts are created" : "Inactive — will be skipped"}</span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-stone-100">
+              <button onClick={closeEditor} className="h-9 px-4 text-sm rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="h-9 px-5 text-sm font-semibold rounded-lg bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
+              >
+                {saving ? "Saving…" : isNew ? "Create template" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // PAGE
 // ─────────────────────────────────────────────
 export default function AutomationsPage() {
-  const [tab, setTab] = useState<"rules" | "programme">("programme");
+  const [tab, setTab] = useState<"templates" | "programme" | "rules">("templates");
 
   return (
     <div className="p-6 max-w-[1100px] mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Automations</h1>
-        <p className="text-sm text-stone-500 mt-1">Reminder rules and per-customer programme management</p>
+        <p className="text-sm text-stone-500 mt-1">Your email templates, reminder programme, and automation rules</p>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-5 border-b border-stone-200">
-        {(["programme", "rules"] as const).map((t) => (
+        {(["templates", "programme", "rules"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"
             }`}>
-            {t === "programme" ? "Reminder Programme" : "Automation Rules"}
+            {t === "templates" ? "Email Templates" : t === "programme" ? "Reminder Programme" : "Automation Rules"}
           </button>
         ))}
       </div>
 
-      {tab === "programme" && <ReminderProgramme />}
-
-      {tab === "rules" && <AutomationRules />}
+      {tab === "templates"  && <EmailTemplates />}
+      {tab === "programme"  && <ReminderProgramme />}
+      {tab === "rules"      && <AutomationRules />}
     </div>
   );
 }
