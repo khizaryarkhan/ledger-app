@@ -2,26 +2,12 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/components/data-provider";
-import { Card, Badge } from "@/components/ui";
+import { Card } from "@/components/ui";
 import {
-  Zap, Mail, Clock, Search, AlertTriangle,
-  Info, CheckCircle, Users, Briefcase, Check, Minus,
+  Mail, Search, AlertTriangle,
+  Info, Users, Briefcase, Check, Minus,
   FileText, Plus, Pencil, Trash2, X, ChevronDown,
 } from "lucide-react";
-
-// ─────────────────────────────────────────────
-// AUTOMATION RULES
-// ─────────────────────────────────────────────
-const RULES: { id: string; name: string; trigger: string; action: string; canDisable: boolean; isNew?: boolean }[] = [
-  { id: "pre-due",        canDisable: true,  name: "Pre-due reminder",         trigger: "3 days before due date",   action: "Send 'Friendly reminder' template — open invoices attached"    },
-  { id: "first-overdue",  canDisable: true,  name: "First overdue notice",     trigger: "1 day after due date",     action: "Send 'First overdue' template — open invoices attached"          },
-  { id: "second-overdue", canDisable: true,  name: "Second overdue notice",    trigger: "8 days after due date",    action: "Send 'Second overdue' template — open invoices attached"         },
-  { id: "final-notice",   canDisable: true,  name: "Final notice",             trigger: "21 days after due date",   action: "Send 'Final notice' template, escalate — open invoices attached" },
-  { id: "auto-escalate",  canDisable: true,  name: "Auto-escalate (30 days)",  trigger: "30+ days overdue",         action: "Move stage to Escalated"                                         },
-  { id: "weekly-monday",  canDisable: true,  name: "Weekly Monday reminder",   trigger: "Every Monday",             action: "Send reminder to all customers/projects with overdue invoices — programme must be ON", isNew: true },
-  { id: "pause-dispute",  canDisable: false, name: "Pause on dispute",         trigger: "Stage = Disputed",         action: "Pause all reminders"                                             },
-  { id: "pause-promise",  canDisable: false, name: "Pause on promise",         trigger: "Stage = Promise to Pay",   action: "Pause until promise date"                                        },
-];
 
 // ─────────────────────────────────────────────
 // REMINDER PROGRAMME TAB
@@ -843,121 +829,6 @@ function ReminderProgramme() {
 }
 
 // ─────────────────────────────────────────────
-// AUTOMATION RULES TAB
-// ─────────────────────────────────────────────
-function AutomationRules() {
-  const { orgSettings, refresh, toast } = useData() as any;
-  const [saving, setSaving] = useState<string | null>(null);
-
-  const disabledRules: string[] = orgSettings?.disabledRules ?? [];
-
-  const toggleRule = async (ruleId: string, currentlyDisabled: boolean) => {
-    setSaving(ruleId);
-    try {
-      const next = currentlyDisabled
-        ? disabledRules.filter((id: string) => id !== ruleId)
-        : [...disabledRules, ruleId];
-      const res = await fetch("/api/org/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ disabledRules: next }),
-      });
-      if (!res.ok) throw new Error("Failed");
-      await refresh();
-      toast(currentlyDisabled ? "Rule activated" : "Rule paused");
-    } catch {
-      toast("Failed to update rule", "error");
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const activeCount = RULES.filter(r => !disabledRules.includes(r.id)).length;
-  const pausedCount = RULES.filter(r =>  disabledRules.includes(r.id)).length;
-
-  return (
-    <div className="space-y-4">
-      <Card className="bg-blue-50 ring-blue-200">
-        <div className="flex items-start gap-3">
-          <Info size={18} className="text-blue-700 mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-blue-900">
-            <div className="font-medium mb-1">Reminders are created as Gmail drafts</div>
-            <div>
-              When a rule fires, a draft lands in your connected Gmail account — you review and send each one yourself.
-              Connect Gmail in{" "}
-              <a href="/settings/integrations" className="underline font-medium">Settings → Integrations</a>
-              {" "}if you haven't already. Draft content is driven by the template assigned to each invoice's collection stage — set those up in the{" "}
-              <strong>Email Templates</strong> tab.
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 ring-1 ring-emerald-200 rounded-full text-[12px] font-medium text-emerald-700">
-          <CheckCircle size={12} /> {activeCount} active
-        </div>
-        {pausedCount > 0 && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 ring-1 ring-stone-200 rounded-full text-[12px] font-medium text-stone-500">
-            <Minus size={12} /> {pausedCount} paused
-          </div>
-        )}
-      </div>
-
-      <Card padding="none">
-        <div className="px-4 py-3 border-b border-stone-200">
-          <h3 className="text-sm font-semibold text-stone-900">Automation rules</h3>
-          <p className="text-[11px] text-stone-500 mt-0.5">
-            Apply to all customers/projects with Reminder Programme ON · only open invoices with a balance are included · click the toggle to pause/activate a rule
-          </p>
-        </div>
-
-        {RULES.map((r) => {
-          const isDisabled = disabledRules.includes(r.id);
-          const isSaving   = saving === r.id;
-          return (
-            <div key={r.id} className={`px-4 py-3.5 border-b border-stone-100 last:border-0 flex items-center gap-3 transition-colors ${isDisabled ? "bg-stone-50 opacity-60" : ""}`}>
-              <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${isDisabled ? "bg-stone-100" : "bg-stone-900"}`}>
-                <Zap size={14} className={isDisabled ? "text-stone-400" : "text-white"} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <div className="text-sm font-medium text-stone-900">{r.name}</div>
-                  {r.isNew && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 ring-1 ring-violet-200">NEW</span>}
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${isDisabled ? "bg-stone-100 text-stone-400 ring-stone-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200"}`}>
-                    {isDisabled ? "Paused" : "Active"}
-                  </span>
-                </div>
-                <div className="text-xs text-stone-500 flex items-center gap-1.5"><Clock size={11} className="text-stone-400 shrink-0" /> {r.trigger}</div>
-                <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5"><Mail size={11} className="text-stone-400 shrink-0" /> {r.action}</div>
-              </div>
-              {r.canDisable ? (
-                <button disabled={isSaving} onClick={() => toggleRule(r.id, isDisabled)}
-                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 disabled:opacity-50 ${isDisabled ? "bg-stone-200" : "bg-emerald-500"}`}>
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isDisabled ? "translate-x-0" : "translate-x-5"}`} />
-                </button>
-              ) : (
-                <div className="w-11 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] text-stone-400 font-medium">Always on</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </Card>
-
-      <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
-        <Info size={13} className="mt-0.5 shrink-0" />
-        <span>
-          <strong className="text-stone-600">Pause on dispute</strong> and <strong className="text-stone-600">Pause on promise</strong> are always enforced and cannot be disabled.
-          The <strong className="text-stone-600">Weekly Monday reminder</strong> sends a consolidated reminder every Monday to all customers/projects that have overdue invoices and the programme switched ON.
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
 // EMAIL TEMPLATES TAB
 // ─────────────────────────────────────────────
 
@@ -1334,30 +1205,28 @@ function EmailTemplates() {
 // PAGE
 // ─────────────────────────────────────────────
 export default function AutomationsPage() {
-  const [tab, setTab] = useState<"templates" | "programme" | "rules">("templates");
+  const [tab, setTab] = useState<"templates" | "programme">("templates");
 
   return (
     <div className="p-6 max-w-[1100px] mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Automations</h1>
-        <p className="text-sm text-stone-500 mt-1">Your email templates, reminder programme, and automation rules</p>
+        <p className="text-sm text-stone-500 mt-1">Your email templates and reminder programme</p>
       </div>
 
-      {/* Tabs */}
       <div className="flex items-center gap-1 mb-5 border-b border-stone-200">
-        {(["templates", "programme", "rules"] as const).map((t) => (
+        {(["templates", "programme"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"
             }`}>
-            {t === "templates" ? "Email Templates" : t === "programme" ? "Reminder Programme" : "Automation Rules"}
+            {t === "templates" ? "Email Templates" : "Reminder Programme"}
           </button>
         ))}
       </div>
 
-      {tab === "templates"  && <EmailTemplates />}
-      {tab === "programme"  && <ReminderProgramme />}
-      {tab === "rules"      && <AutomationRules />}
+      {tab === "templates" && <EmailTemplates />}
+      {tab === "programme" && <ReminderProgramme />}
     </div>
   );
 }
