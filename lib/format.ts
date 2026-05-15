@@ -90,13 +90,3 @@ export const daysFromNow = (n: number) => {
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 };
-
-export const emailTemplates = [
-  { id: "tpl1", name: "Friendly reminder (before due)", subject: "Upcoming invoice: {invoiceNumber}", body: "Hi {contactName},\n\nThis is a friendly reminder that invoice {invoiceNumber} for {amount} is due on {dueDate}.\n\nPlease let me know if you have any questions.\n\nKind regards,\n{senderName}" },
-  { id: "tpl2", name: "Due today", subject: "Invoice {invoiceNumber} due today", body: "Hi {contactName},\n\nA quick note that invoice {invoiceNumber} for {amount} is due today. Please confirm payment when processed.\n\nMany thanks,\n{senderName}" },
-  { id: "tpl3", name: "First overdue notice", subject: "Past due: invoice {invoiceNumber}", body: "Hi {contactName},\n\nInvoice {invoiceNumber} ({amount}) is now {daysOverdue} days past due. Could you confirm when we can expect payment?\n\nThanks,\n{senderName}" },
-  { id: "tpl4", name: "Second overdue notice", subject: "Second reminder: invoice {invoiceNumber}", body: "Dear {contactName},\n\nDespite our previous reminder, invoice {invoiceNumber} ({amount}) remains unpaid and is now {daysOverdue} days overdue.\n\nPlease arrange payment without further delay.\n\nRegards,\n{senderName}" },
-  { id: "tpl5", name: "Final notice", subject: "Final notice: invoice {invoiceNumber}", body: "Dear {contactName},\n\nThis is a final notice regarding invoice {invoiceNumber} for {amount}, which is now {daysOverdue} days overdue.\n\nWithout payment within 7 days this matter will be escalated to our credit control team.\n\nRegards,\n{senderName}" },
-  { id: "tpl6", name: "Payment received - thank you", subject: "Payment received - thank you", body: "Hi {contactName},\n\nThank you — we have received your payment for invoice {invoiceNumber}. Your account is now up to date.\n\nBest regards,\n{senderName}" },
-  { id: "tpl7", name: "Promise to pay confirmation", subject: "Confirming payment plan: {invoiceNumber}", body: "Hi {contactName},\n\nThanks for confirming. To recap, we expect payment of {amount} for invoice {invoiceNumber} by the agreed date.\n\nKind regards,\n{senderName}" },
-];
