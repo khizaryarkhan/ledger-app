@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, qboTokens, emailTemplates } from "@/db/schema";
+import { invoices, contacts, customers, projects, qboTokens, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getValidGmailToken, createGmailDraft } from "@/lib/gmail";
 
@@ -184,6 +184,27 @@ export async function GET(req: Request) {
 
           await createGmailDraft(gmailToken.accessToken, gmailToken.email, contact.email!, subject, bodyText);
           draftsCreated++;
+
+          // Log the draft so it appears in Inbox and customer/project timeline
+          await db.insert(communications).values({
+            orgId:       orgId,
+            customerId:  contact.customerId,
+            projectId:   contact.projectId ?? null,
+            invoiceId:   matchedInv.id,
+            contactId:   contact.id,
+            direction:   "Outbound",
+            channel:     "Email",
+            subject,
+            body:        bodyText,
+            sender:      gmailToken.email,
+            recipients:  contact.email!,
+            matchedBy:   "Auto",
+            isDraft:     true,
+            stageAtSend: matchedInv.collectionStage,
+            authorId:    null,
+          }).catch((err) => {
+            console.warn(`cron: failed to log communication for ${contact.email}:`, err?.message);
+          });
         } catch (contactErr: any) {
           errors.push(`Contact ${contact.email}: ${contactErr.message}`);
         }

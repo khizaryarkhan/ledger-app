@@ -19,7 +19,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, emailTemplates } from "@/db/schema";
+import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
 import { getValidGmailToken, createGmailDraft } from "@/lib/gmail";
@@ -61,7 +61,7 @@ function fillTemplate(
 // ─── handler ─────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
 
   const body = await req.json().catch(() => ({}));
@@ -188,6 +188,29 @@ export async function POST(req: Request) {
         await createGmailDraft(gmailToken.accessToken, gmailToken.email, contact.email!, subject, bodyText);
         detail.drafted = true;
         drafted++;
+
+        // Log the draft to the communications table so it appears in Inbox
+        // and on the customer/project timeline.
+        await db.insert(communications).values({
+          orgId:        orgId!,
+          customerId:   contact.customerId,
+          projectId:    contact.projectId ?? null,
+          invoiceId:    matchedInv.id,
+          contactId:    contact.id,
+          direction:    "Outbound",
+          channel:      "Email",
+          subject,
+          body:         bodyText,
+          sender:       gmailToken.email,
+          recipients:   contact.email!,
+          matchedBy:    "Auto",
+          isDraft:      true,
+          stageAtSend:  matchedInv.collectionStage,
+          authorId:     (session?.user as any)?.id ?? null,
+        }).catch(() => {
+          // Non-fatal — draft was created in Gmail, just couldn't log it
+          console.warn("trigger: failed to log communication for", contact.email);
+        });
       } catch (e: any) {
         detail.error = e.message;
         skipped++;
