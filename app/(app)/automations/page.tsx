@@ -986,11 +986,15 @@ const PLACEHOLDER_HELP = [
 function EmailTemplates() {
   const { orgSettings, toast } = useData() as any;
 
-  // All org collection stages (customisable) — fall back to common defaults
-  const orgStages: string[] = orgSettings?.stages ?? [
+  // All org collection stages (customisable) — fall back to common defaults.
+  // stages may be stored as plain strings OR as objects {key, label, color, ...}
+  const rawStages: any[] = orgSettings?.stages ?? [
     "New", "Open", "1st Reminder Sent", "2nd Reminder Sent", "Final Demand Sent",
     "Disputed", "On Hold", "Promise to Pay", "Escalated", "Legal",
   ];
+  const orgStages: string[] = rawStages
+    .map((s) => (typeof s === "string" ? s : (s.label ?? s.key ?? "")))
+    .filter(Boolean);
 
   const [templates, setTemplates]   = useState<EmailTemplate[]>([]);
   const [loading, setLoading]       = useState(true);
