@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import {
-  Mail, Search, AlertTriangle,
+  Mail, Search, AlertTriangle, CheckCircle,
   Info, Users, Briefcase, Check, Minus,
   FileText, Plus, Pencil, Trash2, X, ChevronDown,
 } from "lucide-react";
@@ -14,6 +14,13 @@ import {
 // ─────────────────────────────────────────────
 function ReminderProgramme() {
   const { customers, projects, contacts, invoices, orgSettings, refresh, toast } = useData() as any;
+
+  // Active (visible) collection stages for this org
+  const rawStages: any[] = orgSettings?.stages ?? [];
+  const orgStages: string[] = rawStages
+    .filter((s: any) => typeof s === "string" || s.visible !== false)
+    .map((s: any) => (typeof s === "string" ? s : (s.label ?? s.key ?? "")))
+    .filter(Boolean);
 
   const [search, setSearch]       = useState("");
   const [saving, setSaving]       = useState<Record<string, boolean>>({});
@@ -357,6 +364,30 @@ function ReminderProgramme() {
     }
   }, [refresh, toast]);
 
+  // ── Stage change ───────────────────────────────
+  const [stageChanging, setStageChanging] = useState<Record<string, boolean>>({});
+
+  const handleStageChange = useCallback(async (entityId: string, openInvoices: any[], newStage: string) => {
+    if (!newStage || openInvoices.length === 0) return;
+    setStageChanging(p => ({ ...p, [entityId]: true }));
+    try {
+      await Promise.all(
+        openInvoices.map((inv: any) =>
+          fetch(`/api/invoices/${inv.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ collectionStage: newStage }),
+          })
+        )
+      );
+      await refresh();
+    } catch {
+      toast("Failed to update stage", "error");
+    } finally {
+      setStageChanging(p => ({ ...p, [entityId]: false }));
+    }
+  }, [refresh, toast]);
+
   // ── Batch actions ──────────────────────────────
   const allSelected  = rows.length > 0 && rows.every((r) => selected.has(r.entity.id));
   const someSelected = rows.some((r) => selected.has(r.entity.id));
@@ -422,9 +453,16 @@ function ReminderProgramme() {
   // ── Row renderer (shared by By Customer flat list and By Project grouped list) ──
   const renderRow = (row: typeof rows[0]) => {
     const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount } = row;
-    const isSaving   = !!saving[entity.id] || bulkSaving;
-    const isSelected = selected.has(entity.id);
-    const emailVal   = emails[entity.id] ?? "";
+    const isSaving      = !!saving[entity.id] || bulkSaving;
+    const isStageChange = !!stageChanging[entity.id];
+    const isSelected    = selected.has(entity.id);
+    const emailVal      = emails[entity.id] ?? "";
+
+    // Derive current stage(s) of open invoices for this entity
+    const openInvStages = openInvoices.map((inv: any) => inv.collectionStage).filter(Boolean);
+    const uniqueStages  = [...new Set<string>(openInvStages)];
+    const isMixed       = uniqueStages.length > 1;
+    const currentStage  = uniqueStages.length === 1 ? uniqueStages[0] : null;
 
     const statusBadge =
       effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" } :
@@ -434,7 +472,7 @@ function ReminderProgramme() {
     return (
       <div
         key={entity.id}
-        className={`grid grid-cols-[40px_1fr_90px_110px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+        className={`grid grid-cols-[40px_1fr_90px_100px_140px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
           entity.chaseByProject ? "bg-violet-50/40" : isSelected ? "bg-stone-50" : ""
         } ${isSaving ? "opacity-60" : ""}`}
       >
@@ -448,20 +486,18 @@ function ReminderProgramme() {
           </button>
         </div>
 
-        {/* Entity name */}
+        {/* Entity name — no code/QBO ID shown */}
         <div className="min-w-0">
           <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
           <div className="flex items-center gap-2 mt-0.5">
-            {!isProjectLevel && projectCount !== null ? (
+            {!isProjectLevel && projectCount !== null && (
               <span className="text-[11px] text-stone-400">
                 {projectCount} project{projectCount !== 1 ? "s" : ""}
               </span>
-            ) : (
-              entity.code && <span className="text-[11px] text-stone-400 font-mono">{entity.code}</span>
             )}
             {openInvoices.length > 0 && (
               <span className="text-[10px] text-emerald-600">
-                · {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
+                {!isProjectLevel ? "· " : ""}{openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
               </span>
             )}
           </div>
@@ -480,6 +516,28 @@ function ReminderProgramme() {
             <span className="text-sm font-semibold text-stone-900">
               {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
             </span>
+          ) : (
+            <span className="text-[11px] text-stone-400">—</span>
+          )}
+        </div>
+
+        {/* Stage dropdown */}
+        <div>
+          {openInvoices.length > 0 && orgStages.length > 0 ? (
+            <select
+              value={currentStage ?? ""}
+              disabled={isStageChange}
+              onChange={e => handleStageChange(entity.id, openInvoices, e.target.value)}
+              className={`w-full h-8 px-2 text-xs rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white disabled:opacity-50 ${
+                isMixed ? "text-amber-600 ring-amber-300" : "text-stone-700"
+              }`}
+            >
+              {isMixed && <option value="">Mixed stages</option>}
+              {!currentStage && !isMixed && <option value="">—</option>}
+              {orgStages.map((s: string) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
           ) : (
             <span className="text-[11px] text-stone-400">—</span>
           )}
@@ -737,7 +795,7 @@ function ReminderProgramme() {
       {/* Table */}
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[40px_1fr_90px_110px_2fr_155px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[40px_1fr_90px_100px_140px_2fr_155px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
           {/* Select all */}
           <div className="flex items-center justify-center">
             <button
@@ -762,6 +820,9 @@ function ReminderProgramme() {
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">
             Outstanding
+          </div>
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
+            Stage
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
             Reminder Email
