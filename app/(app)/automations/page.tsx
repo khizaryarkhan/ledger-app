@@ -587,8 +587,8 @@ function ReminderProgramme() {
         <div>
           <div className="text-sm font-semibold text-stone-900">Manual trigger</div>
           <div className="text-[11px] text-stone-400 mt-0.5">
-            Send reminder emails now for all contacts with open invoices due or overdue.
-            Use <span className="font-medium text-stone-600">Preview</span> first to see what would go out.
+            Create Gmail drafts for all contacts with open invoices due or overdue — review and send them yourself.
+            Use <span className="font-medium text-stone-600">Preview</span> first to see what would be drafted.
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -604,7 +604,7 @@ function ReminderProgramme() {
             disabled={triggerState === "running"}
             className="h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
           >
-            {triggerState === "running" ? "Sending…" : "Send Now"}
+            {triggerState === "running" ? "Creating drafts…" : "Create Drafts"}
           </button>
           {triggerState === "done" && (
             <button onClick={() => { setTriggerState("idle"); setTriggerResult(null); }}
@@ -619,8 +619,8 @@ function ReminderProgramme() {
           <div className="flex items-center justify-between mb-3">
             <div className="font-semibold text-stone-900">
               {triggerResult.dryRun
-                ? `Preview — ${triggerResult.sent} email${triggerResult.sent !== 1 ? "s" : ""} would be sent`
-                : `✓ ${triggerResult.sent} email${triggerResult.sent !== 1 ? "s" : ""} sent`}
+                ? `Preview — ${triggerResult.drafted} draft${triggerResult.drafted !== 1 ? "s" : ""} would be created`
+                : `✓ ${triggerResult.drafted} Gmail draft${triggerResult.drafted !== 1 ? "s" : ""} created`}
               {triggerResult.skipped > 0 && (
                 <span className="ml-2 text-[11px] font-normal text-stone-500">· {triggerResult.skipped} skipped (no pending invoices)</span>
               )}
@@ -655,8 +655,8 @@ function ReminderProgramme() {
                       {d.error
                         ? <span className="text-rose-600">✗ {d.error}</span>
                         : triggerResult.dryRun
-                          ? <span className="text-amber-700">would send</span>
-                          : <span className="text-emerald-700">✓ sent</span>}
+                          ? <span className="text-amber-700">would be drafted</span>
+                          : <span className="text-emerald-700">✓ draft created</span>}
                     </td>
                   </tr>
                 ))}
@@ -832,8 +832,8 @@ function ReminderProgramme() {
       <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          Reminders are sent only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
-          Invoice PDFs are attached automatically. Invoices in Disputed or Promise to Pay stages are always skipped.
+          Drafts are created only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
+          Invoices in Disputed or Promise to Pay stages are always skipped.
           Email subjects include the project/customer reference and invoice numbers.
           Type directly in the email field — it saves automatically on Enter or when you click away.
           <strong className="text-stone-600"> Multiple recipients supported</strong> — just separate addresses with a comma.
@@ -879,16 +879,17 @@ function AutomationRules() {
 
   return (
     <div className="space-y-4">
-      {/* SMTP warning */}
-      <Card className="bg-amber-50 ring-amber-200">
+      {/* Gmail drafts info */}
+      <Card className="bg-blue-50 ring-blue-200">
         <div className="flex items-start gap-3">
-          <AlertOctagon size={18} className="text-amber-700 mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-amber-900">
-            <div className="font-medium mb-1">Email sending requires SMTP configuration</div>
+          <Info size={18} className="text-blue-700 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-blue-900">
+            <div className="font-medium mb-1">Reminders are created as Gmail drafts</div>
             <div>
-              Rules are active but emails won't send until SMTP is configured in{" "}
-              <a href="/settings/notifications" className="underline font-medium">Settings → Notifications</a>.
-              The auto-escalation rule runs daily without SMTP.
+              When a rule fires, a draft is placed in your connected Gmail account — you review and send each one yourself.
+              Connect Gmail in{" "}
+              <a href="/settings/integrations" className="underline font-medium">Settings → Integrations</a>{" "}
+              if you haven't already.
             </div>
           </div>
         </div>
