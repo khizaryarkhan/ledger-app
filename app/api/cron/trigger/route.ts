@@ -1,20 +1,20 @@
 /**
  * POST /api/cron/trigger
  *
- * Manually create Gmail drafts for the requesting org.
+ * Manually send collection emails for the requesting org via SMTP.
  * Protected by normal session auth — no CRON_SECRET needed.
  *
  * Fires for every open invoice that is pre-due (≤3 days) or overdue (≥1 day).
- * Draft content is driven entirely by the EMAIL TEMPLATE assigned to the
+ * Email content is driven entirely by the EMAIL TEMPLATE assigned to the
  * invoice's current collectionStage — the tool never decides wording based on
  * age numbers.  If no template is assigned to a stage, that invoice is skipped.
  *
  * Body: { dryRun?: boolean }
- *   dryRun = true  → preview what drafts would be created, create nothing
- *   dryRun = false → create Gmail drafts (user reviews and sends manually)
+ *   dryRun = true  → preview what would be sent, send nothing
+ *   dryRun = false → send emails via SMTP and log to communications
  *
  * Response:
- *   { drafted, skipped, dryRun, details[] }
+ *   { sent, skipped, dryRun, details[] }
  */
 
 import { NextResponse } from "next/server";
@@ -22,7 +22,7 @@ import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
-import { getValidGmailToken, createGmailDraft } from "@/lib/gmail";
+import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ function daysFromDate(dateStr: string): number {
 
 const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
-/** True if invoice is within the pre-due or overdue window that warrants a draft */
+/** True if invoice is within the pre-due or overdue window that warrants sending */
 function shouldTrigger(daysOverdue: number): boolean {
   if (daysOverdue <= -1 && daysOverdue >= -3) return true; // 1–3 days before due
   if (daysOverdue >= 1) return true;                        // any overdue amount
@@ -67,11 +67,11 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const dryRun: boolean = body.dryRun === true;
 
-  // 1. Gmail token
-  const gmailToken = await getValidGmailToken(orgId!).catch(() => null);
-  if (!gmailToken) {
+  // 1. SMTP config
+  const smtp = await getSmtpConfig(orgId!);
+  if (!smtp) {
     return NextResponse.json(
-      { error: "Gmail not connected. Connect Gmail in Settings → Integrations to create drafts." },
+      { error: "Email not configured. Go to Settings → Email to set up SMTP credentials." },
       { status: 422 },
     );
   }
@@ -95,7 +95,7 @@ export async function POST(req: Request) {
 
   const enabledContacts = autoContacts.filter((c) => c.email);
   if (enabledContacts.length === 0) {
-    return NextResponse.json({ drafted: 0, skipped: 0, dryRun, details: [], message: "No contacts with automation enabled." });
+    return NextResponse.json({ sent: 0, skipped: 0, dryRun, details: [], message: "No contacts with automation enabled." });
   }
 
   // 4. Load all open invoices for this org
@@ -108,11 +108,11 @@ export async function POST(req: Request) {
     stage: string;
     templateName: string;
     invoices: string[];
-    drafted: boolean;
+    sent: boolean;
     error?: string;
   };
   const details: Detail[] = [];
-  let drafted = 0;
+  let sent = 0;
   let skipped = 0;
 
   for (const contact of enabledContacts) {
@@ -165,9 +165,9 @@ export async function POST(req: Request) {
     });
 
     const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
+    const invRefs  = triggeredInvoices.map((inv) => inv.invoiceNumber);
 
-    // Subject: support {ref} placeholder + always append invoice refs
-    const invRefs = triggeredInvoices.map((inv) => inv.invoiceNumber);
+    // Subject: fill placeholders + append invoice refs
     const subjectParts = [fillTemplate(template.subject, greeting, invoiceLines, entityRef)];
     subjectParts.push(`Ref: ${invRefs.join(", ")}`);
     const subject = subjectParts.join(" | ");
@@ -175,53 +175,55 @@ export async function POST(req: Request) {
     const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
     const detail: Detail = {
-      contact: contact.email!,
-      entity: entityName,
-      stage: matchedInv.collectionStage,
+      contact:      contact.email!,
+      entity:       entityName,
+      stage:        matchedInv.collectionStage,
       templateName: template.name,
-      invoices: invRefs,
-      drafted: false,
+      invoices:     invRefs,
+      sent:         false,
     };
 
     if (!dryRun) {
       try {
-        await createGmailDraft(gmailToken.accessToken, gmailToken.email, contact.email!, subject, bodyText);
-        detail.drafted = true;
-        drafted++;
-
-        // Log the draft to the communications table so it appears in Inbox
-        // and on the customer/project timeline.
-        await db.insert(communications).values({
-          orgId:        orgId!,
-          customerId:   contact.customerId,
-          projectId:    contact.projectId ?? null,
-          invoiceId:    matchedInv.id,
-          contactId:    contact.id,
-          direction:    "Outbound",
-          channel:      "Email",
+        await sendSmtp(smtp, {
+          to:      contact.email!,
           subject,
-          body:         bodyText,
-          sender:       gmailToken.email,
-          recipients:   contact.email!,
-          matchedBy:    "Auto",
-          isDraft:      true,
-          stageAtSend:  matchedInv.collectionStage,
-          authorId:     (session?.user as any)?.id ?? null,
-        }).catch(() => {
-          // Non-fatal — draft was created in Gmail, just couldn't log it
-          console.warn("trigger: failed to log communication for", contact.email);
+          body:    bodyText,
+        });
+        detail.sent = true;
+        sent++;
+
+        // Log to communications so it appears in Inbox and customer/project timeline
+        await db.insert(communications).values({
+          orgId:       orgId!,
+          customerId:  contact.customerId,
+          projectId:   contact.projectId ?? null,
+          invoiceId:   matchedInv.id,
+          contactId:   contact.id,
+          direction:   "Outbound",
+          channel:     "Email",
+          subject,
+          body:        bodyText,
+          sender:      smtp.fromEmail,
+          recipients:  contact.email!,
+          matchedBy:   "Auto",
+          isDraft:     false,
+          stageAtSend: matchedInv.collectionStage,
+          authorId:    (session?.user as any)?.id ?? null,
+        }).catch((err) => {
+          console.warn("trigger: failed to log communication for", contact.email, err?.message);
         });
       } catch (e: any) {
         detail.error = e.message;
         skipped++;
       }
     } else {
-      detail.drafted = true;
-      drafted++;
+      detail.sent = true;
+      sent++;
     }
 
     details.push(detail);
   }
 
-  return NextResponse.json({ drafted, skipped, dryRun, details });
+  return NextResponse.json({ sent, skipped, dryRun, details });
 }

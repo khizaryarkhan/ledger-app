@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, qboTokens, emailTemplates, communications } from "@/db/schema";
+import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getValidGmailToken, createGmailDraft } from "@/lib/gmail";
+import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -48,32 +48,6 @@ function fillTemplate(
     .replace(/\{ref\}/gi, ref);
 }
 
-async function getRefreshedQboToken(orgId: string) {
-  const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
-  if (!token) return null;
-  const now = Date.now();
-  if (new Date(token.accessTokenExpiresAt).getTime() - now < 5 * 60 * 1000) {
-    const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
-    });
-    if (!res.ok) return token;
-    const d = await res.json();
-    await db.update(qboTokens).set({
-      accessToken: d.access_token,
-      refreshToken: d.refresh_token || token.refreshToken,
-      accessTokenExpiresAt: new Date(now + (d.expires_in || 3600) * 1000),
-      updatedAt: new Date(),
-    }).where(eq(qboTokens.orgId, orgId));
-    return { ...token, accessToken: d.access_token };
-  }
-  return token;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // CRON HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,8 +58,8 @@ export async function GET(req: Request) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  let escalated = 0;
-  let draftsCreated = 0;
+  let escalated    = 0;
+  let emailsSent   = 0;
   let errors: string[] = [];
 
   // ── 1. Stage escalation ───────────────────────────────────────────────────
@@ -102,13 +76,13 @@ export async function GET(req: Request) {
     }
   }
 
-  // ── 2. Create Gmail drafts (stage-based templates) ────────────────────────
+  // ── 2. Send emails via SMTP (stage-based templates) ───────────────────────
   const allOrgs = [...new Set(allInvoices.map((inv) => inv.orgId))];
 
   for (const orgId of allOrgs) {
     try {
-      const gmailToken = await getValidGmailToken(orgId).catch(() => null);
-      if (!gmailToken) continue;
+      const smtp = await getSmtpConfig(orgId).catch(() => null);
+      if (!smtp) continue; // org has no SMTP configured — skip
 
       // Load active templates for this org, keyed by collectionStage
       const orgTemplates = await db
@@ -174,7 +148,7 @@ export async function GET(req: Request) {
           });
 
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
-          const invRefs = triggeredInvoices.map((inv) => inv.invoiceNumber).join(", ");
+          const invRefs  = triggeredInvoices.map((inv) => inv.invoiceNumber).join(", ");
 
           const subjectParts = [fillTemplate(template.subject, greeting, invoiceLines, entityRef)];
           subjectParts.push(`Ref: ${invRefs}`);
@@ -182,10 +156,11 @@ export async function GET(req: Request) {
 
           const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
-          await createGmailDraft(gmailToken.accessToken, gmailToken.email, contact.email!, subject, bodyText);
-          draftsCreated++;
+          // Send via SMTP
+          await sendSmtp(smtp, { to: contact.email!, subject, body: bodyText });
+          emailsSent++;
 
-          // Log the draft so it appears in Inbox and customer/project timeline
+          // Log to communications so it appears in Inbox and customer/project timeline
           await db.insert(communications).values({
             orgId:       orgId,
             customerId:  contact.customerId,
@@ -196,15 +171,16 @@ export async function GET(req: Request) {
             channel:     "Email",
             subject,
             body:        bodyText,
-            sender:      gmailToken.email,
+            sender:      smtp.fromEmail,
             recipients:  contact.email!,
             matchedBy:   "Auto",
-            isDraft:     true,
+            isDraft:     false,
             stageAtSend: matchedInv.collectionStage,
             authorId:    null,
           }).catch((err) => {
             console.warn(`cron: failed to log communication for ${contact.email}:`, err?.message);
           });
+
         } catch (contactErr: any) {
           errors.push(`Contact ${contact.email}: ${contactErr.message}`);
         }
@@ -217,7 +193,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ran: today,
     escalated,
-    draftsCreated,
+    emailsSent,
     errors: errors.length > 0 ? errors : undefined,
   });
 }

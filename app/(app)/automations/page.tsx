@@ -574,8 +574,8 @@ function ReminderProgramme() {
         <div>
           <div className="text-sm font-semibold text-stone-900">Manual trigger</div>
           <div className="text-[11px] text-stone-400 mt-0.5">
-            Create Gmail drafts now using the template assigned to each invoice's collection stage.
-            Use <span className="font-medium text-stone-600">Preview</span> first to see what would be drafted.
+            Send collection emails now via SMTP using the template assigned to each invoice's collection stage.
+            Use <span className="font-medium text-stone-600">Preview</span> first to see what would be sent.
             Contacts with no matching template are skipped.
           </div>
         </div>
@@ -592,7 +592,7 @@ function ReminderProgramme() {
             disabled={triggerState === "running"}
             className="h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
           >
-            {triggerState === "running" ? "Creating drafts…" : "Create Drafts"}
+            {triggerState === "running" ? "Sending…" : "Send Now"}
           </button>
           {triggerState === "done" && (
             <button onClick={() => { setTriggerState("idle"); setTriggerResult(null); }}
@@ -607,8 +607,8 @@ function ReminderProgramme() {
           <div className="flex items-center justify-between mb-3">
             <div className="font-semibold text-stone-900">
               {triggerResult.dryRun
-                ? `Preview — ${triggerResult.drafted} draft${triggerResult.drafted !== 1 ? "s" : ""} would be created`
-                : `✓ ${triggerResult.drafted} Gmail draft${triggerResult.drafted !== 1 ? "s" : ""} created`}
+                ? `Preview — ${triggerResult.sent ?? triggerResult.drafted} email${(triggerResult.sent ?? triggerResult.drafted) !== 1 ? "s" : ""} would be sent`
+                : `✓ ${triggerResult.sent ?? triggerResult.drafted} email${(triggerResult.sent ?? triggerResult.drafted) !== 1 ? "s" : ""} sent`}
               {triggerResult.skipped > 0 && (
                 <span className="ml-2 text-[11px] font-normal text-stone-500">· {triggerResult.skipped} skipped (no pending invoices)</span>
               )}
@@ -640,8 +640,8 @@ function ReminderProgramme() {
                       {d.error
                         ? <span className="text-rose-600">✗ {d.error}</span>
                         : triggerResult.dryRun
-                          ? <span className="text-amber-700">would be drafted</span>
-                          : <span className="text-emerald-700">✓ draft created</span>}
+                          ? <span className="text-amber-700">would be sent</span>
+                          : <span className="text-emerald-700">✓ sent</span>}
                     </td>
                   </tr>
                 ))}
@@ -817,7 +817,7 @@ function ReminderProgramme() {
       <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          Drafts are created only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
+          Emails are sent only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
           Invoices in Disputed or Promise to Pay stages are always skipped.
           Email subjects include the project/customer reference and invoice numbers.
           Type directly in the email field — it saves automatically on Enter or when you click away.
@@ -973,7 +973,7 @@ function EmailTemplates() {
           <div className="text-sm text-blue-900">
             <div className="font-medium mb-1">You control every word — we never decide for you</div>
             <div>
-              Write your own email for each collection stage. When a draft is created, the tool looks at the
+              Write your own email for each collection stage. When an email is sent, the tool looks at the
               invoice's current <strong>collection stage</strong> and uses the matching template.
               No wording is ever chosen based on age numbers.
             </div>
@@ -992,7 +992,7 @@ function EmailTemplates() {
         </button>
         {showHelp && (
           <div className="px-4 pb-4 border-t border-stone-100">
-            <p className="text-[12px] text-stone-500 mt-3 mb-2">Use these placeholders anywhere in your subject or body — they are replaced automatically when a draft is created:</p>
+            <p className="text-[12px] text-stone-500 mt-3 mb-2">Use these placeholders anywhere in your subject or body — they are replaced automatically when an email is sent:</p>
             <div className="space-y-1.5">
               {PLACEHOLDER_HELP.map(({ key, desc }) => (
                 <div key={key} className="flex items-start gap-3">
@@ -1177,7 +1177,7 @@ function EmailTemplates() {
                 >
                   <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${editing.isActive ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
-                <span className="text-sm text-stone-600">{editing.isActive ? "Active — will be used when drafts are created" : "Inactive — will be skipped"}</span>
+                <span className="text-sm text-stone-600">{editing.isActive ? "Active — will be used when emails are sent" : "Inactive — will be skipped"}</span>
               </div>
             </div>
 
