@@ -130,16 +130,55 @@ export async function PATCH(req: Request) {
   if (!isSuper && !isAdmin) return bad("Forbidden", 403);
 
   try {
-    const { userId, status } = await req.json();
-    if (!userId || !["Active", "Inactive"].includes(status)) return bad("Invalid request");
+    const body = await req.json();
 
+    // Role change
+    if (body.role !== undefined) {
+      const { userId, role: newRole } = body;
+      if (!userId) return bad("userId required");
+      const allowed = isSuper ? ["company_admin", "company_user"] : ["company_user"];
+      if (!allowed.includes(newRole)) return bad("Invalid role or insufficient permissions", 403);
+      const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+      if (!target) return bad("User not found", 404);
+      if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
+      await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
+      await db.update(userOrganisations).set({ role: newRole })
+        .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId!)));
+      return ok({ success: true });
+    }
+
+    // Status change
+    const { userId, status } = body;
+    if (!userId || !["Active", "Inactive"].includes(status)) return bad("Invalid request");
     const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
     if (!target) return bad("User not found", 404);
     if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
-
     await db.update(users).set({ status }).where(eq(users.id, userId));
     return ok({ success: true });
   } catch (e: any) {
     return bad("Failed to update user", 500);
   }
+}
+
+export async function DELETE(req: Request) {
+  const { error, session, orgId } = await requireOrg();
+  if (error) return error;
+  const isSuper = isSuperAdmin(session);
+  const isAdmin = (session!.user as any).role === "company_admin";
+  if (!isSuper && !isAdmin) return bad("Only admins can delete users", 403);
+
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get("userId");
+  if (!userId) return bad("userId required");
+
+  const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+  if (!target) return bad("User not found", 404);
+  if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
+  if (target.role === "super_admin") return bad("Cannot delete super admins", 403);
+  // Prevent self-deletion
+  if ((session!.user as any).id === userId) return bad("Cannot delete your own account", 403);
+
+  await db.delete(userOrganisations).where(eq(userOrganisations.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
+  return ok({ deleted: true });
 }
