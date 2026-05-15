@@ -1,23 +1,34 @@
 import { db } from "@/db";
-import { users, userOrganisations } from "@/db/schema";
+import { users, userOrganisations, reps } from "@/db/schema";
 import { requireAuth, isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
+// Virtual roles exposed to the UI:
+//   company_admin  → Admin          (users.role = 'company_admin')
+//   company_user   → Full Access    (users.role = 'company_user')
+//   rep            → Rep / PM       (users.role = 'rep', reps.tier = 'rep')
+//   ed             → ED / RM        (users.role = 'rep', reps.tier = 'ed')
+//
+// 'rep' and 'ed' both map to users.role='rep'; tier is stored in the reps table.
+
 const UserSchema = z.object({
-  orgId: z.string().uuid().optional(),
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
-  role: z.enum(["company_admin", "company_user"]).default("company_user"),
+  orgId:     z.string().uuid().optional(),
+  name:      z.string().min(1),
+  email:     z.string().email(),
+  password:  z.string().min(8),
+  role:      z.enum(["company_admin", "company_user", "rep", "ed"]).default("company_user"),
+  managerId: z.string().uuid().optional(), // for rep users: which ED/RM rep record they report to
 });
 
-const cols = {
+const userCols = {
   id: users.id, orgId: users.orgId, name: users.name,
-  email: users.email, role: users.role, status: users.status, createdAt: users.createdAt,
+  email: users.email, role: users.role, status: users.status,
+  createdAt: users.createdAt, repId: users.repId,
 };
 
+// ── GET ──────────────────────────────────────────────────────────────────────
 export async function GET(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
@@ -28,11 +39,11 @@ export async function GET(req: Request) {
   // ?email= lookup (used by org creation modal to check if user exists)
   const emailParam = url.searchParams.get("email");
   if (emailParam) {
-    const [found] = await db.select(cols).from(users).where(eq(users.email, emailParam.toLowerCase())).limit(1);
+    const [found] = await db.select(userCols).from(users).where(eq(users.email, emailParam.toLowerCase())).limit(1);
     return ok(found ? [found] : []);
   }
 
-  // ?orgId= lookup — super admin fetching users of a specific org (via junction table)
+  // ?orgId= lookup — super admin fetching users of a specific org
   const orgIdParam = url.searchParams.get("orgId");
   if (orgIdParam) {
     if (!isSuper) return bad("Forbidden", 403);
@@ -40,20 +51,32 @@ export async function GET(req: Request) {
       .select({
         id: users.id, orgId: users.orgId, name: users.name,
         email: users.email, role: userOrganisations.role,
-        status: users.status, createdAt: users.createdAt,
+        status: users.status, createdAt: users.createdAt, repId: users.repId,
+        repTier: reps.tier, repManagerId: reps.managerId,
       })
       .from(userOrganisations)
       .innerJoin(users, eq(users.id, userOrganisations.userId))
+      .leftJoin(reps, eq(reps.id, users.repId))
       .where(eq(userOrganisations.orgId, orgIdParam));
     return ok(rows);
   }
 
+  // Default: list all users for this org, joined with reps for tier info
+  const withReps = {
+    id: users.id, orgId: users.orgId, name: users.name,
+    email: users.email, role: users.role, status: users.status,
+    createdAt: users.createdAt, repId: users.repId,
+    repTier: reps.tier,
+    repManagerId: reps.managerId,
+  };
+
   const rows = isSuper
-    ? await db.select(cols).from(users)
-    : await db.select(cols).from(users).where(eq(users.orgId, orgId!));
+    ? await db.select(withReps).from(users).leftJoin(reps, eq(reps.id, users.repId))
+    : await db.select(withReps).from(users).leftJoin(reps, eq(reps.id, users.repId)).where(eq(users.orgId, orgId!));
   return ok(rows);
 }
 
+// ── POST — create user ────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
@@ -64,31 +87,51 @@ export async function POST(req: Request) {
   try {
     const data = UserSchema.parse(await req.json());
     const targetOrgId = isSuper ? (data.orgId || orgId!) : orgId!;
-    if (!isSuper && data.role === "company_admin") return bad("Company Admins cannot create other Company Admins", 403);
 
-    const [existing] = await db.select().from(users).where(eq(users.email, data.email)).limit(1);
+    // Only super admins can create company_admin accounts
+    if (!isSuper && data.role === "company_admin") return bad("Company Admins cannot create other Admins", 403);
+
+    const isPortalRole = data.role === "rep" || data.role === "ed";
+    const dbRole  = isPortalRole ? "rep" : data.role;
+    const repTier = data.role === "ed" ? "ed" : data.role === "rep" ? "rep" : null;
+
+    const [existing] = await db.select().from(users).where(eq(users.email, data.email.toLowerCase())).limit(1);
     if (existing) return bad(`Email "${data.email}" is already registered`, 409);
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const [created] = await db.insert(users).values({
-      orgId: targetOrgId, name: data.name, email: data.email, passwordHash, role: data.role,
-    }).returning(cols);
+      orgId: targetOrgId, name: data.name,
+      email: data.email.toLowerCase(), passwordHash, role: dbRole,
+    }).returning(userCols);
 
-    // CRITICAL: also create the user_organisations junction row.
-    // requireOrg() validates membership against this table on every request —
-    // without this insert, the new user logs in but every API call returns 403.
+    // For Rep/ED: create reps record and link via users.repId
+    let repTierOut: string | null = null;
+    let repManagerIdOut: string | null = null;
+    if (repTier) {
+      const [repRecord] = await db.insert(reps).values({
+        orgId: targetOrgId, name: data.name,
+        email: data.email.toLowerCase(), tier: repTier,
+        ...(data.managerId ? { managerId: data.managerId } : {}),
+      }).returning();
+      await db.update(users).set({ repId: repRecord.id }).where(eq(users.id, created.id));
+      repTierOut = repTier;
+      repManagerIdOut = repRecord.managerId ?? null;
+      (created as any).repId = repRecord.id;
+    }
+
+    // Junction row — required by requireOrg() on every API call
     await db.insert(userOrganisations).values({
-      userId: created.id,
-      orgId:  targetOrgId,
-      role:   data.role,
+      userId: created.id, orgId: targetOrgId, role: dbRole,
     });
-    return ok(created);
+
+    return ok({ ...created, repTier: repTierOut, repManagerId: repManagerIdOut });
   } catch (e: any) {
     if (e?.issues) return bad(e.issues[0].message);
     return bad("Failed to create user", 500);
   }
 }
 
+// ── PUT — full update (super admin only) ─────────────────────────────────────
 export async function PUT(req: Request) {
   const { error, session } = await requireAuth();
   if (error) return error;
@@ -98,7 +141,7 @@ export async function PUT(req: Request) {
     const { userId, name, email, role } = await req.json();
     if (!userId) return bad("userId required");
 
-    const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+    const [target] = await db.select(userCols).from(users).where(eq(users.id, userId)).limit(1);
     if (!target) return bad("User not found", 404);
 
     const updates: Record<string, any> = {};
@@ -115,13 +158,14 @@ export async function PUT(req: Request) {
 
     if (Object.keys(updates).length === 0) return bad("Nothing to update");
     await db.update(users).set(updates).where(eq(users.id, userId));
-    const [updated] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+    const [updated] = await db.select(userCols).from(users).where(eq(users.id, userId)).limit(1);
     return ok(updated);
   } catch (e: any) {
     return bad("Failed to update user", 500);
   }
 }
 
+// ── PATCH — partial update (role change or status toggle) ────────────────────
 export async function PATCH(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
@@ -132,25 +176,58 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json();
 
-    // Role change
+    // ── Role change ──────────────────────────────────────────────────────────
     if (body.role !== undefined) {
-      const { userId, role: newRole } = body;
+      const { userId, role: virtualRole } = body;
       if (!userId) return bad("userId required");
-      const allowed = isSuper ? ["company_admin", "company_user"] : ["company_user"];
-      if (!allowed.includes(newRole)) return bad("Invalid role or insufficient permissions", 403);
-      const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+
+      // company_admin may not elevate to company_admin (only super can)
+      const allowed = isSuper
+        ? ["company_admin", "company_user", "rep", "ed"]
+        : ["company_user", "rep", "ed"];
+      if (!allowed.includes(virtualRole)) return bad("Invalid role or insufficient permissions", 403);
+
+      const dbRole    = ["rep", "ed"].includes(virtualRole) ? "rep" : virtualRole;
+      const targetTier = virtualRole === "ed" ? "ed" : virtualRole === "rep" ? "rep" : null;
+
+      const [target] = await db.select(userCols).from(users).where(eq(users.id, userId)).limit(1);
       if (!target) return bad("User not found", 404);
       if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
-      await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
-      await db.update(userOrganisations).set({ role: newRole })
+
+      // Update users + junction
+      await db.update(users).set({ role: dbRole }).where(eq(users.id, userId));
+      await db.update(userOrganisations).set({ role: dbRole })
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId!)));
+
+      // Handle reps table for portal roles
+      if (targetTier) {
+        if (target.repId) {
+          // Already has a rep record — just update the tier
+          await db.update(reps).set({ tier: targetTier })
+            .where(and(eq(reps.id, target.repId), eq(reps.orgId, orgId!)));
+        } else {
+          // Create a new rep record and link
+          const [repRecord] = await db.insert(reps).values({
+            orgId: orgId!, name: target.name, email: target.email, tier: targetTier,
+          }).returning();
+          await db.update(users).set({ repId: repRecord.id }).where(eq(users.id, userId));
+        }
+      } else {
+        // Demoting from rep/ed → unlink and delete reps record (cascades to set projects.repId=null)
+        if (target.repId) {
+          await db.update(users).set({ repId: null }).where(eq(users.id, userId));
+          await db.delete(reps)
+            .where(and(eq(reps.id, target.repId), eq(reps.orgId, orgId!)));
+        }
+      }
+
       return ok({ success: true });
     }
 
-    // Status change
+    // ── Status toggle ────────────────────────────────────────────────────────
     const { userId, status } = body;
     if (!userId || !["Active", "Inactive"].includes(status)) return bad("Invalid request");
-    const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+    const [target] = await db.select(userCols).from(users).where(eq(users.id, userId)).limit(1);
     if (!target) return bad("User not found", 404);
     if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
     await db.update(users).set({ status }).where(eq(users.id, userId));
@@ -160,6 +237,7 @@ export async function PATCH(req: Request) {
   }
 }
 
+// ── DELETE ───────────────────────────────────────────────────────────────────
 export async function DELETE(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
@@ -171,12 +249,17 @@ export async function DELETE(req: Request) {
   const userId = searchParams.get("userId");
   if (!userId) return bad("userId required");
 
-  const [target] = await db.select(cols).from(users).where(eq(users.id, userId)).limit(1);
+  const [target] = await db.select(userCols).from(users).where(eq(users.id, userId)).limit(1);
   if (!target) return bad("User not found", 404);
   if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
   if (target.role === "super_admin") return bad("Cannot delete super admins", 403);
-  // Prevent self-deletion
   if ((session!.user as any).id === userId) return bad("Cannot delete your own account", 403);
+
+  // Delete reps record first (if any) so the cascade sets projects.repId=null cleanly
+  if (target.repId) {
+    await db.update(users).set({ repId: null }).where(eq(users.id, userId));
+    await db.delete(reps).where(eq(reps.id, target.repId));
+  }
 
   await db.delete(userOrganisations).where(eq(userOrganisations.userId, userId));
   await db.delete(users).where(eq(users.id, userId));
