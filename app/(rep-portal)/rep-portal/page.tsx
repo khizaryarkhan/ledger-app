@@ -16,7 +16,8 @@ type Invoice = {
   qboId: string | null;
 };
 type Customer    = { id: string; name: string; code: string; currency: string; };
-type Project     = { id: string; name: string; code: string; customerId: string; };
+type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; };
+type Rep         = { id: string; name: string; tier: string; };
 type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; };
 
 // ─── Aging helpers ────────────────────────────────────────────────────────────
@@ -97,9 +98,9 @@ function getDueStatus(inv: Invoice): string {
 }
 
 // ─── Entity Card (Customer or Project) ───────────────────────────────────────
-function EntityCard({ entity, invoices, customerName, onClick }: {
+function EntityCard({ entity, invoices, customerName, repName, onClick }: {
   entity: Customer | Project; invoices: Invoice[];
-  customerName?: string; onClick: () => void;
+  customerName?: string; repName?: string; onClick: () => void;
 }) {
   const open = invoices.filter(i =>
     !["Paid", "Written Off"].includes(i.paymentStatus) && i.collectionStage !== "Closed"
@@ -117,9 +118,9 @@ function EntityCard({ entity, invoices, customerName, onClick }: {
       className="w-full text-left bg-white rounded-xl ring-1 ring-stone-200 p-4 hover:ring-stone-400 hover:shadow-sm transition-all active:scale-[0.99]">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] text-stone-400 font-mono mb-0.5">{(entity as any).code}</div>
           <div className="text-sm font-semibold text-stone-900 leading-snug">{entity.name}</div>
           {customerName && <div className="text-[11px] text-stone-400 mt-0.5">{customerName}</div>}
+          {repName && <div className="text-[11px] text-stone-400 mt-0.5">Rep: {repName}</div>}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-3 mt-0.5">
           {hasOverdue && <div className="w-2 h-2 rounded-full bg-rose-500" />}
@@ -240,6 +241,7 @@ export default function RepPortalPage() {
   const [invoices,    setInvoices]    = useState<Invoice[]>([]);
   const [customers,   setCustomers]   = useState<Customer[]>([]);
   const [projects,    setProjects]    = useState<Project[]>([]);
+  const [reps,        setReps]        = useState<Rep[]>([]);
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR" });
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
@@ -255,16 +257,18 @@ export default function RepPortalPage() {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const [invRes, custRes, projRes, settingsRes] = await Promise.all([
+      const [invRes, custRes, projRes, repsRes, settingsRes] = await Promise.all([
         fetch("/api/invoices"),
         fetch("/api/customers"),
         fetch("/api/projects"),
+        fetch("/api/reps"),
         fetch("/api/org/settings"),
       ]);
       if (invRes.ok)      setInvoices(await invRes.json());
       else                setError("Failed to load data");
       if (custRes.ok)     setCustomers(await custRes.json());
       if (projRes.ok)     setProjects(await projRes.json());
+      if (repsRes.ok)     setReps(await repsRes.json());
       if (settingsRes.ok) setOrgSettings(await settingsRes.json());
     } catch { setError("Network error — please refresh"); }
     finally  { setLoading(false); }
@@ -303,7 +307,7 @@ export default function RepPortalPage() {
 
     if (level === "customer") {
       return customers
-        .map(c => ({ entity: c as Customer | Project, invoices: invoices.filter(i => i.customerId === c.id), customer: undefined as Customer | undefined }))
+        .map(c => ({ entity: c as Customer | Project, invoices: invoices.filter(i => i.customerId === c.id), customer: undefined as Customer | undefined, repName: undefined as string | undefined }))
         .filter(x => x.invoices.length > 0)
         .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
     }
@@ -312,10 +316,11 @@ export default function RepPortalPage() {
         entity: p as Customer | Project,
         invoices: invoices.filter(i => i.projectId === p.id),
         customer: customers.find(c => c.id === p.customerId),
+        repName: p.repId ? reps.find(r => r.id === p.repId)?.name : undefined,
       }))
       .filter(x => x.invoices.length > 0)
       .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
-  }, [customers, projects, invoices, level]);
+  }, [customers, projects, invoices, reps, level]);
 
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
@@ -463,12 +468,13 @@ export default function RepPortalPage() {
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {visible.map(({ entity, invoices: eInvs, customer }) => (
+                  {visible.map(({ entity, invoices: eInvs, customer, repName }) => (
                     <EntityCard
                       key={entity.id}
                       entity={entity}
                       invoices={eInvs}
                       customerName={customer?.name}
+                      repName={repName}
                       onClick={() => setView({ type: "entity", id: entity.id, kind: level })}
                     />
                   ))}

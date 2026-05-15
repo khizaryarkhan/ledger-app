@@ -76,7 +76,7 @@ function PopoverMenu({ trigger, children }: { trigger: React.ReactNode; children
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function TeamSettingsPage() {
   const { data: session } = useSession();
-  const { regions, addRegion, deleteRegion, updateRepManager } = useData();
+  const { regions, addRegion, deleteRegion, updateRepManager, refresh } = useData();
 
   const currentUserId = (session?.user as any)?.id;
   const sessionRole   = (session?.user as any)?.role;
@@ -94,7 +94,13 @@ export default function TeamSettingsPage() {
       if (res.ok) setMembers(await res.json());
     } finally { setLoadingMembers(false); }
   };
-  useEffect(() => { if (isAdmin) loadMembers(); }, [isAdmin]);
+  useEffect(() => {
+    if (isAdmin) {
+      loadMembers();
+      refresh(); // Sync DataProvider so rep filter dropdowns across the app are up to date
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   // ── Create user ───────────────────────────────────────────────────────────────
   const [newUser,     setNewUser]     = useState({ name: "", email: "", password: "", role: "company_user" });
@@ -116,6 +122,8 @@ export default function TeamSettingsPage() {
       if (!res.ok) { setCreateError(data?.error || "Failed to create user"); return; }
       setNewUser({ name: "", email: "", password: "", role: "company_user" });
       await loadMembers();
+      // Refresh DataProvider so new rep/ed immediately appears in project/customer dropdowns
+      if (["rep", "ed"].includes(newUser.role)) await refresh();
     } finally { setAddingUser(false); }
   };
 
@@ -140,6 +148,10 @@ export default function TeamSettingsPage() {
         body: JSON.stringify({ userId: m.id, role: newVirtualRole }),
       });
       await loadMembers();
+      // Refresh DataProvider when a user gains or loses a rep/ed role
+      const prevVRole = virtualRole(m);
+      const repRoles  = ["rep", "ed"];
+      if (repRoles.includes(newVirtualRole) || repRoles.includes(prevVRole)) await refresh();
     } finally { setRoleSaving(null); }
   };
 

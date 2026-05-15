@@ -10,10 +10,16 @@ import { Search, Users, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "luc
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { reps, regions, reclassifyCustomers } = useData() as any;
+  const { regions, reclassifyCustomers } = useData() as any;
   const [repId, setRepId] = useState("");
   const [regionId, setRegionId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Always fetch fresh reps when the modal opens so newly-created users appear immediately
+  const [freshReps, setFreshReps] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/reps").then(r => r.json()).then(setFreshReps).catch(() => {});
+  }, []);
 
   const handleApply = async () => {
     if (!repId && !regionId) return;
@@ -39,7 +45,7 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
               className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
               <option value="">— No change —</option>
               <option value="null">Unassign rep</option>
-              {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {freshReps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
           <div>

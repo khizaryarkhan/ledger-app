@@ -10,10 +10,16 @@ import { Briefcase, Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { reps, regions, reclassifyProjects } = useData() as any;
+  const { regions, reclassifyProjects } = useData() as any;
   const [repId, setRepId] = useState("");
   const [regionId, setRegionId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Always fetch fresh reps when the modal opens so newly-created users appear immediately
+  const [freshReps, setFreshReps] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/reps").then(r => r.json()).then(setFreshReps).catch(() => {});
+  }, []);
 
   const handleApply = async () => {
     if (!repId && !regionId) return;
@@ -39,12 +45,12 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
               className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
               <option value="">— No change —</option>
               <option value="null">Unassign</option>
-              {reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").length > 0 && (
-                reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd")
+              {freshReps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").length > 0 && (
+                freshReps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd")
                   .map((r: any) => <option key={r.id} value={r.id}>{r.name} (PM)</option>)
               )}
-              {reps.filter((r: any) => r.tier === "ed" || r.tier === "rd").length > 0 && (
-                reps.filter((r: any) => r.tier === "ed" || r.tier === "rd")
+              {freshReps.filter((r: any) => r.tier === "ed" || r.tier === "rd").length > 0 && (
+                freshReps.filter((r: any) => r.tier === "ed" || r.tier === "rd")
                   .map((r: any) => <option key={r.id} value={r.id}>{r.name} (ED/RM)</option>)
               )}
             </select>
