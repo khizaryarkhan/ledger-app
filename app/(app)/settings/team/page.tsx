@@ -1,36 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import {
   ChevronLeft, Users, Plus, Trash2, Shield, UserPlus,
-  ChevronDown, Briefcase, X,
+  ChevronDown, Briefcase, X, MapPin,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-// Virtual role = what the UI shows. Maps to users.role + reps.tier:
-//   company_admin → Admin
-//   company_user  → Full Access
-//   rep           → Rep / PM   (users.role='rep', reps.tier='rep')
-//   ed            → ED / RM    (users.role='rep', reps.tier='ed' or 'rd')
-
 type TeamUser = {
   id: string;
   orgId: string;
   name: string;
   email: string;
-  role: string;          // db value: 'company_admin' | 'company_user' | 'rep'
+  role: string;
   repId: string | null;
-  repTier: string | null;      // 'rep' | 'ed' | 'rd' | null
-  repManagerId: string | null; // reps.managerId — the rep record of the managing ED
+  repTier: string | null;
+  repManagerId: string | null;
   status: string;
   createdAt: string;
 };
 
-// Derive display role from db role + repTier
 function virtualRole(u: TeamUser): string {
   if (u.role === "rep") return (u.repTier === "ed" || u.repTier === "rd") ? "ed" : "rep";
   return u.role;
@@ -52,17 +45,45 @@ const ROLE_COLOR: Record<string, string> = {
   super_admin:   "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
+// ── Dropdown that closes on outside click ──────────────────────────────────────
+function PopoverMenu({ trigger, children }: { trigger: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <div onClick={() => setOpen(p => !p)}>{trigger}</div>
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 z-[200] bg-white rounded-lg shadow-xl ring-1 ring-stone-200 py-1 min-w-[150px]"
+          onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function TeamSettingsPage() {
   const { data: session } = useSession();
-  const { updateRepManager } = useData();
+  const { regions, addRegion, deleteRegion, updateRepManager } = useData();
 
   const currentUserId = (session?.user as any)?.id;
   const sessionRole   = (session?.user as any)?.role;
-  const isAdmin  = sessionRole === "company_admin" || sessionRole === "super_admin";
-  const isSuper  = sessionRole === "super_admin";
+  const isAdmin = sessionRole === "company_admin" || sessionRole === "super_admin";
+  const isSuper = sessionRole === "super_admin";
 
-  // ── Users state ──────────────────────────────────────────────────────────────
+  // ── Users ─────────────────────────────────────────────────────────────────────
   const [members,        setMembers]        = useState<TeamUser[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
@@ -75,7 +96,7 @@ export default function TeamSettingsPage() {
   };
   useEffect(() => { if (isAdmin) loadMembers(); }, [isAdmin]);
 
-  // ── Create user form ──────────────────────────────────────────────────────────
+  // ── Create user ───────────────────────────────────────────────────────────────
   const [newUser,     setNewUser]     = useState({ name: "", email: "", password: "", role: "company_user" });
   const [addingUser,  setAddingUser]  = useState(false);
   const [createError, setCreateError] = useState("");
@@ -83,8 +104,8 @@ export default function TeamSettingsPage() {
   const createUser = async () => {
     setCreateError("");
     if (!newUser.name.trim())             { setCreateError("Name is required"); return; }
-    if (!/.+@.+\..+/.test(newUser.email)) { setCreateError("Valid email is required"); return; }
-    if (newUser.password.length < 8)      { setCreateError("Password must be at least 8 characters"); return; }
+    if (!/.+@.+\..+/.test(newUser.email)) { setCreateError("Valid email required"); return; }
+    if (newUser.password.length < 8)      { setCreateError("Password must be 8+ characters"); return; }
     setAddingUser(true);
     try {
       const res  = await fetch("/api/admin/users", {
@@ -98,7 +119,7 @@ export default function TeamSettingsPage() {
     } finally { setAddingUser(false); }
   };
 
-  // ── Actions ───────────────────────────────────────────────────────────────────
+  // ── User actions ──────────────────────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [roleSaving,    setRoleSaving]    = useState<string | null>(null);
   const [managerSaving, setManagerSaving] = useState<string | null>(null);
@@ -128,17 +149,6 @@ export default function TeamSettingsPage() {
     await loadMembers();
   };
 
-  // Change which ED a rep reports to (using reps.managerId)
-  const changeManager = async (repUser: TeamUser, newManagerRepId: string | null) => {
-    if (!repUser.repId) return;
-    setManagerSaving(repUser.id);
-    try {
-      await updateRepManager(repUser.repId, newManagerRepId);
-      await loadMembers();
-    } finally { setManagerSaving(null); }
-  };
-
-  // Add a rep as a reportee of an ED (set rep's managerId to the ED's repId)
   const addReportee = async (repUser: TeamUser, edRepId: string) => {
     if (!repUser.repId) return;
     setManagerSaving(repUser.id);
@@ -148,7 +158,6 @@ export default function TeamSettingsPage() {
     } finally { setManagerSaving(null); }
   };
 
-  // Remove a rep from reporting to an ED
   const removeReportee = async (repUser: TeamUser) => {
     if (!repUser.repId) return;
     setManagerSaving(repUser.id);
@@ -158,14 +167,23 @@ export default function TeamSettingsPage() {
     } finally { setManagerSaving(null); }
   };
 
-  // ── Derived lists ─────────────────────────────────────────────────────────────
+  // ── Regions ───────────────────────────────────────────────────────────────────
+  const [newRegion,    setNewRegion]    = useState("");
+  const [addingRegion, setAddingRegion] = useState(false);
+
+  const handleAddRegion = async () => {
+    if (!newRegion.trim()) return;
+    setAddingRegion(true);
+    try {
+      await addRegion({ name: newRegion.trim() });
+      setNewRegion("");
+    } finally { setAddingRegion(false); }
+  };
+
+  // ── Derived ───────────────────────────────────────────────────────────────────
   const visible    = members.filter(m => m.role !== "super_admin");
   const repPmUsers = members.filter(m => virtualRole(m) === "rep");
   const edRmUsers  = members.filter(m => virtualRole(m) === "ed");
-
-  // Reps not yet assigned to an ED (available to add as reportees)
-  const unassignedReps = (edRepId: string) =>
-    repPmUsers.filter(r => !r.repManagerId || r.repManagerId === "");
 
   return (
     <div className="p-6 max-w-[820px] mx-auto">
@@ -176,7 +194,7 @@ export default function TeamSettingsPage() {
           <ChevronLeft size={14} /> Settings
         </Link>
         <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Team</h1>
-        <p className="text-sm text-stone-500 mt-1">Manage users and access levels.</p>
+        <p className="text-sm text-stone-500 mt-1">Manage users, access levels and regions.</p>
       </div>
 
       {/* ── Role overview ──────────────────────────────────────────────────────── */}
@@ -185,7 +203,7 @@ export default function TeamSettingsPage() {
           { icon: Shield,    color: "text-violet-500",  label: "Admin",       desc: "Full access — can create, edit and delete any user or data." },
           { icon: Users,     color: "text-blue-500",    label: "Full Access", desc: "Can do everything except create or delete users." },
           { icon: Briefcase, color: "text-emerald-500", label: "Rep / PM",    desc: "Portal login — sees only projects assigned to them." },
-          { icon: Shield,    color: "text-orange-500",  label: "ED / RM",     desc: "Portal login — sees projects for all Reps reporting to them." },
+          { icon: Shield,    color: "text-orange-500",  label: "ED / RM",     desc: "Portal login — sees all projects for Reps reporting to them." },
         ].map(({ icon: Icon, color, label, desc }) => (
           <div key={label} className="flex items-start gap-3 p-3 rounded-lg bg-stone-50 ring-1 ring-stone-100">
             <Icon size={15} className={`${color} shrink-0 mt-0.5`} />
@@ -205,9 +223,7 @@ export default function TeamSettingsPage() {
           <span className="ml-auto text-[11px] text-stone-400">{visible.length}</span>
         </div>
         <p className="text-[12px] text-stone-500 mb-4">
-          All team members. Assign <strong className="font-medium text-stone-700">Rep / PM</strong> or{" "}
-          <strong className="font-medium text-stone-700">ED / RM</strong> to give portal access and enable
-          project assignment.
+          All team members. Rep / PM and ED / RM users get portal access and appear in project assignment dropdowns.
         </p>
 
         <div className="space-y-2 mb-5">
@@ -217,65 +233,56 @@ export default function TeamSettingsPage() {
           )}
 
           {visible.map(m => {
-            const vRole      = virtualRole(m);
-            const isPortal   = vRole === "rep" || vRole === "ed";
-            const canEdit    = isAdmin && m.id !== currentUserId && m.role !== "super_admin";
-            const isActive   = m.status === "Active";
+            const vRole    = virtualRole(m);
+            const canEdit  = isAdmin && m.id !== currentUserId && m.role !== "super_admin";
+            const isActive = m.status === "Active";
 
-            // For rep: find the ED/RM user they report to
-            const managingEdUser = vRole === "rep" && m.repManagerId
-              ? members.find(u => u.repId === m.repManagerId) ?? null
-              : null;
-
-            // For ed: find reps reporting to this ED
+            // ED/RM: find reps reporting to this ED
             const reporteeUsers = vRole === "ed" && m.repId
               ? repPmUsers.filter(r => r.repManagerId === m.repId)
               : [];
 
-            // Reps available to add as reportees for this ED (not yet reporting to anyone)
+            // Reps not yet assigned to any ED (can be added to this ED)
             const addableReps = vRole === "ed" && m.repId
-              ? repPmUsers.filter(r => !r.repManagerId && r.id !== m.id)
+              ? repPmUsers.filter(r => !r.repManagerId)
               : [];
 
             return (
               <div key={m.id}
                 className={`rounded-lg ring-1 px-3 py-2.5 space-y-2 ${isActive ? "bg-white ring-stone-200" : "bg-stone-50 ring-stone-100 opacity-60"}`}>
 
-                {/* ── Main row ── */}
+                {/* Main row */}
                 <div className="flex items-center gap-3">
-                  {/* Avatar */}
                   <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-[11px] font-semibold text-stone-600 shrink-0">
                     {m.name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase()}
                   </div>
 
-                  {/* Name + role + email */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-stone-900 truncate">{m.name}</span>
 
-                      {/* Role badge — clickable dropdown for admins */}
+                      {/* Role badge — click dropdown for admins */}
                       {canEdit ? (
-                        <div className="relative group">
-                          <button
-                            className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ${ROLE_COLOR[vRole] || "bg-stone-100 text-stone-600 ring-stone-200"} ${roleSaving === m.id ? "opacity-50" : ""}`}
-                            disabled={roleSaving === m.id}>
-                            {ROLE_LABEL[vRole] || vRole}
-                            <ChevronDown size={9} />
-                          </button>
-                          <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-white rounded-lg shadow-xl ring-1 ring-stone-200 py-1 min-w-[140px]">
-                            {[
-                              { v: "company_user", label: "Full Access" },
-                              ...(isSuper ? [{ v: "company_admin", label: "Admin" }] : []),
-                              { v: "rep", label: "Rep / PM" },
-                              { v: "ed",  label: "ED / RM" },
-                            ].map(({ v, label }) => (
-                              <button key={v} onClick={() => changeRole(m, v)}
-                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-50 transition-colors ${vRole === v ? "font-semibold text-stone-900" : "text-stone-600"}`}>
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        <PopoverMenu
+                          trigger={
+                            <button
+                              className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 cursor-pointer ${ROLE_COLOR[vRole] || "bg-stone-100 text-stone-600 ring-stone-200"} ${roleSaving === m.id ? "opacity-50 pointer-events-none" : ""}`}>
+                              {ROLE_LABEL[vRole] || vRole}
+                              <ChevronDown size={9} />
+                            </button>
+                          }>
+                          {[
+                            { v: "company_user", label: "Full Access" },
+                            ...(isSuper ? [{ v: "company_admin", label: "Admin" }] : []),
+                            { v: "rep", label: "Rep / PM" },
+                            { v: "ed",  label: "ED / RM" },
+                          ].map(({ v, label }) => (
+                            <button key={v} onClick={() => changeRole(m, v)}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-50 transition-colors ${vRole === v ? "font-semibold text-stone-900" : "text-stone-600"}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </PopoverMenu>
                       ) : (
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ${ROLE_COLOR[vRole] || "bg-stone-100 text-stone-600 ring-stone-200"}`}>
                           {ROLE_LABEL[vRole] || vRole}
@@ -287,7 +294,6 @@ export default function TeamSettingsPage() {
                     <div className="text-[11px] text-stone-500">{m.email}</div>
                   </div>
 
-                  {/* Action buttons */}
                   {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => toggleStatus(m)}
@@ -312,65 +318,46 @@ export default function TeamSettingsPage() {
                   )}
                 </div>
 
-                {/* ── Rep / PM: "Reports to" ED dropdown ── */}
-                {isPortal && vRole === "rep" && isAdmin && (
-                  <div className="flex items-center gap-2 pl-11">
-                    <span className="text-[11px] text-stone-400 shrink-0">Reports to:</span>
-                    <select
-                      value={m.repManagerId ?? ""}
-                      disabled={managerSaving === m.id}
-                      onChange={e => changeManager(m, e.target.value || null)}
-                      className="flex-1 h-7 px-2 text-xs rounded ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white disabled:opacity-50">
-                      <option value="">— None —</option>
-                      {edRmUsers.map(ed => (
-                        <option key={ed.id} value={ed.repId ?? ""}>
-                          {ed.name}
-                        </option>
-                      ))}
-                    </select>
-                    {managingEdUser && (
-                      <span className="text-[10px] text-stone-500 shrink-0">{managingEdUser.name}</span>
-                    )}
-                  </div>
-                )}
-
-                {/* ── ED / RM: Reporting reps ── */}
-                {isPortal && vRole === "ed" && isAdmin && (
+                {/* ED/RM: Reporting reps section */}
+                {vRole === "ed" && isAdmin && (
                   <div className="pl-11 space-y-1.5">
-                    <div className="text-[11px] text-stone-400">Reporting Reps / PMs</div>
+                    <div className="text-[11px] text-stone-400 font-medium">Reporting Reps / PMs</div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {reporteeUsers.map(r => (
                         <span key={r.id}
                           className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
                           <Briefcase size={9} />
                           {r.name}
-                          <button onClick={() => removeReportee(r)}
-                            className="ml-0.5 text-emerald-400 hover:text-rose-600 transition-colors">
+                          <button
+                            disabled={managerSaving === r.id}
+                            onClick={() => removeReportee(r)}
+                            className="ml-0.5 text-emerald-400 hover:text-rose-600 transition-colors disabled:opacity-40">
                             <X size={9} />
                           </button>
                         </span>
                       ))}
 
-                      {/* Add reportee dropdown */}
+                      {/* Add reportee — state-driven popover */}
                       {addableReps.length > 0 && (
-                        <div className="relative group">
-                          <button className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full ring-1 ring-dashed ring-stone-300 text-stone-500 hover:ring-stone-500 hover:text-stone-700 transition-colors">
-                            <Plus size={9} /> Add
-                          </button>
-                          <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-white rounded-lg shadow-xl ring-1 ring-stone-200 py-1 min-w-[150px]">
-                            {addableReps.map(r => (
-                              <button key={r.id}
-                                onClick={() => m.repId && addReportee(r, m.repId)}
-                                className="w-full text-left px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50 transition-colors">
-                                {r.name}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        <PopoverMenu
+                          trigger={
+                            <button className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full ring-1 ring-dashed ring-stone-300 text-stone-500 hover:ring-stone-500 hover:text-stone-700 transition-colors cursor-pointer">
+                              <Plus size={9} /> Add
+                            </button>
+                          }>
+                          {addableReps.map(r => (
+                            <button key={r.id}
+                              disabled={managerSaving === r.id}
+                              onClick={() => m.repId && addReportee(r, m.repId)}
+                              className="w-full text-left px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-40">
+                              {r.name}
+                            </button>
+                          ))}
+                        </PopoverMenu>
                       )}
 
                       {reporteeUsers.length === 0 && addableReps.length === 0 && (
-                        <span className="text-[11px] text-stone-400 italic">No reps assigned</span>
+                        <span className="text-[11px] text-stone-400 italic">No reps assigned yet</span>
                       )}
                     </div>
                   </div>
@@ -380,30 +367,21 @@ export default function TeamSettingsPage() {
           })}
         </div>
 
-        {/* ── Add User Form ── */}
+        {/* Add User form */}
         {isAdmin && (
           <div className="pt-4 border-t border-stone-100">
             <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Add user</div>
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <input
-                value={newUser.name}
-                onChange={e => setNewUser({ ...newUser, name: e.target.value })}
+              <input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })}
                 placeholder="Full name *"
                 className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-              <input
-                value={newUser.email}
-                onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+              <input value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
                 placeholder="Email *"
                 className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-              <input
-                type="password"
-                value={newUser.password}
-                onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+              <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })}
                 placeholder="Password (8+ chars) *"
                 className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
-              <select
-                value={newUser.role}
-                onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+              <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}
                 className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white">
                 <option value="company_user">Full Access</option>
                 {isSuper && <option value="company_admin">Admin</option>}
@@ -411,19 +389,59 @@ export default function TeamSettingsPage() {
                 <option value="ed">ED / RM</option>
               </select>
             </div>
-
             {createError && (
-              <div className="text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded px-2 py-1.5 mb-2">
-                {createError}
-              </div>
+              <div className="text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded px-2 py-1.5 mb-2">{createError}</div>
             )}
-
             <Button size="sm" icon={Plus} disabled={addingUser} onClick={createUser}>
               {addingUser ? "Adding…" : "Add user"}
             </Button>
             <p className="text-[10px] text-stone-400 mt-1.5">
-              Rep / PM and ED / RM users get portal access — share their email + password so they can log in.
+              Rep / PM and ED / RM users get portal access — share the email + password with them.
             </p>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Regions ────────────────────────────────────────────────────────────── */}
+      <Card>
+        <div className="flex items-center gap-2 mb-1">
+          <MapPin size={15} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Regions</h3>
+          <span className="ml-auto text-[11px] text-stone-400">{(regions ?? []).length}</span>
+        </div>
+        <p className="text-[12px] text-stone-500 mb-4">
+          Geographic regions for grouping customers and projects.
+        </p>
+
+        <div className="space-y-1.5 mb-4">
+          {(regions ?? []).length === 0 && (
+            <div className="text-sm text-stone-400 py-1">No regions defined yet.</div>
+          )}
+          {(regions ?? []).map((r: any) => (
+            <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-stone-50 ring-1 ring-stone-100">
+              <div className="flex items-center gap-2">
+                <MapPin size={12} className="text-stone-400" />
+                <span className="text-sm text-stone-800">{r.name}</span>
+              </div>
+              {isAdmin && (
+                <button onClick={() => deleteRegion(r.id)}
+                  className="p-1 text-stone-400 hover:text-rose-600 rounded transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {isAdmin && (
+          <div className="flex gap-2 pt-3 border-t border-stone-100">
+            <input value={newRegion} onChange={e => setNewRegion(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAddRegion()}
+              placeholder="Region name"
+              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+            <Button size="sm" icon={Plus} disabled={addingRegion || !newRegion.trim()} onClick={handleAddRegion}>
+              {addingRegion ? "Adding…" : "Add"}
+            </Button>
           </div>
         )}
       </Card>
