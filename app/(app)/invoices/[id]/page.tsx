@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
-import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown } from "lucide-react";
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { invoices, customers, projects, contacts, communications, tasks, orgSettings } = useData() as any;
+  const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh } = useData() as any;
   const [tab, setTab] = useState<"overview" | "comms" | "tasks">("overview");
   const [showCompose, setShowCompose] = useState(false);
   const [showPay, setShowPay] = useState(false);
@@ -22,6 +22,9 @@ export default function InvoiceDetailPage() {
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showStageMenu, setShowStageMenu] = useState(false);
+  const [stageSaving, setStageSaving] = useState(false);
+  const stageMenuRef = useRef<HTMLDivElement>(null);
 
   const inv = invoices.find(i => i.id === id);
   if (!inv) {
@@ -71,6 +74,45 @@ export default function InvoiceDetailPage() {
   const out = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
   const df = orgSettings?.dateFormat || "DD MMM YYYY";
 
+  // Derive stage list from org settings (handles both string[] and Stage-object[] formats)
+  const rawStages: any[] = orgSettings?.stages ?? [
+    "New", "Open", "1st Reminder Sent", "2nd Reminder Sent", "Final Demand Sent",
+    "Disputed", "On Hold", "Promise to Pay", "Escalated", "Legal", "Closed",
+  ];
+  const orgStages: string[] = rawStages
+    .map((s) => (typeof s === "string" ? s : (s.label ?? s.key ?? "")))
+    .filter(Boolean);
+
+  const handleStageChange = async (newStage: string) => {
+    if (newStage === inv.collectionStage) { setShowStageMenu(false); return; }
+    setStageSaving(true);
+    setShowStageMenu(false);
+    try {
+      await fetch(`/api/invoices/${inv.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collectionStage: newStage }),
+      });
+      await refresh();
+    } catch {
+      alert("Failed to update stage");
+    } finally {
+      setStageSaving(false);
+    }
+  };
+
+  // Close stage menu when clicking outside
+  useEffect(() => {
+    if (!showStageMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (stageMenuRef.current && !stageMenuRef.current.contains(e.target as Node)) {
+        setShowStageMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showStageMenu]);
+
   /** Billing email priority: invoice → primary contact → customer email */
   const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary && c.email);
   const resolvedEmail = inv.billingEmail || primaryContact?.email || customer?.email || null;
@@ -97,7 +139,35 @@ export default function InvoiceDetailPage() {
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-2xl font-semibold text-stone-900 tracking-tight font-mono">{inv.invoiceNumber}</h1>
             <Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge>
-            <Badge variant={stageBadge(inv.collectionStage)}>{inv.collectionStage}</Badge>
+            {/* Clickable stage badge with dropdown */}
+            <div ref={stageMenuRef} className="relative">
+              <button
+                onClick={() => setShowStageMenu((v) => !v)}
+                disabled={stageSaving}
+                className="inline-flex items-center gap-1 focus:outline-none"
+                title="Change stage"
+              >
+                <Badge variant={stageBadge(inv.collectionStage)}>
+                  {stageSaving ? "Saving…" : inv.collectionStage}
+                </Badge>
+                <ChevronDown size={12} className="text-stone-400 -ml-0.5" />
+              </button>
+              {showStageMenu && (
+                <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-lg shadow-lg ring-1 ring-stone-200 py-1 min-w-[180px]">
+                  {orgStages.map((stage) => (
+                    <button
+                      key={stage}
+                      onClick={() => handleStageChange(stage)}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-stone-50 flex items-center gap-2 ${stage === inv.collectionStage ? "font-semibold text-stone-900" : "text-stone-700"}`}
+                    >
+                      {stage === inv.collectionStage && <span className="w-1.5 h-1.5 rounded-full bg-stone-900 flex-shrink-0" />}
+                      {stage !== inv.collectionStage && <span className="w-1.5 h-1.5 flex-shrink-0" />}
+                      {stage}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 text-sm text-stone-600">
             <Link href={customer ? `/customers/${customer.id}` : "#"} className="hover:text-stone-900 hover:underline">{customer?.name}</Link>
