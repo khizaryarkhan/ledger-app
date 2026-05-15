@@ -28,9 +28,9 @@ function getReminderType(daysOverdue: number): string | null {
 
 const REMINDER_SUBJECTS: Record<string, string> = {
   "pre-due":      "Upcoming Payment Reminder",
-  "first-notice": "Payment Reminder — Invoice Now Overdue",
-  "second-notice":"Second Notice — Outstanding Invoice",
-  "final-notice": "Final Notice — Immediate Payment Required",
+  "first-notice": "Payment Reminder — Invoice Overdue",
+  "second-notice":"Second Reminder — Outstanding Invoice",
+  "final-notice": "Urgent Reminder — Outstanding Invoice",
 };
 
 const REMINDER_BODIES: Record<string, (name: string, lines: string[]) => string> = {
