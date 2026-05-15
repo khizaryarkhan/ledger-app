@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { ArrowLeft, Eye, EyeOff, Save, Info, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Save, Info, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { DEFAULT_STAGES, Stage, STAGE_COLOR_CLASSES, COLOR_OPTIONS } from "@/lib/stages";
 
 export default function StagesSettingsPage() {
@@ -12,6 +12,9 @@ export default function StagesSettingsPage() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+
+  // ── New stage form ────────────────────────────────────────────────────────
+  const [newLabel, setNewLabel] = useState("");
 
   // Initialise from orgSettings once loaded
   useEffect(() => {
@@ -21,13 +24,11 @@ export default function StagesSettingsPage() {
   }, [orgSettings]);
 
   // ── Count active invoices per stage ──────────────────────────────────────
-  // "Active" = not Paid, not Written Off, not CreditMemo
   const activeCountByKey = useMemo(() => {
     const counts: Record<string, number> = {};
     (invoices ?? []).forEach((inv: any) => {
       if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off" || inv.txnType === "CreditMemo") return;
       const val = inv.collectionStage;
-      // Match against each stage's current label or original key
       const matched = stages.find(s => s.label === val || s.key === val);
       if (matched) counts[matched.key] = (counts[matched.key] || 0) + 1;
     });
@@ -46,6 +47,27 @@ export default function StagesSettingsPage() {
       }
       return { ...s, [field]: value };
     }));
+    setDirty(true);
+  };
+
+  const handleAddStage = () => {
+    const label = newLabel.trim();
+    if (!label) return;
+
+    // Generate a unique key from the label
+    let key = label;
+    if (stages.find(s => s.key === key)) key = `${label}_${Date.now()}`;
+
+    setStages(prev => [
+      ...prev,
+      { key, label, color: "stone", isDefault: false, isClosed: false, visible: true },
+    ]);
+    setNewLabel("");
+    setDirty(true);
+  };
+
+  const handleDelete = (key: string) => {
+    setStages(prev => prev.filter(s => s.key !== key));
     setDirty(true);
   };
 
@@ -79,7 +101,7 @@ export default function StagesSettingsPage() {
   const canSave = dirty && blockedStages.length === 0;
 
   return (
-    <div className="p-6 max-w-[760px] mx-auto">
+    <div className="p-6 max-w-[800px] mx-auto">
       <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 mb-5">
         <ArrowLeft size={14} /> Back to Settings
       </Link>
@@ -88,7 +110,7 @@ export default function StagesSettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Collection Stages</h1>
           <p className="text-sm text-stone-500 mt-1">
-            Rename stages, change colours, and hide columns you don't use from the board.
+            Add, rename, recolour and manage which stages appear on the board.
           </p>
         </div>
         <button
@@ -105,9 +127,9 @@ export default function StagesSettingsPage() {
       <div className="flex items-start gap-2.5 px-4 py-3 bg-blue-50 ring-1 ring-blue-200 rounded-lg mb-4 text-[12px] text-blue-800">
         <Info size={13} className="mt-0.5 shrink-0 text-blue-600" />
         <span>
-          Renaming a stage automatically updates all invoices using that stage — no data is lost.
+          Renaming a stage automatically updates all invoices using that stage.
           One stage must be set as <strong>Default</strong> (where new invoices land) and one as <strong>Closed</strong> (end of lifecycle).
-          <strong> A stage with active invoices cannot be hidden</strong> — reassign those invoices first.
+          You cannot delete the Default or Closed stage, or a stage that has active invoices.
         </span>
       </div>
 
@@ -130,24 +152,33 @@ export default function StagesSettingsPage() {
 
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[28px_1fr_170px_80px_70px_70px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
           <div />
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Stage Label</div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Colour</div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">Default</div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">Closed</div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">Visible</div>
+          <div />
         </div>
 
         {stages.map((stage, i) => {
           const cls = STAGE_COLOR_CLASSES[stage.color] ?? STAGE_COLOR_CLASSES.stone;
           const activeCount = activeCountByKey[stage.key] ?? 0;
           const isBlocked = !stage.visible && activeCount > 0;
+          const canDelete = !stage.isDefault && !stage.isClosed && activeCount === 0;
+          const deleteTitle = stage.isDefault
+            ? "Cannot delete the Default stage"
+            : stage.isClosed
+            ? "Cannot delete the Closed stage"
+            : activeCount > 0
+            ? `Cannot delete — ${activeCount} active invoice${activeCount !== 1 ? "s" : ""}`
+            : "Delete stage";
 
           return (
             <div
               key={stage.key}
-              className={`grid grid-cols-[28px_1fr_170px_80px_70px_70px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+              className={`grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
                 isBlocked ? "bg-amber-50/60" : !stage.visible ? "opacity-50" : ""
               }`}
             >
@@ -237,9 +268,47 @@ export default function StagesSettingsPage() {
                   }
                 </button>
               </div>
+
+              {/* Delete */}
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={() => canDelete && handleDelete(stage.key)}
+                  title={deleteTitle}
+                  disabled={!canDelete}
+                  className={`p-1 rounded transition-colors ${
+                    canDelete
+                      ? "text-stone-300 hover:text-rose-600"
+                      : "text-stone-200 cursor-not-allowed"
+                  }`}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           );
         })}
+
+        {/* Add stage row */}
+        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex items-center gap-3">
+          <div className="w-[28px] shrink-0" />
+          <input
+            type="text"
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAddStage()}
+            placeholder="New stage name…"
+            maxLength={40}
+            className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+          />
+          <button
+            onClick={handleAddStage}
+            disabled={!newLabel.trim()}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+          >
+            <Plus size={12} /> Add Stage
+          </button>
+          <div className="w-[40px] shrink-0" /> {/* spacer for delete col */}
+        </div>
       </Card>
 
       {/* Legend */}
@@ -258,11 +327,11 @@ export default function StagesSettingsPage() {
         </div>
         <div className="flex items-center gap-1.5">
           <Eye size={13} />
-          Visible — shows as column on board
+          Visible on board
         </div>
         <div className="flex items-center gap-1.5">
           <AlertTriangle size={13} className="text-amber-500" />
-          Has active invoices — must reassign before hiding
+          Has active invoices — reassign before hiding/deleting
         </div>
       </div>
     </div>

@@ -858,12 +858,14 @@ function EmailTemplates() {
   const { orgSettings, toast } = useData() as any;
 
   // All org collection stages (customisable) — fall back to common defaults.
-  // stages may be stored as plain strings OR as objects {key, label, color, ...}
+  // stages may be stored as plain strings OR as objects {key, label, color, visible, ...}
+  // Only show stages that are visible (active) — hidden stages are excluded.
   const rawStages: any[] = orgSettings?.stages ?? [
     "New", "Open", "1st Reminder Sent", "2nd Reminder Sent", "Final Demand Sent",
     "Disputed", "On Hold", "Promise to Pay", "Escalated", "Legal",
   ];
   const orgStages: string[] = rawStages
+    .filter((s) => typeof s === "string" || s.visible !== false)
     .map((s) => (typeof s === "string" ? s : (s.label ?? s.key ?? "")))
     .filter(Boolean);
 
