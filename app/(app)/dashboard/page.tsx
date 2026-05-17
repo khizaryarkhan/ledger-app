@@ -27,10 +27,16 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, r
       i.collectionStage !== "Closed" &&
       i.txnType !== "CreditMemo"
     );
+    const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && (i.qboBalance ?? (i.total - (i.paid || 0))) < 0);
     const bal = (i: any) => Math.max(0, (i.total || 0) - (i.paid || 0));
-    const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
+    // Net AR = gross invoice balances minus unapplied credits (matches AR Reports)
+    const grossAR   = open.reduce((s: number, i: any) => s + bal(i), 0);
+    const creditBal = activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0);
+    const totalAR   = grossAR + creditBal;
 
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0);
+    // Aging buckets — Current includes CM credits as negative offsets
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0)
+      + activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0);
     const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + bal(i), 0);
     const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + bal(i), 0);
     const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + bal(i), 0);
@@ -342,10 +348,12 @@ export default function DashboardPage() {
       if (local) {
         return {
           ...snap,
+          // Enrich with local metadata for collection-stage tracking.
+          // Do NOT override paymentStatus — the snapshot is the authority
+          // on which invoices are still open (avoids stale-local-DB mismatches).
           collectionStage:  local.collectionStage,
           promiseDate:      local.promiseDate,
           lastFollowupDate: local.lastFollowupDate,
-          paymentStatus:    local.paymentStatus,
           currency:         local.currency ?? snap.currency,
         };
       }
@@ -447,12 +455,20 @@ export default function DashboardPage() {
           return p?.regionId === regionFilter;
         })
       : effectiveInvoices;
+    // Open invoices (exclude CMs for counting/stage/overdue logic)
     const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalReceivable = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    // Unapplied credits / credit memos — negative qboBalance means unapplied credit
+    const activeCMs = regionInvoices.filter((i: any) => i.txnType === "CreditMemo" && (i.qboBalance ?? (i.total - (i.paid || 0))) < 0);
+    // Net AR = gross invoices minus unapplied credits — matches AR Reports exactly
+    const grossReceivable = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0); // ≤ 0
+    const totalReceivable = grossReceivable + creditBalance;
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
     const totalOverdue = overdue.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     open.forEach((i: any) => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
+    activeCMs.forEach((i: any) => { buckets["Current"] += i.qboBalance ?? (i.total - (i.paid || 0)); });
     const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
