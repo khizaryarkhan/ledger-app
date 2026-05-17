@@ -9,16 +9,8 @@ import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/form
 import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle, Mail } from "lucide-react";
 
 // ── AR Health widget ────────────────────────────────────────────────────────
-function ArHealthWidget({ invoices, customers, projects, reps, communications, regionFilter, ccy }: any) {
-  const filteredInvoices = useMemo(() => {
-    if (!regionFilter) return invoices;
-    return invoices.filter((i: any) => {
-      const c = customers.find((c: any) => c.id === i.customerId);
-      if (c?.regionId === regionFilter) return true;
-      const p = projects.find((p: any) => p.id === i.projectId);
-      return p?.regionId === regionFilter;
-    });
-  }, [invoices, customers, projects, regionFilter]);
+function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy }: any) {
+  const filteredInvoices = invoices;
 
   const metrics = useMemo(() => {
     // All invoices the snapshot considers open (i.e. have a QBO open balance).
@@ -323,7 +315,6 @@ export default function DashboardPage() {
   const ccy: string = orgSettings?.currency ?? "EUR";
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
-  const [regionFilter, setRegionFilter] = useState("");
 
   // ── AR Snapshot — same source used by all Reports pages ─────────────────
   // Ensures every financial figure on the dashboard reconciles with AR Reports.
@@ -450,14 +441,7 @@ export default function DashboardPage() {
   }, [effectiveInvoices, contacts, ccy]);
 
   const stats = useMemo(() => {
-    const regionInvoices = regionFilter
-      ? effectiveInvoices.filter((i: any) => {
-          const c = customers.find((c: any) => c.id === i.customerId);
-          if (c?.regionId === regionFilter) return true;
-          const p = projects.find((p: any) => p.id === i.projectId);
-          return p?.regionId === regionFilter;
-        })
-      : effectiveInvoices;
+    const regionInvoices = effectiveInvoices;
     // Open invoices (exclude CMs for counting/stage/overdue logic)
     const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     // Unapplied credits / credit memos — negative qboBalance means unapplied credit
@@ -510,7 +494,7 @@ export default function DashboardPage() {
     });
 
     return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, dso, bpDso, dsoGap, collectionRate, over90, recentlyClosed, proactivePipeline };
-  }, [effectiveInvoices, invoices, customers, projects, communications, regionFilter]);
+  }, [effectiveInvoices, invoices, customers, projects, communications]);
 
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
@@ -536,6 +520,32 @@ export default function DashboardPage() {
     return { rows: sorted, top5Pct, totalAR };
   }, [effectiveInvoices, customers]);
 
+  // AR by Region — open AR grouped per region for the dashboard card
+  const arByRegion = useMemo(() => {
+    const open = effectiveInvoices.filter((i: any) =>
+      i.paymentStatus !== "Paid" &&
+      i.paymentStatus !== "Written Off" &&
+      i.txnType !== "CreditMemo"
+    );
+    const regionMap: Record<string, { name: string; total: number; overdue: number; count: number }> = {};
+    open.forEach((i: any) => {
+      const c = customers.find((c: any) => c.id === i.customerId);
+      const p = projects.find((p: any) => p.id === i.projectId);
+      const regionId = c?.regionId || p?.regionId;
+      const region = (regions ?? []).find((r: any) => r.id === regionId);
+      const key = regionId || "__unassigned__";
+      const name = region?.name ?? "Unassigned";
+      if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0 };
+      const bal = i.total - (i.paid || 0);
+      regionMap[key].total += bal;
+      regionMap[key].count += 1;
+      if (daysOverdue(i.dueDate) > 0) regionMap[key].overdue += bal;
+    });
+    return Object.entries(regionMap)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.total - a.total);
+  }, [effectiveInvoices, customers, projects, regions]);
+
   const myTasks = tasks.filter(t => !t.completed && t.assigneeId === userId).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).slice(0, 5);
   const maxBucket = Math.max(...Object.values(stats.buckets), 1);
 
@@ -547,12 +557,6 @@ export default function DashboardPage() {
           <p className="text-sm text-stone-500 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
-            className="h-8 px-3 pr-8 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-            style={{backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px"}}>
-            <option value="">All regions</option>
-            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
           <div className="text-xs text-stone-500 flex items-center gap-1.5">
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
@@ -907,6 +911,64 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* ── AR by Region ──────────────────────────────────────────────── */}
+      {arByRegion.length > 0 && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-base font-semibold text-stone-900">AR by Region</h2>
+              <p className="text-[11px] text-stone-500 mt-0.5">Open receivables broken down by region</p>
+            </div>
+          </div>
+          <div className={`grid gap-3 ${arByRegion.length === 1 ? "grid-cols-1" : arByRegion.length === 2 ? "grid-cols-2" : arByRegion.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
+            {arByRegion.map(({ id, name, total, overdue, count }) => {
+              const overduePct = total > 0 ? (overdue / total) * 100 : 0;
+              const currentAmt = total - overdue;
+              return (
+                <Card key={id} padding="md">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="text-[12px] font-semibold text-stone-700 uppercase tracking-wide">{name}</div>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${overduePct > 50 ? "bg-rose-50 text-rose-600" : overduePct > 25 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+                      {overduePct.toFixed(0)}% overdue
+                    </span>
+                  </div>
+                  <div className="text-2xl font-semibold text-stone-900 tracking-tight tabular-nums mb-1">
+                    {fmt.money(total, ccy)}
+                  </div>
+                  <div className="text-[11px] text-stone-500 mb-3">{count} open invoice{count !== 1 ? "s" : ""}</div>
+                  {/* Stacked bar: current vs overdue */}
+                  <div className="h-2 rounded-full overflow-hidden bg-stone-100 mb-2">
+                    <div className="h-full flex">
+                      {currentAmt > 0 && (
+                        <div
+                          className="h-full bg-emerald-500"
+                          style={{ width: `${total > 0 ? (currentAmt / total) * 100 : 0}%` }}
+                        />
+                      )}
+                      {overdue > 0 && (
+                        <div
+                          className={`h-full ${overduePct > 50 ? "bg-rose-500" : "bg-amber-400"}`}
+                          style={{ width: `${overduePct}%` }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-stone-400">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> {fmt.money(currentAmt, ccy)} current</span>
+                    {overdue > 0 && (
+                      <span className={`flex items-center gap-1 font-medium ${overduePct > 50 ? "text-rose-500" : "text-amber-500"}`}>
+                        <span className={`w-2 h-2 rounded-full inline-block ${overduePct > 50 ? "bg-rose-500" : "bg-amber-400"}`} />
+                        {fmt.money(overdue, ccy)} overdue
+                      </span>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── AR Health ─────────────────────────────────────────────────── */}
       <div className="mt-4">
         <div className="flex items-center justify-between mb-3">
@@ -927,7 +989,6 @@ export default function DashboardPage() {
           projects={projects}
           reps={reps ?? []}
           communications={communications}
-          regionFilter={regionFilter}
           ccy={ccy}
         />
       </div>
