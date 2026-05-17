@@ -13,7 +13,7 @@ import {
 // REMINDER PROGRAMME TAB
 // ─────────────────────────────────────────────
 function ReminderProgramme() {
-  const { customers, projects, contacts, invoices, orgSettings, refresh, toast } = useData();
+  const { customers, projects, contacts, invoices, communications, orgSettings, refresh, toast } = useData();
 
   // Active (visible) collection stages for this org
   const rawStages: any[] = orgSettings?.stages ?? [];
@@ -151,11 +151,24 @@ function ReminderProgramme() {
           ? (projects ?? []).filter((p: any) => p.customerId === entity.id).length
           : null;
 
-        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount };
+        // Last outbound email sent to this entity
+        const entityComms = (communications ?? []).filter((c: any) =>
+          c.direction === "Outbound" &&
+          c.channel   === "Email" &&
+          (isProjectLevel ? c.projectId === entity.id : c.customerId === entity.id)
+        );
+        const lastSentAt: string | null = entityComms.length > 0
+          ? entityComms.reduce((latest: any, c: any) => {
+              const t = c.sentAt ?? c.createdAt ?? "";
+              return t > (latest.sentAt ?? latest.createdAt ?? "") ? c : latest;
+            }).sentAt ?? entityComms[entityComms.length - 1].createdAt ?? null
+          : null;
+
+        return { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount, lastSentAt };
       })
       .filter((r) => statusFilter === "All" || r.effectiveStatus === statusFilter)
       .sort((a, b) => a.entity.name.localeCompare(b.entity.name));
-  }, [entities, contacts, emails, emailDirty, search, isProjectLevel, invoices, statusFilter]);
+  }, [entities, contacts, emails, emailDirty, search, isProjectLevel, invoices, communications, statusFilter]);
 
   const onCount  = rows.filter((r) => r.isOn).length;
   const offCount = rows.filter((r) => !r.isOn).length;
@@ -454,7 +467,7 @@ function ReminderProgramme() {
 
   // ── Row renderer (shared by By Customer flat list and By Project grouped list) ──
   const renderRow = (row: typeof rows[0]) => {
-    const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount } = row;
+    const { entity, entityContacts, activeContact, isOn, localEmail, isDirty, openInvoices, outstanding, effectiveStatus, projectCount, lastSentAt } = row;
     const isSaving      = !!saving[entity.id] || bulkSaving;
     const isStageChange = !!stageChanging[entity.id];
     const isSelected    = selected.has(entity.id);
@@ -474,7 +487,7 @@ function ReminderProgramme() {
     return (
       <div
         key={entity.id}
-        className={`grid grid-cols-[40px_1fr_90px_100px_140px_2fr_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
+        className={`grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
           entity.chaseByProject ? "bg-violet-50/40" : isSelected ? "bg-stone-50" : ""
         } ${isSaving ? "opacity-60" : ""}`}
       >
@@ -579,6 +592,30 @@ function ReminderProgramme() {
             <span title="Programme active"><CheckCircle size={14} className="text-emerald-500 shrink-0" /></span>
           ) : (
             <div className="w-3.5 h-3.5 shrink-0" />
+          )}
+        </div>
+
+        {/* Last sent */}
+        <div className="text-[11px] leading-tight">
+          {lastSentAt ? (() => {
+            const d    = new Date(lastSentAt);
+            const diff = Date.now() - d.getTime();
+            const mins = Math.floor(diff / 60_000);
+            const hrs  = Math.floor(diff / 3_600_000);
+            const days = Math.floor(diff / 86_400_000);
+            const label =
+              mins  < 60   ? `${mins}m ago`  :
+              hrs   < 24   ? `${hrs}h ago`   :
+              days  < 7    ? `${days}d ago`  :
+              days  < 30   ? `${Math.floor(days / 7)}w ago` :
+                             d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+            return (
+              <span className="text-stone-500" title={d.toLocaleString("en-GB")}>
+                {label}
+              </span>
+            );
+          })() : (
+            <span className="text-stone-300 italic">Never</span>
           )}
         </div>
 
@@ -797,7 +834,7 @@ function ReminderProgramme() {
       {/* Table */}
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[40px_1fr_90px_100px_140px_2fr_155px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
           {/* Select all */}
           <div className="flex items-center justify-center">
             <button
@@ -828,6 +865,9 @@ function ReminderProgramme() {
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
             Reminder Email
+          </div>
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
+            Last Sent
           </div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-center">
             Programme
