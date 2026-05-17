@@ -600,7 +600,10 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-4 gap-3 mb-3">
         <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Total Receivable</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
+            <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
+          </div>
           <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
           <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
         </Card>
