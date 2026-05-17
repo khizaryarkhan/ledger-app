@@ -1147,9 +1147,10 @@ function EmailTemplates() {
               </div>
               {t.sendIntervalDays && (
                 <div className="flex items-center gap-1 mt-1.5">
-                  <span className="text-[10px] text-stone-400 font-medium">Sends every</span>
+                  <span className="text-[10px] text-stone-400 font-medium">Sends</span>
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">
-                    {FREQUENCY_OPTIONS.find(o => o.days === t.sendIntervalDays)?.label.replace("Every ", "") ?? `${t.sendIntervalDays} days`}
+                    {FREQUENCY_OPTIONS.find(o => o.days === t.sendIntervalDays)?.label
+                      ?? `every ${t.sendIntervalDays} days`}
                   </span>
                 </div>
               )}
@@ -1269,40 +1270,61 @@ function EmailTemplates() {
               <div className="border-t border-stone-100 pt-4">
                 <label className="block text-[12px] font-semibold text-stone-600 mb-1">Send frequency</label>
                 <p className="text-[11px] text-stone-400 mb-3">
-                  How often the system re-sends all outstanding invoices to this contact.
-                  The cron checks when this contact was last emailed and skips if it's too soon.
+                  How often to re-send reminders to this contact after the first email goes out.
                 </p>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {FREQUENCY_OPTIONS.filter(o => o.days > 0).map((opt) => (
-                    <button
-                      key={opt.days}
-                      type="button"
-                      onClick={() => setEditing((p) => p && ({ ...p, sendIntervalDays: opt.days }))}
-                      className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
-                        editing.sendIntervalDays === opt.days
-                          ? "bg-stone-900 text-white ring-stone-900"
-                          : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Custom interval input — shown when none of the presets match */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] text-stone-500">Custom:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={editing.sendIntervalDays}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      if (!isNaN(n) && n >= 1) setEditing((p) => p && ({ ...p, sendIntervalDays: n }));
-                    }}
-                    className="w-20 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white text-center"
-                  />
-                  <span className="text-[12px] text-stone-500">days</span>
-                </div>
+                {(() => {
+                  const presets = FREQUENCY_OPTIONS.filter(o => o.days > 0);
+                  const isCustom = !presets.some(o => o.days === editing.sendIntervalDays);
+                  return (
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {presets.map((opt) => (
+                        <button
+                          key={opt.days}
+                          type="button"
+                          onClick={() => setEditing((p) => p && ({ ...p, sendIntervalDays: opt.days }))}
+                          className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                            editing.sendIntervalDays === opt.days
+                              ? "bg-stone-900 text-white ring-stone-900"
+                              : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                      {/* Custom button — activates the number input */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isCustom) setEditing((p) => p && ({ ...p, sendIntervalDays: 21 }));
+                        }}
+                        className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                          isCustom
+                            ? "bg-stone-900 text-white ring-stone-900"
+                            : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
+                        }`}
+                      >
+                        Custom
+                      </button>
+                      {/* Number input — only visible when Custom is active */}
+                      {isCustom && (
+                        <div className="flex items-center gap-1.5 ml-1">
+                          <input
+                            type="number"
+                            min={1}
+                            autoFocus
+                            value={editing.sendIntervalDays}
+                            onChange={(e) => {
+                              const n = parseInt(e.target.value, 10);
+                              if (!isNaN(n) && n >= 1) setEditing((p) => p && ({ ...p, sendIntervalDays: n }));
+                            }}
+                            className="w-16 h-8 px-2 text-sm rounded-md ring-2 ring-stone-900 focus:outline-none bg-white text-center font-medium"
+                          />
+                          <span className="text-[12px] text-stone-500">days</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
