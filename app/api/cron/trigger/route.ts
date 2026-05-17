@@ -21,6 +21,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 86_400_000);
+}
 import { requireOrg } from "@/lib/api";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
@@ -211,6 +215,12 @@ export async function POST(req: Request) {
         });
         detail.sent = true;
         sent++;
+
+        // Advance next_send_at so cron doesn't double-send right after a manual trigger
+        await db.update(contacts)
+          .set({ nextSendAt: addDays(new Date(), template.sendIntervalDays ?? 7) })
+          .where(eq(contacts.id, contact.id))
+          .catch(() => {});
 
         // Log to communications so it appears in Inbox and customer/project timeline
         await db.insert(communications).values({

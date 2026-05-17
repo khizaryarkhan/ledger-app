@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
+import { eq, and, or, isNull, lte } from "drizzle-orm";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 
@@ -14,21 +14,14 @@ function daysFromDate(dateStr: string): number {
   return Math.floor((Date.now() - due) / 86400000);
 }
 
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 86_400_000);
+}
+
 const PROTECTED_STAGES = ["Disputed", "On Hold", "Escalated"];
 const PAUSE_STAGES     = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
-/**
- * Fill template placeholders.
- * {name}         → contact first name (or Sir/Madam)
- * {invoiceLines} → bullet list of invoice numbers, balances, overdue status
- * {ref}          → entity code (customer / project)
- */
-function fillTemplate(
-  template: string,
-  name: string,
-  invoiceLines: string[],
-  ref: string,
-): string {
+function fillTemplate(template: string, name: string, invoiceLines: string[], ref: string): string {
   return template
     .replace(/\{name\}/gi, name)
     .replace(/\{invoicelines\}/gi, invoiceLines.join("\n"))
@@ -37,6 +30,16 @@ function fillTemplate(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CRON HANDLER
+// Runs daily at 09:00 UTC (see vercel.json).
+//
+// Reliability guarantees:
+//   • contacts.next_send_at drives scheduling — not wall-clock arithmetic.
+//   • If the cron crashes mid-run, unprocessed contacts still have
+//     next_send_at ≤ now and will be picked up on the very next run.
+//   • Sending is idempotent per contact: we only advance next_send_at
+//     AFTER a successful SMTP send.
+//   • organisations.last_cron_run + last_cron_stats are updated at the end
+//     of every run so admins can see exactly what happened.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -44,9 +47,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  let escalated    = 0;
-  let emailsSent   = 0;
+  const now         = new Date();
+  const today       = now.toISOString().slice(0, 10);
+  let escalated     = 0;
+  let emailsSent    = 0;
+  let skipped       = 0;
   let errors: string[] = [];
 
   // ── 1. Stage escalation ───────────────────────────────────────────────────
@@ -54,41 +59,46 @@ export async function GET(req: Request) {
 
   for (const inv of allInvoices) {
     if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
-    const daysOverdue = daysFromDate(inv.dueDate);
-    if (daysOverdue > 30 && !PROTECTED_STAGES.includes(inv.collectionStage)) {
+    if (daysFromDate(inv.dueDate) > 30 && !PROTECTED_STAGES.includes(inv.collectionStage)) {
       await db.update(invoices)
-        .set({ collectionStage: "Escalated", updatedAt: new Date() })
+        .set({ collectionStage: "Escalated", updatedAt: now })
         .where(eq(invoices.id, inv.id));
       escalated++;
     }
   }
 
-  // ── 2. Send emails via SMTP (interval-based per template) ────────────────
+  // ── 2. Send emails ────────────────────────────────────────────────────────
   const allOrgs = [...new Set(allInvoices.map((inv) => inv.orgId))];
 
   for (const orgId of allOrgs) {
+    const orgErrors: string[] = [];
     try {
       const smtp = await getSmtpConfig(orgId).catch(() => null);
       if (!smtp) continue;
 
-      // Load active templates for this org, keyed by collectionStage
       const orgTemplates = await db
         .select()
         .from(emailTemplates)
         .where(and(eq(emailTemplates.orgId, orgId), eq(emailTemplates.isActive, true)));
 
       const templateByStage = new Map(
-        orgTemplates
-          .filter((t) => t.collectionStage)
-          .map((t) => [t.collectionStage!, t]),
+        orgTemplates.filter((t) => t.collectionStage).map((t) => [t.collectionStage!, t]),
       );
-
       if (templateByStage.size === 0) continue;
 
-      const autoContacts = await db.select().from(contacts)
-        .where(and(eq(contacts.orgId, orgId), eq(contacts.receivesAuto, true)));
-      const enabledContacts = autoContacts.filter((c) => c.email);
-      if (enabledContacts.length === 0) continue;
+      // Only load contacts that are due for a send right now.
+      // next_send_at IS NULL  → never sent, fire immediately
+      // next_send_at ≤ now   → interval has elapsed, fire again
+      const dueContacts = await db
+        .select()
+        .from(contacts)
+        .where(and(
+          eq(contacts.orgId, orgId),
+          eq(contacts.receivesAuto, true),
+          or(isNull(contacts.nextSendAt), lte(contacts.nextSendAt, now)),
+        ));
+
+      const enabledContacts = dueContacts.filter((c) => c.email);
 
       for (const contact of enabledContacts) {
         try {
@@ -102,38 +112,24 @@ export async function GET(req: Request) {
             return inv.customerId === contact.customerId;
           });
 
-          if (relatedInvoices.length === 0) continue;
+          // No open invoices → reset so we re-check on future runs when invoices re-open
+          if (relatedInvoices.length === 0) {
+            await db.update(contacts).set({ nextSendAt: null }).where(eq(contacts.id, contact.id));
+            skipped++;
+            continue;
+          }
 
-          // Pick the template from the most overdue invoice's stage
+          // Find the template for the most overdue invoice's stage
           const sortedByOverdue = [...relatedInvoices].sort(
-            (a, b) => daysFromDate(b.dueDate) - daysFromDate(a.dueDate)
+            (a, b) => daysFromDate(b.dueDate) - daysFromDate(a.dueDate),
           );
           const matchedInv = sortedByOverdue.find((inv) => templateByStage.has(inv.collectionStage));
-          if (!matchedInv) continue;
+          if (!matchedInv) { skipped++; continue; }
 
-          const template = templateByStage.get(matchedInv.collectionStage)!;
+          const template     = templateByStage.get(matchedInv.collectionStage)!;
           const intervalDays = template.sendIntervalDays ?? 7;
 
-          // Check when this contact was last auto-emailed
-          const [lastComm] = await db
-            .select({ createdAt: communications.createdAt })
-            .from(communications)
-            .where(and(
-              eq(communications.orgId, orgId),
-              eq(communications.contactId, contact.id),
-              eq(communications.matchedBy, "Auto"),
-            ))
-            .orderBy(desc(communications.createdAt))
-            .limit(1);
-
-          const daysSinceLastSend = lastComm
-            ? Math.floor((Date.now() - new Date(lastComm.createdAt).getTime()) / 86400000)
-            : Infinity; // Never sent → send immediately
-
-          // Skip if not enough time has passed
-          if (daysSinceLastSend < intervalDays) continue;
-
-          // {ref} = project full name for projects; customer code for customers
+          // Entity ref
           let entityRef = "";
           if (contact.projectId) {
             const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
@@ -143,46 +139,44 @@ export async function GET(req: Request) {
             entityRef = cust?.code ?? cust?.name ?? "";
           }
 
-          // All open invoices go in the email body
+          // Build invoice lines — ALL open invoices go in the email
           const invoiceLines = relatedInvoices.map((inv) => {
-            const balance = inv.total - (inv.paid || 0);
-            const d = daysFromDate(inv.dueDate);
+            const balance    = inv.total - (inv.paid || 0);
+            const d          = daysFromDate(inv.dueDate);
             const overdueStr = d > 0 ? `${d} days overdue` : d === 0 ? "due today" : `due in ${Math.abs(d)} days`;
             return `  • ${inv.invoiceNumber} — Balance: ${balance.toLocaleString("en-IE", { style: "currency", currency: inv.currency || "EUR" })} (${overdueStr})`;
           });
 
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
           const invRefs  = relatedInvoices.map((inv) => inv.invoiceNumber).join(", ");
-
-          const subject = fillTemplate(template.subject, greeting, invoiceLines, entityRef)
-            + ` | Ref: ${invRefs}`;
+          const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref: ${invRefs}`;
           const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
-          // Fetch PDF attachments from QBO for each invoice (failures are silent)
+          // PDF attachments (silent failures — email still sends without them)
           const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
           for (const inv of relatedInvoices) {
             const pdf = await fetchQboInvoicePdf(orgId, inv).catch(() => null);
-            if (pdf) {
-              attachments.push({
-                filename:    `Invoice-${inv.invoiceNumber}.pdf`,
-                content:     pdf,
-                contentType: "application/pdf",
-              });
-            }
+            if (pdf) attachments.push({ filename: `Invoice-${inv.invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" });
           }
 
-          // Send via SMTP
+          // ── SEND ──────────────────────────────────────────────────────────
           await sendSmtp(smtp, {
-            to:          contact.email!,
+            to: contact.email!,
             subject,
-            body:        bodyText,
+            body: bodyText,
             attachments: attachments.length > 0 ? attachments : undefined,
           });
+
+          // ── Advance next_send_at ONLY after a confirmed successful send ──
+          await db.update(contacts)
+            .set({ nextSendAt: addDays(now, intervalDays) })
+            .where(eq(contacts.id, contact.id));
+
           emailsSent++;
 
-          // Log to communications
+          // Log communication
           await db.insert(communications).values({
-            orgId:       orgId,
+            orgId,
             customerId:  contact.customerId,
             projectId:   contact.projectId ?? null,
             invoiceId:   matchedInv.id,
@@ -202,18 +196,25 @@ export async function GET(req: Request) {
           });
 
         } catch (contactErr: any) {
-          errors.push(`Contact ${contact.email}: ${contactErr.message}`);
+          const msg = `${contact.email}: ${contactErr.message}`;
+          orgErrors.push(msg);
+          errors.push(msg);
+          // next_send_at is NOT advanced — contact will retry on next cron run
         }
       }
     } catch (orgErr: any) {
       errors.push(`Org ${orgId}: ${orgErr.message}`);
     }
+
+    // ── Update org cron stats ──────────────────────────────────────────────
+    await db.update(organisations)
+      .set({
+        lastCronRun:   now,
+        lastCronStats: { escalated, emailsSent, skipped, errors: orgErrors },
+      })
+      .where(eq(organisations.id, orgId))
+      .catch(() => {}); // never let stat-writing crash the response
   }
 
-  return NextResponse.json({
-    ran: today,
-    escalated,
-    emailsSent,
-    errors: errors.length > 0 ? errors : undefined,
-  });
+  return NextResponse.json({ ran: today, escalated, emailsSent, skipped, errors: errors.length > 0 ? errors : undefined });
 }

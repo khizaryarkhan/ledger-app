@@ -21,6 +21,8 @@ export async function GET() {
       name: organisations.name,
       stages: organisations.stages,
       disabledRules: organisations.disabledRules,
+      lastCronRun: organisations.lastCronRun,
+      lastCronStats: organisations.lastCronStats,
     })
     .from(organisations)
     .where(eq(organisations.id, orgId!))
@@ -34,6 +36,8 @@ export async function GET() {
     name: org?.name ?? "",
     stages: getStages(org),
     disabledRules: (org?.disabledRules as string[]) ?? [],
+    lastCronRun: org?.lastCronRun ?? null,
+    lastCronStats: org?.lastCronStats ?? null,
   });
 }
 

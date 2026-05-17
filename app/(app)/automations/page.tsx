@@ -1326,15 +1326,65 @@ function EmailTemplates() {
 
 // ─────────────────────────────────────────────
 // PAGE
+// ─── Cron status banner ───────────────────────────────────────────────────────
+function CronStatusBanner() {
+  const { orgSettings } = useData() as any;
+  const { lastCronRun, lastCronStats } = orgSettings ?? {};
+
+  if (!lastCronRun) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] text-stone-500">
+        <span className="w-2 h-2 rounded-full bg-stone-300 flex-shrink-0" />
+        Automated emails have not run yet. Cron fires daily at 9 AM UTC.
+      </div>
+    );
+  }
+
+  const runDate   = new Date(lastCronRun);
+  const minsAgo   = Math.floor((Date.now() - runDate.getTime()) / 60_000);
+  const timeLabel = minsAgo < 60
+    ? `${minsAgo}m ago`
+    : minsAgo < 1440
+    ? `${Math.floor(minsAgo / 60)}h ago`
+    : `${Math.floor(minsAgo / 1440)}d ago`;
+
+  const hasErrors = (lastCronStats?.errors?.length ?? 0) > 0;
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ring-1 text-[12px] ${hasErrors ? "bg-rose-50 ring-rose-200" : "bg-emerald-50 ring-emerald-200"}`}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${hasErrors ? "bg-rose-400" : "bg-emerald-500"}`} />
+      <span className={hasErrors ? "text-rose-700" : "text-emerald-700"}>
+        Last run <strong>{timeLabel}</strong>
+        {lastCronStats && (
+          <> — {lastCronStats.emailsSent} email{lastCronStats.emailsSent !== 1 ? "s" : ""} sent
+          {lastCronStats.escalated > 0 && `, ${lastCronStats.escalated} escalated`}
+          {hasErrors && `, ${lastCronStats.errors.length} error${lastCronStats.errors.length !== 1 ? "s" : ""}`}</>
+        )}
+      </span>
+      {hasErrors && (
+        <details className="ml-auto cursor-pointer">
+          <summary className="text-[11px] text-rose-600 font-medium list-none hover:underline">View errors</summary>
+          <ul className="mt-1 space-y-0.5 text-[11px] text-rose-600">
+            {lastCronStats.errors.map((e: string, i: number) => <li key={i}>• {e}</li>)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 export default function AutomationsPage() {
   const [tab, setTab] = useState<"templates" | "programme">("templates");
 
   return (
     <div className="p-6 max-w-[1100px] mx-auto">
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Automations</h1>
         <p className="text-sm text-stone-500 mt-1">Your email templates and reminder programme</p>
+      </div>
+      <div className="mb-5">
+        <CronStatusBanner />
       </div>
 
       <div className="flex items-center gap-1 mb-5 border-b border-stone-200">

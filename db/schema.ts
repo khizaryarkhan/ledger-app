@@ -17,6 +17,9 @@ export const organisations = pgTable("organisations", {
   displayName: varchar("display_name", { length: 255 }), // optional display name override
   stages: jsonb("stages"), // customisable collection stages array
   disabledRules: jsonb("disabled_rules").notNull().default([]), // automation rule IDs that are paused
+  // Cron run tracking — updated at the end of every cron execution
+  lastCronRun:   timestamp("last_cron_run"),
+  lastCronStats: jsonb("last_cron_stats"), // { escalated, emailsSent, skipped, errors[] }
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -133,6 +136,8 @@ export const contacts = pgTable("contacts", {
   isEscalation: boolean("is_escalation").notNull().default(false),
   receivesAuto: boolean("receives_auto").notNull().default(true),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
+  // When to next send an automated email to this contact. NULL = send on next cron run.
+  nextSendAt: timestamp("next_send_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
