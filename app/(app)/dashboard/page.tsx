@@ -21,10 +21,13 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, r
   }, [invoices, customers, projects, regionFilter]);
 
   const metrics = useMemo(() => {
+    // All invoices the snapshot considers open (i.e. have a QBO open balance).
+    // Do NOT filter on collectionStage here — "Closed" is a user-assigned
+    // collection-tracking stage, not a payment status. If the snapshot included
+    // the invoice it has a real outstanding balance and must be counted.
     const open = filteredInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
-      i.collectionStage !== "Closed" &&
       i.txnType !== "CreditMemo"
     );
     const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && (i.qboBalance ?? (i.total - (i.paid || 0))) < 0);
@@ -105,7 +108,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, r
 
   const overdueCount = filteredInvoices.filter((i: any) =>
     i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
-    i.collectionStage !== "Closed" && i.txnType !== "CreditMemo" &&
+    i.txnType !== "CreditMemo" &&
     daysOverdue(i.dueDate) > 0
   ).length;
 
