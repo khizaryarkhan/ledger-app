@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
-import { fmt, daysOverdue, today, daysFromNow, emailTemplates } from "@/lib/format";
+import { fmt, daysOverdue, today, daysFromNow } from "@/lib/format";
 import { useData } from "./data-provider";
 import { useSession } from "next-auth/react";
 import {
@@ -854,114 +854,173 @@ export function AuditTimeline({ customerId, projectId, label }: {
 // =====================
 // BATCH EMAIL MODAL
 // =====================
+const BATCH_PLACEHOLDERS = [
+  { key: "{name}",          desc: "Contact's first name (e.g. John, or Sir/Madam)" },
+  { key: "{invoiceNumber}", desc: "Invoice number (e.g. INV-1042)" },
+  { key: "{amount}",        desc: "Outstanding balance for this invoice" },
+  { key: "{dueDate}",       desc: "Invoice due date" },
+  { key: "{ref}",           desc: "Customer code or project name" },
+];
+
 export function BatchEmailModal({ invoiceIds, onClose }: { invoiceIds: string[]; onClose: () => void }) {
-  const { invoices, customers, contacts, sendEmail, toast, orgSettings } = useData() as any;
+  const { invoices, customers, projects, contacts, toast, orgSettings } = useData();
   const { data: session } = useSession();
-  const [templateId, setTemplateId] = useState(emailTemplates[2].id); // default: first overdue notice
-  const [attachPdf, setAttachPdf] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [results, setResults] = useState<{ sent: number; skipped: string[]; failed: string[]; pdfErrors: string[] } | null>(null);
 
-  const senderName = (session?.user?.name) || orgSettings?.displayName || orgSettings?.name || "Accounts Receivable";
+  const senderName = (session?.user?.name as string | undefined)
+    || (orgSettings as any)?.displayName
+    || (orgSettings as any)?.name
+    || "Accounts Receivable";
 
-  /**
-   * Resolve all billing emails for an invoice.
-   * Priority: QBO billingEmail (may be multiple, comma-separated) → primary contact → customer email
-   * Returns a comma-separated string of all unique email addresses, or null if none found.
-   */
+  const defaultSubject = "Invoice {invoiceNumber} — {ref}";
+  const defaultBody =
+`Dear {name},
+
+Please find attached invoice {invoiceNumber} for the amount of {amount}.
+
+Due date: {dueDate}
+
+Please don't hesitate to get in touch if you have any questions.
+
+Kind regards,
+${senderName}`;
+
+  const [subject, setSubject] = useState(defaultSubject);
+  const [body, setBody]       = useState(defaultBody);
+  const [attachPdf, setAttachPdf]   = useState(true);
+  const [sending, setSending]       = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [showPlaceholders, setShowPlaceholders] = useState(false);
+  const [results, setResults] = useState<{
+    sent: number; skipped: string[]; failed: string[]; pdfErrors: string[];
+  } | null>(null);
+
+  // Fetch org's saved templates so users can optionally load one
+  const [orgTemplates, setOrgTemplates] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/email-templates")
+      .then(r => r.ok ? r.json() : [])
+      .then(setOrgTemplates)
+      .catch(() => {});
+  }, []);
+
+  // ── helpers ──────────────────────────────────────────────────────────────────
+
   function resolveEmail(inv: any): string | null {
-    if (inv.billingEmail) return inv.billingEmail; // already deduped multi-address string from QBO
-    const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary && c.email);
-    if (primaryContact) return primaryContact.email;
-    const customer = customers.find((c: any) => c.id === inv.customerId);
-    return customer?.email || null;
+    if (inv.billingEmail) return inv.billingEmail;
+    const primary = (contacts as any[]).find(
+      (c: any) => c.customerId === inv.customerId && c.isPrimary && c.email
+    );
+    if (primary) return primary.email;
+    const cust = (customers as any[]).find((c: any) => c.id === inv.customerId);
+    return cust?.email || null;
   }
 
-  /** Count distinct email addresses in a comma-separated string */
+  function resolveContactFirstName(inv: any): string {
+    const primary = (contacts as any[]).find((c: any) => c.customerId === inv.customerId && c.isPrimary);
+    const fullName = primary?.name || (customers as any[]).find((c: any) => c.id === inv.customerId)?.name || "";
+    return fullName.split(" ")[0] || "Sir/Madam";
+  }
+
+  function resolveRef(inv: any): string {
+    if (inv.projectId) {
+      const proj = (projects as any[]).find((p: any) => p.id === inv.projectId);
+      return proj?.name || proj?.code || "";
+    }
+    const cust = (customers as any[]).find((c: any) => c.id === inv.customerId);
+    return cust?.code || cust?.name || "";
+  }
+
+  function fillVars(template: string, inv: any): string {
+    const isPaidOrClosed =
+      ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+    const outstanding = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
+    const vars: Record<string, string> = {
+      name:          resolveContactFirstName(inv),
+      invoiceNumber: inv.invoiceNumber,
+      amount:        fmt.money(outstanding, inv.currency),
+      dueDate:       fmt.date(inv.dueDate),
+      ref:           resolveRef(inv),
+    };
+    return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+  }
+
   function countEmails(emailStr: string | null): number {
     if (!emailStr) return 0;
     return emailStr.split(",").map(e => e.trim()).filter(e => e.includes("@")).length;
   }
 
-  function resolveContactName(inv: any): string {
-    const primaryContact = contacts.find((c: any) => c.customerId === inv.customerId && c.isPrimary);
-    if (primaryContact) return primaryContact.name;
-    const customer = customers.find((c: any) => c.id === inv.customerId);
-    return customer?.name || "Valued Customer";
-  }
+  // ── derived data ──────────────────────────────────────────────────────────────
 
-  function fillTemplate(template: any, inv: any, toEmail: string): { subject: string; body: string } {
-    const contactName = resolveContactName(inv);
-    const isPaidOrClosed = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
-    const outstanding = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
-    const vars: Record<string, string> = {
-      invoiceNumber: inv.invoiceNumber,
-      amount: fmt.money(outstanding, inv.currency),
-      dueDate: fmt.date(inv.dueDate),
-      contactName,
-      daysOverdue: String(Math.max(0, daysOverdue(inv.dueDate))),
-      senderName,
-    };
-    const replace = (s: string) => s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
-    return { subject: replace(template.subject), body: replace(template.body) };
-  }
-
-  const selectedInvoices = invoices.filter((i: any) => invoiceIds.includes(i.id));
-  const template = emailTemplates.find(t => t.id === templateId) || emailTemplates[2];
+  const selectedInvoices = (invoices as any[]).filter((i: any) => invoiceIds.includes(i.id));
 
   const rows = selectedInvoices.map((inv: any) => {
     const email = resolveEmail(inv);
-    const customer = customers.find((c: any) => c.id === inv.customerId);
-    return { inv, email, customerName: customer?.name || inv.invoiceNumber };
+    const cust  = (customers as any[]).find((c: any) => c.id === inv.customerId);
+    return { inv, email, customerName: cust?.name || inv.invoiceNumber };
   });
 
-  const withEmail = rows.filter(r => r.email);
+  const withEmail    = rows.filter(r => r.email);
   const withoutEmail = rows.filter(r => !r.email);
 
+  // Preview uses the first invoice that has an email
+  const previewRow = withEmail[0] ?? rows[0];
+  const previewSubject = previewRow ? fillVars(subject, previewRow.inv) : subject;
+  const previewBody    = previewRow ? fillVars(body, previewRow.inv) : body;
+
+  // ── send ──────────────────────────────────────────────────────────────────────
+
   const handleSend = async () => {
+    if (!subject.trim()) { toast("Subject is required", "error"); return; }
+    if (!body.trim())    { toast("Message body is required", "error"); return; }
+
     setSending(true);
-    const sent: string[] = [];
-    const failed: string[] = [];
+    const sent: string[]      = [];
+    const failed: string[]    = [];
     const pdfErrors: string[] = [];
     const skipped = withoutEmail.map(r => r.customerName);
 
     for (const { inv, email } of withEmail) {
       if (!email) continue;
-      const { subject, body } = fillTemplate(template, inv, email);
+      const filledSubject = fillVars(subject, inv);
+      const filledBody    = fillVars(body, inv);
       try {
-        // QBO only serves PDFs for open/unpaid invoices — 400 error on Written Off/Paid/Closed
-        const isClosedOrPaid = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+        const isClosedOrPaid =
+          ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
         const canAttach = attachPdf && inv.qboId && !inv.qboId.startsWith("CM-") && !isClosedOrPaid;
+
         const res = await fetch("/api/email/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: email,
-            subject,
-            body,
+            to:      email,
+            subject: filledSubject,
+            body:    filledBody,
             ...(canAttach ? { attachInvoiceIds: [inv.id] } : {}),
           }),
         });
         if (!res.ok) throw new Error("Send failed");
+
         const result = await res.json();
-        // Collect any PDF attachment errors
         if (result.attachmentErrors?.length > 0) {
           pdfErrors.push(...result.attachmentErrors.map((e: string) => `${inv.invoiceNumber}: ${e}`));
         }
-        // Record in timeline
+
+        // Log to communications timeline
         await fetch("/api/communications", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             customerId: inv.customerId,
-            invoiceId: inv.id,
-            direction: "Outbound",
-            channel: "Email",
-            subject,
+            invoiceId:  inv.id,
+            direction:  "Outbound",
+            channel:    "Email",
+            subject:    filledSubject,
             recipients: email,
-            body,
+            body:       filledBody,
+            matchedBy:  "Manual",
           }),
         });
+
         sent.push(inv.invoiceNumber);
       } catch {
         failed.push(inv.invoiceNumber);
@@ -973,11 +1032,21 @@ export function BatchEmailModal({ invoiceIds, onClose }: { invoiceIds: string[];
     if (sent.length > 0) toast(`Sent ${sent.length} email${sent.length > 1 ? "s" : ""}`);
   };
 
+  // ── render ────────────────────────────────────────────────────────────────────
+
   return (
-    <Modal open title={`Send email to ${selectedInvoices.length} invoice${selectedInvoices.length > 1 ? "s" : ""}`} onClose={onClose} size="lg">
+    <Modal
+      open
+      title={`Send invoices — ${selectedInvoices.length} selected`}
+      onClose={onClose}
+      size="xl"
+    >
       {results ? (
-        <div className="space-y-4">
-          <div className={`flex items-start gap-3 p-4 ring-1 rounded-lg ${results.sent > 0 ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"}`}>
+        /* ── Results screen ── */
+        <div className="p-5 space-y-4">
+          <div className={`flex items-start gap-3 p-4 ring-1 rounded-xl ${
+            results.sent > 0 ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"
+          }`}>
             <CheckCircle size={20} className={`flex-shrink-0 mt-0.5 ${results.sent > 0 ? "text-emerald-600" : "text-rose-500"}`} />
             <div className="space-y-1 text-sm">
               <div className={`font-semibold ${results.sent > 0 ? "text-emerald-900" : "text-rose-800"}`}>
@@ -985,21 +1054,25 @@ export function BatchEmailModal({ invoiceIds, onClose }: { invoiceIds: string[];
               </div>
               {results.skipped.length > 0 && (
                 <div className="text-xs text-stone-600">
-                  {results.skipped.length} skipped (no email address): {results.skipped.join(", ")}
+                  {results.skipped.length} skipped (no email): {results.skipped.join(", ")}
                 </div>
               )}
               {results.failed.length > 0 && (
                 <div className="text-xs text-rose-700">
-                  {results.failed.length} send failed: {results.failed.join(", ")}
+                  {results.failed.length} failed to send: {results.failed.join(", ")}
                 </div>
               )}
               {results.pdfErrors.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-amber-200">
-                  <div className="text-xs font-semibold text-amber-700 mb-1">⚠ PDF attachment issues ({results.pdfErrors.length}):</div>
+                  <div className="text-xs font-semibold text-amber-700 mb-1">
+                    ⚠ PDF attachment issues ({results.pdfErrors.length}):
+                  </div>
                   {results.pdfErrors.map((e, i) => (
                     <div key={i} className="text-xs text-amber-700">{e}</div>
                   ))}
-                  <div className="text-xs text-amber-600 mt-1">Emails were sent but without the PDF attachment.</div>
+                  <div className="text-xs text-amber-600 mt-1">
+                    Emails were delivered but without PDF attachments.
+                  </div>
                 </div>
               )}
             </div>
@@ -1009,90 +1082,201 @@ export function BatchEmailModal({ invoiceIds, onClose }: { invoiceIds: string[];
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* Template picker */}
-          <div>
-            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Email template</label>
-            <select
-              value={templateId}
-              onChange={e => setTemplateId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none">
-              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
+        /* ── Composer screen ── */
+        <div className="flex gap-0 h-[600px] overflow-hidden">
 
-          {/* Attach PDF toggle */}
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <div
-              onClick={() => setAttachPdf(p => !p)}
-              className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${attachPdf ? "bg-stone-900" : "bg-stone-200"}`}>
-              <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
-            </div>
-            <div>
-              <div className="text-sm font-medium text-stone-800">Attach invoice PDF</div>
-              <div className="text-[11px] text-stone-400">Fetches each PDF from QuickBooks and attaches it to the email</div>
-            </div>
-          </label>
+          {/* Left pane — compose */}
+          <div className="flex-1 flex flex-col min-w-0 border-r border-stone-100">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
-          {/* Invoice list with resolved emails */}
-          <div>
-            <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-2">
-              Recipients — {withEmail.length} invoice{withEmail.length !== 1 ? "s" : ""} ·{" "}
-              {withEmail.reduce((sum, r) => sum + countEmails(r.email), 0)} email address{withEmail.reduce((sum, r) => sum + countEmails(r.email), 0) !== 1 ? "es" : ""}
-              {withoutEmail.length > 0 ? ` · ${withoutEmail.length} skipped (no email)` : ""}
-            </div>
-            <div className="max-h-64 overflow-y-auto space-y-1 rounded-md ring-1 ring-stone-200 p-2">
-              {rows.map(({ inv, email, customerName }) => {
-                const emailCount = countEmails(email);
-                return (
-                  <div key={inv.id} className="px-2 py-2 rounded hover:bg-stone-50">
-                    <div className="flex items-center gap-2">
-                      {email
-                        ? <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />
-                        : <XCircle size={13} className="text-rose-400 flex-shrink-0" />}
-                      <span className="font-mono text-[12px] text-stone-500 w-16 flex-shrink-0">{inv.invoiceNumber}</span>
-                      <span className="font-medium text-stone-800 text-sm truncate flex-1">{customerName}</span>
-                      {email && emailCount > 1 && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium flex-shrink-0">{emailCount} addresses</span>
-                      )}
-                    </div>
-                    {email ? (
-                      <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
-                        {email.split(",").map((e: string) => e.trim()).filter((e: string) => e).map((addr: string) => (
-                          <span key={addr} className="text-[11px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded font-mono">{addr}</span>
-                        ))}
+              {/* Load from template (optional) */}
+              {orgTemplates.length > 0 && (
+                <div>
+                  <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+                    Load from saved template (optional)
+                  </label>
+                  <select
+                    defaultValue=""
+                    onChange={e => {
+                      const t = orgTemplates.find(t => t.id === e.target.value);
+                      if (t) { setSubject(t.subject); setBody(t.body); }
+                      e.target.value = "";
+                    }}
+                    className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  >
+                    <option value="">— Pick a template to pre-fill —</option>
+                    {orgTemplates.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.name}{t.collectionStage ? ` (${t.collectionStage})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Subject */}
+              <div>
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                  Subject
+                </label>
+                <input
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  placeholder="e.g. Invoice {invoiceNumber} — {ref}"
+                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                />
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 flex flex-col">
+                <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                  Message
+                  <span className="ml-1.5 font-normal text-stone-400 normal-case tracking-normal">
+                    — one email per invoice, placeholders filled automatically
+                  </span>
+                </label>
+                <textarea
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  rows={12}
+                  className="w-full flex-1 px-3 py-2.5 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white font-mono leading-relaxed resize-none"
+                  placeholder="Write your message here…"
+                />
+              </div>
+
+              {/* Placeholder reference */}
+              <div className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowPlaceholders(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-medium text-stone-500 hover:bg-stone-50 transition-colors"
+                >
+                  <span>Placeholder reference</span>
+                  <span className={`transition-transform ${showPlaceholders ? "rotate-180" : ""}`}>▾</span>
+                </button>
+                {showPlaceholders && (
+                  <div className="px-3 pb-3 border-t border-stone-100 space-y-1.5 pt-2">
+                    {BATCH_PLACEHOLDERS.map(({ key, desc }) => (
+                      <div key={key} className="flex items-start gap-2">
+                        <code className="text-[11px] font-mono bg-stone-100 px-1.5 py-0.5 rounded text-stone-700 shrink-0">{key}</code>
+                        <span className="text-[11px] text-stone-500">{desc}</span>
                       </div>
-                    ) : (
-                      <div className="ml-5 mt-0.5 text-[11px] text-rose-400 italic">No email — will be skipped</div>
-                    )}
+                    ))}
                   </div>
-                );
-              })}
+                )}
+              </div>
+
+              {/* Attach PDF toggle */}
+              <label className="flex items-center gap-3 cursor-pointer select-none py-1">
+                <div
+                  onClick={() => setAttachPdf(p => !p)}
+                  className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${attachPdf ? "bg-stone-900" : "bg-stone-200"}`}
+                >
+                  <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-stone-800">Attach invoice PDF</div>
+                  <div className="text-[11px] text-stone-400">Fetches each PDF from QuickBooks and attaches to the email</div>
+                </div>
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-stone-100 flex items-center justify-between gap-3 shrink-0 bg-white">
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(v => !v)}
+                  className={`h-9 px-3 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                    showPreview ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-200 text-stone-600 hover:ring-stone-400"
+                  }`}
+                >
+                  {showPreview ? "Hide preview" : "Preview"}
+                </button>
+                <Button
+                  icon={Send}
+                  disabled={sending || withEmail.length === 0}
+                  onClick={handleSend}
+                >
+                  {sending
+                    ? "Sending…"
+                    : `Send to ${withEmail.length} invoice${withEmail.length !== 1 ? "s" : ""}`}
+                </Button>
+              </div>
             </div>
           </div>
 
-          {withoutEmail.length > 0 && (
-            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-md p-3">
-              <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
-              <span>
-                {withoutEmail.length} invoice{withoutEmail.length > 1 ? "s" : ""} have no billing email and will be skipped.
-                Add an email in QBO (BillEmail field) or add a contact to the customer.
-              </span>
+          {/* Right pane — recipients + preview */}
+          <div className="w-72 shrink-0 flex flex-col overflow-hidden bg-stone-50/60">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+              {/* Recipient list */}
+              <div>
+                <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                  Recipients
+                  <span className="ml-1.5 font-normal normal-case">
+                    {withEmail.length} ready
+                    {withoutEmail.length > 0 && ` · ${withoutEmail.length} skipped`}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {rows.map(({ inv, email, customerName }) => {
+                    const emailCount = countEmails(email);
+                    return (
+                      <div key={inv.id} className={`rounded-lg px-2.5 py-2 text-[12px] ${email ? "bg-white ring-1 ring-stone-200" : "bg-rose-50 ring-1 ring-rose-100"}`}>
+                        <div className="flex items-center gap-1.5">
+                          {email
+                            ? <CheckCircle size={11} className="text-emerald-500 shrink-0" />
+                            : <XCircle size={11} className="text-rose-400 shrink-0" />}
+                          <span className="font-mono text-[11px] text-stone-400 shrink-0">{inv.invoiceNumber}</span>
+                          <span className="font-medium text-stone-800 truncate">{customerName}</span>
+                        </div>
+                        {email ? (
+                          <div className="mt-0.5 ml-4 text-[11px] text-stone-400 truncate">
+                            {email.split(",")[0].trim()}
+                            {emailCount > 1 && <span className="ml-1 text-blue-500">+{emailCount - 1}</span>}
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 ml-4 text-[11px] text-rose-400 italic">No email — skipped</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {withoutEmail.length > 0 && (
+                  <div className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg p-2.5">
+                    <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+                    <span>
+                      {withoutEmail.length} invoice{withoutEmail.length > 1 ? "s" : ""} have no billing email. Add an email in QBO or to the customer contact.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Live preview */}
+              {showPreview && previewRow && (
+                <div>
+                  <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                    Preview — {previewRow.inv.invoiceNumber}
+                  </div>
+                  <div className="bg-white ring-1 ring-stone-200 rounded-lg p-3 space-y-2">
+                    <div>
+                      <div className="text-[10px] text-stone-400 font-medium">Subject</div>
+                      <div className="text-[12px] font-semibold text-stone-800 break-words">{previewSubject}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-stone-400 font-medium mb-0.5">Body</div>
+                      <div className="text-[11px] text-stone-700 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                        {previewBody}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-stone-400 mt-1.5 text-center">
+                    Each invoice gets its own copy with values filled in
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-
-          {withEmail.length === 0 && (
-            <div className="text-sm text-rose-600 text-center py-4">No invoices have a valid email address. Cannot send.</div>
-          )}
-
-          <div className="flex items-center justify-between pt-2 border-t border-stone-100">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button
-              icon={Send}
-              disabled={sending || withEmail.length === 0}
-              onClick={handleSend}>
-              {sending ? "Sending…" : `Send to ${withEmail.length} invoice${withEmail.length !== 1 ? "s" : ""}`}
-            </Button>
           </div>
         </div>
       )}
