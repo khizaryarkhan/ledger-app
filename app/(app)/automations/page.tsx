@@ -900,25 +900,24 @@ type EmailTemplate = {
   body: string;
   collectionStage: string | null;
   isActive: boolean;
-  scheduleDays: number[];
+  sendIntervalDays: number;
 };
 
-const DEFAULT_SCHEDULE = [-3, 1, 8, 21];
+const FREQUENCY_OPTIONS = [
+  { label: "Every week",       days: 7   },
+  { label: "Every 2 weeks",    days: 14  },
+  { label: "Every month",      days: 30  },
+  { label: "Every 3 months",   days: 90  },
+  { label: "Custom",           days: 0   }, // 0 = custom input
+];
 
 const BLANK_TEMPLATE: Omit<EmailTemplate, "id" | "isActive"> = {
   name: "",
   subject: "",
   body: "",
   collectionStage: null,
-  scheduleDays: DEFAULT_SCHEDULE,
+  sendIntervalDays: 7,
 };
-
-/** Human-readable label for a schedule day number */
-function formatScheduleDay(d: number): string {
-  if (d < 0) return `${Math.abs(d)}d before due`;
-  if (d === 0) return "on due date";
-  return `${d}d overdue`;
-}
 
 const PLACEHOLDER_HELP = [
   { key: "{name}",         desc: "Contact's first name (e.g. John)" },
@@ -926,34 +925,6 @@ const PLACEHOLDER_HELP = [
   { key: "{ref}",          desc: "Customer / project code (e.g. ACME-001)" },
 ];
 
-/** Small inline input for adding a schedule day number */
-function ScheduleDayInput({ onAdd }: { onAdd: (day: number) => void }) {
-  const [val, setVal] = useState("");
-  const commit = () => {
-    const n = parseInt(val, 10);
-    if (!isNaN(n)) { onAdd(n); setVal(""); }
-  };
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="number"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && commit()}
-        placeholder="e.g. -3 or 14"
-        className="w-32 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white font-mono"
-      />
-      <button
-        type="button"
-        onClick={commit}
-        disabled={!val.trim() || isNaN(parseInt(val, 10))}
-        className="h-8 px-3 text-[12px] font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-40 transition-colors"
-      >
-        Add day
-      </button>
-    </div>
-  );
-}
 
 function EmailTemplates() {
   const { orgSettings, toast } = useData() as any;
@@ -1013,12 +984,12 @@ function EmailTemplates() {
     setSaving(true);
     try {
       const payload = {
-        name:            editing.name.trim(),
-        subject:         editing.subject.trim(),
-        body:            editing.body.trim(),
-        collectionStage: editing.collectionStage || null,
-        isActive:        editing.isActive,
-        scheduleDays:    editing.scheduleDays.length > 0 ? editing.scheduleDays : DEFAULT_SCHEDULE,
+        name:             editing.name.trim(),
+        subject:          editing.subject.trim(),
+        body:             editing.body.trim(),
+        collectionStage:  editing.collectionStage || null,
+        isActive:         editing.isActive,
+        sendIntervalDays: editing.sendIntervalDays ?? 7,
       };
 
       if (isNew) {
@@ -1172,14 +1143,12 @@ function EmailTemplates() {
               <div className="text-[11px] text-stone-400 mt-1 line-clamp-2 whitespace-pre-wrap leading-relaxed">
                 {t.body.slice(0, 180)}{t.body.length > 180 ? "…" : ""}
               </div>
-              {t.scheduleDays && t.scheduleDays.length > 0 && (
-                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                  <span className="text-[10px] text-stone-400 font-medium">Sends on:</span>
-                  {[...t.scheduleDays].sort((a, b) => a - b).map((d) => (
-                    <span key={d} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">
-                      {d > 0 ? `+${d}d` : `${d}d`}
-                    </span>
-                  ))}
+              {t.sendIntervalDays && (
+                <div className="flex items-center gap-1 mt-1.5">
+                  <span className="text-[10px] text-stone-400 font-medium">Sends every</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">
+                    {FREQUENCY_OPTIONS.find(o => o.days === t.sendIntervalDays)?.label.replace("Every ", "") ?? `${t.sendIntervalDays} days`}
+                  </span>
                 </div>
               )}
             </div>
@@ -1294,39 +1263,44 @@ function EmailTemplates() {
                 <span className="text-sm text-stone-600">{editing.isActive ? "Active — will be used when emails are sent" : "Inactive — will be skipped"}</span>
               </div>
 
-              {/* Send schedule */}
+              {/* Send frequency */}
               <div className="border-t border-stone-100 pt-4">
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Send schedule</label>
+                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Send frequency</label>
                 <p className="text-[11px] text-stone-400 mb-3">
-                  Days relative to the invoice due date when this email fires automatically.
-                  Negative = before due (e.g. <span className="font-mono bg-stone-100 px-1 rounded">-3</span> = 3 days before), positive = overdue (e.g. <span className="font-mono bg-stone-100 px-1 rounded">8</span> = 8 days overdue).
+                  How often the system re-sends all outstanding invoices to this contact.
+                  The cron checks when this contact was last emailed and skips if it's too soon.
                 </p>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {[...(editing.scheduleDays ?? DEFAULT_SCHEDULE)]
-                    .sort((a, b) => a - b)
-                    .map((d) => (
-                      <span key={d} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-900 text-white">
-                        <span className="font-mono">{d > 0 ? `+${d}` : d}</span>
-                        <span className="text-stone-400">({formatScheduleDay(d)})</span>
-                        <button
-                          type="button"
-                          onClick={() => setEditing((p) => p && ({ ...p, scheduleDays: p.scheduleDays.filter((x) => x !== d) }))}
-                          className="ml-0.5 text-stone-400 hover:text-rose-400 transition-colors"
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                  {(editing.scheduleDays ?? []).length === 0 && (
-                    <span className="text-[11px] text-rose-500 italic">No schedule — this template will never fire automatically.</span>
-                  )}
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {FREQUENCY_OPTIONS.filter(o => o.days > 0).map((opt) => (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      onClick={() => setEditing((p) => p && ({ ...p, sendIntervalDays: opt.days }))}
+                      className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                        editing.sendIntervalDays === opt.days
+                          ? "bg-stone-900 text-white ring-stone-900"
+                          : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
-                <ScheduleDayInput
-                  onAdd={(day) => {
-                    if ((editing.scheduleDays ?? []).includes(day)) return;
-                    setEditing((p) => p && ({ ...p, scheduleDays: [...(p.scheduleDays ?? []), day] }));
-                  }}
-                />
+                {/* Custom interval input — shown when none of the presets match */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-stone-500">Custom:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editing.sendIntervalDays}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (!isNaN(n) && n >= 1) setEditing((p) => p && ({ ...p, sendIntervalDays: n }));
+                    }}
+                    className="w-20 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white text-center"
+                  />
+                  <span className="text-[12px] text-stone-500">days</span>
+                </div>
               </div>
             </div>
 

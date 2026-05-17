@@ -11,12 +11,12 @@ import { requireOrg } from "@/lib/api";
 import { z } from "zod";
 
 const PatchSchema = z.object({
-  name:            z.string().min(1).max(255).optional(),
-  subject:         z.string().min(1).max(512).optional(),
-  body:            z.string().min(1).optional(),
-  collectionStage: z.string().max(64).nullable().optional(),
-  isActive:        z.boolean().optional(),
-  scheduleDays:    z.array(z.number().int()).optional(),
+  name:             z.string().min(1).max(255).optional(),
+  subject:          z.string().min(1).max(512).optional(),
+  body:             z.string().min(1).optional(),
+  collectionStage:  z.string().max(64).nullable().optional(),
+  isActive:         z.boolean().optional(),
+  sendIntervalDays: z.number().int().min(1).optional(),
 });
 
 export async function PATCH(

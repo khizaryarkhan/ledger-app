@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 
@@ -16,16 +16,6 @@ function daysFromDate(dateStr: string): number {
 
 const PROTECTED_STAGES = ["Disputed", "On Hold", "Escalated"];
 const PAUSE_STAGES     = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
-
-/**
- * Returns true if today matches the template's configured schedule for this invoice.
- * Each template carries its own scheduleDays array (days relative to due date).
- * Falls back to [-3, 1, 8, 21] if the template has no schedule set.
- */
-function shouldFireToday(daysOverdue: number, scheduleDays: number[]): boolean {
-  const days = scheduleDays.length > 0 ? scheduleDays : [-3, 1, 8, 21];
-  return days.includes(daysOverdue);
-}
 
 /**
  * Fill template placeholders.
@@ -73,13 +63,13 @@ export async function GET(req: Request) {
     }
   }
 
-  // ── 2. Send emails via SMTP (stage-based templates) ───────────────────────
+  // ── 2. Send emails via SMTP (interval-based per template) ────────────────
   const allOrgs = [...new Set(allInvoices.map((inv) => inv.orgId))];
 
   for (const orgId of allOrgs) {
     try {
       const smtp = await getSmtpConfig(orgId).catch(() => null);
-      if (!smtp) continue; // org has no SMTP configured — skip
+      if (!smtp) continue;
 
       // Load active templates for this org, keyed by collectionStage
       const orgTemplates = await db
@@ -93,7 +83,7 @@ export async function GET(req: Request) {
           .map((t) => [t.collectionStage!, t]),
       );
 
-      if (templateByStage.size === 0) continue; // org has no templates set up
+      if (templateByStage.size === 0) continue;
 
       const autoContacts = await db.select().from(contacts)
         .where(and(eq(contacts.orgId, orgId), eq(contacts.receivesAuto, true)));
@@ -102,6 +92,7 @@ export async function GET(req: Request) {
 
       for (const contact of enabledContacts) {
         try {
+          // All open, non-paused invoices for this contact
           const relatedInvoices = allInvoices.filter((inv) => {
             if (inv.orgId !== orgId) return false;
             if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return false;
@@ -113,23 +104,34 @@ export async function GET(req: Request) {
 
           if (relatedInvoices.length === 0) continue;
 
-          // Keep only invoices that hit the template's configured schedule today.
-          // Each invoice is checked against the schedule of its own stage's template.
-          const triggeredInvoices = relatedInvoices.filter((inv) => {
-            const tpl = templateByStage.get(inv.collectionStage);
-            if (!tpl) return false;
-            return shouldFireToday(daysFromDate(inv.dueDate), tpl.scheduleDays ?? []);
-          });
-          if (triggeredInvoices.length === 0) continue;
-
-          // Find the most overdue invoice that has a template for its stage
-          const sortedByOverdue = [...triggeredInvoices].sort(
+          // Pick the template from the most overdue invoice's stage
+          const sortedByOverdue = [...relatedInvoices].sort(
             (a, b) => daysFromDate(b.dueDate) - daysFromDate(a.dueDate)
           );
           const matchedInv = sortedByOverdue.find((inv) => templateByStage.has(inv.collectionStage));
           if (!matchedInv) continue;
 
           const template = templateByStage.get(matchedInv.collectionStage)!;
+          const intervalDays = template.sendIntervalDays ?? 7;
+
+          // Check when this contact was last auto-emailed
+          const [lastComm] = await db
+            .select({ createdAt: communications.createdAt })
+            .from(communications)
+            .where(and(
+              eq(communications.orgId, orgId),
+              eq(communications.contactId, contact.id),
+              eq(communications.matchedBy, "Auto"),
+            ))
+            .orderBy(desc(communications.createdAt))
+            .limit(1);
+
+          const daysSinceLastSend = lastComm
+            ? Math.floor((Date.now() - new Date(lastComm.createdAt).getTime()) / 86400000)
+            : Infinity; // Never sent → send immediately
+
+          // Skip if not enough time has passed
+          if (daysSinceLastSend < intervalDays) continue;
 
           // {ref} = project full name for projects; customer code for customers
           let entityRef = "";
@@ -141,7 +143,8 @@ export async function GET(req: Request) {
             entityRef = cust?.code ?? cust?.name ?? "";
           }
 
-          const invoiceLines = triggeredInvoices.map((inv) => {
+          // All open invoices go in the email body
+          const invoiceLines = relatedInvoices.map((inv) => {
             const balance = inv.total - (inv.paid || 0);
             const d = daysFromDate(inv.dueDate);
             const overdueStr = d > 0 ? `${d} days overdue` : d === 0 ? "due today" : `due in ${Math.abs(d)} days`;
@@ -149,17 +152,15 @@ export async function GET(req: Request) {
           });
 
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
-          const invRefs  = triggeredInvoices.map((inv) => inv.invoiceNumber).join(", ");
+          const invRefs  = relatedInvoices.map((inv) => inv.invoiceNumber).join(", ");
 
-          const subjectParts = [fillTemplate(template.subject, greeting, invoiceLines, entityRef)];
-          subjectParts.push(`Ref: ${invRefs}`);
-          const subject = subjectParts.join(" | ");
-
+          const subject = fillTemplate(template.subject, greeting, invoiceLines, entityRef)
+            + ` | Ref: ${invRefs}`;
           const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
-          // Fetch PDF attachments from QBO for each triggered invoice (failures are silent)
+          // Fetch PDF attachments from QBO for each invoice (failures are silent)
           const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
-          for (const inv of triggeredInvoices) {
+          for (const inv of relatedInvoices) {
             const pdf = await fetchQboInvoicePdf(orgId, inv).catch(() => null);
             if (pdf) {
               attachments.push({
@@ -170,7 +171,7 @@ export async function GET(req: Request) {
             }
           }
 
-          // Send via SMTP with attachments
+          // Send via SMTP
           await sendSmtp(smtp, {
             to:          contact.email!,
             subject,
@@ -179,7 +180,7 @@ export async function GET(req: Request) {
           });
           emailsSent++;
 
-          // Log to communications so it appears in Inbox and customer/project timeline
+          // Log to communications
           await db.insert(communications).values({
             orgId:       orgId,
             customerId:  contact.customerId,

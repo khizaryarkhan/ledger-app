@@ -435,9 +435,10 @@ export const emailTemplates = pgTable("email_templates", {
   body:            text("body").notNull(),
   collectionStage: varchar("collection_stage", { length: 64 }),  // null = unassigned draft
   isActive:        boolean("is_active").notNull().default(true),
-  // Days relative to due date on which the cron will fire this template.
-  // Negative = before due (e.g. -3 = 3 days before), positive = overdue (e.g. 1 = 1 day overdue).
-  scheduleDays:    integer("schedule_days").array().notNull().default([-3, 1, 8, 21]),
+  // How often (in days) the cron should send this template to each contact.
+  // e.g. 7 = weekly, 14 = fortnightly, 30 = monthly.
+  // The cron checks the communications table to see when this contact was last auto-emailed.
+  sendIntervalDays: integer("send_interval_days").notNull().default(7),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 });

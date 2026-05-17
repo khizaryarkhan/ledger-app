@@ -11,12 +11,12 @@ import { requireOrg } from "@/lib/api";
 import { z } from "zod";
 
 const Schema = z.object({
-  name:            z.string().min(1).max(255),
-  subject:         z.string().min(1).max(512),
-  body:            z.string().min(1),
-  collectionStage: z.string().max(64).nullable().optional(),
-  isActive:        z.boolean().optional().default(true),
-  scheduleDays:    z.array(z.number().int()).optional().default([-3, 1, 8, 21]),
+  name:             z.string().min(1).max(255),
+  subject:          z.string().min(1).max(512),
+  body:             z.string().min(1),
+  collectionStage:  z.string().max(64).nullable().optional(),
+  isActive:         z.boolean().optional().default(true),
+  sendIntervalDays: z.number().int().min(1).optional().default(7),
 });
 
 export async function GET() {
@@ -44,13 +44,13 @@ export async function POST(req: Request) {
   const [created] = await db
     .insert(emailTemplates)
     .values({
-      orgId:           orgId!,
-      name:            parsed.data.name,
-      subject:         parsed.data.subject,
-      body:            parsed.data.body,
-      collectionStage: parsed.data.collectionStage ?? null,
-      isActive:        parsed.data.isActive ?? true,
-      scheduleDays:    parsed.data.scheduleDays,
+      orgId:            orgId!,
+      name:             parsed.data.name,
+      subject:          parsed.data.subject,
+      body:             parsed.data.body,
+      collectionStage:  parsed.data.collectionStage ?? null,
+      isActive:         parsed.data.isActive ?? true,
+      sendIntervalDays: parsed.data.sendIntervalDays ?? 7,
     })
     .returning();
 
