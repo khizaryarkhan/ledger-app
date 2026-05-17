@@ -1212,9 +1212,8 @@ const AGING_COLORS_REG = [
   { key: "90+", color: "bg-rose-700" },
 ];
 
-// ============================================================
-// AR HEALTH REPORT — 5-dimension framework (Salek)
-// ============================================================
+// AR Health has been moved to the Dashboard page.
+// ──────────────────────────────────────────────────────────────────────────
 function ArHealthReport({ invoices, customers, projects, reps, communications, regionFilter }: any) {
   const { orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
@@ -1553,7 +1552,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
 
-type ReportId = "ar-health" | "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
+type ReportId = "aging-customer" | "aging-project" | "regional" | "by-rep" | "sales-overview" | "sales-customer" | "sales-project" | "sales-region" | "sales-rep";
 
 interface ReportItem {
   id: ReportId;
@@ -1570,7 +1569,6 @@ const REPORT_GROUPS: ReportGroup[] = [
   {
     label: "Receivables",
     items: [
-      { id: "ar-health",      label: "AR Health",         description: "AR quality score and portfolio overview" },
       { id: "aging-customer", label: "Aging by Customer", description: "Outstanding balances grouped by customer" },
       { id: "aging-project",  label: "Aging by Project",  description: "Outstanding balances grouped by project" },
       { id: "regional",       label: "Aging by Region",   description: "AR split by region with concentration view" },
@@ -1589,7 +1587,7 @@ const REPORT_GROUPS: ReportGroup[] = [
   },
 ];
 
-const AR_REPORTS: ReportId[] = ["ar-health", "aging-customer", "aging-project", "regional", "by-rep"];
+const AR_REPORTS: ReportId[] = ["aging-customer", "aging-project", "regional", "by-rep"];
 const SALES_REPORTS: ReportId[] = ["sales-overview", "sales-customer", "sales-project", "sales-region", "sales-rep"];
 
 // Map sidebar report ID → SalesReport breakdown
@@ -1728,17 +1726,6 @@ export default function ReportsPage() {
 
         {/* Report body */}
         <div className="p-6">
-          {report === "ar-health" && (
-            <ArHealthReport
-              invoices={invoices}
-              customers={customers}
-              projects={projects}
-              reps={reps ?? []}
-              communications={communications}
-              regionFilter={regionFilter}
-            />
-          )}
-
           {isSalesReport && (
             <SalesReport
               invoices={invoices}

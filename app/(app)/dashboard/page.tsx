@@ -7,8 +7,310 @@ import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle, Mail } from "lucide-react";
+
+// ── AR Health widget ────────────────────────────────────────────────────────
+function ArHealthWidget({ invoices, customers, projects, reps, communications, regionFilter, ccy }: any) {
+  const filteredInvoices = useMemo(() => {
+    if (!regionFilter) return invoices;
+    return invoices.filter((i: any) => {
+      const c = customers.find((c: any) => c.id === i.customerId);
+      if (c?.regionId === regionFilter) return true;
+      const p = projects.find((p: any) => p.id === i.projectId);
+      return p?.regionId === regionFilter;
+    });
+  }, [invoices, customers, projects, regionFilter]);
+
+  const metrics = useMemo(() => {
+    const open = filteredInvoices.filter((i: any) =>
+      i.paymentStatus !== "Paid" &&
+      i.paymentStatus !== "Written Off" &&
+      i.collectionStage !== "Closed" &&
+      i.txnType !== "CreditMemo"
+    );
+    const bal = (i: any) => Math.max(0, (i.total || 0) - (i.paid || 0));
+    const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
+
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0);
+    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + bal(i), 0);
+    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
+
+    const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
+    const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
+    const overdueRate = totalAR > 0 ? ((totalAR - current) / totalAR) * 100 : 0;
+
+    const disputedAR  = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
+    const disputeRate = totalAR > 0 ? (disputedAR / totalAR) * 100 : 0;
+    const highRiskAR  = open.filter((i: any) => {
+      const c = customers.find((c: any) => c.id === i.customerId);
+      return c?.riskRating === "High";
+    }).reduce((s: number, i: any) => s + bal(i), 0);
+    const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
+
+    const brokenPromises = open.filter((i: any) =>
+      (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
+      i.promiseDate && daysOverdue(i.promiseDate) > 0
+    ).length;
+    const neverContacted = open.filter((i: any) => daysOverdue(i.dueDate) > 0 && !i.lastFollowupDate).length;
+
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const emails30d  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
+    const replies30d = communications.filter((c: any) => c.direction === "Inbound"  && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
+
+    const byCust: Record<string, number> = {};
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + bal(i); });
+    const concentrationRows = Object.entries(byCust)
+      .map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt as number, pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0 }))
+      .filter(x => x.customer)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 10);
+
+    const repPortfolio = (reps ?? []).map((rep: any) => {
+      const repInvs = open.filter((i: any) => {
+        const c = customers.find((c: any) => c.id === i.customerId);
+        const p = projects.find((p: any) => p.id === i.projectId);
+        return c?.repId === rep.id || p?.repId === rep.id;
+      });
+      const repOpen    = repInvs.reduce((s: number, i: any) => s + bal(i), 0);
+      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + bal(i), 0);
+      const custIds    = new Set(repInvs.map((i: any) => i.customerId));
+      return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size };
+    }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
+
+    return {
+      totalAR, current, b1_30, b31_60, b61_90, b90plus,
+      currentPct, over90Pct, overdueRate,
+      disputeRate, highRiskPct,
+      brokenPromises, neverContacted,
+      concentrationRows, repPortfolio,
+      openCount: open.length,
+    };
+  }, [filteredInvoices, customers, projects, reps, communications]);
+
+  const {
+    totalAR, current, b1_30, b31_60, b61_90, b90plus,
+    currentPct, over90Pct, overdueRate,
+    disputeRate, highRiskPct,
+    brokenPromises, neverContacted,
+    concentrationRows, repPortfolio,
+    openCount,
+  } = metrics;
+
+  const overdueCount = filteredInvoices.filter((i: any) =>
+    i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+    i.collectionStage !== "Closed" && i.txnType !== "CreditMemo" &&
+    daysOverdue(i.dueDate) > 0
+  ).length;
+
+  const agingScore = totalAR > 0
+    ? Math.round((current * 100 + b1_30 * 70 + b31_60 * 40 + b61_90 * 20 + b90plus * 5) / totalAR)
+    : 100;
+
+  const riskScore = Math.round(Math.max(10,
+    100 - Math.min(disputeRate * 3, 50) - Math.min(highRiskPct * 1, 40)
+  ));
+
+  const brokenPromiseRate  = openCount    > 0 ? (brokenPromises / openCount)    * 100 : 0;
+  const neverContactedRate = overdueCount > 0 ? (neverContacted / overdueCount) * 100 : 0;
+  const collectionScore = Math.round(Math.max(10,
+    100
+    - Math.min(neverContactedRate * 0.5, 45)
+    - Math.min(brokenPromiseRate  * 1.5, 35)
+    - Math.min(over90Pct          * 0.4, 20)
+  ));
+
+  const scores = { aging: agingScore, risk: riskScore, collection: collectionScore };
+  const overallScore = Math.round((scores.aging + scores.risk + scores.collection) / 3);
+  const maxBucket = Math.max(current, b1_30, b31_60, b61_90, b90plus, 1);
+
+  return (
+    <div className="space-y-4">
+      {/* Score banner */}
+      <div className="bg-gradient-to-r from-stone-900 to-stone-800 rounded-xl p-5 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-stone-400 mb-1">AR Health Score</div>
+            <div className="text-5xl font-bold tabular-nums">{overallScore}<span className="text-2xl text-stone-400">/100</span></div>
+            <div className="text-sm text-stone-400 mt-2">
+              {overallScore >= 80 ? "Excellent — AR management is best-in-class" :
+               overallScore >= 60 ? "Good — room for improvement in a few areas" :
+               overallScore >= 40 ? "Fair — significant collection issues present" :
+               "Needs attention — multiple AR health risks identified"}
+            </div>
+          </div>
+          <div className="flex gap-5">
+            {([
+              { label: "Aging",      score: scores.aging,      tip: "Weighted by bucket age" },
+              { label: "Risk",       score: scores.risk,       tip: "Disputed AR + high-risk customers" },
+              { label: "Collection", score: scores.collection, tip: "Broken promises + uncontacted overdue" },
+            ] as { label: string; score: number; tip: string }[]).map(({ label, score, tip }) => (
+              <div key={label} className="text-center group relative">
+                <div className="relative w-16 h-16 mx-auto mb-1">
+                  <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#44403c" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3"
+                      stroke={score >= 70 ? "#34d399" : score >= 40 ? "#fbbf24" : "#f87171"}
+                      strokeDasharray={`${score} 100`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center text-sm font-bold">{score}</div>
+                </div>
+                <div className="text-[11px] text-stone-400">{label}</div>
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-700 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap">{tip}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Aging overview + distribution + indicators */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-stone-50 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR, ccy)}</div>
+              <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
+            </div>
+            <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-50" : overdueRate > 25 ? "bg-amber-50" : "bg-emerald-50"}`}>
+              <div className={`text-xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-700" : overdueRate > 25 ? "text-amber-700" : "text-emerald-700"}`}>
+                {overdueRate.toFixed(0)}%
+              </div>
+              <div className="text-[10px] text-stone-500 mt-0.5">Overdue Rate</div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {[
+              { label: "Current (not due)", value: current, pct: currentPct, color: "bg-emerald-500" },
+              { label: "Overdue 1–30d",     value: b1_30,   pct: totalAR > 0 ? (b1_30  / totalAR) * 100 : 0, color: "bg-amber-400" },
+              { label: "Overdue 31–90d",    value: b31_60 + b61_90, pct: totalAR > 0 ? ((b31_60 + b61_90) / totalAR) * 100 : 0, color: "bg-orange-500" },
+              { label: "Overdue 90+ days",  value: b90plus, pct: over90Pct, color: "bg-rose-600" },
+            ].map(({ label, value, pct, color }) => (
+              <div key={label} className="flex items-center gap-2 text-[11px]">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
+                <div className="flex-1 text-stone-600">{label}</div>
+                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value, ccy)}</div>
+                <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Aging Distribution</div>
+          <div className="space-y-2.5">
+            {[
+              { label: "Current",  value: current, color: "bg-emerald-500", pct: totalAR > 0 ? (current / totalAR) * 100 : 0 },
+              { label: "1-30d",    value: b1_30,   color: "bg-amber-400",   pct: totalAR > 0 ? (b1_30  / totalAR) * 100 : 0 },
+              { label: "31-60d",   value: b31_60,  color: "bg-orange-500",  pct: totalAR > 0 ? (b31_60 / totalAR) * 100 : 0 },
+              { label: "61-90d",   value: b61_90,  color: "bg-rose-500",    pct: totalAR > 0 ? (b61_90 / totalAR) * 100 : 0 },
+              { label: "90+ days", value: b90plus, color: "bg-rose-800",    pct: totalAR > 0 ? (b90plus / totalAR) * 100 : 0 },
+            ].map(({ label, value, color, pct }) => (
+              <div key={label} className="flex items-center gap-2">
+                <div className="w-14 text-[11px] text-stone-500 font-medium">{label}</div>
+                <div className="flex-1 h-5 bg-stone-100 rounded overflow-hidden">
+                  <div className={`h-full ${color}`} style={{ width: `${(value / maxBucket) * 100}%` }} />
+                </div>
+                <div className="w-10 text-right text-[11px] font-semibold text-stone-600 tabular-nums">{pct.toFixed(0)}%</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Health Indicators</div>
+          <div className="space-y-3">
+            {[
+              { label: "Current AR",             value: `${currentPct.toFixed(1)}%`,   sub: "% not yet due",                 good: currentPct > 60,        warn: currentPct < 40 },
+              { label: "90+ days overdue",        value: `${over90Pct.toFixed(1)}%`,    sub: "% in oldest bucket",            good: over90Pct < 5,          warn: over90Pct > 15 },
+              { label: "Dispute rate",            value: `${disputeRate.toFixed(1)}%`,  sub: "AR value in Disputed stage",    good: disputeRate < 2,         warn: disputeRate > 5 },
+              { label: "High-risk customer AR",   value: `${highRiskPct.toFixed(1)}%`,  sub: "Held by High risk customers",   good: highRiskPct < 10,        warn: highRiskPct > 25 },
+              { label: "No contact (overdue)",    value: String(neverContacted),        sub: "Overdue with zero follow-up",   good: neverContacted === 0,    warn: neverContacted > 5 },
+              { label: "Broken promises",         value: String(brokenPromises),        sub: "Promise date passed, still open", good: brokenPromises === 0,  warn: brokenPromises > 2 },
+            ].map(({ label, value, sub, good, warn }) => (
+              <div key={label} className="flex items-center justify-between">
+                <div>
+                  <div className="text-[12px] font-medium text-stone-800">{label}</div>
+                  <div className="text-[10px] text-stone-400">{sub}</div>
+                </div>
+                <div className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${good ? "text-emerald-700 bg-emerald-50" : warn ? "text-rose-700 bg-rose-50" : "text-amber-700 bg-amber-50"}`}>
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Largest debtors + Rep breakdown */}
+      <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Largest Open Balances</div>
+          <div className="space-y-2">
+            {concentrationRows.length === 0 ? (
+              <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
+            ) : concentrationRows.map(({ customer, amount, pct }: any, idx: number) => (
+              <div key={customer.id} className="flex items-center gap-2">
+                <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[12px] font-medium text-stone-800 truncate">{customer.name}</span>
+                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount, ccy)}</span>
+                      <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {repPortfolio.length > 0 ? (
+          <Card>
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR by Rep</div>
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-stone-100">
+                  <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
+                  <th className="text-right py-1.5 font-semibold text-stone-500">% Overdue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {repPortfolio.map(({ rep, openAR, overdueAR }: any) => {
+                  const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
+                  return (
+                    <tr key={rep.id} className="border-b border-stone-50 last:border-0">
+                      <td className="py-2 font-medium text-stone-800 pr-3">{rep.name}</td>
+                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR, ccy)}</td>
+                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR, ccy)}</td>
+                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-600" : overdPct > 25 ? "text-amber-600" : "text-stone-500"}`}>
+                        {overdPct.toFixed(0)}%
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        ) : (
+          <Card>
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">AR by Rep</div>
+            <div className="py-6 text-center text-sm text-stone-400">No reps assigned</div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const { invoices, customers, contacts, projects, regions, communications, tasks, orgSettings } = useData() as any;
+  const { invoices, customers, contacts, projects, regions, communications, tasks, reps, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
@@ -540,6 +842,25 @@ export default function DashboardPage() {
             </div>
           )}
         </Card>
+      </div>
+
+      {/* ── AR Health ─────────────────────────────────────────────────── */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-base font-semibold text-stone-900">AR Health</h2>
+            <p className="text-[11px] text-stone-500 mt-0.5">5-dimension quality score across your receivables portfolio</p>
+          </div>
+        </div>
+        <ArHealthWidget
+          invoices={invoices}
+          customers={customers}
+          projects={projects}
+          reps={reps ?? []}
+          communications={communications}
+          regionFilter={regionFilter}
+          ccy={ccy}
+        />
       </div>
     </div>
   );
