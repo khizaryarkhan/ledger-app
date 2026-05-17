@@ -316,6 +316,43 @@ export default function DashboardPage() {
   const userId = (session?.user as any)?.id;
   const [regionFilter, setRegionFilter] = useState("");
 
+  // ── AR Snapshot — same source used by all Reports pages ─────────────────
+  // Ensures every financial figure on the dashboard reconciles with AR Reports.
+  const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
+
+  useEffect(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setSnapshotLoading(true);
+    fetch(`/api/reports/ar-snapshot?asOf=${todayStr}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setSnapshotInvoices(Array.isArray(data) ? data : null))
+      .catch(() => setSnapshotInvoices(null))
+      .finally(() => setSnapshotLoading(false));
+  }, []);
+
+  // Merge snapshot (authoritative open balances) with local invoice metadata
+  // (collectionStage, promiseDate, lastFollowupDate, paymentStatus) so that
+  // both financial totals AND collection-stage metrics are accurate.
+  const effectiveInvoices = useMemo(() => {
+    if (!snapshotInvoices) return invoices;
+    const localMap = new Map((invoices as any[]).map((i: any) => [i.id, i]));
+    return snapshotInvoices.map((snap: any) => {
+      const local = localMap.get(snap.id);
+      if (local) {
+        return {
+          ...snap,
+          collectionStage:  local.collectionStage,
+          promiseDate:      local.promiseDate,
+          lastFollowupDate: local.lastFollowupDate,
+          paymentStatus:    local.paymentStatus,
+          currency:         local.currency ?? snap.currency,
+        };
+      }
+      return snap;
+    });
+  }, [snapshotInvoices, invoices]);
+
   // Setup checklist state
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [hasTemplates, setHasTemplates] = useState<boolean | null>(null);
@@ -351,7 +388,7 @@ export default function DashboardPage() {
   const alerts = useMemo(() => {
     const list: Array<{ type: string; label: string; sub: string; color: string; href: string; icon: string }> = [];
 
-    const brokenPromises = invoices.filter((i: any) =>
+    const brokenPromises = effectiveInvoices.filter((i: any) =>
       (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
       i.promiseDate &&
       new Date(i.promiseDate) < new Date() &&
@@ -368,8 +405,9 @@ export default function DashboardPage() {
       });
     }
 
-    const neglected90 = invoices.filter((i: any) => {
+    const neglected90 = effectiveInvoices.filter((i: any) => {
       if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off") return false;
+      if (i.txnType === "CreditMemo") return false;
       const days = Math.floor((Date.now() - new Date(i.dueDate + "T12:00:00Z").getTime()) / 86400000);
       return days > 90;
     });
@@ -377,7 +415,7 @@ export default function DashboardPage() {
       const total = neglected90.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       list.push({
         type: "overdue_90",
-        label: `90+ day debt: ${new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total)}`,
+        label: `90+ day debt: ${new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total)}`,
         sub: `${neglected90.length} invoice${neglected90.length > 1 ? "s" : ""} — escalate or write off`,
         color: "rose",
         href: "/smart-views",
@@ -398,86 +436,86 @@ export default function DashboardPage() {
     }
 
     return list;
-  }, [invoices, contacts]);
+  }, [effectiveInvoices, contacts, ccy]);
 
   const stats = useMemo(() => {
     const regionInvoices = regionFilter
-      ? invoices.filter((i: any) => {
+      ? effectiveInvoices.filter((i: any) => {
           const c = customers.find((c: any) => c.id === i.customerId);
           if (c?.regionId === regionFilter) return true;
           const p = projects.find((p: any) => p.id === i.projectId);
           return p?.regionId === regionFilter;
         })
-      : invoices;
-    const open = regionInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalReceivable = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-    const overdue = open.filter(i => daysOverdue(i.dueDate) > 0);
-    const totalOverdue = overdue.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+      : effectiveInvoices;
+    const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
+    const totalReceivable = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
+    const totalOverdue = overdue.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-    open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
-    const disputed = open.filter(i => i.collectionStage === "Disputed").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-    const promised = open.filter(i => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-    const dueThisWeek = open.filter(i => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
+    open.forEach((i: any) => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
+    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
     const thirtyDaysAgo = new Date(daysFromNow(-30)).getTime();
-    const emailsSent = communications.filter(c => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
-    const replies = communications.filter(c => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
+    const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
+    const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
     // True DSO = (Total Open AR / Net Sales last 90 days) × 90
     const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
     const netSales90d = regionInvoices
-      .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo)
-      .reduce((s, i) => s + ((i as any).amount || 0), 0);
+      .filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= ninetyDaysAgo)
+      .reduce((s: number, i: any) => s + ((i as any).amount || 0), 0);
     const dso = netSales90d > 0 ? Math.round((totalReceivable / netSales90d) * 90) : 0;
 
     // Best Possible DSO = (Current/not-yet-due AR / Annual 365d Sales) × 365
     const threeSixtyFiveDaysAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-    const currentAR = open.filter(i => daysOverdue(i.dueDate) < 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    const currentAR = open.filter((i: any) => daysOverdue(i.dueDate) < 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const annualSales365 = regionInvoices
-      .filter(i => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo)
-      .reduce((s, i) => s + ((i as any).amount || 0), 0);
+      .filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo)
+      .reduce((s: number, i: any) => s + ((i as any).amount || 0), 0);
     const bpDso = annualSales365 > 0 ? Math.round((currentAR / annualSales365) * 365) : 0;
     const dsoGap = Math.max(0, dso - bpDso);
 
     // Collection rate = invoices closed in last 30 days / total invoices
-    const recentlyClosed = regionInvoices.filter(i => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
+    const recentlyClosed = invoices.filter((i: any) => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
     const collectionRate = invoices.length > 0 ? Math.round(recentlyClosed / invoices.length * 100) : 0;
 
     // 90+ days overdue
-    const over90 = open.filter(i => daysOverdue(i.dueDate) > 90).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
-    const proactivePipeline = open.filter(i => {
+    const proactivePipeline = open.filter((i: any) => {
       const d = daysOverdue(i.dueDate);
       return d < -6 && d >= -14 && !i.lastFollowupDate;
     });
 
     return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, dso, bpDso, dsoGap, collectionRate, over90, recentlyClosed, proactivePipeline };
-  }, [invoices, communications]);
+  }, [effectiveInvoices, invoices, customers, projects, communications, regionFilter]);
 
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
-    invoices.filter(i => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach(i => {
+    effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach((i: any) => {
       byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0));
     });
-    return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find(c => c.id === cid), amount: amt }))
+    return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
-  }, [invoices, customers, projects, communications, regionFilter]);
+  }, [effectiveInvoices, customers]);
 
   // Concentration risk — top 5 customers by total open AR
   const concentrationRisk = useMemo(() => {
     const byCust: Record<string, number> = {};
-    const open = invoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalAR = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-    open.forEach(i => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
+    const open = effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
+    const totalAR = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
     const sorted = Object.entries(byCust).map(([cid, amt]) => ({
-      customer: customers.find(c => c.id === cid),
+      customer: customers.find((c: any) => c.id === cid),
       amount: amt,
       pct: totalAR > 0 ? (amt / totalAR) * 100 : 0,
     })).filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
     const top5Pct = totalAR > 0 ? sorted.reduce((s, x) => s + x.pct, 0) : 0;
     return { rows: sorted, top5Pct, totalAR };
-  }, [invoices, customers]);
+  }, [effectiveInvoices, customers]);
 
   const myTasks = tasks.filter(t => !t.completed && t.assigneeId === userId).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).slice(0, 5);
   const maxBucket = Math.max(...Object.values(stats.buckets), 1);
@@ -496,7 +534,10 @@ export default function DashboardPage() {
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
+          <div className="text-xs text-stone-500 flex items-center gap-1.5">
+            {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
+            Last updated {fmt.date(new Date())}
+          </div>
         </div>
       </div>
 
@@ -849,11 +890,17 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-base font-semibold text-stone-900">AR Health</h2>
-            <p className="text-[11px] text-stone-500 mt-0.5">5-dimension quality score across your receivables portfolio</p>
+            <p className="text-[11px] text-stone-500 mt-0.5">5-dimension quality score — reconciled with AR Reports</p>
           </div>
+          {snapshotLoading && (
+            <div className="flex items-center gap-1.5 text-[11px] text-stone-400">
+              <span className="w-2 h-2 rounded-full bg-stone-300 animate-pulse" />
+              Syncing with QBO…
+            </div>
+          )}
         </div>
         <ArHealthWidget
-          invoices={invoices}
+          invoices={effectiveInvoices}
           customers={customers}
           projects={projects}
           reps={reps ?? []}
