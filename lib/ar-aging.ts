@@ -285,10 +285,14 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
         // For today's view use qboBalance directly — it is the QBO source of
         // truth and captures closures not yet in payment_applications
         // (direct CM applications, refund receipts, write-offs, etc.).
+        // NOTE: collectionStage === "Closed" is intentionally NOT used here.
+        // collectionStage is a user-defined collection tracking field; it does
+        // not mean the invoice is paid in QBO. Using it would cause today's
+        // snapshot to diverge from historical snapshots (which correctly show
+        // these invoices as open because they have no paidAt / payment_applications).
         const snapshotOpen = inv.qboBalance ?? Math.max(0, inv.total - (inv.paid || 0));
         const isSnapshotClosed = (snapshotOpen < 0.005) ||
-                                 inv.paymentStatus === "Paid" ||
-                                 inv.collectionStage === "Closed";
+                                 inv.paymentStatus === "Paid";
         openBalance = isSnapshotClosed ? 0 : snapshotOpen;
       } else {
         // Historical reconstruction.
