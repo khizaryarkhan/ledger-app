@@ -18,8 +18,7 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
 }
 
-const PROTECTED_STAGES = ["Disputed", "On Hold", "Escalated"];
-const PAUSE_STAGES     = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
+const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
 function fillTemplate(template: string, name: string, invoiceLines: string[], ref: string): string {
   return template
@@ -49,25 +48,14 @@ export async function GET(req: Request) {
 
   const now         = new Date();
   const today       = now.toISOString().slice(0, 10);
-  let escalated     = 0;
   let emailsSent    = 0;
   let skipped       = 0;
   let errors: string[] = [];
 
-  // ── 1. Stage escalation ───────────────────────────────────────────────────
+  // ── Load all invoices (needed for contact filtering) ─────────────────────
   const allInvoices = await db.select().from(invoices);
 
-  for (const inv of allInvoices) {
-    if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
-    if (daysFromDate(inv.dueDate) > 30 && !PROTECTED_STAGES.includes(inv.collectionStage)) {
-      await db.update(invoices)
-        .set({ collectionStage: "Escalated", updatedAt: now })
-        .where(eq(invoices.id, inv.id));
-      escalated++;
-    }
-  }
-
-  // ── 2. Send emails ────────────────────────────────────────────────────────
+  // ── Send emails ───────────────────────────────────────────────────────────
   const allOrgs = [...new Set(allInvoices.map((inv) => inv.orgId))];
 
   for (const orgId of allOrgs) {
@@ -210,11 +198,11 @@ export async function GET(req: Request) {
     await db.update(organisations)
       .set({
         lastCronRun:   now,
-        lastCronStats: { escalated, emailsSent, skipped, errors: orgErrors },
+        lastCronStats: { emailsSent, skipped, errors: orgErrors },
       })
       .where(eq(organisations.id, orgId))
       .catch(() => {}); // never let stat-writing crash the response
   }
 
-  return NextResponse.json({ ran: today, escalated, emailsSent, skipped, errors: errors.length > 0 ? errors : undefined });
+  return NextResponse.json({ ran: today, emailsSent, skipped, errors: errors.length > 0 ? errors : undefined });
 }

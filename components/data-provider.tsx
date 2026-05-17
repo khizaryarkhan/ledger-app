@@ -22,7 +22,7 @@ type DataContextType = {
     stages: import("@/lib/stages").Stage[];
     disabledRules: string[];
     lastCronRun: string | null;
-    lastCronStats: { escalated: number; emailsSent: number; skipped: number; errors: string[] } | null;
+    lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null;
   };
   refresh: () => Promise<void>;
   toast: (message: string, type?: string) => void;
@@ -79,7 +79,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [regions, setRegions] = useState<any[]>([]);
-  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[]; lastCronRun: string | null; lastCronStats: { escalated: number; emailsSent: number; skipped: number; errors: string[] } | null }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [], lastCronRun: null, lastCronStats: null });
+  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[]; lastCronRun: string | null; lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [], lastCronRun: null, lastCronStats: null });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {

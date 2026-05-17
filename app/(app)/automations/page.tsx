@@ -1357,7 +1357,6 @@ function CronStatusBanner() {
         Last run <strong>{timeLabel}</strong>
         {lastCronStats && (
           <> — {lastCronStats.emailsSent} email{lastCronStats.emailsSent !== 1 ? "s" : ""} sent
-          {lastCronStats.escalated > 0 && `, ${lastCronStats.escalated} escalated`}
           {hasErrors && `, ${lastCronStats.errors.length} error${lastCronStats.errors.length !== 1 ? "s" : ""}`}</>
         )}
       </span>
