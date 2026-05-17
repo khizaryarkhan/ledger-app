@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import {
@@ -21,6 +22,15 @@ function ReminderProgramme() {
     .filter((s: any) => typeof s === "string" || s.visible !== false)
     .map((s: any) => (typeof s === "string" ? s : (s.label ?? s.key ?? "")))
     .filter(Boolean);
+
+  const [smtpOk, setSmtpOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/email/status")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data) setSmtpOk(data.configured); })
+      .catch(() => {});
+  }, []);
 
   const [search, setSearch]       = useState("");
   const [saving, setSaving]       = useState<Record<string, boolean>>({});
@@ -665,6 +675,23 @@ function ReminderProgramme() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── SMTP health check banner ── */}
+      {smtpOk === false && (
+        <div className="bg-amber-50 ring-1 ring-amber-300 rounded-xl px-5 py-3.5 flex items-center gap-3 mb-4 text-sm">
+          <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+          <span className="flex-1 text-amber-900">
+            <strong>Email is not configured</strong> — automated reminders won&apos;t send.{" "}
+            Set up SMTP in Settings → Email to enable sending.
+          </span>
+          <Link
+            href="/settings/company"
+            className="shrink-0 text-amber-700 font-semibold hover:underline whitespace-nowrap"
+          >
+            Go to Settings →
+          </Link>
+        </div>
+      )}
 
       {/* ── Run Now panel ── */}
       <div className="bg-white rounded-xl ring-1 ring-stone-200 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">

@@ -37,7 +37,7 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 export default function InvoicesPage() {
-  const { invoices, customers, projects, contacts, regions, bulkDeleteInvoices, orgSettings } = useData() as any;
+  const { invoices, customers, projects, contacts, regions, bulkDeleteInvoices, orgSettings, refresh, toast } = useData() as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
@@ -56,6 +56,7 @@ export default function InvoicesPage() {
   const [deleting, setDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [showBatchEmail, setShowBatchEmail] = useState(false);
+  const [bulkStageChanging, setBulkStageChanging] = useState(false);
 
   const df = orgSettings?.dateFormat || "DD MMM YYYY";
 
@@ -189,6 +190,27 @@ export default function InvoicesPage() {
     });
   };
 
+  const handleBulkStageChange = async (stage: string) => {
+    if (!stage) return;
+    setBulkStageChanging(true);
+    try {
+      await Promise.all(
+        Array.from(selected).map((id) =>
+          fetch(`/api/invoices/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ collectionStage: stage }),
+          })
+        )
+      );
+      await refresh();
+      toast?.(`Stage updated for ${selected.size} invoice${selected.size > 1 ? "s" : ""}`);
+      setSelected(new Set());
+    } finally {
+      setBulkStageChanging(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     setDeleting(true);
     try {
@@ -224,6 +246,29 @@ export default function InvoicesPage() {
           <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded">
             <X size={14} />
           </button>
+          <select
+            value=""
+            disabled={bulkStageChanging}
+            onChange={(e) => {
+              const stage = e.target.value;
+              e.target.value = "";
+              handleBulkStageChange(stage);
+            }}
+            className="bg-stone-700 text-white text-xs rounded-md px-2.5 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-stone-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <option value="" disabled>
+              {bulkStageChanging ? "Updating…" : "Change stage…"}
+            </option>
+            {(orgSettings?.stages ?? []).map((s: any) => {
+              const key   = typeof s === "string" ? s : s.key;
+              const label = typeof s === "string" ? s : s.label;
+              return (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
           <Button variant="secondary" size="sm" icon={Send} onClick={() => setShowBatchEmail(true)}>
             Send email
           </Button>

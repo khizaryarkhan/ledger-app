@@ -1,18 +1,102 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle, Mail } from "lucide-react";
 export default function DashboardPage() {
-  const { invoices, customers, projects, regions, communications, tasks, orgSettings } = useData() as any;
+  const { invoices, customers, contacts, projects, regions, communications, tasks, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
   const [regionFilter, setRegionFilter] = useState("");
+
+  // Setup checklist state
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
+  const [hasTemplates, setHasTemplates] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/email/status")
+      .then(r => r.json())
+      .then(d => setSmtpConfigured(!!d.configured))
+      .catch(() => setSmtpConfigured(false));
+    fetch("/api/email-templates")
+      .then(r => r.json())
+      .then(d => setHasTemplates(Array.isArray(d) ? d.length > 0 : false))
+      .catch(() => setHasTemplates(false));
+  }, []);
+
+  const setupLoading = smtpConfigured === null || hasTemplates === null;
+
+  const setupSteps = useMemo(() => {
+    const qboConnected = invoices.length > 0;
+    const hasAutoContacts = (contacts ?? []).filter((c: any) => c.receivesAuto).length > 0;
+    return [
+      { label: "Connect QuickBooks", done: qboConnected, href: "/settings/integrations" },
+      { label: "Configure email (SMTP)", done: !!smtpConfigured, href: "/settings/company" },
+      { label: "Create an email template", done: !!hasTemplates, href: "/automations" },
+      { label: "Enable reminder programme", done: hasAutoContacts, href: "/automations" },
+    ];
+  }, [invoices, contacts, smtpConfigured, hasTemplates]);
+
+  const setupComplete = setupSteps.every(s => s.done);
+  const setupDoneCount = setupSteps.filter(s => s.done).length;
+
+  // Priority alerts
+  const alerts = useMemo(() => {
+    const list: Array<{ type: string; label: string; sub: string; color: string; href: string; icon: string }> = [];
+
+    const brokenPromises = invoices.filter((i: any) =>
+      (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
+      i.promiseDate &&
+      new Date(i.promiseDate) < new Date() &&
+      i.paymentStatus !== "Paid"
+    );
+    if (brokenPromises.length > 0) {
+      list.push({
+        type: "broken_promise",
+        label: `${brokenPromises.length} broken promise${brokenPromises.length > 1 ? "s" : ""}`,
+        sub: "Payment dates passed — follow up now",
+        color: "rose",
+        href: "/smart-views",
+        icon: "AlertTriangle",
+      });
+    }
+
+    const neglected90 = invoices.filter((i: any) => {
+      if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off") return false;
+      const days = Math.floor((Date.now() - new Date(i.dueDate + "T12:00:00Z").getTime()) / 86400000);
+      return days > 90;
+    });
+    if (neglected90.length > 0) {
+      const total = neglected90.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+      list.push({
+        type: "overdue_90",
+        label: `90+ day debt: ${new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total)}`,
+        sub: `${neglected90.length} invoice${neglected90.length > 1 ? "s" : ""} — escalate or write off`,
+        color: "rose",
+        href: "/smart-views",
+        icon: "AlertTriangle",
+      });
+    }
+
+    const noEmail = (contacts ?? []).filter((c: any) => c.receivesAuto && !c.email);
+    if (noEmail.length > 0) {
+      list.push({
+        type: "no_email",
+        label: `${noEmail.length} contact${noEmail.length > 1 ? "s" : ""} missing email`,
+        sub: "Programme is ON but no email — reminders won't send",
+        color: "amber",
+        href: "/automations",
+        icon: "Mail",
+      });
+    }
+
+    return list;
+  }, [invoices, contacts]);
 
   const stats = useMemo(() => {
     const regionInvoices = regionFilter
@@ -113,6 +197,47 @@ export default function DashboardPage() {
           <div className="text-xs text-stone-500">Last updated {fmt.date(new Date())}</div>
         </div>
       </div>
+
+      {/* Setup Checklist — hidden once all steps complete */}
+      {!setupComplete && (
+        <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white rounded-xl p-5 mb-4">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <div className="text-sm font-semibold">Getting started</div>
+              <div className="text-[12px] text-stone-400 mt-0.5">Complete these steps to go live</div>
+            </div>
+            <div className="text-[11px] text-stone-400 shrink-0 ml-4">{setupDoneCount} of 4 steps complete</div>
+          </div>
+          {/* Progress bar */}
+          <div className="h-1.5 bg-stone-700 rounded-full overflow-hidden mb-4">
+            <div className="h-full bg-emerald-400 rounded-full transition-all duration-500" style={{ width: `${(setupDoneCount / 4) * 100}%` }} />
+          </div>
+          {setupLoading ? (
+            <div className="space-y-2">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="h-7 bg-stone-700 rounded-md animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {setupSteps.map((step, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  {step.done ? (
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[11px] font-bold">✓</span>
+                  ) : (
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full border border-stone-600 bg-stone-800" />
+                  )}
+                  {step.done ? (
+                    <span className="text-[12px] text-stone-400 line-through">{step.label}</span>
+                  ) : (
+                    <Link href={step.href} className="text-[12px] text-white hover:text-emerald-300 underline underline-offset-2">{step.label}</Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-3 mb-3">
         <Card padding="md">
@@ -277,6 +402,34 @@ export default function DashboardPage() {
             </div>
           )}
         </Card>
+
+        {/* Priority Attention Alerts */}
+        {alerts.length > 0 && (
+          <Card className="col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
+              <h3 className="text-sm font-semibold text-stone-900">Needs attention</h3>
+            </div>
+            <div className="space-y-2">
+              {alerts.map((alert, i) => (
+                <Link
+                  key={i}
+                  href={alert.href}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-r-lg border-l-2 ${alert.color === "rose" ? "border-rose-500 bg-rose-50 hover:bg-rose-100" : "border-amber-400 bg-amber-50 hover:bg-amber-100"}`}
+                >
+                  <div className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-500" : "text-amber-500"}`}>
+                    {alert.icon === "AlertTriangle" ? <AlertTriangle size={16} /> : <Mail size={16} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-[13px] font-semibold ${alert.color === "rose" ? "text-rose-900" : "text-amber-900"}`}>{alert.label}</div>
+                    <div className={`text-[11px] mt-0.5 ${alert.color === "rose" ? "text-rose-600" : "text-amber-700"}`}>{alert.sub}</div>
+                  </div>
+                  <ChevronRight size={14} className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`} />
+                </Link>
+              ))}
+            </div>
+          </Card>
+        )}
 
         <Card className="col-span-3">
           <div className="flex items-center justify-between mb-4">

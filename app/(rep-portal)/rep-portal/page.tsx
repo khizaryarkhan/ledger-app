@@ -115,7 +115,7 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
 
   return (
     <button onClick={onClick}
-      className="w-full text-left bg-white rounded-xl ring-1 ring-stone-200 p-4 hover:ring-stone-400 hover:shadow-sm transition-all active:scale-[0.99]">
+      className="w-full text-left bg-white rounded-xl ring-1 ring-stone-200 p-3 sm:p-4 hover:ring-stone-400 hover:shadow-sm transition-all active:scale-[0.99]">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-stone-900 leading-snug">{entity.name}</div>
@@ -129,7 +129,7 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
       </div>
 
       <div className="flex items-center justify-between mt-3">
-        <div className="text-xl font-bold tabular-nums text-stone-900">
+        <div className="text-lg sm:text-xl font-bold tabular-nums text-stone-900">
           {fmt.money(outstanding, (entity as any).currency)}
         </div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${STAGE_COLORS[dominantStage] || STAGE_COLORS["New"]}`}>
@@ -341,7 +341,7 @@ export default function RepPortalPage() {
     <div className="min-h-screen bg-stone-50 pb-10">
 
       {/* Sticky header */}
-      <div className="bg-white border-b border-stone-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-20">
+      <div className="bg-white border-b border-stone-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-20 safe-area-inset-top">
         {view.type === "entity" ? (
           <button onClick={() => setView({ type: "home" })}
             className="p-1.5 -ml-1.5 rounded-lg hover:bg-stone-100 text-stone-700">
@@ -394,22 +394,22 @@ export default function RepPortalPage() {
             {/* Summary banner */}
             {!loading && (
               <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4 mb-4">
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Total AR</div>
-                    <div className="text-xl font-bold text-stone-900 tabular-nums leading-tight">{fmt.money(totalAR, ccy)}</div>
+                    <div className="text-base sm:text-xl font-bold text-stone-900 tabular-nums leading-tight truncate">{fmt.money(totalAR, ccy)}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">{openInvoices.length} open</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Overdue</div>
-                    <div className={`text-xl font-bold tabular-nums leading-tight ${overdueAR > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdueAR, ccy)}</div>
+                    <div className={`text-base sm:text-xl font-bold tabular-nums leading-tight truncate ${overdueAR > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdueAR, ccy)}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">{overdueCnt} invoice{overdueCnt !== 1 ? "s" : ""}</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">
                       {level === "customer" ? "Customers" : "Projects"}
                     </div>
-                    <div className="text-xl font-bold text-stone-900 leading-tight">{entityList.length}</div>
+                    <div className="text-base sm:text-xl font-bold text-stone-900 leading-tight">{entityList.length}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">with AR</div>
                   </div>
                 </div>
@@ -495,7 +495,7 @@ export default function RepPortalPage() {
               <div className="flex items-end justify-between">
                 <div>
                   <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Outstanding</div>
-                  <div className="text-2xl font-bold tabular-nums text-stone-900">{fmt.money(detailData.outstanding, ccy)}</div>
+                  <div className="text-xl sm:text-2xl font-bold tabular-nums text-stone-900">{fmt.money(detailData.outstanding, ccy)}</div>
                 </div>
                 <div className="text-right text-[12px] text-stone-500 pb-0.5">
                   <div>{detailData.openCount} open</div>

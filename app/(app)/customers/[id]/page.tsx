@@ -130,6 +130,13 @@ export default function CustomerDetailPage() {
             <Zap size={13} className={customer.chaseByProject ? "text-violet-600" : "text-stone-400"} />
             {customer.chaseByProject ? "Chasing by Project" : "Chase by Project"}
           </button>
+          <button
+            onClick={() => window.open(`/api/customers/${id}/statement`, '_blank')}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg ring-1 bg-stone-50 ring-stone-200 text-stone-500 hover:bg-stone-100 hover:text-stone-700 text-sm font-medium transition-colors"
+          >
+            <FileText size={13} />
+            Statement
+          </button>
           <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
         </div>
       </div>
