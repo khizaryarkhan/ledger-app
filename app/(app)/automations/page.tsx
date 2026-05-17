@@ -13,7 +13,7 @@ import {
 // REMINDER PROGRAMME TAB
 // ─────────────────────────────────────────────
 function ReminderProgramme() {
-  const { customers, projects, contacts, invoices, orgSettings, refresh, toast } = useData() as any;
+  const { customers, projects, contacts, invoices, orgSettings, refresh, toast } = useData();
 
   // Active (visible) collection stages for this org
   const rawStages: any[] = orgSettings?.stages ?? [];
@@ -182,11 +182,13 @@ function ReminderProgramme() {
       }
       setTriggerResult({ ...data, dryRun });
       setTriggerState("done");
+      // Refresh orgSettings so CronStatusBanner shows the latest run stats
+      if (!dryRun) refresh();
     } catch {
       toast("Request failed", "error");
       setTriggerState("idle");
     }
-  }, [toast]);
+  }, [toast, refresh]);
 
   // ── API helpers ──────────────────────────────
   const patchContact = useCallback(async (contactId: string, data: any) => {
@@ -927,7 +929,7 @@ const PLACEHOLDER_HELP = [
 
 
 function EmailTemplates() {
-  const { orgSettings, toast } = useData() as any;
+  const { orgSettings, toast } = useData();
 
   // All org collection stages (customisable) — fall back to common defaults.
   // stages may be stored as plain strings OR as objects {key, label, color, visible, ...}

@@ -11,22 +11,53 @@ function getStages(org: any): Stage[] {
 export async function GET() {
   const { error, orgId } = await requireOrg();
   if (error) return error;
-  const [org] = await db
-    .select({
-      classificationLevel: organisations.classificationLevel,
-      dateFormat: organisations.dateFormat,
-      currency: organisations.currency,
-      logoUrl: organisations.logoUrl,
-      displayName: organisations.displayName,
-      name: organisations.name,
-      stages: organisations.stages,
-      disabledRules: organisations.disabledRules,
-      lastCronRun: organisations.lastCronRun,
-      lastCronStats: organisations.lastCronStats,
-    })
-    .from(organisations)
-    .where(eq(organisations.id, orgId!))
-    .limit(1);
+
+  // Try full select including cron-state columns (added in migration 0003).
+  // If those columns don't exist yet in the DB, fall back to a select without them
+  // so the rest of the app continues to work before the migration is applied.
+  let org: any;
+  let lastCronRun: string | null = null;
+  let lastCronStats: any = null;
+
+  try {
+    const [row] = await db
+      .select({
+        classificationLevel: organisations.classificationLevel,
+        dateFormat: organisations.dateFormat,
+        currency: organisations.currency,
+        logoUrl: organisations.logoUrl,
+        displayName: organisations.displayName,
+        name: organisations.name,
+        stages: organisations.stages,
+        disabledRules: organisations.disabledRules,
+        lastCronRun: organisations.lastCronRun,
+        lastCronStats: organisations.lastCronStats,
+      })
+      .from(organisations)
+      .where(eq(organisations.id, orgId!))
+      .limit(1);
+    org = row;
+    lastCronRun = row?.lastCronRun ?? null;
+    lastCronStats = row?.lastCronStats ?? null;
+  } catch {
+    // Columns likely missing — run the 0003 migration. Degrade gracefully.
+    const [row] = await db
+      .select({
+        classificationLevel: organisations.classificationLevel,
+        dateFormat: organisations.dateFormat,
+        currency: organisations.currency,
+        logoUrl: organisations.logoUrl,
+        displayName: organisations.displayName,
+        name: organisations.name,
+        stages: organisations.stages,
+        disabledRules: organisations.disabledRules,
+      })
+      .from(organisations)
+      .where(eq(organisations.id, orgId!))
+      .limit(1);
+    org = row;
+  }
+
   return ok({
     classificationLevel: org?.classificationLevel ?? "customer",
     dateFormat: org?.dateFormat ?? "DD MMM YYYY",
@@ -36,8 +67,8 @@ export async function GET() {
     name: org?.name ?? "",
     stages: getStages(org),
     disabledRules: (org?.disabledRules as string[]) ?? [],
-    lastCronRun: org?.lastCronRun ?? null,
-    lastCronStats: org?.lastCronStats ?? null,
+    lastCronRun,
+    lastCronStats,
   });
 }
 

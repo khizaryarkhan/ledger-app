@@ -19,7 +19,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, emailTemplates, communications } from "@/db/schema";
+import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 
 function addDays(date: Date, days: number): Date {
@@ -252,6 +252,17 @@ export async function POST(req: Request) {
     }
 
     details.push(detail);
+  }
+
+  // ── Persist run stats so the CronStatusBanner reflects manual triggers too ──
+  if (!dryRun) {
+    await db.update(organisations)
+      .set({
+        lastCronRun:   new Date(),
+        lastCronStats: { emailsSent: sent, skipped, errors: details.filter(d => d.error).map(d => `${d.contact}: ${d.error}`) },
+      })
+      .where(eq(organisations.id, orgId!))
+      .catch(() => {}); // never let stat-writing crash the response
   }
 
   return NextResponse.json({ sent, skipped, dryRun, details });
