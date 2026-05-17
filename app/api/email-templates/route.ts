@@ -16,6 +16,7 @@ const Schema = z.object({
   body:            z.string().min(1),
   collectionStage: z.string().max(64).nullable().optional(),
   isActive:        z.boolean().optional().default(true),
+  scheduleDays:    z.array(z.number().int()).optional().default([-3, 1, 8, 21]),
 });
 
 export async function GET() {
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
       body:            parsed.data.body,
       collectionStage: parsed.data.collectionStage ?? null,
       isActive:        parsed.data.isActive ?? true,
+      scheduleDays:    parsed.data.scheduleDays,
     })
     .returning();
 

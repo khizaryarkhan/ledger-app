@@ -435,6 +435,9 @@ export const emailTemplates = pgTable("email_templates", {
   body:            text("body").notNull(),
   collectionStage: varchar("collection_stage", { length: 64 }),  // null = unassigned draft
   isActive:        boolean("is_active").notNull().default(true),
+  // Days relative to due date on which the cron will fire this template.
+  // Negative = before due (e.g. -3 = 3 days before), positive = overdue (e.g. 1 = 1 day overdue).
+  scheduleDays:    integer("schedule_days").array().notNull().default([-3, 1, 8, 21]),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 });

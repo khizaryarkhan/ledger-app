@@ -18,17 +18,13 @@ const PROTECTED_STAGES = ["Disputed", "On Hold", "Escalated"];
 const PAUSE_STAGES     = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
 /**
- * Returns true on the specific days a scheduled reminder should fire.
- * The CRON decides WHEN to fire — the invoice's collectionStage + template
- * decides WHAT to say.  No wording is ever picked based on age numbers.
+ * Returns true if today matches the template's configured schedule for this invoice.
+ * Each template carries its own scheduleDays array (days relative to due date).
+ * Falls back to [-3, 1, 8, 21] if the template has no schedule set.
  */
-function shouldFireToday(daysOverdue: number): boolean {
-  return (
-    daysOverdue === -3 ||  // 3 days before due
-    daysOverdue === 1  ||  // 1 day overdue
-    daysOverdue === 8  ||  // 8 days overdue
-    daysOverdue === 21     // 21 days overdue
-  );
+function shouldFireToday(daysOverdue: number, scheduleDays: number[]): boolean {
+  const days = scheduleDays.length > 0 ? scheduleDays : [-3, 1, 8, 21];
+  return days.includes(daysOverdue);
 }
 
 /**
@@ -117,10 +113,13 @@ export async function GET(req: Request) {
 
           if (relatedInvoices.length === 0) continue;
 
-          // Keep only invoices that hit a scheduled day threshold today
-          const triggeredInvoices = relatedInvoices.filter((inv) =>
-            shouldFireToday(daysFromDate(inv.dueDate))
-          );
+          // Keep only invoices that hit the template's configured schedule today.
+          // Each invoice is checked against the schedule of its own stage's template.
+          const triggeredInvoices = relatedInvoices.filter((inv) => {
+            const tpl = templateByStage.get(inv.collectionStage);
+            if (!tpl) return false;
+            return shouldFireToday(daysFromDate(inv.dueDate), tpl.scheduleDays ?? []);
+          });
           if (triggeredInvoices.length === 0) continue;
 
           // Find the most overdue invoice that has a template for its stage

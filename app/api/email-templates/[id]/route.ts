@@ -16,6 +16,7 @@ const PatchSchema = z.object({
   body:            z.string().min(1).optional(),
   collectionStage: z.string().max(64).nullable().optional(),
   isActive:        z.boolean().optional(),
+  scheduleDays:    z.array(z.number().int()).optional(),
 });
 
 export async function PATCH(
