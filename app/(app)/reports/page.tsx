@@ -153,10 +153,10 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
   const growth       = priorNet > 0 ? ((netRevenue - priorNet) / priorNet) * 100 : null;
   const avgInvoice   = periodInvoices.length > 0 ? grossRevenue / periodInvoices.length : 0;
 
-  // Open AR for DSO (gross - AR uses total not amount)
+  // Open AR for DSO (gross — collectionStage is NOT a payment status, never filter on it)
   const openAR = useMemo(() =>
-    invoices.filter((i: any) => !["Paid","Written Off"].includes(i.paymentStatus) && i.collectionStage !== "Closed")
-      .reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0),
+    invoices.filter((i: any) => !["Paid","Written Off"].includes(i.paymentStatus) && i.txnType !== "CreditMemo")
+      .reduce((s: number, i: any) => s + (i.qboBalance != null ? Number(i.qboBalance) : Math.max(0, Number(i.total || 0) - Number(i.paid || 0))), 0),
     [invoices]
   );
   const net90d = useMemo(() => {
@@ -487,15 +487,16 @@ function invBuckets(inv: any, asAt: Date) {
   }
 
   // For historical view: if paidAt is after asAt (or null), invoice was open then — use full outstanding
-  // For today's view: skip paid/closed
+  // For today's view: skip paid invoices (collectionStage is NOT a payment status — never filter on it)
   const isHistorical = asAt.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10);
   if (!isHistorical) {
-    if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") return b;
+    if (inv.paymentStatus === "Paid") return b;
   }
-  // Outstanding as-at: if paid after asAt, full balance was open; otherwise current outstanding
+  // Outstanding as-at: if paid after asAt, full balance was open; otherwise use qboBalance
+  // (authoritative open balance from QBO) falling back to total-paid for local-only rows.
   const out = (isHistorical && inv.paidAt && inv.paidAt > asAt.toISOString().slice(0, 10))
-    ? inv.total  // paid after the as-at date → full amount was outstanding then
-    : inv.total - (inv.paid || 0);
+    ? Number(inv.total)  // paid after the as-at date → full amount was outstanding then
+    : (inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0)));
   if (out <= 0) return b;
   const bucket = getBucket(inv, asAt);
   if (bucket) { b[bucket] = out; b.total = out; }
@@ -541,14 +542,15 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
         // If paidAt is null but paymentStatus is Paid/Written Off → already paid, exclude
         // (fallback for invoices without a recorded paidAt — conservative: show as open)
       } else {
-        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+        if (inv.paymentStatus === "Paid") continue;
       }
       // For current view: skip zero-balance invoices; skip fully-applied CMs
       if (!asAt) {
         if (inv.txnType === "CreditMemo") {
           if ((inv.qboBalance ?? 0) >= 0) continue; // fully applied
         } else {
-          if ((inv.total - (inv.paid || 0)) <= 0) continue;
+          const bal = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
+          if (bal <= 0) continue;
         }
       }
 
@@ -724,13 +726,14 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+        if (inv.paymentStatus === "Paid") continue;
       }
       if (!asAt) {
         if (inv.txnType === "CreditMemo") {
           if ((inv.qboBalance ?? 0) >= 0) continue; // fully applied CM
         } else {
-          if ((inv.total - (inv.paid || 0)) <= 0) continue;
+          const bal = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
+          if (bal <= 0) continue;
         }
       }
 
@@ -907,9 +910,9 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+        if (inv.paymentStatus === "Paid") continue;
       }
-      const out = inv.total - (inv.paid || 0);
+      const out = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
       if (!asAt && out <= 0) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
@@ -1068,9 +1071,9 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") continue;
+        if (inv.paymentStatus === "Paid") continue;
       }
-      const out = inv.total - (inv.paid || 0);
+      const out = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
       if (!asAt && out <= 0) continue;
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
@@ -1228,16 +1231,15 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
   }, [invoices, customers, projects, regionFilter]);
 
   const metrics = useMemo(() => {
-    // "Open" = unpaid, not written off, not closed, not a credit memo.
-    // Use the same definition as Aging by Customer so totals reconcile.
+    // "Open" = unpaid, not written off, not a credit memo.
+    // collectionStage is NOT a payment status — never exclude on it.
     const open = filteredInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
-      i.collectionStage !== "Closed" &&
       i.txnType !== "CreditMemo"
     );
-    // Outstanding balance = net of any partial payments (matches Aging by Customer)
-    const bal = (i: any) => Math.max(0, (i.total || 0) - (i.paid || 0));
+    // Outstanding balance — qboBalance is authoritative; fall back to total-paid
+    const bal = (i: any) => i.qboBalance != null ? Number(i.qboBalance) : Math.max(0, Number(i.total || 0) - Number(i.paid || 0));
     const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
 
     // ── Aging buckets — based purely on due date vs today ──────
@@ -1321,7 +1323,7 @@ function ArHealthReport({ invoices, customers, projects, reps, communications, r
   // ── Scores ─────────────────────────────────────────────────────────────────
   const overdueCount = filteredInvoices.filter((i: any) =>
     i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
-    i.collectionStage !== "Closed" && i.txnType !== "CreditMemo" &&
+    i.txnType !== "CreditMemo" &&
     daysOverdue(i.dueDate) > 0
   ).length;
 
