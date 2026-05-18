@@ -8,6 +8,16 @@ import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle, Mail } from "lucide-react";
 
+// ── Shared open-balance helper ───────────────────────────────────────────────
+// Uses qboBalance as the authoritative figure (set directly by the AR snapshot
+// engine) and falls back to total-paid for any rows that pre-date the snapshot.
+// Both the Dashboard KPI cards and the AR Health widget call this so they can
+// never diverge.
+function openBal(inv: any): number {
+  if (inv.qboBalance != null) return Number(inv.qboBalance);
+  return Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
+}
+
 // ── AR Health widget ────────────────────────────────────────────────────────
 function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy }: any) {
   const filteredInvoices = invoices;
@@ -22,31 +32,30 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
       i.paymentStatus !== "Written Off" &&
       i.txnType !== "CreditMemo"
     );
-    const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && (i.qboBalance ?? (i.total - (i.paid || 0))) < 0);
-    const bal = (i: any) => Math.max(0, (i.total || 0) - (i.paid || 0));
+    const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
     // Net AR = gross invoice balances minus unapplied credits (matches AR Reports)
-    const grossAR   = open.reduce((s: number, i: any) => s + bal(i), 0);
-    const creditBal = activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0);
+    const grossAR   = open.reduce((s: number, i: any) => s + openBal(i), 0);
+    const creditBal = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0);
     const totalAR   = grossAR + creditBal;
 
     // Aging buckets — Current includes CM credits as negative offsets
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0)
-      + activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0);
-    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + openBal(i), 0)
+      + activeCMs.reduce((s: number, i: any) => s + openBal(i), 0);
+    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + openBal(i), 0);
+    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + openBal(i), 0);
+    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + openBal(i), 0);
+    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
 
     const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
     const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
     const overdueRate = totalAR > 0 ? ((totalAR - current) / totalAR) * 100 : 0;
 
-    const disputedAR  = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
+    const disputedAR  = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
     const disputeRate = totalAR > 0 ? (disputedAR / totalAR) * 100 : 0;
     const highRiskAR  = open.filter((i: any) => {
       const c = customers.find((c: any) => c.id === i.customerId);
       return c?.riskRating === "High";
-    }).reduce((s: number, i: any) => s + bal(i), 0);
+    }).reduce((s: number, i: any) => s + openBal(i), 0);
     const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
 
     const brokenPromises = open.filter((i: any) =>
@@ -60,7 +69,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
     const replies30d = communications.filter((c: any) => c.direction === "Inbound"  && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
 
     const byCust: Record<string, number> = {};
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + bal(i); });
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
     const concentrationRows = Object.entries(byCust)
       .map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt as number, pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0 }))
       .filter(x => x.customer)
@@ -73,8 +82,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
         const p = projects.find((p: any) => p.id === i.projectId);
         return c?.repId === rep.id || p?.repId === rep.id;
       });
-      const repOpen    = repInvs.reduce((s: number, i: any) => s + bal(i), 0);
-      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + bal(i), 0);
+      const repOpen    = repInvs.reduce((s: number, i: any) => s + openBal(i), 0);
+      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + openBal(i), 0);
       const custIds    = new Set(repInvs.map((i: any) => i.customerId));
       return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size };
     }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
@@ -414,7 +423,7 @@ export default function DashboardPage() {
       return days > 90;
     });
     if (neglected90.length > 0) {
-      const total = neglected90.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+      const total = neglected90.reduce((s: number, i: any) => s + openBal(i), 0);
       list.push({
         type: "overdue_90",
         label: `90+ day debt: ${new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total)}`,
@@ -444,20 +453,20 @@ export default function DashboardPage() {
     const regionInvoices = effectiveInvoices;
     // Open invoices (exclude CMs for counting/stage/overdue logic)
     const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    // Unapplied credits / credit memos — negative qboBalance means unapplied credit
-    const activeCMs = regionInvoices.filter((i: any) => i.txnType === "CreditMemo" && (i.qboBalance ?? (i.total - (i.paid || 0))) < 0);
-    // Net AR = gross invoices minus unapplied credits — matches AR Reports exactly
-    const grossReceivable = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + (i.qboBalance ?? (i.total - (i.paid || 0))), 0); // ≤ 0
+    // Unapplied credits / credit memos — openBal() returns negative for these
+    const activeCMs = regionInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
+    // Net AR = gross invoices minus unapplied credits — uses same openBal() as AR Health widget
+    const grossReceivable = open.reduce((s: number, i: any) => s + openBal(i), 0);
+    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0); // ≤ 0
     const totalReceivable = grossReceivable + creditBalance;
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
-    const totalOverdue = overdue.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
     // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-    open.forEach((i: any) => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
-    activeCMs.forEach((i: any) => { buckets["Current"] += i.qboBalance ?? (i.total - (i.paid || 0)); });
-    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
+    activeCMs.forEach((i: any) => { buckets["Current"] += openBal(i); });
+    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
+    const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + openBal(i), 0);
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
     const thirtyDaysAgo = new Date(daysFromNow(-30)).getTime();
@@ -473,7 +482,7 @@ export default function DashboardPage() {
 
     // Best Possible DSO = (Current/not-yet-due AR / Annual 365d Sales) × 365
     const threeSixtyFiveDaysAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-    const currentAR = open.filter((i: any) => daysOverdue(i.dueDate) < 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const currentAR = open.filter((i: any) => daysOverdue(i.dueDate) < 0).reduce((s: number, i: any) => s + openBal(i), 0);
     const annualSales365 = regionInvoices
       .filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo)
       .reduce((s: number, i: any) => s + ((i as any).amount || 0), 0);
@@ -485,7 +494,7 @@ export default function DashboardPage() {
     const collectionRate = invoices.length > 0 ? Math.round(recentlyClosed / invoices.length * 100) : 0;
 
     // 90+ days overdue
-    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
     const proactivePipeline = open.filter((i: any) => {
@@ -499,7 +508,7 @@ export default function DashboardPage() {
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
     effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach((i: any) => {
-      byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0));
+      byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i);
     });
     return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
@@ -509,8 +518,8 @@ export default function DashboardPage() {
   const concentrationRisk = useMemo(() => {
     const byCust: Record<string, number> = {};
     const open = effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalAR = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + (i.total - (i.paid || 0)); });
+    const totalAR = open.reduce((s: number, i: any) => s + openBal(i), 0);
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
     const sorted = Object.entries(byCust).map(([cid, amt]) => ({
       customer: customers.find((c: any) => c.id === cid),
       amount: amt,
@@ -536,7 +545,7 @@ export default function DashboardPage() {
       const key = regionId || "__unassigned__";
       const name = region?.name ?? "Unassigned";
       if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0 };
-      const bal = i.total - (i.paid || 0);
+      const bal = openBal(i);
       regionMap[key].total += bal;
       regionMap[key].count += 1;
       if (daysOverdue(i.dueDate) > 0) regionMap[key].overdue += bal;
