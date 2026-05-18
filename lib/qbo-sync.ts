@@ -315,27 +315,46 @@ export async function runQboSync(orgId: string, userId: string) {
   const freshCustByCode = new Map(freshCustomers.map((c) => [c.code, c]));
 
   // STEP 4: Contacts
+  // - New customer with no contact → create from QBO PrimaryEmailAddr
+  // - Existing contact whose email differs from QBO → update it (Option B:
+  //   auto-sync so new invoice email addresses flow through automatically).
+  //   Users can override in the Automations UI; the next QBO sync will update
+  //   again only when QBO itself has a newer email address.
   const contactsToInsert: any[] = [];
+  const contactEmailUpdates: Array<{ id: string; email: string }> = [];
+
   for (const qc of parentCustomers) {
     if (!qc.PrimaryEmailAddr?.Address) continue;
     const cust = freshCustByQboId.get(qc.Id) || freshCustByCode.get(`QBO-${qc.Id}`);
-    if (!cust || ledgerContactsByCustId.has(cust.id)) continue;
-    contactsToInsert.push({
-      orgId,
-      customerId: cust.id,
-      name: qc.DisplayName || "Primary Contact",
-      email: qc.PrimaryEmailAddr.Address,
-      phone: qc.PrimaryPhone?.FreeFormNumber || "",
-      type: "Billing" as const,
-      isPrimary: true,
-      isEscalation: false,
-      receivesAuto: true,
-    });
-    results.contacts++;
+    if (!cust) continue;
+
+    const existingContact = ledgerContactsByCustId.get(cust.id);
+    if (!existingContact) {
+      // No contact yet — create one
+      contactsToInsert.push({
+        orgId,
+        customerId: cust.id,
+        name: qc.DisplayName || "Primary Contact",
+        email: qc.PrimaryEmailAddr.Address,
+        phone: qc.PrimaryPhone?.FreeFormNumber || "",
+        type: "Billing" as const,
+        isPrimary: true,
+        isEscalation: false,
+        receivesAuto: true,
+      });
+      results.contacts++;
+    } else if (existingContact.email !== qc.PrimaryEmailAddr.Address) {
+      // Email changed in QBO — keep contact in sync
+      contactEmailUpdates.push({ id: existingContact.id, email: qc.PrimaryEmailAddr.Address });
+    }
   }
+
   if (contactsToInsert.length > 0) {
     for (let i = 0; i < contactsToInsert.length; i += 100)
       await db.insert(contacts).values(contactsToInsert.slice(i, i + 100));
+  }
+  for (const { id, email } of contactEmailUpdates) {
+    await db.update(contacts).set({ email, updatedAt: new Date() }).where(eq(contacts.id, id));
   }
 
   // STEP 5: Sub-customers as projects

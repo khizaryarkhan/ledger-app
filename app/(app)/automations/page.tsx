@@ -81,39 +81,47 @@ function ReminderProgramme() {
         if (emailDirty.has(entity.id)) return;
 
         if (isProjectLevel) {
-          // Most recent invoice for this project with a non-empty billingEmail
-          const latestProjInvoiceEmail = (invoices ?? [])
-            .filter((inv: any) => inv.projectId === entity.id && inv.billingEmail)
-            .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
-            ?.billingEmail ?? "";
-
           const projContacts = (contacts ?? []).filter((c: any) => c.projectId === entity.id);
           const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.customerId && !c.projectId);
           const parentCust   = (customers ?? []).find((c: any) => c.id === entity.customerId);
 
+          // Invoice billingEmail used only when NO contacts exist at all — prevents
+          // the invoice email from overwriting a user-edited contact email after
+          // the automation is toggled off (receivesAuto becomes false).
+          const latestProjInvoiceEmail = (projContacts.length === 0 && custContacts.length === 0)
+            ? (invoices ?? [])
+                .filter((inv: any) => inv.projectId === entity.id && inv.billingEmail)
+                .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
+                ?.billingEmail ?? ""
+            : "";
+
           next[entity.id] =
             projContacts.find((c: any) => c.receivesAuto)?.email ||
-            latestProjInvoiceEmail ||
             custContacts.find((c: any) => c.receivesAuto)?.email ||
             projContacts.find((c: any) => c.type === "Billing")?.email ||
             projContacts[0]?.email ||
             custContacts.find((c: any) => c.type === "Billing")?.email ||
             custContacts[0]?.email ||
+            latestProjInvoiceEmail ||
             parentCust?.email ||
             "";
         } else {
-          const latestCustInvoiceEmail = (invoices ?? [])
-            .filter((inv: any) => inv.customerId === entity.id && !inv.projectId && inv.billingEmail)
-            .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
-            ?.billingEmail ?? "";
-
           const custContacts = (contacts ?? []).filter((c: any) => c.customerId === entity.id && !c.projectId);
+
+          // Invoice billingEmail used only when there are NO contacts yet — prevents
+          // the invoice email from overwriting a user-edited contact email after toggle off.
+          const latestCustInvoiceEmail = custContacts.length === 0
+            ? (invoices ?? [])
+                .filter((inv: any) => inv.customerId === entity.id && !inv.projectId && inv.billingEmail)
+                .sort((a: any, b: any) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""))[0]
+                ?.billingEmail ?? ""
+            : "";
 
           next[entity.id] =
             custContacts.find((c: any) => c.receivesAuto)?.email ||
-            latestCustInvoiceEmail ||
             custContacts.find((c: any) => c.type === "Billing")?.email ||
             custContacts[0]?.email ||
+            latestCustInvoiceEmail ||
             entity.email ||
             "";
         }
@@ -305,16 +313,22 @@ function ReminderProgramme() {
           );
         } else {
           if (row.activeContact) {
+            // Already has an active contact — just re-enable it, never touch its email
             await patchContact(row.activeContact.id, { receivesAuto: true });
+          } else if (row.entityContacts.length > 0) {
+            // Contact exists but receivesAuto is off — re-enable it.
+            // Only overwrite email if the user explicitly typed a new one (isDirty).
+            // Never silently revert a previously user-edited email.
+            const target =
+              row.entityContacts.find((c: any) => c.type === "Billing") ?? row.entityContacts[0];
+            const patch: Record<string, any> = { receivesAuto: true };
+            if (row.isDirty && email) patch.email = email;
+            else if (!target.email && email) patch.email = email; // fill only if blank
+            await patchContact(target.id, patch);
+            setEmailDirty((prev) => { const s = new Set(prev); s.delete(entity.id); return s; });
           } else if (email) {
-            // Save the email then turn on
-            if (row.entityContacts.length > 0) {
-              const target =
-                row.entityContacts.find((c: any) => c.type === "Billing") ?? row.entityContacts[0];
-              await patchContact(target.id, { email, receivesAuto: true });
-            } else {
-              await createContact(entity, email);
-            }
+            // No contact at all — create one with the entered email
+            await createContact(entity, email);
             setEmailDirty((prev) => { const s = new Set(prev); s.delete(entity.id); return s; });
           }
         }
