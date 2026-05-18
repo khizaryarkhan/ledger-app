@@ -285,7 +285,7 @@ export default function TeamSettingsPage() {
                           }>
                           {[
                             { v: "company_user", label: "Full Access" },
-                            ...(isSuper ? [{ v: "company_admin", label: "Admin" }] : []),
+                            { v: "company_admin", label: "Admin" },
                             { v: "rep", label: "Rep / PM" },
                             { v: "ed",  label: "ED / RM" },
                           ].map(({ v, label }) => (
@@ -396,7 +396,7 @@ export default function TeamSettingsPage() {
               <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}
                 className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white">
                 <option value="company_user">Full Access</option>
-                {isSuper && <option value="company_admin">Admin</option>}
+                <option value="company_admin">Admin</option>
                 <option value="rep">Rep / PM</option>
                 <option value="ed">ED / RM</option>
               </select>

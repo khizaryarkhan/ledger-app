@@ -88,9 +88,6 @@ export async function POST(req: Request) {
     const data = UserSchema.parse(await req.json());
     const targetOrgId = isSuper ? (data.orgId || orgId!) : orgId!;
 
-    // Only super admins can create company_admin accounts
-    if (!isSuper && data.role === "company_admin") return bad("Company Admins cannot create other Admins", 403);
-
     const isPortalRole = data.role === "rep" || data.role === "ed";
     const dbRole  = isPortalRole ? "rep" : data.role;
     const repTier = data.role === "ed" ? "ed" : data.role === "rep" ? "rep" : null;
@@ -184,7 +181,7 @@ export async function PATCH(req: Request) {
       // company_admin may not elevate to company_admin (only super can)
       const allowed = isSuper
         ? ["company_admin", "company_user", "rep", "ed"]
-        : ["company_user", "rep", "ed"];
+        : ["company_admin", "company_user", "rep", "ed"];
       if (!allowed.includes(virtualRole)) return bad("Invalid role or insufficient permissions", 403);
 
       const dbRole    = ["rep", "ed"].includes(virtualRole) ? "rep" : virtualRole;
