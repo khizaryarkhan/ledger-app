@@ -13,8 +13,22 @@ type Invoice = {
   id: string; invoiceNumber: string; customerId: string; projectId: string | null;
   invoiceDate: string; dueDate: string; total: number; paid: number; currency: string;
   paymentStatus: string; collectionStage: string; billingEmail: string | null;
-  qboId: string | null;
+  qboId: string | null; txnType: string | null; qboBalance: number | null;
 };
+
+// Use qboBalance as the authoritative open balance (same as dashboard/reports)
+function openBal(inv: Invoice): number {
+  if (inv.qboBalance != null) return Number(inv.qboBalance);
+  return Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
+}
+
+function isOpenInvoice(inv: Invoice): boolean {
+  return (
+    inv.txnType !== "CreditMemo" &&
+    inv.paymentStatus !== "Paid" &&
+    inv.paymentStatus !== "Written Off"
+  );
+}
 type Customer    = { id: string; name: string; code: string; currency: string; };
 type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; };
 type Rep         = { id: string; name: string; tier: string; };
@@ -33,8 +47,8 @@ type AgingKey = "current" | "d30" | "d60" | "d90" | "d90plus" | "total";
 function getAgingBuckets(invs: Invoice[]) {
   const b = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
   for (const inv of invs) {
-    if (["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed") continue;
-    const out = inv.total - (inv.paid || 0);
+    if (!isOpenInvoice(inv)) continue;
+    const out = openBal(inv);
     const d = daysOverdue(inv.dueDate);
     b.total += out;
     if (d <= 0)       b.current += out;
@@ -102,10 +116,8 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
   entity: Customer | Project; invoices: Invoice[];
   customerName?: string; repName?: string; onClick: () => void;
 }) {
-  const open = invoices.filter(i =>
-    !["Paid", "Written Off"].includes(i.paymentStatus) && i.collectionStage !== "Closed"
-  );
-  const outstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+  const open = invoices.filter(isOpenInvoice);
+  const outstanding = open.reduce((s, i) => s + openBal(i), 0);
   const buckets     = getAgingBuckets(invoices);
   const hasOverdue  = open.some(i => daysOverdue(i.dueDate) > 0);
 
@@ -153,8 +165,8 @@ function InvoiceRow({ inv, df, onDownload, downloading }: {
   onDownload: (inv: Invoice) => void; downloading: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isPaidOrClosed = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
-  const outstanding    = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
+  const isPaidOrClosed = !isOpenInvoice(inv);
+  const outstanding    = isPaidOrClosed ? 0 : openBal(inv);
   const dueStatus      = getDueStatus(inv);
   const overdue        = daysOverdue(inv.dueDate);
   const canDownload    = !!inv.qboId && !inv.qboId.startsWith("CM-") && !isPaidOrClosed;
@@ -292,18 +304,18 @@ export default function RepPortalPage() {
 
   // ── Summary stats ────────────────────────────────────────────────────────────
   const openInvoices = useMemo(() =>
-    invoices.filter(i => !["Paid","Written Off"].includes(i.paymentStatus) && i.collectionStage !== "Closed"),
+    invoices.filter(isOpenInvoice),
     [invoices]
   );
-  const totalAR      = openInvoices.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const overdueAR    = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+  const totalAR      = openInvoices.reduce((s, i) => s + openBal(i), 0);
+  const overdueAR    = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
   const overdueCnt   = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).length;
   const globalBuckets = useMemo(() => getAgingBuckets(invoices), [invoices]);
 
   // ── Entity list ──────────────────────────────────────────────────────────────
   const entityList = useMemo(() => {
     const byOutstanding = (invs: Invoice[]) =>
-      invs.filter(i => !["Paid","Written Off"].includes(i.paymentStatus)).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+      invs.filter(isOpenInvoice).reduce((s, i) => s + openBal(i), 0);
 
     if (level === "customer") {
       return customers
@@ -330,8 +342,8 @@ export default function RepPortalPage() {
       : invoices.filter(i => i.projectId  === view.id);
     const entity       = view.kind === "customer" ? customers.find(c => c.id === view.id) : projects.find(p => p.id === view.id);
     const customerName = view.kind === "project"  ? customers.find(c => c.id === (entity as Project)?.customerId)?.name : undefined;
-    const open         = entityInvoices.filter(i => !["Paid","Written Off"].includes(i.paymentStatus) && i.collectionStage !== "Closed");
-    const outstanding  = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+    const open         = entityInvoices.filter(isOpenInvoice);
+    const outstanding  = open.reduce((s, i) => s + openBal(i), 0);
     const buckets      = getAgingBuckets(entityInvoices);
     return { entity, entityInvoices, customerName, outstanding, buckets, openCount: open.length };
   }, [view, invoices, customers, projects]);
