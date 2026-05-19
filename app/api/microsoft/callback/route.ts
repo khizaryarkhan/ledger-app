@@ -5,7 +5,7 @@
  * This route must be listed as a public path in middleware.ts so the redirect
  * from Microsoft works without a session.
  *
- * Redirects to /settings/integrations?microsoft=connected on success,
+ * Redirects to /settings/email?microsoft=connected on success,
  * or ?microsoft=error&reason=... on failure.
  */
 
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   const base = process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
 
   if (!code || !userId) {
-    return NextResponse.redirect(new URL("/settings/integrations?microsoft=error&reason=missing_params", base));
+    return NextResponse.redirect(new URL("/settings/email?microsoft=error&reason=missing_params", base));
   }
 
   try {
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
 
     if (!tokenRes.ok) {
       console.error("Microsoft token exchange failed:", await tokenRes.text());
-      return NextResponse.redirect(new URL("/settings/integrations?microsoft=error&reason=token_exchange", base));
+      return NextResponse.redirect(new URL("/settings/email?microsoft=error&reason=token_exchange", base));
     }
 
     const tokenData = await tokenRes.json();
@@ -96,9 +96,9 @@ export async function GET(req: Request) {
       });
     }
 
-    return NextResponse.redirect(new URL("/settings/integrations?microsoft=connected", base));
+    return NextResponse.redirect(new URL("/settings/email?microsoft=connected", base));
   } catch (e: any) {
     console.error("Microsoft callback error:", e);
-    return NextResponse.redirect(new URL("/settings/integrations?microsoft=error&reason=server_error", base));
+    return NextResponse.redirect(new URL("/settings/email?microsoft=error&reason=server_error", base));
   }
 }
