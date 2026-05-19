@@ -1,8 +1,14 @@
 /**
- * Shared SMTP mailer — used by the manual EmailComposer API, the
- * Automations trigger, and the scheduled cron.
+ * Unified mailer — routes outbound email through the best available transport:
+ *   1. Gmail OAuth (if the org has connected Gmail)
+ *   2. Microsoft OAuth / Outlook (if the org has connected Microsoft)
+ *   3. SMTP fallback (org-level settings or global SMTP_* env vars)
  *
- * Reads SMTP credentials from:
+ * Usage:
+ *   import { sendEmail } from "@/lib/mailer";
+ *   await sendEmail(orgId, { to, subject, body, cc, attachments });
+ *
+ * SMTP credentials come from:
  *   1. org_smtp_settings table (org-specific, set in Settings → Email)
  *   2. SMTP_* environment variables (global fallback)
  */
@@ -11,6 +17,8 @@ import * as nodemailer from "nodemailer";
 import { db } from "@/db";
 import { orgSmtpSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getValidGmailToken, sendGmail } from "@/lib/gmail";
+import { getValidMicrosoftToken, sendMicrosoft } from "@/lib/microsoft";
 
 export interface MailAttachment {
   filename: string;
@@ -69,6 +77,52 @@ export async function getSmtpConfig(orgId: string): Promise<SmtpConfig | null> {
     ccEmail:   smtp?.ccEmail  ?? null,
     ccEnabled: smtp?.ccEnabled ?? false,
   };
+}
+
+/**
+ * Unified send — tries Gmail → Microsoft → SMTP in order.
+ * Throws if no transport is configured or the send fails.
+ * Returns an object describing which transport was used.
+ */
+export async function sendEmail(
+  orgId: string,
+  opts: MailOptions,
+): Promise<{ transport: "gmail" | "microsoft" | "smtp"; from: string }> {
+  // --- 1. Gmail ---
+  const gmailToken = await getValidGmailToken(orgId);
+  if (gmailToken) {
+    await sendGmail(gmailToken.accessToken, gmailToken.email, {
+      to:          opts.to,
+      subject:     opts.subject,
+      body:        opts.body,
+      cc:          opts.cc,
+      attachments: opts.attachments,
+    });
+    return { transport: "gmail", from: gmailToken.email };
+  }
+
+  // --- 2. Microsoft ---
+  const msToken = await getValidMicrosoftToken(orgId);
+  if (msToken) {
+    await sendMicrosoft(msToken.accessToken, {
+      to:          opts.to,
+      subject:     opts.subject,
+      body:        opts.body,
+      cc:          opts.cc,
+      attachments: opts.attachments,
+    });
+    return { transport: "microsoft", from: msToken.email };
+  }
+
+  // --- 3. SMTP fallback ---
+  const config = await getSmtpConfig(orgId);
+  if (!config) {
+    throw new Error(
+      "No email transport configured. Connect Gmail, Microsoft, or set up SMTP in Settings → Email.",
+    );
+  }
+  await sendSmtp(config, opts);
+  return { transport: "smtp", from: config.fromEmail };
 }
 
 /**

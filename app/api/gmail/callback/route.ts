@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const base = process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
 
   if (!code || !userId) {
-    return NextResponse.redirect(new URL("/settings?gmail=error&reason=missing_params", base));
+    return NextResponse.redirect(new URL("/settings/integrations?gmail=error&reason=missing_params", base));
   }
 
   try {
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
 
     if (!tokenRes.ok) {
       console.error("Gmail token exchange failed:", await tokenRes.text());
-      return NextResponse.redirect(new URL("/settings?gmail=error&reason=token_exchange", base));
+      return NextResponse.redirect(new URL("/settings/integrations?gmail=error&reason=token_exchange", base));
     }
 
     const tokenData = await tokenRes.json();
@@ -83,9 +83,9 @@ export async function GET(req: Request) {
       });
     }
 
-    return NextResponse.redirect(new URL("/settings?gmail=connected", base));
+    return NextResponse.redirect(new URL("/settings/integrations?gmail=connected", base));
   } catch (e: any) {
     console.error("Gmail callback error:", e);
-    return NextResponse.redirect(new URL("/settings?gmail=error&reason=server_error", base));
+    return NextResponse.redirect(new URL("/settings/integrations?gmail=error&reason=server_error", base));
   }
 }

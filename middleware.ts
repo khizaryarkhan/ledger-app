@@ -6,7 +6,7 @@ export default auth((req) => {
   const path = req.nextUrl.pathname;
   const role = (req.auth?.user as any)?.role;
 
-  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/debug-auth";
+  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth";
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");

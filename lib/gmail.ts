@@ -1,5 +1,6 @@
 /**
- * Shared Gmail helpers used by both the scheduled cron and the manual trigger.
+ * Shared Gmail helpers — token refresh, draft creation, and direct send.
+ * Used by the mailer router, scheduled cron, and manual email composer.
  */
 
 import { db } from "@/db";
@@ -79,4 +80,91 @@ export async function createGmailDraft(
 
   const data = await res.json();
   return data.id as string;
+}
+
+/**
+ * Send an email directly via Gmail API (not as a draft).
+ * Supports plain-text body, CC, BCC, and PDF attachments.
+ */
+export async function sendGmail(
+  accessToken: string,
+  from: string,
+  opts: {
+    to: string;
+    subject: string;
+    body: string;
+    cc?: string;
+    bcc?: string;
+    attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
+  },
+) {
+  const boundary = `boundary_${Date.now()}`;
+  const hasAttachments = opts.attachments && opts.attachments.length > 0;
+
+  let rawMessage: string;
+
+  if (hasAttachments) {
+    // Multipart MIME with attachments
+    const parts: string[] = [];
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: text/plain; charset=utf-8`,
+      ``,
+      opts.body,
+    );
+    for (const att of opts.attachments!) {
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${att.contentType}`,
+        `Content-Transfer-Encoding: base64`,
+        `Content-Disposition: attachment; filename="${att.filename}"`,
+        ``,
+        att.content.toString("base64"),
+      );
+    }
+    parts.push(`--${boundary}--`);
+
+    const headers = [
+      `From: ${from}`,
+      `To: ${opts.to}`,
+      ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
+      ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+      `Subject: ${opts.subject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      ``,
+    ];
+    rawMessage = [...headers, ...parts].join("\r\n");
+  } else {
+    rawMessage = [
+      `From: ${from}`,
+      `To: ${opts.to}`,
+      ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
+      ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+      `Subject: ${opts.subject}`,
+      `Content-Type: text/plain; charset=utf-8`,
+      ``,
+      opts.body,
+    ].join("\r\n");
+  }
+
+  const raw = Buffer.from(rawMessage)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ raw }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message ?? `Gmail send failed (${res.status})`);
+  }
 }

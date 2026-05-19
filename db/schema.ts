@@ -581,6 +581,25 @@ export const gmailTokens = pgTable("gmail_tokens", {
 export type GmailToken = typeof gmailTokens.$inferSelect;
 
 // =========================================================================
+// MICROSOFT TOKENS
+// =========================================================================
+export const microsoftTokens = pgTable("microsoft_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // Org-scoped: one Microsoft connection per org. Every user in the org can
+  // see whether Microsoft is connected (and use it for outbound mail).
+  // userId records the human who authorised it (needed for OAuth refresh).
+  orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type MicrosoftToken = typeof microsoftTokens.$inferSelect;
+
+// =========================================================================
 // RELATIONS
 // =========================================================================
 export const customersRelations = relations(customers, ({ many, one }) => ({

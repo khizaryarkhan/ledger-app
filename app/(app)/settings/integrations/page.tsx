@@ -7,7 +7,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import {
   ChevronLeft, Link2, Unlink, RefreshCw, Check, AlertTriangle, Loader,
-  CheckCircle, XCircle, Clock, Database,
+  CheckCircle, XCircle, Clock, Database, Mail,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -22,6 +22,14 @@ export default function IntegrationsSettingsPage() {
   const [syncResult, setSyncResult] = useState<any>(null);
   const [syncHistory, setSyncHistory] = useState<any[]>([]);
   const [disconnecting, setDisconnecting] = useState(false);
+
+  // Gmail
+  const [gmailStatus, setGmailStatus] = useState<any>(null);
+  const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
+
+  // Microsoft
+  const [msStatus, setMsStatus] = useState<any>(null);
+  const [msDisconnecting, setMsDisconnecting] = useState(false);
 
   // Backfill paid-at dates
   const [backfilling, setBackfilling] = useState(false);
@@ -91,18 +99,56 @@ export default function IntegrationsSettingsPage() {
   useEffect(() => {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+    fetch("/api/gmail?status=1").then(r => r.json()).then(setGmailStatus).catch(() => setGmailStatus({ connected: false }));
+    fetch("/api/microsoft?status=1").then(r => r.json()).then(setMsStatus).catch(() => setMsStatus({ connected: false }));
     loadWebhookHealth();
   }, []);
 
   useEffect(() => {
-    const qbo = searchParams.get("qbo");
+    const qbo       = searchParams.get("qbo");
+    const gmail     = searchParams.get("gmail");
+    const microsoft = searchParams.get("microsoft");
     if (qbo === "connected") {
       toast("QuickBooks connected!");
       fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus);
     } else if (qbo === "error") {
       toast(`QBO error: ${searchParams.get("reason")}`, "error");
     }
+    if (gmail === "connected") {
+      toast("Gmail connected!");
+      fetch("/api/gmail?status=1").then(r => r.json()).then(setGmailStatus);
+    } else if (gmail === "error") {
+      toast(`Gmail error: ${searchParams.get("reason")}`, "error");
+    }
+    if (microsoft === "connected") {
+      toast("Microsoft / Outlook connected!");
+      fetch("/api/microsoft?status=1").then(r => r.json()).then(setMsStatus);
+    } else if (microsoft === "error") {
+      toast(`Microsoft error: ${searchParams.get("reason")}`, "error");
+    }
   }, [searchParams]);
+
+  const handleGmailDisconnect = async () => {
+    setGmailDisconnecting(true);
+    try {
+      await fetch("/api/gmail/disconnect", { method: "POST" });
+      setGmailStatus({ connected: false });
+      toast("Gmail disconnected");
+    } finally {
+      setGmailDisconnecting(false);
+    }
+  };
+
+  const handleMsDisconnect = async () => {
+    setMsDisconnecting(true);
+    try {
+      await fetch("/api/microsoft/disconnect", { method: "POST" });
+      setMsStatus({ connected: false });
+      toast("Microsoft disconnected");
+    } finally {
+      setMsDisconnecting(false);
+    }
+  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -698,6 +744,115 @@ export default function IntegrationsSettingsPage() {
           </div>
         )}
       </Card>
+
+      {/* Gmail */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Mail size={16} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Gmail</h3>
+          {gmailStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+        </div>
+
+        {gmailStatus === null ? (
+          <div className="flex items-center gap-2 text-sm text-stone-500">
+            <Loader size={14} className="animate-spin" /> Checking…
+          </div>
+        ) : gmailStatus.connected ? (
+          <div className="space-y-3">
+            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-emerald-600" />
+              <div>
+                <div className="text-sm font-medium text-emerald-900">
+                  Connected — sending from <span className="font-mono">{gmailStatus.email}</span>
+                </div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">
+                  All outbound emails will be sent via Gmail. Sent messages appear in your Gmail Sent folder.
+                </div>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleGmailDisconnect} disabled={gmailDisconnecting}>
+              <Unlink size={14} className="mr-1.5" />
+              {gmailDisconnecting ? "Disconnecting…" : "Disconnect Gmail"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-stone-600">
+              Connect Gmail to send all outbound emails through your Google account. Emails appear in your
+              Gmail Sent folder and bypass SMTP entirely.
+            </div>
+            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
+              <div className="font-medium mb-1">Required Vercel env vars:</div>
+              <div className="font-mono text-[12px] space-y-0.5">
+                <div>GMAIL_CLIENT_ID</div>
+                <div>GMAIL_CLIENT_SECRET</div>
+                <div>GMAIL_REDIRECT_URI = https://your-domain/api/gmail/callback</div>
+              </div>
+            </div>
+            <Button icon={Mail} onClick={() => (window.location.href = "/api/gmail")}>
+              Connect Gmail
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Microsoft / Outlook */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Mail size={16} className="text-stone-600" />
+          <h3 className="text-sm font-semibold text-stone-900">Microsoft / Outlook</h3>
+          {msStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+        </div>
+
+        {msStatus === null ? (
+          <div className="flex items-center gap-2 text-sm text-stone-500">
+            <Loader size={14} className="animate-spin" /> Checking…
+          </div>
+        ) : msStatus.connected ? (
+          <div className="space-y-3">
+            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-emerald-600" />
+              <div>
+                <div className="text-sm font-medium text-emerald-900">
+                  Connected — sending from <span className="font-mono">{msStatus.email}</span>
+                </div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">
+                  All outbound emails will be sent via Microsoft Graph API. Sent messages appear in your Outlook Sent folder.
+                </div>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleMsDisconnect} disabled={msDisconnecting}>
+              <Unlink size={14} className="mr-1.5" />
+              {msDisconnecting ? "Disconnecting…" : "Disconnect Microsoft"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-stone-600">
+              Connect a Microsoft / Outlook account to send all outbound emails through Microsoft Graph API.
+              Works with Office 365 and personal Microsoft accounts.
+            </div>
+            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
+              <div className="font-medium mb-1">Required Vercel env vars:</div>
+              <div className="font-mono text-[12px] space-y-0.5">
+                <div>MICROSOFT_CLIENT_ID</div>
+                <div>MICROSOFT_CLIENT_SECRET</div>
+                <div>MICROSOFT_REDIRECT_URI = https://your-domain/api/microsoft/callback</div>
+              </div>
+            </div>
+            <Button icon={Mail} onClick={() => (window.location.href = "/api/microsoft")}>
+              Connect Microsoft / Outlook
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Email priority note */}
+      <div className="mb-4 px-3 py-2.5 bg-stone-50 ring-1 ring-stone-200 rounded-md text-[12px] text-stone-500 leading-relaxed">
+        <span className="font-semibold text-stone-700">Email routing order:</span> Gmail → Microsoft → SMTP.
+        Connect Gmail or Microsoft to use OAuth-based sending. If neither is connected, emails fall back to the SMTP
+        settings configured in <Link href="/settings" className="text-stone-700 underline underline-offset-2">Settings → Email</Link>.
+      </div>
 
       {/* Data Tools */}
       <Card>
