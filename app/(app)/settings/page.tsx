@@ -11,11 +11,9 @@ export default function SettingsPage() {
   const { data: session } = useSession();
   const { reps, regions } = useData();
   const [qboStatus, setQboStatus] = useState<any>(null);
-  const [smtpStatus, setSmtpStatus] = useState<any>(null);
 
   useEffect(() => {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
-    fetch("/api/org/smtp").then(r => r.json()).then(setSmtpStatus).catch(() => setSmtpStatus({ configured: false }));
   }, []);
 
   const userName = session?.user?.name || "";
@@ -47,18 +45,6 @@ export default function SettingsPage() {
           : qboStatus.connected
           ? { state: "ok", label: `Connected · ${qboStatus.companyName || "QBO"}` }
           : { state: "off", label: "Not connected" },
-    },
-    {
-      href: "/settings/notifications",
-      icon: Mail,
-      title: "Notifications",
-      description: "Email notification preferences, default CC address and reminder schedules.",
-      badge:
-        smtpStatus === null
-          ? { state: "loading", label: "" }
-          : smtpStatus.configured
-          ? { state: "ok", label: `From: ${smtpStatus.settings?.fromEmail || "configured"}` }
-          : { state: "off", label: "Not configured" },
     },
     {
       href: "/settings/stages",

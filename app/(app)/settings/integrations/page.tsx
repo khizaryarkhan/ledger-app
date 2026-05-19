@@ -995,8 +995,11 @@ export default function IntegrationsSettingsPage() {
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Username</label>
-                      <input value={smtpForm.user} onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
+                      <input
+                        value={smtpForm.user}
+                        onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
                         placeholder="your-smtp-username"
+                        autoComplete="off"
                         className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
                     </div>
                     <div>
@@ -1004,8 +1007,12 @@ export default function IntegrationsSettingsPage() {
                         SMTP Password{" "}
                         {smtpStatus.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
                       </label>
-                      <input type="password" value={smtpForm.pass} onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
-                        placeholder={smtpStatus.configured ? "••••••••" : "your-smtp-password"}
+                      <input
+                        type="password"
+                        value={smtpForm.pass}
+                        onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
+                        placeholder={smtpStatus.configured ? "leave blank to keep existing" : "your-smtp-password"}
+                        autoComplete="new-password"
                         className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
