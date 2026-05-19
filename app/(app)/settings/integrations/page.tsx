@@ -3,18 +3,21 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import {
   ChevronLeft, Link2, Unlink, RefreshCw, Check, AlertTriangle, Loader,
-  CheckCircle, XCircle, Clock, Database, Mail,
+  CheckCircle, XCircle, Clock, Database, Mail, Server, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
 export default function IntegrationsSettingsPage() {
   const { customers, invoices, refresh, toast, orgSettings } = useData() as any;
+  const { data: session } = useSession();
   const ccy: string = orgSettings?.currency ?? "EUR";
   const searchParams = useSearchParams();
+  const userEmail = (session?.user?.email) || "";
 
   // QBO
   const [qboStatus, setQboStatus] = useState<any>(null);
@@ -30,6 +33,88 @@ export default function IntegrationsSettingsPage() {
   // Microsoft
   const [msStatus, setMsStatus] = useState<any>(null);
   const [msDisconnecting, setMsDisconnecting] = useState(false);
+
+  // SMTP (inline form)
+  const [smtpStatus, setSmtpStatus] = useState<any>(null);
+  const [showSmtpForm, setShowSmtpForm] = useState(false);
+  const [savingSmtp, setSavingSmtp] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [smtpForm, setSmtpForm] = useState({
+    host: "mail-eu.smtp2go.com", port: "2525",
+    user: "", pass: "", fromEmail: "", fromName: "",
+    ccEmail: "", ccEnabled: false,
+  });
+
+  const loadSmtp = () =>
+    fetch("/api/org/smtp").then(r => r.json()).then(data => {
+      setSmtpStatus(data);
+      if (data?.settings) {
+        setSmtpForm(f => ({
+          ...f,
+          host:      data.settings.host      || f.host,
+          port:      String(data.settings.port || f.port),
+          user:      data.settings.user      || "",
+          fromEmail: data.settings.fromEmail || "",
+          fromName:  data.settings.fromName  || "",
+          ccEmail:   data.settings.ccEmail   || "",
+          ccEnabled: data.settings.ccEnabled ?? false,
+        }));
+      }
+    }).catch(() => setSmtpStatus({ configured: false }));
+
+  const handleSmtpSave = async () => {
+    setSavingSmtp(true);
+    try {
+      const payload: any = {
+        ...smtpForm, port: parseInt(smtpForm.port),
+        ccEmail: smtpForm.ccEnabled ? smtpForm.ccEmail : "",
+        ccEnabled: smtpForm.ccEnabled,
+      };
+      if (!smtpForm.pass && smtpStatus?.configured) {
+        delete payload.pass;
+        payload.keepExistingPass = true;
+      }
+      const res = await fetch("/api/org/smtp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast(data.error || "Failed to save", "error"); return; }
+      toast("SMTP settings saved");
+      setShowSmtpForm(false);
+      await loadSmtp();
+    } finally {
+      setSavingSmtp(false);
+    }
+  };
+
+  const handleSmtpDelete = async () => {
+    await fetch("/api/org/smtp", { method: "DELETE" });
+    setSmtpStatus({ configured: false, settings: null });
+    setSmtpForm({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "", ccEmail: "", ccEnabled: false });
+    toast("SMTP settings removed");
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: userEmail, subject: "Ledger — Email Test", body: "This is a test email. Your email transport is configured correctly." }),
+      });
+      const data = await res.json();
+      if (res.ok) setTestResult({ ok: true, message: `Test sent to ${userEmail} via ${data.transport || "smtp"}` });
+      else setTestResult({ ok: false, message: data.error || "Send failed" });
+    } catch {
+      setTestResult({ ok: false, message: "Request failed" });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
 
   // Backfill paid-at dates
   const [backfilling, setBackfilling] = useState(false);
@@ -101,6 +186,7 @@ export default function IntegrationsSettingsPage() {
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
     fetch("/api/gmail?status=1").then(r => r.json()).then(setGmailStatus).catch(() => setGmailStatus({ connected: false }));
     fetch("/api/microsoft?status=1").then(r => r.json()).then(setMsStatus).catch(() => setMsStatus({ connected: false }));
+    loadSmtp();
     loadWebhookHealth();
   }, []);
 
@@ -745,114 +831,246 @@ export default function IntegrationsSettingsPage() {
         )}
       </Card>
 
-      {/* Gmail */}
+      {/* ── Email Integrations ───────────────────────────────────── */}
       <Card className="mb-4">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-1">
           <Mail size={16} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Gmail</h3>
-          {gmailStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+          <h3 className="text-sm font-semibold text-stone-900">Email Integrations</h3>
+          {gmailStatus?.connected && <Badge variant="green" size="sm">Gmail active</Badge>}
+          {msStatus?.connected    && <Badge variant="green" size="sm">Microsoft active</Badge>}
+          {!gmailStatus?.connected && !msStatus?.connected && smtpStatus?.configured && (
+            <Badge variant="neutral" size="sm">SMTP active</Badge>
+          )}
         </div>
+        <p className="text-[12px] text-stone-500 mb-5">
+          Choose one transport for outbound email. Connect Gmail or Microsoft, or configure SMTP as fallback.
+        </p>
 
-        {gmailStatus === null ? (
-          <div className="flex items-center gap-2 text-sm text-stone-500">
-            <Loader size={14} className="animate-spin" /> Checking…
-          </div>
-        ) : gmailStatus.connected ? (
-          <div className="space-y-3">
-            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
-              <Check size={15} className="text-emerald-600" />
-              <div>
-                <div className="text-sm font-medium text-emerald-900">
-                  Connected — sending from <span className="font-mono">{gmailStatus.email}</span>
-                </div>
-                <div className="text-[11px] text-emerald-700 mt-0.5">
-                  All outbound emails will be sent via Gmail. Sent messages appear in your Gmail Sent folder.
+        {(() => {
+          const oauthActive = gmailStatus?.connected || msStatus?.connected;
+          const loading     = gmailStatus === null || msStatus === null || smtpStatus === null;
+
+          if (loading) {
+            return (
+              <div className="flex items-center gap-2 text-sm text-stone-500">
+                <Loader size={14} className="animate-spin" /> Checking…
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-3">
+
+              {/* ── Gmail row ── */}
+              <div className={`rounded-lg ring-1 p-4 transition-colors ${
+                gmailStatus.connected ? "ring-emerald-200 bg-emerald-50" : "ring-stone-200 bg-white"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
+                    gmailStatus.connected ? "bg-emerald-100" : "bg-stone-100"
+                  }`}>
+                    <Mail size={15} className={gmailStatus.connected ? "text-emerald-600" : "text-stone-500"} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-stone-900">Gmail</span>
+                      {gmailStatus.connected && <Badge variant="green" size="sm">Active</Badge>}
+                    </div>
+                    <div className="text-[12px] text-stone-500 mt-0.5">
+                      {gmailStatus.connected
+                        ? <>Sending from <span className="font-mono text-stone-700">{gmailStatus.email}</span> · Sent mail appears in Gmail</>
+                        : "Send via your Google account using OAuth"}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    {gmailStatus.connected ? (
+                      <Button variant="ghost" size="sm" onClick={handleGmailDisconnect} disabled={gmailDisconnecting}>
+                        <Unlink size={13} className="mr-1" />
+                        {gmailDisconnecting ? "Disconnecting…" : "Disconnect"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={oauthActive}
+                        onClick={() => (window.location.href = "/api/gmail")}
+                        title={oauthActive ? "Disconnect the active transport first" : ""}
+                      >
+                        Connect Gmail
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleGmailDisconnect} disabled={gmailDisconnecting}>
-              <Unlink size={14} className="mr-1.5" />
-              {gmailDisconnecting ? "Disconnecting…" : "Disconnect Gmail"}
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-sm text-stone-600">
-              Connect Gmail to send all outbound emails through your Google account. Emails appear in your
-              Gmail Sent folder and bypass SMTP entirely.
-            </div>
-            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
-              <div className="font-medium mb-1">Required Vercel env vars:</div>
-              <div className="font-mono text-[12px] space-y-0.5">
-                <div>GMAIL_CLIENT_ID</div>
-                <div>GMAIL_CLIENT_SECRET</div>
-                <div>GMAIL_REDIRECT_URI = https://your-domain/api/gmail/callback</div>
+
+              {/* ── Microsoft row ── */}
+              <div className={`rounded-lg ring-1 p-4 transition-colors ${
+                msStatus.connected ? "ring-emerald-200 bg-emerald-50" : "ring-stone-200 bg-white"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
+                    msStatus.connected ? "bg-emerald-100" : "bg-stone-100"
+                  }`}>
+                    <Mail size={15} className={msStatus.connected ? "text-emerald-600" : "text-stone-500"} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-stone-900">Microsoft / Outlook</span>
+                      {msStatus.connected && <Badge variant="green" size="sm">Active</Badge>}
+                    </div>
+                    <div className="text-[12px] text-stone-500 mt-0.5">
+                      {msStatus.connected
+                        ? <>Sending from <span className="font-mono text-stone-700">{msStatus.email}</span> · Sent mail appears in Outlook</>
+                        : "Send via Office 365 or personal Microsoft account"}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    {msStatus.connected ? (
+                      <Button variant="ghost" size="sm" onClick={handleMsDisconnect} disabled={msDisconnecting}>
+                        <Unlink size={13} className="mr-1" />
+                        {msDisconnecting ? "Disconnecting…" : "Disconnect"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={oauthActive}
+                        onClick={() => (window.location.href = "/api/microsoft")}
+                        title={oauthActive ? "Disconnect the active transport first" : ""}
+                      >
+                        Connect Microsoft
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {/* ── SMTP row ── */}
+              <div className={`rounded-lg ring-1 transition-colors ${
+                !oauthActive && smtpStatus.configured ? "ring-stone-300 bg-stone-50" : "ring-stone-200 bg-white"
+              }`}>
+                <div className="flex items-center gap-3 p-4">
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
+                    !oauthActive && smtpStatus.configured ? "bg-stone-200" : "bg-stone-100"
+                  }`}>
+                    <Server size={15} className="text-stone-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-stone-900">SMTP</span>
+                      {smtpStatus.configured && oauthActive  && <Badge variant="neutral" size="sm">Fallback</Badge>}
+                      {smtpStatus.configured && !oauthActive && <Badge variant="neutral" size="sm">Active</Badge>}
+                    </div>
+                    <div className="text-[12px] text-stone-500 mt-0.5">
+                      {smtpStatus.configured
+                        ? <>{oauthActive ? "Configured as fallback — " : "Sending from "}<span className="font-mono text-stone-700">{smtpStatus.settings?.fromEmail}</span></>
+                        : "Configure your own SMTP server (e.g. SMTP2Go, SendGrid)"}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <button
+                      onClick={() => setShowSmtpForm(v => !v)}
+                      className="flex items-center gap-1 text-[12px] font-medium text-stone-600 hover:text-stone-900 transition-colors"
+                    >
+                      {smtpStatus.configured ? "Edit" : "Configure"}
+                      {showSmtpForm ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* SMTP inline form */}
+                {showSmtpForm && (
+                  <div className="border-t border-stone-200 px-4 pb-4 pt-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Host</label>
+                        <input value={smtpForm.host} onChange={e => setSmtpForm(p => ({ ...p, host: e.target.value }))}
+                          placeholder="mail-eu.smtp2go.com"
+                          className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Port</label>
+                        <input value={smtpForm.port} onChange={e => setSmtpForm(p => ({ ...p, port: e.target.value }))}
+                          placeholder="2525"
+                          className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Username</label>
+                      <input value={smtpForm.user} onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
+                        placeholder="your-smtp-username"
+                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                        SMTP Password{" "}
+                        {smtpStatus.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
+                      </label>
+                      <input type="password" value={smtpForm.pass} onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
+                        placeholder={smtpStatus.configured ? "••••••••" : "your-smtp-password"}
+                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Email *</label>
+                        <input value={smtpForm.fromEmail} onChange={e => setSmtpForm(p => ({ ...p, fromEmail: e.target.value }))}
+                          placeholder="ar@yourcompany.com"
+                          className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Name</label>
+                        <input value={smtpForm.fromName} onChange={e => setSmtpForm(p => ({ ...p, fromName: e.target.value }))}
+                          placeholder="Accounts Receivable"
+                          className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                      </div>
+                    </div>
+                    {/* CC toggle */}
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Default CC on every email</label>
+                      <button type="button" onClick={() => setSmtpForm(p => ({ ...p, ccEnabled: !p.ccEnabled }))}
+                        className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${smtpForm.ccEnabled ? "bg-stone-900" : "bg-stone-200"}`}>
+                        <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${smtpForm.ccEnabled ? "translate-x-4" : "translate-x-0"}`} />
+                      </button>
+                    </div>
+                    {smtpForm.ccEnabled && (
+                      <input type="email" value={smtpForm.ccEmail} onChange={e => setSmtpForm(p => ({ ...p, ccEmail: e.target.value }))}
+                        placeholder="e.g. accounts@yourcompany.com"
+                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                    )}
+                    <div className="flex items-center gap-2 pt-1 flex-wrap">
+                      <Button onClick={handleSmtpSave} disabled={savingSmtp || !smtpForm.host || !smtpForm.user || !smtpForm.fromEmail || (!smtpForm.pass && !smtpStatus.configured)}>
+                        {savingSmtp ? "Saving…" : "Save SMTP settings"}
+                      </Button>
+                      {smtpStatus.configured && (
+                        <Button variant="secondary" size="sm" onClick={handleTestEmail} disabled={testingEmail}>
+                          {testingEmail ? "Sending…" : "Send test email"}
+                        </Button>
+                      )}
+                      {smtpStatus.configured && (
+                        <Button variant="ghost" size="sm" onClick={handleSmtpDelete} className="text-rose-600 hover:text-rose-700">
+                          Remove SMTP
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => setShowSmtpForm(false)}>Cancel</Button>
+                    </div>
+                    {testResult && (
+                      <div className={`text-xs px-3 py-2 rounded ${testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                        {testResult.message}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Lock hint */}
+              {oauthActive && (
+                <p className="text-[11px] text-stone-400 pt-1">
+                  Disconnect {gmailStatus.connected ? "Gmail" : "Microsoft"} to switch to a different transport.
+                </p>
+              )}
+
             </div>
-            <Button icon={Mail} onClick={() => (window.location.href = "/api/gmail")}>
-              Connect Gmail
-            </Button>
-          </div>
-        )}
+          );
+        })()}
       </Card>
-
-      {/* Microsoft / Outlook */}
-      <Card className="mb-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Mail size={16} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Microsoft / Outlook</h3>
-          {msStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
-        </div>
-
-        {msStatus === null ? (
-          <div className="flex items-center gap-2 text-sm text-stone-500">
-            <Loader size={14} className="animate-spin" /> Checking…
-          </div>
-        ) : msStatus.connected ? (
-          <div className="space-y-3">
-            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
-              <Check size={15} className="text-emerald-600" />
-              <div>
-                <div className="text-sm font-medium text-emerald-900">
-                  Connected — sending from <span className="font-mono">{msStatus.email}</span>
-                </div>
-                <div className="text-[11px] text-emerald-700 mt-0.5">
-                  All outbound emails will be sent via Microsoft Graph API. Sent messages appear in your Outlook Sent folder.
-                </div>
-              </div>
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleMsDisconnect} disabled={msDisconnecting}>
-              <Unlink size={14} className="mr-1.5" />
-              {msDisconnecting ? "Disconnecting…" : "Disconnect Microsoft"}
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-sm text-stone-600">
-              Connect a Microsoft / Outlook account to send all outbound emails through Microsoft Graph API.
-              Works with Office 365 and personal Microsoft accounts.
-            </div>
-            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
-              <div className="font-medium mb-1">Required Vercel env vars:</div>
-              <div className="font-mono text-[12px] space-y-0.5">
-                <div>MICROSOFT_CLIENT_ID</div>
-                <div>MICROSOFT_CLIENT_SECRET</div>
-                <div>MICROSOFT_REDIRECT_URI = https://your-domain/api/microsoft/callback</div>
-              </div>
-            </div>
-            <Button icon={Mail} onClick={() => (window.location.href = "/api/microsoft")}>
-              Connect Microsoft / Outlook
-            </Button>
-          </div>
-        )}
-      </Card>
-
-      {/* Email priority note */}
-      <div className="mb-4 px-3 py-2.5 bg-stone-50 ring-1 ring-stone-200 rounded-md text-[12px] text-stone-500 leading-relaxed">
-        <span className="font-semibold text-stone-700">Email routing order:</span> Gmail → Microsoft → SMTP.
-        Connect Gmail or Microsoft to use OAuth-based sending. If neither is connected, emails fall back to the SMTP
-        settings configured in <Link href="/settings" className="text-stone-700 underline underline-offset-2">Settings → Email</Link>.
-      </div>
 
       {/* Data Tools */}
       <Card>

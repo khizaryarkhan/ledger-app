@@ -40,7 +40,7 @@ export default function SettingsPage() {
       href: "/settings/integrations",
       icon: Link2,
       title: "Integrations",
-      description: "QuickBooks Online connection, sync controls, reconciliation, history and data tools.",
+      description: "QuickBooks Online sync, email transport (Gmail / Microsoft / SMTP), reconciliation and data tools.",
       badge:
         qboStatus === null
           ? { state: "loading", label: "" }
@@ -51,8 +51,8 @@ export default function SettingsPage() {
     {
       href: "/settings/notifications",
       icon: Mail,
-      title: "Notifications & Email",
-      description: "SMTP server configuration for sending collection reminder emails and receipts.",
+      title: "Notifications",
+      description: "Email notification preferences, default CC address and reminder schedules.",
       badge:
         smtpStatus === null
           ? { state: "loading", label: "" }
