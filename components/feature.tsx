@@ -90,6 +90,15 @@ export function EmailComposer({ context, onClose }: any) {
   const { customers, contacts, invoices, projects, sendEmail } = useData();
   const { data: session } = useSession();
 
+  // Fetch email templates for the template selector
+  const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/email-templates")
+      .then(r => r.ok ? r.json() : [])
+      .then(setEmailTemplates)
+      .catch(() => {});
+  }, []);
+
   const customer = customers.find((c: any) => c.id === context.customerId);
   const invoice = context.invoiceId ? invoices.find((i: any) => i.id === context.invoiceId) : null;
   const contextProject = context.projectId ? projects.find((p: any) => p.id === context.projectId) : null;
