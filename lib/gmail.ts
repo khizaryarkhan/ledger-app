@@ -53,7 +53,7 @@ export async function createGmailDraft(
     [
       `From: ${from}`,
       `To: ${to}`,
-      `Subject: ${subject}`,
+      `Subject: ${encodeHeader(subject)}`,
       `Content-Type: text/plain; charset=utf-8`,
       ``,
       body,
@@ -86,6 +86,17 @@ export async function createGmailDraft(
  * Send an email directly via Gmail API (not as a draft).
  * Supports plain-text body, CC, BCC, and PDF attachments.
  */
+/**
+ * RFC 2047 encode a header value that contains non-ASCII characters (e.g. em dash).
+ * Without this, Gmail will corrupt special characters in the Subject line.
+ */
+function encodeHeader(value: string): string {
+  if (/[^\x00-\x7F]/.test(value)) {
+    return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+  }
+  return value;
+}
+
 export async function sendGmail(
   accessToken: string,
   from: string,
@@ -129,7 +140,7 @@ export async function sendGmail(
       `To: ${opts.to}`,
       ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
       ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-      `Subject: ${opts.subject}`,
+      `Subject: ${encodeHeader(opts.subject)}`,
       `MIME-Version: 1.0`,
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
       ``,
@@ -141,7 +152,7 @@ export async function sendGmail(
       `To: ${opts.to}`,
       ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
       ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-      `Subject: ${opts.subject}`,
+      `Subject: ${encodeHeader(opts.subject)}`,
       `Content-Type: text/plain; charset=utf-8`,
       ``,
       opts.body,
