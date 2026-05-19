@@ -66,7 +66,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       amount: isCm ? -Math.abs(inv.total) : inv.total,
       balance,
       currency: inv.currency,
-      status: inv.paymentStatus === "Paid" ? "Paid"
+      // Credit memos: mirror QBO terminology — "Applied" when balance=0, "Unpaid" otherwise
+      // Invoices: use paymentStatus / collectionStage as normal
+      status: isCm
+            ? (inv.paymentStatus === "Paid" ? "Applied" : "Unpaid")
+            : inv.paymentStatus === "Paid" ? "Paid"
             : inv.collectionStage === "Closed" ? "Closed"
             : inv.paymentStatus,
       memo: inv.notes,

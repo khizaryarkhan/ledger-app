@@ -531,6 +531,10 @@ export async function runQboSync(orgId: string, userId: string) {
     // Match invoice convention: amount = ex-tax, total + qboBalance = gross.
     // (Previously total/qboBalance were ex-tax, which under-counted CM open
     //  amounts by the VAT — caused AR Aging to differ from QBO by tax%.)
+    //
+    // paymentStatus mirrors QBO:
+    //   balance === 0  → fully applied ("Applied" in QBO) → "Paid" in our schema
+    //   balance  >  0  → unapplied / partially applied    → "Unpaid"
     const cmFields = {
       amount: -netAmt,         // negative ex-tax face value (for sales reporting)
       taxAmount: -taxAmount,   // negative tax amount
@@ -540,6 +544,7 @@ export async function runQboSync(orgId: string, userId: string) {
       qboCustomerId: cm.CustomerRef?.value,
       qboSyncedAt: new Date(),
       updatedAt: new Date(),
+      paymentStatus: (balance === 0 ? "Paid" : "Unpaid") as "Paid" | "Unpaid",
     };
 
     const existing = ledgerInvByNumber.get(creditNumber) || ledgerInvByQboId.get(`CM-${cm.Id}`);
@@ -555,9 +560,8 @@ export async function runQboSync(orgId: string, userId: string) {
         invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
         dueDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
         currency: cust.currency || "EUR",
-        ...cmFields,
+        ...cmFields,       // includes paymentStatus derived from balance
         paymentTerms: 0,
-        paymentStatus: "Unpaid" as const,
         collectionStage: "Credit Memo",
         collectionOwnerId: userId,
         qboId: `CM-${cm.Id}`,
