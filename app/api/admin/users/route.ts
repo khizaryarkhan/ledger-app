@@ -70,9 +70,14 @@ export async function GET(req: Request) {
     repManagerId: reps.managerId,
   };
 
-  const rows = isSuper
-    ? await db.select(withReps).from(users).leftJoin(reps, eq(reps.id, users.repId))
-    : await db.select(withReps).from(users).leftJoin(reps, eq(reps.id, users.repId)).where(eq(users.orgId, orgId!));
+  // Always scope to the active org — even super admins should only see users
+  // for the org they are currently operating in. Cross-org user lookups must
+  // use the explicit ?orgId= param above (admin portal only).
+  const rows = await db
+    .select(withReps)
+    .from(users)
+    .leftJoin(reps, eq(reps.id, users.repId))
+    .where(eq(users.orgId, orgId!));
   return ok(rows);
 }
 
