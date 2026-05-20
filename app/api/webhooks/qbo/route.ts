@@ -11,7 +11,7 @@
  * Setup (one-time, in Intuit Developer portal):
  *   1. Go to https://developer.intuit.com → your app → Webhooks
  *   2. Add endpoint URL: https://your-domain.com/api/webhooks/qbo
- *   3. Select events: Invoice, Payment, CreditMemo, Customer
+ *   3. Select events: Invoice, Payment, CreditMemo, Customer, RefundReceipt
  *   4. Copy the "Verifier Token" → add to .env as QBO_WEBHOOK_VERIFIER_TOKEN
  */
 
@@ -22,7 +22,7 @@ import { eq } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
 
 // Entity types we care about — ignore everything else (Estimate, Bill, etc.)
-const RELEVANT_ENTITIES = new Set(["Invoice", "Payment", "CreditMemo", "Customer"]);
+const RELEVANT_ENTITIES = new Set(["Invoice", "Payment", "CreditMemo", "Customer", "RefundReceipt"]);
 
 export async function POST(req: Request) {
   // 1. Read raw body BEFORE any parsing (signature is over raw bytes)
@@ -81,7 +81,13 @@ export async function POST(req: Request) {
 
     const relevant = entities
       .filter((e: any) => RELEVANT_ENTITIES.has(e.name))
-      .map((e: any) => ({ name: e.name, id: e.id, operation: e.operation }));
+      .map((e: any) => ({
+        name: e.name,
+        id: e.id,
+        operation: e.operation,
+        // Merge operations include the ID of the record that was absorbed
+        ...(e.deletedId ? { deletedId: e.deletedId } : {}),
+      }));
 
     if (relevant.length > 0) workItems.push({ realmId, changes: relevant });
   }

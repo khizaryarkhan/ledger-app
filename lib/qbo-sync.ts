@@ -1308,9 +1308,10 @@ export async function runQboSync(orgId: string, userId: string) {
 // TARGETED SYNC — webhook only, fast (fetches specific entities)
 // ============================================================
 export type QboEntityChange = {
-  name: string;   // "Invoice" | "Payment" | "CreditMemo" | "Customer"
-  id: string;     // QBO entity ID
+  name: string;      // "Invoice" | "Payment" | "CreditMemo" | "Customer" | "RefundReceipt"
+  id: string;        // QBO entity ID
   operation: string; // "Create" | "Update" | "Delete" | "Void" | "Merge"
+  deletedId?: string; // Merge only — the QBO ID of the record that was absorbed/deleted
 };
 
 export async function syncTargetedEntities(
@@ -1324,7 +1325,7 @@ export async function syncTargetedEntities(
 
   // Categorise changes
   const invoiceIds = entityChanges
-    .filter((e) => e.name === "Invoice" && !["Delete", "Void"].includes(e.operation))
+    .filter((e) => e.name === "Invoice" && !["Delete", "Void", "Merge"].includes(e.operation))
     .map((e) => e.id);
   const creditIds = entityChanges
     .filter((e) => e.name === "CreditMemo" && !["Delete", "Void"].includes(e.operation))
@@ -1332,12 +1333,31 @@ export async function syncTargetedEntities(
   const paymentIds = entityChanges
     .filter((e) => e.name === "Payment" && !["Delete", "Void"].includes(e.operation))
     .map((e) => e.id);
+  const deletedPaymentQboIds = entityChanges
+    .filter((e) => e.name === "Payment" && ["Delete", "Void"].includes(e.operation))
+    .map((e) => e.id);
   const deletedInvoiceQboIds = entityChanges
     .filter((e) => e.name === "Invoice" && ["Delete", "Void"].includes(e.operation))
     .map((e) => e.id);
   const deletedCreditQboIds = entityChanges
     .filter((e) => e.name === "CreditMemo" && ["Delete", "Void"].includes(e.operation))
     .map((e) => `CM-${e.id}`);
+  const customerIds = entityChanges
+    .filter((e) => e.name === "Customer" && !["Delete", "Void", "Merge"].includes(e.operation))
+    .map((e) => e.id);
+  const refundIds = entityChanges
+    .filter((e) => e.name === "RefundReceipt" && !["Delete", "Void"].includes(e.operation))
+    .map((e) => e.id);
+  const deletedRefundQboIds = entityChanges
+    .filter((e) => e.name === "RefundReceipt" && ["Delete", "Void"].includes(e.operation))
+    .map((e) => e.id);
+  // Merge: the surviving record gets a regular Update; we need to clean up the deleted side
+  const mergedInvoiceDeletedIds = entityChanges
+    .filter((e) => e.name === "Invoice" && e.operation === "Merge" && e.deletedId)
+    .map((e) => e.deletedId!);
+  const mergedCustomerDeletedIds = entityChanges
+    .filter((e) => e.name === "Customer" && e.operation === "Merge" && e.deletedId)
+    .map((e) => e.deletedId!);
 
   // Load current ledger state for this org
   const [allLedgerInvoices, allLedgerCustomers, allLedgerProjects] = await Promise.all([
@@ -1537,7 +1557,7 @@ export async function syncTargetedEntities(
     }
   }
 
-  // --- Deleted / Voided ---
+  // --- Deleted / Voided Invoices & Credit Memos ---
   const allDeletedQboIds = [
     ...deletedInvoiceQboIds,
     ...deletedCreditQboIds,
@@ -1551,6 +1571,168 @@ export async function syncTargetedEntities(
         .set({ paymentStatus: "Written Off", collectionStage: "Closed", updatedAt: new Date() })
         .where(eq(invoices.id, existing.id))
     );
+  }
+
+  // --- Payment Delete / Void: reopen linked invoices ---
+  // A deleted/voided payment no longer reduces the invoice balance — re-fetch
+  // the affected invoices from QBO so their balance/status reflect the reversal.
+  if (deletedPaymentQboIds.length > 0) {
+    // Find the local payment records by QBO ID so we can look up their applications
+    const localPayments = await db
+      .select({ id: payments.id })
+      .from(payments)
+      .where(and(eq(payments.orgId, orgId), inArray(payments.qboId, deletedPaymentQboIds)));
+
+    if (localPayments.length > 0) {
+      const localPaymentIds = localPayments.map((p) => p.id);
+      // Find every invoice that was paid (at least partially) by these payments
+      const apps = await db
+        .select({ targetQboId: paymentApplications.targetQboId, targetType: paymentApplications.targetType })
+        .from(paymentApplications)
+        .where(
+          and(
+            inArray(paymentApplications.paymentId, localPaymentIds),
+            eq(paymentApplications.targetType, "Invoice"),
+          )
+        );
+
+      const linkedInvoiceQboIds = [...new Set(apps.map((a) => a.targetQboId))];
+      if (linkedInvoiceQboIds.length > 0) {
+        // Re-fetch each invoice from QBO — balance will now reflect the reversal
+        const refreshed = await Promise.all(
+          linkedInvoiceQboIds.map((id) =>
+            qboApiGet(accessToken, realmId, `invoice/${id}`)
+              .then((r) => r.Invoice)
+              .catch(() => null)
+          )
+        );
+        for (const qi of refreshed.filter(Boolean)) await processQboInvoice(qi);
+      }
+
+      // Mark the deleted payments as removed in our local payments table
+      if (localPayments.length > 0) {
+        updatePromises.push(
+          db
+            .delete(payments)
+            .where(and(eq(payments.orgId, orgId), inArray(payments.qboId, deletedPaymentQboIds)))
+        );
+      }
+    }
+  }
+
+  // --- Customer changes: sync name, email, status ---
+  if (customerIds.length > 0) {
+    const qboCustomers = await Promise.all(
+      customerIds.map((id) =>
+        qboApiGet(accessToken, realmId, `customer/${id}`)
+          .then((r) => r.Customer)
+          .catch(() => null)
+      )
+    );
+    for (const qc of qboCustomers.filter(Boolean)) {
+      const existing = ledgerCustByQboId.get(qc.Id);
+      if (!existing) continue; // Customer not in ledger yet — full sync will pick it up
+      const isActive = qc.Active !== false; // QBO sets Active=false when deactivated
+      updatePromises.push(
+        db
+          .update(customers)
+          .set({
+            name:      qc.FullyQualifiedName || qc.DisplayName || existing.name,
+            email:     qc.PrimaryEmailAddr?.Address || existing.email,
+            phone:     qc.PrimaryPhone?.FreeFormNumber || existing.phone,
+            status:    isActive ? existing.status : "Inactive",
+            updatedAt: new Date(),
+          })
+          .where(eq(customers.id, existing.id))
+      );
+    }
+  }
+
+  // --- RefundReceipt: upsert ---
+  if (refundIds.length > 0) {
+    const qboRefunds = await Promise.all(
+      refundIds.map((id) =>
+        qboApiGet(accessToken, realmId, `refundreceipt/${id}`)
+          .then((r) => r.RefundReceipt)
+          .catch(() => null)
+      )
+    );
+    for (const rr of qboRefunds.filter(Boolean)) {
+      const qboCustomerId: string | undefined = rr.CustomerRef?.value;
+      const localCustomer = qboCustomerId ? ledgerCustByQboId.get(qboCustomerId) : undefined;
+
+      // Check if we already have this refund
+      const existingRefunds = await db
+        .select({ id: refundReceipts.id })
+        .from(refundReceipts)
+        .where(and(eq(refundReceipts.orgId, orgId), eq(refundReceipts.qboId, rr.Id)))
+        .limit(1);
+
+      const refundFields = {
+        orgId,
+        qboId:                  rr.Id,
+        customerId:             localCustomer?.id ?? null,
+        qboCustomerId:          qboCustomerId ?? null,
+        txnDate:                rr.TxnDate || new Date().toISOString().slice(0, 10),
+        totalAmount:            parseFloat(rr.TotalAmt) || 0,
+        currency:               rr.CurrencyRef?.value || "EUR",
+        paymentMethod:          rr.PaymentMethodRef?.name || null,
+        refundFromAccountId:    rr.DepositToAccountRef?.value || null,
+        refundFromAccountName:  rr.DepositToAccountRef?.name || null,
+        privateNote:            rr.PrivateNote || null,
+        qboSyncedAt:            new Date(),
+        updatedAt:              new Date(),
+      };
+
+      if (existingRefunds.length > 0) {
+        updatePromises.push(
+          db.update(refundReceipts).set(refundFields).where(eq(refundReceipts.id, existingRefunds[0].id))
+        );
+      } else {
+        updatePromises.push(
+          db.insert(refundReceipts).values(refundFields).onConflictDoNothing()
+        );
+      }
+    }
+  }
+
+  // --- RefundReceipt deleted/voided: remove local record ---
+  if (deletedRefundQboIds.length > 0) {
+    updatePromises.push(
+      db
+        .delete(refundReceipts)
+        .where(and(eq(refundReceipts.orgId, orgId), inArray(refundReceipts.qboId, deletedRefundQboIds)))
+    );
+  }
+
+  // --- Merge: clean up the absorbed (deleted) side ---
+  // The surviving record is handled by a companion Update event (normal flow above).
+  // Here we just tombstone the record that was absorbed.
+  if (mergedInvoiceDeletedIds.length > 0) {
+    for (const deletedQboId of mergedInvoiceDeletedIds) {
+      const existing = ledgerInvByQboId.get(deletedQboId);
+      if (!existing) continue;
+      updatePromises.push(
+        db
+          .update(invoices)
+          .set({ paymentStatus: "Written Off", collectionStage: "Closed", updatedAt: new Date() })
+          .where(eq(invoices.id, existing.id))
+      );
+    }
+  }
+  if (mergedCustomerDeletedIds.length > 0) {
+    for (const deletedQboId of mergedCustomerDeletedIds) {
+      const existing = ledgerCustByQboId.get(deletedQboId);
+      if (!existing) continue;
+      // Mark as inactive — the surviving customer absorbs all their invoices in QBO.
+      // A subsequent full sync will re-parent the invoices to the surviving customer.
+      updatePromises.push(
+        db
+          .update(customers)
+          .set({ status: "Inactive", updatedAt: new Date() })
+          .where(eq(customers.id, existing.id))
+      );
+    }
   }
 
   // --- Execute ---
