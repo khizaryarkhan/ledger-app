@@ -5,11 +5,16 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
-  CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp
+  CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X
 } from "lucide-react";
 import { useData } from "./data-provider";
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { invoices, communications, tasks, orgSettings } = useData();
@@ -65,12 +70,23 @@ export function Sidebar() {
   ];
 
   const userName = session?.user?.name || "User";
-  const initials = userName.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
 
   return (
-    <aside className="w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen sticky top-0">
-      <div className="px-4 py-4 border-b border-stone-200">
-        <div className="flex items-center gap-2.5 h-8">
+    <aside
+      className={[
+        // Base styles
+        "w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen",
+        // Mobile: fixed overlay, slides in/out
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out",
+        isOpen ? "translate-x-0 shadow-xl" : "-translate-x-full",
+        // Desktop: back in normal flow, always visible
+        "md:sticky md:top-0 md:translate-x-0 md:shadow-none",
+      ].join(" ")}
+    >
+      {/* Logo + mobile close button */}
+      <div className="px-4 py-4 border-b border-stone-200 flex items-center justify-between">
+        <div className="flex items-center gap-2.5 h-8 min-w-0">
           {orgSettings?.logoUrl ? (
             <img
               src={orgSettings.logoUrl}
@@ -78,11 +94,19 @@ export function Sidebar() {
               className="h-8 w-auto object-contain"
             />
           ) : (
-            <span className="text-sm font-semibold text-stone-800 tracking-tight">
+            <span className="text-sm font-semibold text-stone-800 tracking-tight truncate">
               {orgSettings?.displayName || orgSettings?.name || ""}
             </span>
           )}
         </div>
+        {/* Close button — only shown on mobile */}
+        <button
+          onClick={onClose}
+          className="md:hidden p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700 shrink-0"
+          aria-label="Close menu"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-2">
@@ -100,6 +124,7 @@ export function Sidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={onClose}  // auto-close on mobile when navigating
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     isActive
                       ? "bg-brand-navy text-white"
@@ -130,7 +155,7 @@ export function Sidebar() {
 
       <div className="p-3 border-t border-stone-200">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-[11px] font-semibold">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
             {initials}
           </div>
           <div className="flex-1 min-w-0">
