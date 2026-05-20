@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { projects, organisations, reps } from "@/db/schema";
+import { projects } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid(),
@@ -13,35 +13,12 @@ const Schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const { error, orgId, role, repId } = await requireOrg();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
 
+  // All roles see all projects in their organisation — balances must match.
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
-
-  // rep or company_user scoped to their projects
-  if ((role === "rep" || role === "company_user") && repId) {
-    const [repRow] = await db.select({ tier: reps.tier })
-      .from(reps).where(and(eq(reps.id, repId), eq(reps.orgId, orgId!))).limit(1);
-    const tier = repRow?.tier ?? "rep";
-
-    // Build the list of repIds this user can see
-    let visibleRepIds: string[] = [repId];
-    if (tier === "ed" || tier === "rd") {
-      const reportees = await db.select({ id: reps.id })
-        .from(reps).where(and(eq(reps.orgId, orgId!), eq(reps.managerId, repId)));
-      visibleRepIds = [repId, ...reportees.map(r => r.id)];
-    }
-
-    const [org] = await db.select({ level: organisations.classificationLevel })
-      .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
-    const level = org?.level ?? "customer";
-
-    const filter = level === "project"
-      ? and(eq(projects.orgId, orgId!), inArray(projects.repId, visibleRepIds), customerId ? eq(projects.customerId, customerId) : undefined)
-      : and(eq(projects.orgId, orgId!), customerId ? eq(projects.customerId, customerId) : undefined);
-    return ok(await db.select().from(projects).where(filter));
-  }
 
   if (customerId) {
     return ok(await db.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.customerId, customerId))));

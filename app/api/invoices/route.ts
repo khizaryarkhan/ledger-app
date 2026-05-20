@@ -1,8 +1,8 @@
 import { db } from "@/db";
-import { invoices, customers, projects, organisations, reps } from "@/db/schema";
+import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 const Schema = z.object({
   invoiceNumber: z.string().min(1).max(64),
@@ -23,46 +23,10 @@ const Schema = z.object({
 });
 
 export async function GET() {
-  const { error, orgId, role, repId } = await requireOrg();
+  const { error, orgId } = await requireOrg();
   if (error) return error;
 
-  // Rep role: only return invoices for this rep's assigned customers/projects
-  if ((role === "rep" || role === "company_user") && repId) {
-    const [repRow] = await db.select({ tier: reps.tier })
-      .from(reps).where(and(eq(reps.id, repId), eq(reps.orgId, orgId!))).limit(1);
-    const tier = repRow?.tier ?? "rep";
-
-    // Build the list of repIds this user can see
-    let visibleRepIds: string[] = [repId];
-    if (tier === "ed" || tier === "rd") {
-      const reportees = await db.select({ id: reps.id })
-        .from(reps).where(and(eq(reps.orgId, orgId!), eq(reps.managerId, repId)));
-      visibleRepIds = [repId, ...reportees.map(r => r.id)];
-    }
-
-    const [org] = await db.select({ level: organisations.classificationLevel })
-      .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
-    const level = org?.level ?? "customer";
-
-    if (level === "project") {
-      const repProjects = await db.select({ id: projects.id })
-        .from(projects).where(and(eq(projects.orgId, orgId!), inArray(projects.repId, visibleRepIds)));
-      if (repProjects.length === 0) return ok([]);
-      const projectIds = repProjects.map(p => p.id);
-      return ok(await db.select().from(invoices)
-        .where(and(eq(invoices.orgId, orgId!), inArray(invoices.projectId, projectIds)))
-        .orderBy(desc(invoices.dueDate)));
-    } else {
-      const repCustomers = await db.select({ id: customers.id })
-        .from(customers).where(and(eq(customers.orgId, orgId!), inArray(customers.repId, visibleRepIds)));
-      if (repCustomers.length === 0) return ok([]);
-      const customerIds = repCustomers.map(c => c.id);
-      return ok(await db.select().from(invoices)
-        .where(and(eq(invoices.orgId, orgId!), inArray(invoices.customerId, customerIds)))
-        .orderBy(desc(invoices.dueDate)));
-    }
-  }
-
+  // All roles see all invoices in their organisation — balances must match.
   return ok(await db.select().from(invoices).where(eq(invoices.orgId, orgId!)).orderBy(desc(invoices.dueDate)));
 }
 
