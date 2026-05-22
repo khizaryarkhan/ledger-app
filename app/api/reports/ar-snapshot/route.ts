@@ -97,7 +97,38 @@ export async function GET(req: Request) {
       };
     }
 
-    // Invoice
+    // Non-CM rows with a negative openBalance are AR credits (e.g. a credit
+    // Journal Entry line or a negative Deposit).  If we map them as "Invoice"
+    // the Dashboard would include them in grossReceivable (correctly reducing
+    // it) while Reports' invBuckets() would silently drop them with its
+    // `if (out <= 0) return b` guard — causing a mismatch equal to the sum of
+    // those credits.  Mapping them as CreditMemo lets every downstream
+    // consumer (Dashboard activeCMs filter, invBuckets CM path, arByRegion
+    // activeCMs loop) apply the same negative-credit logic consistently.
+    if (d.openBalance < 0) {
+      return {
+        id:              d.txnId,
+        customerId:      owned?.customerId ?? d.customerId,
+        projectId:       owned?.projectId ?? d.projectId ?? null,
+        invoiceNumber:   d.txnNumber,
+        invoiceDate:     d.txnDate,
+        dueDate:         d.dueDate,
+        currency:        d.currency,
+        total:           d.openBalance,
+        paid:            0,
+        qboBalance:      d.openBalance,
+        paymentStatus:   "Unpaid",
+        collectionStage: "New",
+        paidAt:          null,
+        qboId:           d.qboId,
+        txnType:         "CreditMemo",
+        amount:          d.openBalance,
+        taxAmount:       0,
+        paymentTerms:    30,
+      };
+    }
+
+    // Invoice (positive open balance)
     return {
       id:              d.txnId,
       customerId:      owned?.customerId ?? d.customerId,
