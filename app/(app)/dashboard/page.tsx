@@ -614,76 +614,109 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-3 mb-3">
-        <Card padding="md">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
-            <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
-          </div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
-          <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className="text-2xl font-semibold text-rose-600 tracking-tight">{fmt.money(stats.totalOverdue, ccy)}</div>
-          <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
-          <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, ccy)}</div>
-          <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
-          <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
-          <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
-        </Card>
-      </div>
-      <div className="grid grid-cols-4 gap-3 mb-3">
-        <Card padding="md" className="col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">DSO vs Best Possible</div>
-            <TrendingUp size={14} className="text-stone-400" />
-          </div>
-          <div className="flex items-end gap-4 mb-3">
-            <div>
-              <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.dso}d</div>
-              <div className="text-[11px] text-stone-500">Actual DSO</div>
+      {/* KPI skeleton helper — shown while AR snapshot is loading */}
+      {(() => {
+        const S = ({ w = "w-28" }: { w?: string }) => (
+          <div className={`h-7 ${w} bg-stone-100 animate-pulse rounded mt-1`} />
+        );
+        const Sub = () => <div className="h-3 w-20 bg-stone-100 animate-pulse rounded mt-2" />;
+
+        return (
+          <>
+            <div className="grid grid-cols-4 gap-3 mb-3">
+              <Card padding="md">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
+                  <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
+                </div>
+                {snapshotLoading ? <><S /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
+                  <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
+                </>}
+              </Card>
+              <Card padding="md">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
+                {snapshotLoading ? <><S /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-rose-600 tracking-tight">{fmt.money(stats.totalOverdue, ccy)}</div>
+                  <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
+                </>}
+              </Card>
+              <Card padding="md">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
+                {snapshotLoading ? <><S /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, ccy)}</div>
+                  <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
+                </>}
+              </Card>
+              <Card padding="md">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
+                {snapshotLoading ? <><S /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
+                  <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
+                </>}
+              </Card>
             </div>
-            <div className="pb-1 text-stone-300">/</div>
-            <div>
-              <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.bpDso}d</div>
-              <div className="text-[11px] text-stone-500">Best possible</div>
+            <div className="grid grid-cols-4 gap-3 mb-3">
+              <Card padding="md" className="col-span-2">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">DSO vs Best Possible</div>
+                  <TrendingUp size={14} className="text-stone-400" />
+                </div>
+                {snapshotLoading ? (
+                  <div className="space-y-2">
+                    <div className="h-7 w-40 bg-stone-100 animate-pulse rounded" />
+                    <div className="h-2 bg-stone-100 animate-pulse rounded-full" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-end gap-4 mb-3">
+                      <div>
+                        <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.dso}d</div>
+                        <div className="text-[11px] text-stone-500">Actual DSO</div>
+                      </div>
+                      <div className="pb-1 text-stone-300">/</div>
+                      <div>
+                        <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.bpDso}d</div>
+                        <div className="text-[11px] text-stone-500">Best possible</div>
+                      </div>
+                      {stats.dsoGap > 0 && (
+                        <div className="ml-auto">
+                          <div className="text-xl font-semibold text-amber-600 tracking-tight">+{stats.dsoGap}d</div>
+                          <div className="text-[11px] text-stone-500">Collection gap</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                      <div className="h-full flex">
+                        <div className="h-full bg-emerald-400 rounded-l" style={{ width: `${stats.dso > 0 ? (stats.bpDso / stats.dso) * 100 : 0}%` }} />
+                        <div className="h-full bg-amber-400" style={{ width: `${stats.dso > 0 ? (stats.dsoGap / stats.dso) * 100 : 0}%` }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 text-[10px] text-stone-400">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Best possible</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Collection gap</span>
+                    </div>
+                  </>
+                )}
+              </Card>
+              <Card padding="md">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Collection rate</div>
+                {snapshotLoading ? <><S w="w-16" /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.collectionRate}%</div>
+                  <div className="mt-2 text-[11px] text-stone-500">{stats.recentlyClosed} closed last 30d</div>
+                </>}
+              </Card>
+              <Card padding="md">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
+                {snapshotLoading ? <><S /><Sub /></> : <>
+                  <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised, ccy)}</div>
+                  <div className="mt-2 text-[11px] text-stone-500">Promise to pay</div>
+                </>}
+              </Card>
             </div>
-            {stats.dsoGap > 0 && (
-              <div className="ml-auto">
-                <div className="text-xl font-semibold text-amber-600 tracking-tight">+{stats.dsoGap}d</div>
-                <div className="text-[11px] text-stone-500">Collection gap</div>
-              </div>
-            )}
-          </div>
-          <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-            <div className="h-full flex">
-              <div className="h-full bg-emerald-400 rounded-l" style={{ width: `${stats.dso > 0 ? (stats.bpDso / stats.dso) * 100 : 0}%` }} />
-              <div className="h-full bg-amber-400" style={{ width: `${stats.dso > 0 ? (stats.dsoGap / stats.dso) * 100 : 0}%` }} />
-            </div>
-          </div>
-          <div className="flex items-center gap-4 mt-2 text-[10px] text-stone-400">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Best possible</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Collection gap</span>
-          </div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Collection rate</div>
-          <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.collectionRate}%</div>
-          <div className="mt-2 text-[11px] text-stone-500">{stats.recentlyClosed} closed last 30d</div>
-        </Card>
-        <Card padding="md">
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
-          <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised, ccy)}</div>
-          <div className="mt-2 text-[11px] text-stone-500">Promise to pay</div>
-        </Card>
-      </div>
+          </>
+        );
+      })()}
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="col-span-2">
