@@ -529,29 +529,47 @@ export default function DashboardPage() {
     return { rows: sorted, top5Pct, totalAR };
   }, [effectiveInvoices, customers]);
 
-  // AR by Region — open AR grouped per region for the dashboard card
+  // AR by Region — net open AR grouped per region (matches Reports → Aging by Region).
+  // Invoices contribute positive balances; CreditMemos contribute negative credits
+  // (unapplied credits reduce the region total). This ensures the per-region totals
+  // reconcile with both the KPI cards and the Reports page.
   const arByRegion = useMemo(() => {
-    const open = effectiveInvoices.filter((i: any) =>
+    const openInvoices = effectiveInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
       i.txnType !== "CreditMemo"
     );
+    // Unapplied credits (CMs with a negative open balance)
+    const activeCMs = effectiveInvoices.filter((i: any) =>
+      i.txnType === "CreditMemo" && openBal(i) < 0
+    );
+
     const regionMap: Record<string, { name: string; total: number; overdue: number; count: number }> = {};
-    open.forEach((i: any) => {
+
+    const addRow = (i: any, bal: number, countIt: boolean, overdue: boolean) => {
       const c = customers.find((c: any) => c.id === i.customerId);
       const p = projects.find((p: any) => p.id === i.projectId);
       const regionId = c?.regionId || p?.regionId;
-      const region = (regions ?? []).find((r: any) => r.id === regionId);
-      const key = regionId || "__unassigned__";
+      const region   = (regions ?? []).find((r: any) => r.id === regionId);
+      const key  = regionId || "__unassigned__";
       const name = region?.name ?? "Unassigned";
       if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0 };
-      const bal = openBal(i);
       regionMap[key].total += bal;
-      regionMap[key].count += 1;
-      if (daysOverdue(i.dueDate) > 0) regionMap[key].overdue += bal;
+      if (countIt) regionMap[key].count += 1;
+      if (overdue) regionMap[key].overdue += bal;
+    };
+
+    openInvoices.forEach((i: any) => {
+      const bal = openBal(i);
+      addRow(i, bal, true, daysOverdue(i.dueDate) > 0);
     });
+
+    // CMs land in the region total as negative credits (they don't age)
+    activeCMs.forEach((i: any) => addRow(i, openBal(i), false, false));
+
     return Object.entries(regionMap)
       .map(([id, data]) => ({ id, ...data }))
+      .filter(r => r.total !== 0)
       .sort((a, b) => b.total - a.total);
   }, [effectiveInvoices, customers, projects, regions]);
 
