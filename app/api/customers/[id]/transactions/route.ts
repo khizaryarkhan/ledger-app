@@ -16,7 +16,7 @@ export type CustomerTxn = {
   id: string;
   refId: string;          // route param for opening detail (invoice id, etc.)
   txnDate: string;        // YYYY-MM-DD
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit" | "Cheque Expense";
   number: string | null;  // invoice number, payment ref, etc.
   amount: number;         // signed: positive = increases AR, negative = decreases AR
   balance: number;        // open balance (invoice unpaid, CM/payment unapplied) — always >= 0
@@ -123,15 +123,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
   }
 
-  // Deposits hitting AR (one row per AR-affecting deposit line for this customer)
+  // Deposits and Purchases hitting AR (one row per AR-affecting line for this customer).
+  // Both entity types are stored in the deposits table; txnSource distinguishes them.
   for (const d of deps) {
+    const isPurchase = (d as any).txnSource === "Purchase";
     rows.push({
       id: `dep-${d.id}`,
       refId: d.id,
       txnDate: d.txnDate,
-      type: "Deposit",
+      type: isPurchase ? "Cheque Expense" : "Deposit",
       number: d.qboId,
-      amount: d.amount, // signed (negative = customer credit)
+      amount: d.amount, // signed (negative = customer credit, positive = debit)
       balance: 0,
       currency: d.currency,
       status: "Posted",
@@ -139,6 +141,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       meta: {
         accountName: d.accountName,
         qboId: d.qboId,
+        txnSource: (d as any).txnSource || "Deposit",
       },
     });
   }
@@ -176,6 +179,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       "Refund Receipt": rows.filter(r => r.type === "Refund Receipt").length,
       "Journal Entry": rows.filter(r => r.type === "Journal Entry").length,
       "Deposit": rows.filter(r => r.type === "Deposit").length,
+      "Cheque Expense": rows.filter(r => r.type === "Cheque Expense").length,
     },
   });
 }

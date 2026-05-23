@@ -1092,6 +1092,7 @@ export async function runQboSync(orgId: string, userId: string) {
               txnDate:       dep.TxnDate,
               amount:        signedAmount,
               currency:      dep.CurrencyRef?.value || "EUR",
+              txnSource:     "Deposit" as const,
               description:   line.Description || null,
               privateNote:   dep.PrivateNote || null,
               qboSyncedAt:   new Date(),
@@ -1182,6 +1183,7 @@ export async function runQboSync(orgId: string, userId: string) {
               txnDate:       pur.TxnDate,
               amount:        signedAmount,   // POSITIVE — debit to AR
               currency:      pur.CurrencyRef?.value || "EUR",
+              txnSource:     "Purchase" as const,
               description:   line.Description || `Purchase AR line (${pur.PaymentType || "Check"})`,
               privateNote:   pur.PrivateNote || null,
               qboSyncedAt:   new Date(),

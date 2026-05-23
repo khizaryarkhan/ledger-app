@@ -327,6 +327,9 @@ export const deposits = pgTable("deposits", {
   amount:          real("amount").notNull(),                          // SIGNED — negative = AR credit
   currency:        varchar("currency", { length: 8 }).notNull().default("EUR"),
 
+  // 'Deposit' (QBO Deposit entity) | 'Purchase' (QBO Purchase / Cheque Expense with AR line)
+  txnSource:       varchar("txn_source", { length: 32 }).notNull().default("Deposit"),
+
   description:     text("description"),
   privateNote:     text("private_note"),
 
