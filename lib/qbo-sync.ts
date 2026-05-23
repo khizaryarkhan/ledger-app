@@ -191,6 +191,14 @@ export async function runQboSync(orgId: string, userId: string) {
   // need to be captured so customer balances tie to QBO.
   const allQboDeposits = await qboFetchAllSafe(accessToken, realmId, "Deposit");
   await sleep(300);
+  // Fetch all Purchase transactions (Cheque Expense / Card / Cash payments made
+  // by the business). These rarely affect AR, but when a Purchase line uses an
+  // AR account (e.g. a cheque written back to the customer to clear a credit
+  // balance), it DEBITS the AR account and must be captured so the customer's
+  // net balance reconciles with QBO. Without this, the customer would show a
+  // phantom negative balance equal to the Deposit credit we already synced.
+  const allQboPurchases = await qboFetchAllSafe(accessToken, realmId, "Purchase");
+  await sleep(300);
   // Discover Accounts Receivable account ID(s) — usually one per currency
   const arAccountsRaw = await qboQuery(
     accessToken, realmId,
@@ -1123,6 +1131,95 @@ export async function runQboSync(orgId: string, userId: string) {
     (results as any).depositsUpdated = depositsUpdated;
     (results as any).depositsSkipped = depositsSkipped;
 
+    // ── Purchase (Cheque Expense) AR lines ────────────────────────────────
+    // A Purchase line with AccountBasedExpenseLineDetail.AccountRef pointing at
+    // an AR account is a DEBIT to AR — the opposite sign to a Deposit credit.
+    // We store these in the same deposits table (which already handles signed
+    // AR lines) with a POSITIVE amount so they correctly offset any Deposit
+    // credits that landed on the same customer.
+    let purchasesCreated = 0, purchasesUpdated = 0, purchasesSkipped = 0;
+    if (arAccountIds.size > 0) {
+      const purToInsert: any[] = [];
+      const purToUpdate: Array<{ id: string; data: any }> = [];
+
+      // Re-use the existing deposit map — Purchase.Id is distinct from Deposit.Id
+      // so no collision with existing rows.
+      const existingDepIds = await db
+        .select({ id: deposits.id, qboId: deposits.qboId, qboLineId: deposits.qboLineId })
+        .from(deposits)
+        .where(eq(deposits.orgId, orgId));
+      const existingPurMap = new Map(
+        existingDepIds.map(r => [`${r.qboId}|${r.qboLineId ?? ""}`, r.id])
+      );
+
+      for (const pur of allQboPurchases) {
+        try {
+          if (!pur.Id || !pur.TxnDate) { purchasesSkipped++; continue; }
+          for (const line of (pur.Line || [])) {
+            if (line.DetailType !== "AccountBasedExpenseLineDetail") continue;
+            const detail = line.AccountBasedExpenseLineDetail;
+            if (!detail) continue;
+            const accountId = String(detail.AccountRef?.value || "");
+            if (!arAccountIds.has(accountId)) continue; // not an AR line
+
+            const lineId  = line.Id || null;
+            // Purchase debits AR → positive amount (increases customer balance /
+            // clears a credit that a prior Deposit left on the account).
+            const rawAmount    = parseFloat(line.Amount) || 0;
+            const signedAmount = +Math.abs(rawAmount);
+
+            const qboCustId  = detail.CustomerRef?.value ? String(detail.CustomerRef.value) : null;
+            const customerId = qboCustId ? (custByQboId.get(qboCustId) ?? null) : null;
+
+            const data = {
+              orgId,
+              qboId:         String(pur.Id),
+              qboLineId:     lineId,
+              customerId,
+              qboCustomerId: qboCustId,
+              accountId,
+              accountName:   arAccountNameById.get(accountId) || null,
+              txnDate:       pur.TxnDate,
+              amount:        signedAmount,   // POSITIVE — debit to AR
+              currency:      pur.CurrencyRef?.value || "EUR",
+              description:   line.Description || `Purchase AR line (${pur.PaymentType || "Check"})`,
+              privateNote:   pur.PrivateNote || null,
+              qboSyncedAt:   new Date(),
+              updatedAt:     new Date(),
+            };
+
+            const key = `${data.qboId}|${data.qboLineId ?? ""}`;
+            const existingId = existingPurMap.get(key);
+            if (existingId) purToUpdate.push({ id: existingId, data });
+            else            purToInsert.push(data);
+          }
+        } catch (e: any) {
+          purchasesSkipped++;
+          console.warn(`Purchase ${pur.Id || "?"}: ${e?.message || e}`);
+        }
+      }
+
+      for (let i = 0; i < purToInsert.length; i += 100) {
+        try {
+          await db.insert(deposits).values(purToInsert.slice(i, i + 100));
+          purchasesCreated += Math.min(100, purToInsert.length - i);
+        } catch {
+          for (const row of purToInsert.slice(i, i + 100)) {
+            try { await db.insert(deposits).values(row); purchasesCreated++; }
+            catch { purchasesSkipped++; }
+          }
+        }
+      }
+      await Promise.all(purToUpdate.map(({ id, data }) =>
+        db.update(deposits).set(data).where(eq(deposits.id, id))
+          .then(() => { purchasesUpdated++; })
+          .catch(() => { purchasesSkipped++; })
+      ));
+    }
+    (results as any).purchasesCreated = purchasesCreated;
+    (results as any).purchasesUpdated = purchasesUpdated;
+    (results as any).purchasesSkipped = purchasesSkipped;
+
     (results as any).paymentsCreated = paymentsCreated;
     (results as any).paymentsUpdated = paymentsUpdated;
     (results as any).paymentApplicationsCreated = appsCreated;
@@ -1138,7 +1235,8 @@ export async function runQboSync(orgId: string, userId: string) {
     console.log(
       `QBO sync: persisted payments (${paymentsCreated} new, ${paymentsUpdated} updated, ${appsCreated} applications, ${paymentsSkipped} skipped), ` +
       `refunds (${refundsCreated} new, ${refundsUpdated} updated, ${refundsSkipped} skipped), ` +
-      `JE AR lines (${jeLinesCreated} new, ${jeLinesUpdated} updated, ${jeLinesSkipped} skipped) for org ${orgId}`
+      `JE AR lines (${jeLinesCreated} new, ${jeLinesUpdated} updated, ${jeLinesSkipped} skipped), ` +
+      `purchase AR lines (${purchasesCreated} new, ${purchasesUpdated} updated, ${purchasesSkipped} skipped) for org ${orgId}`
     );
   } catch (e: any) {
     // Most likely cause: migration `db/migration-payments.sql` not yet applied.
