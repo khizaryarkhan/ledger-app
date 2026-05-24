@@ -18,16 +18,28 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const allInvoices = await db.select().from(invoices)
     .where(and(eq(invoices.customerId, params.id), eq(invoices.orgId, orgId!)));
 
-  // Only open invoices with a balance
-  const open = allInvoices.filter(i =>
-    i.paymentStatus !== "Paid" &&
-    i.paymentStatus !== "Written Off" &&
-    i.txnType !== "CreditMemo" &&
-    (i.total - (i.paid || 0)) > 0
-  ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+  // Authoritative open balance — mirrors the dashboard openBal() helper so
+  // the statement total always agrees with the AR Aging reports.
+  const openBal = (i: typeof allInvoices[0]): number => {
+    if (i.txnType === "CreditMemo") {
+      // CMs carry a negative qboBalance (unapplied credit).
+      return i.qboBalance != null ? Number(i.qboBalance) : 0;
+    }
+    if (i.qboBalance != null) return Math.max(0, Number(i.qboBalance));
+    return Math.max(0, Number(i.total || 0) - Number(i.paid || 0));
+  };
 
-  const totalBalance = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const currency = open[0]?.currency || "EUR";
+  // Open invoices + unapplied credit memos so the net total matches the AR
+  // Aging report. Previously CMs were excluded, causing the statement balance
+  // to overstate what the customer actually owes.
+  const open = allInvoices.filter(i => {
+    if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off") return false;
+    if (i.txnType === "CreditMemo") return openBal(i) < -0.005; // unapplied credit
+    return openBal(i) > 0.005;
+  }).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  const totalBalance = open.reduce((s, i) => s + openBal(i), 0);
+  const currency = open[0]?.currency || customer.currency || "EUR";
   const fmt = (n: number) => new Intl.NumberFormat("en-IE", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
   const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -35,18 +47,22 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const orgName = org?.displayName || org?.name || "Your Company";
 
   const rows = open.map(inv => {
-    const balance = inv.total - (inv.paid || 0);
+    const isCm = inv.txnType === "CreditMemo";
+    const balance = openBal(inv);
     const daysOv = Math.floor((Date.now() - new Date(inv.dueDate + "T12:00:00Z").getTime()) / 86400000);
-    const status = daysOv > 0 ? `${daysOv} days overdue` : daysOv === 0 ? "Due today" : `Due in ${Math.abs(daysOv)} days`;
-    const statusColor = daysOv > 30 ? "#dc2626" : daysOv > 0 ? "#d97706" : "#16a34a";
+    const status = isCm ? "Credit on Account"
+      : daysOv > 0 ? `${daysOv} days overdue`
+      : daysOv === 0 ? "Due today"
+      : `Due in ${Math.abs(daysOv)} days`;
+    const statusColor = isCm ? "#16a34a" : daysOv > 30 ? "#dc2626" : daysOv > 0 ? "#d97706" : "#16a34a";
     return `
-      <tr>
+      <tr${isCm ? ' style="background:#f0fdf4"' : ""}>
         <td>${inv.invoiceNumber}</td>
         <td>${fmtDate(inv.invoiceDate)}</td>
-        <td>${fmtDate(inv.dueDate)}</td>
-        <td class="amount">${fmt(inv.total)}</td>
-        <td class="amount">${fmt(inv.paid || 0)}</td>
-        <td class="amount bold">${fmt(balance)}</td>
+        <td>${isCm ? "—" : fmtDate(inv.dueDate)}</td>
+        <td class="amount">${isCm ? "—" : fmt(inv.total)}</td>
+        <td class="amount">${isCm ? "—" : fmt(inv.paid || 0)}</td>
+        <td class="amount bold" style="color:${isCm ? "#16a34a" : "inherit"}">${fmt(balance)}</td>
         <td style="color:${statusColor};font-size:11px;font-weight:600">${status}</td>
       </tr>`;
   }).join("");

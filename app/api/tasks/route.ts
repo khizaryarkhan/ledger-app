@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { tasks } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 const Schema = z.object({
   customerId: z.string().uuid().nullable().optional(),
@@ -21,11 +21,15 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const invoiceId = searchParams.get("invoiceId");
   const customerId = searchParams.get("customerId");
-  let query = db.select().from(tasks).$dynamic();
-  query = query.where(eq(tasks.orgId, orgId!));
-  if (invoiceId) query = query.where(eq(tasks.invoiceId, invoiceId));
-  else if (customerId) query = query.where(eq(tasks.customerId, customerId));
-  return ok(await query.orderBy(desc(tasks.createdAt)));
+  // Build a single AND predicate so the orgId filter is never overwritten by a
+  // second .where() call (Drizzle's $dynamic().where() replaces, not appends).
+  const orgFilter = eq(tasks.orgId, orgId!);
+  const where = invoiceId
+    ? and(orgFilter, eq(tasks.invoiceId, invoiceId))
+    : customerId
+    ? and(orgFilter, eq(tasks.customerId, customerId))
+    : orgFilter;
+  return ok(await db.select().from(tasks).where(where).orderBy(desc(tasks.createdAt)));
 }
 
 export async function POST(req: Request) {

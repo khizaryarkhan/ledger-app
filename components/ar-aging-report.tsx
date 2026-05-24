@@ -7,8 +7,8 @@ import { fmt } from "@/lib/format";
 import { Calendar, FileText, RefreshCw, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { useData } from "@/components/data-provider";
 
-type Bucket = "Current" | "1-30" | "31-60" | "61-90" | "91+";
-const BUCKETS: Bucket[] = ["Current", "1-30", "31-60", "61-90", "91+"];
+type Bucket = "Current" | "1-30" | "31-60" | "61-90" | "90+";
+const BUCKETS: Bucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
 
 type DetailRow = {
   customerId: string;
@@ -72,7 +72,7 @@ function bucketColor(b: Bucket): string {
     case "1-30":    return "text-amber-700";
     case "31-60":   return "text-orange-700";
     case "61-90":   return "text-rose-700";
-    case "91+":     return "text-rose-900 font-semibold";
+    case "90+":     return "text-rose-900 font-semibold";
     default:        return "text-stone-500";
   }
 }

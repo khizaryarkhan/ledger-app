@@ -17,9 +17,13 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
 
+type TokenRow = typeof qboTokens.$inferSelect;
+
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 
-async function refreshToken(token: any): Promise<string> {
+/** Refresh an expired QBO access token and persist the new value to the DB
+ *  so subsequent calls from any route don't re-trigger another refresh. */
+async function refreshAndPersistToken(token: TokenRow): Promise<string> {
   const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
     method: "POST",
     headers: {
@@ -28,9 +32,20 @@ async function refreshToken(token: any): Promise<string> {
     },
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
   });
-  if (!res.ok) return token.accessToken;
+  if (!res.ok) return token.accessToken; // Fall back to the existing (possibly still valid) token
   const d = await res.json();
-  return d.access_token as string;
+  const newAccessToken: string = d.access_token;
+  const expiresIn: number = d.expires_in ?? 3600; // seconds; QBO default is 3600
+  // Persist so every subsequent route call finds a fresh token without
+  // triggering another network round-trip to Intuit.
+  await db.update(qboTokens)
+    .set({
+      accessToken: newAccessToken,
+      accessTokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+      updatedAt: new Date(),
+    })
+    .where(eq(qboTokens.id, token.id));
+  return newAccessToken;
 }
 
 /**
@@ -83,7 +98,7 @@ export async function GET(req: Request) {
   if (!token) return bad("No QBO connection", 400);
 
   const accessToken = new Date(token.accessTokenExpiresAt).getTime() - Date.now() < 60_000
-    ? await refreshToken(token)
+    ? await refreshAndPersistToken(token)
     : token.accessToken;
 
   // 1. Compute our aging

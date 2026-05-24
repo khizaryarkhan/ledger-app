@@ -1331,7 +1331,10 @@ export async function runQboSync(orgId: string, userId: string) {
     if (customersToDeactivate.length > 0) {
       await db.update(customers)
         .set({ status: "Inactive", updatedAt: new Date() })
-        .where(inArray(customers.id, customersToDeactivate.map(c => c.id)));
+        .where(and(
+          eq(customers.orgId, orgId),
+          inArray(customers.id, customersToDeactivate.map(c => c.id)),
+        ));
     }
 
     // Projects currently Active but with no open AR → Inactive
@@ -1343,7 +1346,10 @@ export async function runQboSync(orgId: string, userId: string) {
     if (projectsToDeactivate.length > 0) {
       await db.update(projects)
         .set({ status: "Inactive", updatedAt: new Date() })
-        .where(inArray(projects.id, projectsToDeactivate.map(p => p.id)));
+        .where(and(
+          eq(projects.orgId, orgId),
+          inArray(projects.id, projectsToDeactivate.map(p => p.id)),
+        ));
     }
   }
 

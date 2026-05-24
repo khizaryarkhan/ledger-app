@@ -9,26 +9,26 @@
  * Inputs the engine uses (all org-scoped):
  *   - invoices (incl. credit memos via txnType='CreditMemo')
  *   - payments + payment_applications
+ *   - journal_entry_ar_lines (AR write-offs, adjustments, inter-company)
+ *   - deposits (AR-affecting lines — negative = customer credit on account)
+ *   - refund_receipts (money paid back to customer, reduces net AR)
  *
  * Known limitations (vs. QBO's exact aging):
  *   - Direct CreditMemo → Invoice applications via QBO's LinkedTxn on the CM
  *     itself (no Payment intermediary) are not yet captured. The historical
  *     net AR may differ from QBO by the amount of such direct CM applications.
- *   - Journal Entries hitting AR are not yet captured.
- *   - Refund Receipts are not yet linked back to specific invoices.
- *   - Voided/deleted transactions: QBO returns voided invoices with Balance=0,
- *     so they naturally drop out, but we don't track explicit void status yet.
- *
- * For most small/medium businesses these limitations produce a <1% variance.
- * The reconciliation card surfaces any gap so users can investigate.
+ *     The ar-reconcile card surfaces any remaining variance so users can
+ *     investigate. This is the primary driver of sub-1% discrepancies.
+ *   - Voided/deleted transactions: QBO returns voided invoices with Balance=0
+ *     so they drop out naturally; Written Off invoices are explicitly skipped.
  */
 
 import { db } from "@/db";
 import { invoices, payments, paymentApplications, journalEntryArLines, deposits, refundReceipts } from "@/db/schema";
 import { and, eq, lte } from "drizzle-orm";
 
-export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "91+";
-export const BUCKETS: AgingBucket[] = ["Current", "1-30", "31-60", "61-90", "91+"];
+export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "90+";
+export const BUCKETS: AgingBucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
 
 export type AppliedTxn = {
   paymentId: string;
@@ -98,7 +98,7 @@ function bucketFor(daysPastDue: number): AgingBucket {
   if (daysPastDue <= 30)  return "1-30";
   if (daysPastDue <= 60)  return "31-60";
   if (daysPastDue <= 90)  return "61-90";
-  return "91+";
+  return "90+";
 }
 
 function daysBetween(later: string, earlier: string): number {
@@ -246,7 +246,12 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   for (const inv of allInvs) {
     const isCm = inv.txnType === "CreditMemo";
 
-    // Skip suspected voids (Total=0 AND Balance=0)
+    // Skip voided and written-off invoices.
+    // • QBO returns voided invoices with Balance=0 and Total=0 — drop them.
+    // • Written Off status means the balance was cleared via a write-off JE;
+    //   the JE is captured separately as a journalEntryArLine so it already
+    //   reduces the customer's AR. Keeping the invoice would double-count.
+    if (inv.paymentStatus === "Written Off") continue;
     if (inv.total === 0 && (inv.qboBalance ?? 0) === 0 && !isCm) {
       voidedSuspected++;
       continue;

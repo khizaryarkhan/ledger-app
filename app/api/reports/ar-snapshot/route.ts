@@ -22,7 +22,7 @@
 import { db } from "@/db";
 import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
 import type { DetailRow } from "@/lib/ar-aging";
 
@@ -46,6 +46,9 @@ export async function GET(req: Request) {
   // Load metadata from our invoices table so we can hydrate currency / customer /
   // project linkage on the rows we know about. QBO rows that don't map to
   // anything in our ledger still get a synthetic row so the totals tie.
+  // Bound the metadata query to invoices dated on or before asOf so that
+  // invoices created after the snapshot date don't pollute historical views
+  // with future totals or currency values.
   const ourInvs = await db.select({
     id:           invoices.id,
     customerId:   invoices.customerId,
@@ -56,7 +59,7 @@ export async function GET(req: Request) {
     dueDate:      invoices.dueDate,
     qboId:        invoices.qboId,
     txnType:      invoices.txnType,
-  }).from(invoices).where(eq(invoices.orgId, orgId!));
+  }).from(invoices).where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf)));
   const ourInvById = new Map(ourInvs.map(i => [i.id, i]));
 
   // Unapplied payment amounts per customer (from the payments table).

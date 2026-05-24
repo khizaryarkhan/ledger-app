@@ -46,6 +46,7 @@ export async function POST(req: Request) {
       if (dupSet.has(r.invoiceNumber)) { errors.push({ row: idx + 2, message: `Duplicate invoice number: ${r.invoiceNumber}` }); return; }
       const proj = r.projectCode ? projectByCode.get(r.projectCode) : null;
       valid.push({
+        orgId: orgId!,
         invoiceNumber: r.invoiceNumber,
         customerId: cust.id,
         projectId: proj?.id || null,

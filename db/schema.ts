@@ -508,7 +508,6 @@ export const qboSyncLog = pgTable("qbo_sync_log", {
   creditsCreated: integer("credits_created").default(0),
   errorMessage: text("error_message"),
   durationMs: integer("duration_ms"),
-  orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
 });
 export type QboSyncLog = typeof qboSyncLog.$inferSelect;
 
