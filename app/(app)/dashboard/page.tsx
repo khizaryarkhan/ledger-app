@@ -481,13 +481,10 @@ export default function DashboardPage() {
     const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + openBal(i), 0);
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
-    const thirtyDaysAgo = new Date(daysFromNow(-30)).getTime();
     const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
     const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
-    // Collection rate = invoices closed in last 30 days / total invoices
-    const recentlyClosed = invoices.filter((i: any) => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
-    const collectionRate = invoices.length > 0 ? Math.round(recentlyClosed / invoices.length * 100) : 0;
+
 
     // 90+ days overdue
     const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
@@ -498,7 +495,7 @@ export default function DashboardPage() {
       return d < -6 && d >= -14 && !i.lastFollowupDate;
     });
 
-    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, collectionRate, over90, recentlyClosed, proactivePipeline };
+    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
 
   const topOverdue = useMemo(() => {
@@ -670,14 +667,7 @@ export default function DashboardPage() {
                 </>}
               </Card>
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <Card padding="md">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Collection rate</div>
-                {snapshotLoading ? <><S w="w-16" /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.collectionRate}%</div>
-                  <div className="mt-2 text-[11px] text-stone-500">{stats.recentlyClosed} closed last 30d</div>
-                </>}
-              </Card>
+            <div className="grid grid-cols-1 gap-3 mb-3">
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
