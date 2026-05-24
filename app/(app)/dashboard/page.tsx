@@ -364,6 +364,18 @@ export default function DashboardPage() {
     });
   }, [snapshotInvoices, invoices]);
 
+  // Detect mixed currencies — warn when AR data spans multiple currencies.
+  // The dashboard sums all open balances into one number using the org's home
+  // currency symbol, which is misleading when EUR and GBP invoices coexist.
+  const hasMixedCurrencies = useMemo(() => {
+    const seen = new Set<string>();
+    for (const inv of effectiveInvoices) {
+      if (inv.currency && inv.txnType !== "CreditMemo") seen.add(inv.currency);
+      if (seen.size > 1) return true;
+    }
+    return false;
+  }, [effectiveInvoices]);
+
   // Setup checklist state
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [hasTemplates, setHasTemplates] = useState<boolean | null>(null);
@@ -1026,6 +1038,18 @@ export default function DashboardPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Multi-currency warning ───────────────────────────────────── */}
+      {hasMixedCurrencies && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
+          <p className="text-[12px] text-amber-800 leading-relaxed">
+            <span className="font-semibold">Multi-currency data detected.</span>
+            {" "}All totals shown use the org&apos;s home currency ({ccy}) symbol but are the arithmetic sum of mixed currencies without FX conversion.
+            {" "}For precise home-currency values use the <a href="/reports" className="underline font-medium">AR Reports page</a> with a single-currency filter, or QBO&apos;s native Aged Receivables report.
+          </p>
         </div>
       )}
 

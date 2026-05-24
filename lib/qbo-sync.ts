@@ -589,6 +589,48 @@ export async function runQboSync(orgId: string, userId: string) {
     }
   }
 
+  // STEP 7b: Backfill paidAt on invoices settled via direct CM application.
+  //
+  // When a user applies a Credit Memo directly to an Invoice in QBO (without a
+  // cash Payment entity), QBO records the link as a LinkedTxn entry on the CM.
+  // Our payment sync (STEP E) only processes LinkedTxn on Payment objects, so
+  // these direct CM applications produce no payment_applications row. The aging
+  // engine then has no way to determine WHEN the invoice was settled for
+  // historical AR reconstruction — it falls back to treating it as closed on
+  // ALL historical dates (conservative, but imprecise).
+  //
+  // Fix: for every CM that is fully applied (balance === 0) and has a LinkedTxn
+  // pointing to an Invoice, set paidAt = cm.TxnDate on the linked invoice if
+  // paidAt is currently null. This gives the aging engine an accurate closure
+  // date without requiring a schema change.
+  {
+    const cmPaidAtUpdates: Array<{ id: string; paidAt: string }> = [];
+    for (const cm of openCredits) {
+      if (!cm.LinkedTxn || !cm.TxnDate) continue;
+      const balance = parseFloat(cm.Balance) || 0;
+      if (balance > 0.005) continue; // CM still has unapplied balance — skip
+
+      for (const lt of (cm.LinkedTxn as any[])) {
+        if (lt.TxnType !== "Invoice" || !lt.TxnId) continue;
+        const linkedInv = ledgerInvByQboId.get(lt.TxnId);
+        if (!linkedInv) continue;
+        if (linkedInv.paidAt) continue; // already has a closure date — don't overwrite
+        if (linkedInv.paymentStatus !== "Paid") continue; // only touch definitively-paid invoices
+        cmPaidAtUpdates.push({ id: linkedInv.id, paidAt: cm.TxnDate });
+      }
+    }
+    if (cmPaidAtUpdates.length > 0) {
+      await Promise.all(
+        cmPaidAtUpdates.map(({ id, paidAt }) =>
+          db.update(invoices)
+            .set({ paidAt, updatedAt: new Date() })
+            .where(and(eq(invoices.id, id), eq(invoices.orgId, orgId)))
+        )
+      );
+      console.log(`QBO sync: backfilled paidAt on ${cmPaidAtUpdates.length} CM-applied invoice(s) for org ${orgId}`);
+    }
+  }
+
   // STEP 7.5: Sync paid invoices (Balance = 0) for sales history and DSO calculation
   // allInvoicesForClose is already in memory — no extra QBO API calls needed
   const paidQboInvoices = allInvoicesForClose.filter((qi: any) => parseFloat(qi.Balance) === 0 && qi.Id);

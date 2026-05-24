@@ -1635,6 +1635,17 @@ export default function ReportsPage() {
   // Always use the snapshot — keeps every aging tab on the same data source.
   const effectiveInvoices = snapshotInvoices ?? invoices;
 
+  // Detect multi-currency data so we can warn users that totals are approximate.
+  // Summing EUR + GBP without FX conversion produces a meaningless single number.
+  const invoiceCurrencies = useMemo(() => {
+    const seen = new Set<string>();
+    for (const inv of effectiveInvoices) {
+      if (inv.currency && inv.txnType !== "CreditMemo") seen.add(inv.currency);
+    }
+    return seen;
+  }, [effectiveInvoices]);
+  const hasMixedCurrencies = invoiceCurrencies.size > 1;
+
   const isArReport    = AR_REPORTS.includes(report);
   const isSalesReport = SALES_REPORTS.includes(report);
   const currentItem   = REPORT_GROUPS.flatMap(g => g.items).find(i => i.id === report);
@@ -1760,6 +1771,26 @@ export default function ReportsPage() {
                   {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}
                 </div>
               </div>
+
+              {/* Multi-currency warning — shown when the snapshot contains invoices
+                  in more than one currency. Totals are the arithmetic sum of
+                  mixed currencies (e.g. EUR + GBP) with no FX conversion applied,
+                  which overstates or understates the true net AR in the org's home
+                  currency. Users should filter by currency or use QBO's native
+                  multi-currency reports for precise home-currency totals. */}
+              {!snapshotLoading && hasMixedCurrencies && (
+                <div className="mx-4 mt-3 mb-1 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                  <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
+                  <div className="text-[12px] text-amber-800 leading-relaxed">
+                    <span className="font-semibold">Multi-currency data detected</span>
+                    {" "}({[...invoiceCurrencies].sort().join(", ")}).{" "}
+                    Totals shown are the arithmetic sum across currencies without FX conversion — they
+                    are directionally correct but not financially precise. For exact home-currency
+                    totals, use QBO's native Aged Receivables report or filter this view to a single
+                    currency using the region/rep filters.
+                  </div>
+                </div>
+              )}
 
               {snapshotLoading && (
                 <div className="px-4 py-8 text-center text-sm text-stone-400">
