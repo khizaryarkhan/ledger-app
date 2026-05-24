@@ -15,12 +15,15 @@ import { invoices, qboTokens } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 
+// CRLF injection guard — email headers must never contain bare CR or LF
+const noCRLF = z.string().regex(/^[^\r\n]*$/, "Value must not contain line breaks");
+
 const Schema = z.object({
-  to:                z.string().min(1),
-  subject:           z.string().min(1),
-  body:              z.string().min(1),
-  cc:                z.string().optional(),
-  replyTo:           z.string().optional(),
+  to:                noCRLF.min(1).max(500),
+  subject:           noCRLF.min(1).max(998),  // RFC 5322 max header line length
+  body:              z.string().min(1).max(200_000),
+  cc:                noCRLF.max(500).optional(),
+  replyTo:           noCRLF.max(500).optional(),
   attachInvoiceIds:  z.array(z.string()).optional(),
 });
 

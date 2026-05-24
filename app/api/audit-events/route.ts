@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const customerId = searchParams.get("customerId");
   const projectId  = searchParams.get("projectId");
   const invoiceId  = searchParams.get("invoiceId");
-  const limit      = Math.min(parseInt(searchParams.get("limit") ?? "200"), 500);
+  const limit      = Math.min(parseInt(searchParams.get("limit") ?? "200") || 200, 500);
 
   if (!customerId && !projectId && !invoiceId) {
     return bad("Provide customerId, projectId, or invoiceId", 400);

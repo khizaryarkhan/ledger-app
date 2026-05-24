@@ -96,8 +96,25 @@ export async function PATCH(req: Request) {
     if (!ALLOWED_CURRENCIES.includes(body.currency)) return bad("Invalid currency");
     updates.currency = body.currency;
   }
-  if (body.logoUrl !== undefined) updates.logoUrl = body.logoUrl || null;
-  if (body.displayName !== undefined) updates.displayName = body.displayName || null;
+  if (body.logoUrl !== undefined) {
+    if (body.logoUrl) {
+      const url = String(body.logoUrl).trim();
+      if (url.length > 2048) return bad("logoUrl must be 2048 characters or fewer");
+      if (!url.startsWith("https://")) return bad("logoUrl must start with https://");
+      updates.logoUrl = url;
+    } else {
+      updates.logoUrl = null;
+    }
+  }
+  if (body.displayName !== undefined) {
+    if (body.displayName) {
+      const name = String(body.displayName).trim();
+      if (name.length > 100) return bad("displayName must be 100 characters or fewer");
+      updates.displayName = name;
+    } else {
+      updates.displayName = null;
+    }
+  }
   if (body.disabledRules !== undefined) {
     if (!Array.isArray(body.disabledRules)) return bad("disabledRules must be an array");
     updates.disabledRules = body.disabledRules.filter((r: any) => typeof r === "string");

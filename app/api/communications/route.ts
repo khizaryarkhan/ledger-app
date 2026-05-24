@@ -32,11 +32,17 @@ export async function GET(req: Request) {
   const customerId = searchParams.get("customerId");
   const invoiceId = searchParams.get("invoiceId");
 
-  let query = db.select().from(communications).where(eq(communications.orgId, orgId!)).$dynamic();
-  if (invoiceId) query = query.where(eq(communications.invoiceId, invoiceId));
-  else if (customerId) query = query.where(eq(communications.customerId, customerId));
+  // IMPORTANT: do NOT use $dynamic().where() chaining here — in Drizzle ORM,
+  // a second .where() call replaces (not ANDs) the first, which would drop the
+  // orgId filter and allow cross-tenant reads. Build a single and() predicate.
+  const orgFilter = eq(communications.orgId, orgId!);
+  const where = invoiceId
+    ? and(orgFilter, eq(communications.invoiceId, invoiceId))
+    : customerId
+    ? and(orgFilter, eq(communications.customerId, customerId))
+    : orgFilter;
 
-  return ok(await query.orderBy(desc(communications.sentAt)));
+  return ok(await db.select().from(communications).where(where).orderBy(desc(communications.sentAt)));
 }
 
 export async function POST(req: Request) {

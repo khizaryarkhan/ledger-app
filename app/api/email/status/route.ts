@@ -7,9 +7,16 @@ export async function GET() {
   const { error, orgId } = await requireOrg();
   if (error) return error;
 
-  // Check org-specific SMTP settings first
+  // Check org-specific SMTP settings first.
+  // IMPORTANT: select only the columns needed — do NOT use db.select() (fetches full row
+  // including the encrypted password, which would be sent to the client in a mis-route).
   const [orgSmtp] = await db
-    .select()
+    .select({
+      host:      orgSmtpSettings.host,
+      user:      orgSmtpSettings.user,
+      pass:      orgSmtpSettings.pass,
+      fromEmail: orgSmtpSettings.fromEmail,
+    })
     .from(orgSmtpSettings)
     .where(eq(orgSmtpSettings.orgId, orgId!))
     .limit(1);
