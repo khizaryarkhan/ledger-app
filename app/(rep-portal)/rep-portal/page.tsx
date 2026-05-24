@@ -163,9 +163,10 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
 }
 
 // ─── Invoice Row ──────────────────────────────────────────────────────────────
-function InvoiceRow({ inv, df, onDownload, downloading }: {
+function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
   inv: Invoice; df: string;
   onDownload: (inv: Invoice) => void; downloading: boolean;
+  nested?: boolean; // true → no outer card; used inside ProjectGroupCard
 }) {
   const [expanded, setExpanded] = useState(false);
   const isPaidOrClosed = !isOpenInvoice(inv);
@@ -175,7 +176,7 @@ function InvoiceRow({ inv, df, onDownload, downloading }: {
   const canDownload    = !!inv.qboId && !inv.qboId.startsWith("CM-") && !isPaidOrClosed;
 
   return (
-    <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
+    <div className={nested ? "border-t border-stone-100 first:border-t-0" : "bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden"}>
       <button className="w-full text-left px-4 py-3" onClick={() => setExpanded(e => !e)}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -242,6 +243,81 @@ function InvoiceRow({ inv, df, onDownload, downloading }: {
                 : <><Download size={14} /> Download Invoice PDF</>}
             </button>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Project Group Card (used in Customer detail view) ───────────────────────
+// Shows a collapsible card for one project (or "Direct Customer Invoices")
+// containing all invoices for that project under the parent customer.
+function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, downloadingId }: {
+  project: Project | null;  // null → "Direct Customer Invoices"
+  invoices: Invoice[];
+  df: string; ccy: string;
+  onDownload: (inv: Invoice) => void;
+  downloadingId: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const open        = grpInvs.filter(isOpenInvoice);
+  const outstanding = open.reduce((s, i) => s + openBal(i), 0);
+  const buckets     = getAgingBuckets(grpInvs);
+  const hasOverdue  = open.some(i => daysOverdue(i.dueDate) > 0);
+  const isDirect    = !project;
+
+  const sorted = [...grpInvs].sort((a, b) => {
+    const aO = isOpenInvoice(a), bO = isOpenInvoice(b);
+    if (aO !== bO) return aO ? -1 : 1;
+    return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+  });
+
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
+      {/* Card header — click to expand/collapse */}
+      <button className="w-full text-left px-4 py-3.5" onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {isDirect
+                ? <FileText size={12} className="text-stone-400 flex-shrink-0 mt-0.5" />
+                : <Briefcase size={12} className="text-stone-500 flex-shrink-0 mt-0.5" />}
+              <span className={`text-sm font-semibold leading-snug ${isDirect ? "text-stone-400 italic" : "text-stone-900"}`}>
+                {isDirect ? "Direct Customer Invoices" : project!.name}
+              </span>
+              {hasOverdue && <div className="w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0" />}
+            </div>
+            <div className="text-[11px] text-stone-400 mt-0.5 ml-4">
+              {open.length} open{grpInvs.length > open.length ? ` · ${grpInvs.length - open.length} closed` : ""}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {outstanding > 0 && (
+              <span className="text-base font-bold tabular-nums text-stone-900">
+                {fmt.money(outstanding, ccy)}
+              </span>
+            )}
+            {expanded
+              ? <ChevronUp size={14} className="text-stone-300" />
+              : <ChevronDown size={14} className="text-stone-300" />}
+          </div>
+        </div>
+        {expanded && outstanding > 0 && <div className="mt-3"><AgingBar buckets={buckets} /></div>}
+      </button>
+
+      {/* Expanded: flat invoice rows */}
+      {expanded && (
+        <div className="border-t border-stone-100">
+          {sorted.map(inv => (
+            <InvoiceRow
+              key={inv.id}
+              inv={inv}
+              df={df}
+              onDownload={onDownload}
+              downloading={downloadingId === inv.id}
+              nested
+            />
+          ))}
         </div>
       )}
     </div>
@@ -422,16 +498,42 @@ export default function RepPortalPage() {
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
     if (view.type !== "entity") return null;
+    // Use visibleInvoices so rep-scoped data is respected in detail view too
     const entityInvoices = view.kind === "customer"
-      ? invoices.filter(i => i.customerId === view.id)
-      : invoices.filter(i => i.projectId  === view.id);
+      ? visibleInvoices.filter(i => i.customerId === view.id)
+      : visibleInvoices.filter(i => i.projectId  === view.id);
     const entity       = view.kind === "customer" ? customers.find(c => c.id === view.id) : projects.find(p => p.id === view.id);
     const customerName = view.kind === "project"  ? customers.find(c => c.id === (entity as Project)?.customerId)?.name : undefined;
     const open         = entityInvoices.filter(isOpenInvoice);
     const outstanding  = open.reduce((s, i) => s + openBal(i), 0);
     const buckets      = getAgingBuckets(entityInvoices);
-    return { entity, entityInvoices, customerName, outstanding, buckets, openCount: open.length };
-  }, [view, invoices, customers, projects]);
+
+    // Customer view: group invoices by project for the project-card layout
+    // Invoices with no projectId go into a synthetic "Direct Customer Invoices" group
+    let projectGroups: { project: Project | null; invoices: Invoice[] }[] = [];
+    if (view.kind === "customer") {
+      const map: Record<string, Invoice[]> = {};
+      for (const inv of entityInvoices) {
+        const key = inv.projectId ?? "__direct__";
+        (map[key] = map[key] || []).push(inv);
+      }
+      projectGroups = Object.entries(map)
+        .map(([key, invs]) => ({
+          project: key === "__direct__" ? null : (projects.find(p => p.id === key) ?? null),
+          invoices: invs,
+        }))
+        // Sort by outstanding desc; "Direct" always last
+        .sort((a, b) => {
+          if (!a.project && b.project) return 1;   // direct → last
+          if (a.project && !b.project) return -1;
+          const aOut = a.invoices.filter(isOpenInvoice).reduce((s, i) => s + openBal(i), 0);
+          const bOut = b.invoices.filter(isOpenInvoice).reduce((s, i) => s + openBal(i), 0);
+          return bOut - aOut;
+        });
+    }
+
+    return { entity, entityInvoices, customerName, outstanding, buckets, openCount: open.length, projectGroups };
+  }, [view, visibleInvoices, customers, projects]);
 
   // ═══ RENDER ══════════════════════════════════════════════════════════════════
   return (
@@ -618,18 +720,33 @@ export default function RepPortalPage() {
               <AgingBar buckets={detailData.buckets} />
             </div>
 
-            {/* Invoices */}
+            {/* Invoices / Project cards */}
             {detailData.entityInvoices.length === 0 ? (
               <div className="text-center py-12 text-stone-400">
                 <FileText size={28} className="mx-auto mb-2 opacity-30" />
                 <div className="text-sm">No invoices</div>
               </div>
+            ) : view.kind === "customer" && detailData.projectGroups.length > 0 ? (
+              // ── Customer view: grouped by project ──────────────────────────────
+              <div className="space-y-2.5">
+                {detailData.projectGroups.map(({ project, invoices: grpInvs }) => (
+                  <ProjectGroupCard
+                    key={project?.id ?? "__direct__"}
+                    project={project}
+                    invoices={grpInvs}
+                    df={df}
+                    ccy={ccy}
+                    onDownload={handleDownload}
+                    downloadingId={downloadingId}
+                  />
+                ))}
+              </div>
             ) : (
+              // ── Project view: flat invoice list ────────────────────────────────
               <div className="space-y-2">
                 {[...detailData.entityInvoices]
                   .sort((a, b) => {
-                    const aOpen = !["Paid","Written Off"].includes(a.paymentStatus);
-                    const bOpen = !["Paid","Written Off"].includes(b.paymentStatus);
+                    const aOpen = isOpenInvoice(a), bOpen = isOpenInvoice(b);
                     if (aOpen !== bOpen) return aOpen ? -1 : 1;
                     return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
                   })
