@@ -6,6 +6,7 @@ import { fmt, formatDate, daysOverdue } from "@/lib/format";
 import {
   LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
   Download, Loader, ChevronDown, ChevronUp, FileText, Search, X,
+  Users, Briefcase,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -263,11 +264,19 @@ export default function RepPortalPage() {
   const [view,        setView]        = useState<View>({ type: "home" });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [homeSearch, setHomeSearch]   = useState("");
+  // Customer / Project toggle — user can override the org-level default
+  const [viewMode, setViewMode] = useState<"customer" | "project">("customer");
 
   const repName = session?.user?.name || "Rep";
-  const level   = orgSettings.classificationLevel as "customer" | "project";
   const df      = orgSettings.dateFormat || "DD MMM YYYY";
   const ccy     = orgSettings.currency || "EUR";
+
+  // Sync viewMode with org settings once they load (e.g. if org defaults to "project")
+  useEffect(() => {
+    if (orgSettings.classificationLevel) {
+      setViewMode(orgSettings.classificationLevel as "customer" | "project");
+    }
+  }, [orgSettings.classificationLevel]);
 
   const load = async () => {
     setLoading(true); setError("");
@@ -326,34 +335,47 @@ export default function RepPortalPage() {
     return new Set([myRep.id]);                    // "rep" tier — individual rep only
   }, [myRep, reps]);
 
-  // ── Summary stats ────────────────────────────────────────────────────────────
+  // ── Scope invoices to visible entities ───────────────────────────────────────
+  // KPI stats (Total AR, Overdue) must only count invoices for entities the
+  // logged-in rep can see — NOT the whole org. If no filter (admin), all invoices.
+  const visibleInvoices = useMemo(() => {
+    if (!visibleRepIds) return invoices;           // admin / unscoped → all
+    const cIds = new Set(customers.filter(c => visibleRepIds.has(c.repId ?? "")).map(c => c.id));
+    const pIds = new Set(projects.filter(p => visibleRepIds.has(p.repId ?? "")).map(p => p.id));
+    return invoices.filter(i =>
+      cIds.has(i.customerId) ||
+      (i.projectId != null && pIds.has(i.projectId))
+    );
+  }, [invoices, customers, projects, visibleRepIds]);
+
+  // ── Summary stats (scoped) ───────────────────────────────────────────────────
   const openInvoices = useMemo(() =>
-    invoices.filter(isOpenInvoice),
-    [invoices]
+    visibleInvoices.filter(isOpenInvoice),
+    [visibleInvoices]
   );
   // Unapplied credit memos reduce net AR — match dashboard behaviour.
   // IMPORTANT: raw /api/invoices stores CM qboBalance as a POSITIVE number
   // (QBO's face value). ar-snapshot negates it. We use -Math.abs() so the
   // netdown works correctly regardless of how the sign is stored in the DB.
   const unappliedCMs = useMemo(() =>
-    invoices.filter(i =>
+    visibleInvoices.filter(i =>
       (i.txnType === "CreditMemo" || String(i.qboId || "").startsWith("CM-")) &&
       i.paymentStatus !== "Paid"
     ),
-    [invoices]
+    [visibleInvoices]
   );
   const totalAR    = openInvoices.reduce((s, i) => s + openBal(i), 0)
-                   - unappliedCMs.reduce((s, i) => Math.abs(openBal(i)), 0); // subtract CM face value
+                   - unappliedCMs.reduce((s, i) => Math.abs(openBal(i)), 0);
   const overdueAR  = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
   const overdueCnt = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).length;
-  const globalBuckets = useMemo(() => getAgingBuckets(invoices), [invoices]);
+  const globalBuckets = useMemo(() => getAgingBuckets(visibleInvoices), [visibleInvoices]);
 
   // ── Entity list ──────────────────────────────────────────────────────────────
   const entityList = useMemo(() => {
     const byOutstanding = (invs: Invoice[]) =>
       invs.filter(isOpenInvoice).reduce((s, i) => s + openBal(i), 0);
 
-    if (level === "customer") {
+    if (viewMode === "customer") {
       return customers
         .filter(c => !visibleRepIds || visibleRepIds.has(c.repId ?? ""))
         .map(c => ({
@@ -377,7 +399,7 @@ export default function RepPortalPage() {
       // Only show projects that have at least one open invoice
       .filter(x => x.invoices.some(isOpenInvoice))
       .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
-  }, [customers, projects, invoices, reps, level, visibleRepIds]);
+  }, [customers, projects, invoices, reps, viewMode, visibleRepIds]);
 
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
@@ -464,13 +486,29 @@ export default function RepPortalPage() {
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">
-                      {level === "customer" ? "Customers" : "Projects"}
+                      {viewMode === "customer" ? "Customers" : "Projects"}
                     </div>
                     <div className="text-base sm:text-xl font-bold text-stone-900 leading-tight">{entityList.length}</div>
                     <div className="text-[10px] text-stone-400 mt-0.5">with open invoices</div>
                   </div>
                 </div>
                 <AgingBar buckets={globalBuckets} />
+              </div>
+            )}
+
+            {/* Customer / Project toggle */}
+            {!loading && (
+              <div className="flex bg-stone-100 rounded-xl p-0.5 mb-3">
+                <button
+                  onClick={() => { setViewMode("customer"); setHomeSearch(""); }}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700"}`}>
+                  <Users size={12} /> Customers
+                </button>
+                <button
+                  onClick={() => { setViewMode("project"); setHomeSearch(""); }}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700"}`}>
+                  <Briefcase size={12} /> Projects
+                </button>
               </div>
             )}
 
@@ -481,7 +519,7 @@ export default function RepPortalPage() {
                 <input
                   value={homeSearch}
                   onChange={e => setHomeSearch(e.target.value)}
-                  placeholder={`Search ${level === "customer" ? "customers" : "projects"}…`}
+                  placeholder={`Search ${viewMode === "customer" ? "customers" : "projects"}…`}
                   className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none"
                 />
                 {homeSearch && (
@@ -532,7 +570,7 @@ export default function RepPortalPage() {
                       invoices={eInvs}
                       customerName={customer?.name}
                       repName={repName}
-                      onClick={() => setView({ type: "entity", id: entity.id, kind: level })}
+                      onClick={() => setView({ type: "entity", id: entity.id, kind: viewMode })}
                     />
                   ))}
                 </div>

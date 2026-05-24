@@ -116,7 +116,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, regions, updateInvoice, orgSettings } = useData() as any;
+  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
   const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
@@ -127,6 +127,7 @@ export default function BoardPage() {
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [regionFilter, setRegionFilter] = useState("");
+  const [repFilter, setRepFilter] = useState("");
 
   // Group entities by their dominant collection stage
   const grouped = useMemo(() => {
@@ -134,6 +135,9 @@ export default function BoardPage() {
     const map: Record<string, { entity: any; invoices: any[]; outstanding: number; stage: string }> = {};
 
     entities.forEach((e: any) => {
+      // Rep filter — skip entities not assigned to the selected rep
+      if (repFilter && e.repId !== repFilter) return;
+
       // Get invoices for this entity
       let entityInvoices = invoices.filter((i: any) =>
         groupBy === "customer" ? i.customerId === e.id : i.projectId === e.id
@@ -166,7 +170,7 @@ export default function BoardPage() {
     });
 
     return map;
-  }, [invoices, customers, projects, groupBy, regionFilter]);
+  }, [invoices, customers, projects, groupBy, regionFilter, repFilter]);
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};
@@ -214,6 +218,15 @@ export default function BoardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Rep filter */}
+          {(reps ?? []).length > 0 && (
+            <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
+              className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
+              style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+              <option value="">All reps</option>
+              {(reps ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          )}
           {/* Region filter */}
           <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
