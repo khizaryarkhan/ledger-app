@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle, TrendingUp, AlertTriangle, Mail } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail } from "lucide-react";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -485,25 +485,6 @@ export default function DashboardPage() {
     const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
     const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
-    // DSO = (Open AR × 365) / 12-month sales (including current month)
-    // BP-DSO = (Not-yet-due AR × 365) / 12-month sales
-    // Gap = DSO − BP-DSO  (days lost to late payment)
-    const twelveMonthsAgo = new Date();
-    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-    const twelveMonthsAgoTime = twelveMonthsAgo.getTime();
-
-    const sales12m = regionInvoices
-      .filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= twelveMonthsAgoTime)
-      .reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
-
-    const currentAR = open
-      .filter((i: any) => daysOverdue(i.dueDate) <= 0)
-      .reduce((s: number, i: any) => s + openBal(i), 0);
-
-    const dso    = sales12m > 0 ? Math.round((totalReceivable * 365) / sales12m) : 0;
-    const bpDso  = sales12m > 0 ? Math.round((currentAR       * 365) / sales12m) : 0;
-    const dsoGap = Math.max(0, dso - bpDso);
-
     // Collection rate = invoices closed in last 30 days / total invoices
     const recentlyClosed = invoices.filter((i: any) => i.paymentStatus === "Paid" && new Date(i.updatedAt).getTime() > thirtyDaysAgo).length;
     const collectionRate = invoices.length > 0 ? Math.round(recentlyClosed / invoices.length * 100) : 0;
@@ -517,7 +498,7 @@ export default function DashboardPage() {
       return d < -6 && d >= -14 && !i.lastFollowupDate;
     });
 
-    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, dso, bpDso, dsoGap, collectionRate, over90, recentlyClosed, proactivePipeline };
+    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, collectionRate, over90, recentlyClosed, proactivePipeline };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
 
   const topOverdue = useMemo(() => {
@@ -689,50 +670,7 @@ export default function DashboardPage() {
                 </>}
               </Card>
             </div>
-            <div className="grid grid-cols-4 gap-3 mb-3">
-              <Card padding="md" className="col-span-2">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">DSO vs Best Possible</div>
-                  <TrendingUp size={14} className="text-stone-400" />
-                </div>
-                {snapshotLoading ? (
-                  <div className="space-y-2">
-                    <div className="h-7 w-40 bg-stone-100 animate-pulse rounded" />
-                    <div className="h-2 bg-stone-100 animate-pulse rounded-full" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-end gap-4 mb-3">
-                      <div>
-                        <div className="text-2xl font-semibold text-stone-900 tracking-tight">{stats.dso}d</div>
-                        <div className="text-[11px] text-stone-500">Actual DSO</div>
-                      </div>
-                      <div className="pb-1 text-stone-300">/</div>
-                      <div>
-                        <div className="text-2xl font-semibold text-emerald-600 tracking-tight">{stats.bpDso}d</div>
-                        <div className="text-[11px] text-stone-500">Best possible</div>
-                      </div>
-                      {stats.dsoGap > 0 && (
-                        <div className="ml-auto">
-                          <div className="text-xl font-semibold text-amber-600 tracking-tight">+{stats.dsoGap}d</div>
-                          <div className="text-[11px] text-stone-500">Collection gap</div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div className="h-full flex">
-                        <div className="h-full bg-emerald-400 rounded-l" style={{ width: `${stats.dso > 0 ? (stats.bpDso / stats.dso) * 100 : 0}%` }} />
-                        <div className="h-full bg-amber-400" style={{ width: `${stats.dso > 0 ? (stats.dsoGap / stats.dso) * 100 : 0}%` }} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 mt-2 text-[10px] text-stone-400">
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Best possible</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Collection gap</span>
-                    </div>
-                    <div className="mt-2 text-[10px] text-stone-400">Open AR × 365 ÷ last 12 months' sales</div>
-                  </>
-                )}
-              </Card>
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Collection rate</div>
                 {snapshotLoading ? <><S w="w-16" /><Sub /></> : <>
