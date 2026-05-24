@@ -31,7 +31,9 @@ function isOpenInvoice(inv: Invoice): boolean {
 }
 type Customer    = { id: string; name: string; code: string; currency: string; repId: string | null; };
 type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; };
+// Full rep record — id/name/tier/email/managerId all needed for hierarchy scoping
 type Rep         = { id: string; name: string; tier: string; email: string | null; managerId: string | null; };
+type MyRep       = Rep | null; // null = admin / not a rep — sees all
 type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; };
 
 // ─── Aging helpers ────────────────────────────────────────────────────────────
@@ -254,6 +256,7 @@ export default function RepPortalPage() {
   const [customers,   setCustomers]   = useState<Customer[]>([]);
   const [projects,    setProjects]    = useState<Project[]>([]);
   const [reps,        setReps]        = useState<Rep[]>([]);
+  const [myRep,       setMyRep]       = useState<MyRep>(undefined as any); // undefined = not yet loaded
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR" });
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
@@ -269,12 +272,13 @@ export default function RepPortalPage() {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const [invRes, custRes, projRes, repsRes, settingsRes] = await Promise.all([
+      const [invRes, custRes, projRes, repsRes, settingsRes, myRepRes] = await Promise.all([
         fetch("/api/invoices"),
         fetch("/api/customers"),
         fetch("/api/projects"),
         fetch("/api/reps"),
         fetch("/api/org/settings"),
+        fetch("/api/me/rep"),   // server-side rep identification — avoids client email matching
       ]);
       if (invRes.ok)      setInvoices(await invRes.json());
       else                setError("Failed to load data");
@@ -282,6 +286,7 @@ export default function RepPortalPage() {
       if (projRes.ok)     setProjects(await projRes.json());
       if (repsRes.ok)     setReps(await repsRes.json());
       if (settingsRes.ok) setOrgSettings(await settingsRes.json());
+      if (myRepRes.ok)    setMyRep(await myRepRes.json()); // null = admin; Rep object = scoped user
     } catch { setError("Network error — please refresh"); }
     finally  { setLoading(false); }
   };
@@ -302,41 +307,40 @@ export default function RepPortalPage() {
     finally { setDownloadingId(null); }
   };
 
-  // ── Identify current rep from session email ──────────────────────────────────
-  // Match the logged-in user's email to a rep record. This determines what data
-  // is visible: "rep" sees their own, "rd" sees their reports', "ed" sees all.
-  const currentRep = useMemo(() => {
-    const email = (session?.user as any)?.email?.toLowerCase();
-    if (!email) return null;
-    return reps.find(r => r.email?.toLowerCase() === email) ?? null;
-  }, [reps, session]);
-
-  // Set of repIds this user is authorised to see.
-  // null = no restriction (admin or ED tier).
+  // ── Rep visibility scope (resolved server-side via /api/me/rep) ─────────────
+  // myRep = null  → admin / not in reps table → sees everything
+  // myRep = Rep   → scoped by tier:
+  //   "rep" → their own entities only
+  //   "rd"  → their own + all direct reports
+  //   "ed"  → all (no restriction)
   const visibleRepIds = useMemo((): Set<string> | null => {
-    if (!currentRep) return null; // admin / not-a-rep — sees everything
-    if (currentRep.tier === "ed") return null; // ED sees all
-    if (currentRep.tier === "rd") {
-      // RD sees their own + their direct reports
-      const reports = reps.filter(r => r.managerId === currentRep.id).map(r => r.id);
-      return new Set([currentRep.id, ...reports]);
+    if (!myRep) return null;                      // admin / no rep record
+    if (myRep.tier === "ed") return null;          // ED sees all
+    if (myRep.tier === "rd") {
+      const reports = reps.filter(r => r.managerId === myRep.id).map(r => r.id);
+      return new Set([myRep.id, ...reports]);
     }
-    // Individual rep — only their own entities
-    return new Set([currentRep.id]);
-  }, [currentRep, reps]);
+    return new Set([myRep.id]);                    // individual rep
+  }, [myRep, reps]);
 
   // ── Summary stats ────────────────────────────────────────────────────────────
   const openInvoices = useMemo(() =>
     invoices.filter(isOpenInvoice),
     [invoices]
   );
-  // Unapplied credit memos reduce the net AR total — match dashboard behaviour
+  // Unapplied credit memos reduce net AR — match dashboard behaviour.
+  // IMPORTANT: raw /api/invoices stores CM qboBalance as a POSITIVE number
+  // (QBO's face value). ar-snapshot negates it. We use -Math.abs() so the
+  // netdown works correctly regardless of how the sign is stored in the DB.
   const unappliedCMs = useMemo(() =>
-    invoices.filter(i => i.txnType === "CreditMemo" && openBal(i) < 0),
+    invoices.filter(i =>
+      (i.txnType === "CreditMemo" || String(i.qboId || "").startsWith("CM-")) &&
+      i.paymentStatus !== "Paid"
+    ),
     [invoices]
   );
   const totalAR    = openInvoices.reduce((s, i) => s + openBal(i), 0)
-                   + unappliedCMs.reduce((s, i) => s + openBal(i), 0); // CMs are negative
+                   - unappliedCMs.reduce((s, i) => Math.abs(openBal(i)), 0); // subtract CM face value
   const overdueAR  = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
   const overdueCnt = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).length;
   const globalBuckets = useMemo(() => getAgingBuckets(invoices), [invoices]);
