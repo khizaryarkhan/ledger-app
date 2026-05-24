@@ -8,7 +8,7 @@
 import { db } from "@/db";
 import { invoices, customers, projects } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 export async function POST() {
   const { error, orgId } = await requireOrg();
@@ -53,7 +53,10 @@ export async function POST() {
     if (customersToDeactivate.length > 0) {
       await db.update(customers)
         .set({ status: "Inactive", updatedAt: new Date() })
-        .where(inArray(customers.id, customersToDeactivate.map(c => c.id)));
+        .where(and(
+          eq(customers.orgId, orgId!),
+          inArray(customers.id, customersToDeactivate.map(c => c.id)),
+        ));
     }
 
     // Projects with no open AR → Inactive
@@ -68,7 +71,10 @@ export async function POST() {
     if (projectsToDeactivate.length > 0) {
       await db.update(projects)
         .set({ status: "Inactive", updatedAt: new Date() })
-        .where(inArray(projects.id, projectsToDeactivate.map(p => p.id)));
+        .where(and(
+          eq(projects.orgId, orgId!),
+          inArray(projects.id, projectsToDeactivate.map(p => p.id)),
+        ));
     }
 
     return ok({

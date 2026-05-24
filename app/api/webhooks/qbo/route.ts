@@ -53,8 +53,19 @@ export async function POST(req: Request) {
       }).catch(() => {});
       return new Response("Invalid signature", { status: 401 });
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // In production, QBO_WEBHOOK_VERIFIER_TOKEN is mandatory. Without it any
+    // caller can trigger arbitrary syncs (and exhaust QBO API rate limits).
+    // Fail-closed so a missing env var is immediately obvious from logs/alerts.
+    console.error("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN is not set — rejecting all requests in production");
+    await db.insert(qboWebhookEvents).values({
+      realmId: "unknown", status: "invalid_signature",
+      errorMessage: "QBO_WEBHOOK_VERIFIER_TOKEN env var not configured",
+    }).catch(() => {});
+    return new Response("Webhook not configured", { status: 503 });
   } else {
-    console.warn("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN not configured — webhook is UNAUTHENTICATED");
+    // Development only — allow unverified webhooks for local testing.
+    console.warn("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN not configured — accepting without verification (dev mode only)");
   }
 
   console.log("QBO webhook received:", rawBody.slice(0, 300));

@@ -108,7 +108,7 @@ function daysBetween(later: string, earlier: string): number {
 }
 
 function emptyBuckets(): Record<AgingBucket, number> {
-  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "91+": 0 };
+  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
 }
 
 /**

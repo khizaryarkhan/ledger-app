@@ -881,7 +881,6 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-2">
               {stats.dueThisWeek.slice(0, 6).map(inv => {
                 const customer = customers.find(c => c.id === inv.customerId);
-                const out = inv.total - (inv.paid || 0);
                 return (
                   <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md ring-1 ring-stone-200 hover:ring-stone-300 hover:bg-stone-50">
                     <div className="flex-1 min-w-0">
@@ -889,7 +888,7 @@ export default function DashboardPage() {
                       <div className="text-[11px] text-stone-500 mt-0.5 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(out, inv.currency)}</div>
+                      <div className="text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
                       <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
                     </div>
                   </Link>
