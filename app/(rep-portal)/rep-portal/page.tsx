@@ -311,16 +311,19 @@ export default function RepPortalPage() {
   // myRep = null  → admin / not in reps table → sees everything
   // myRep = Rep   → scoped by tier:
   //   "rep" → their own entities only
-  //   "rd"  → their own + all direct reports
-  //   "ed"  → all (no restriction)
+  //   "rd"  → their own + all direct reports (managerId === rd.id)
+  //   "ed"  → their own + all direct reports (managerId === ed.id)
+  //
+  // NOTE: "ed" is NOT "see all". True admins have no repId (myRep = null).
+  // An ED/RM with reportees set sees only their own + those reportees' entities.
   const visibleRepIds = useMemo((): Set<string> | null => {
-    if (!myRep) return null;                      // admin / no rep record
-    if (myRep.tier === "ed") return null;          // ED sees all
-    if (myRep.tier === "rd") {
+    if (!myRep) return null;                      // admin / no rep record → unrestricted
+    if (myRep.tier === "ed" || myRep.tier === "rd") {
+      // Own entities + all direct reports
       const reports = reps.filter(r => r.managerId === myRep.id).map(r => r.id);
       return new Set([myRep.id, ...reports]);
     }
-    return new Set([myRep.id]);                    // individual rep
+    return new Set([myRep.id]);                    // "rep" tier — individual rep only
   }, [myRep, reps]);
 
   // ── Summary stats ────────────────────────────────────────────────────────────
