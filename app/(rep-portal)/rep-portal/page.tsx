@@ -29,9 +29,9 @@ function isOpenInvoice(inv: Invoice): boolean {
     inv.paymentStatus !== "Written Off"
   );
 }
-type Customer    = { id: string; name: string; code: string; currency: string; };
+type Customer    = { id: string; name: string; code: string; currency: string; repId: string | null; };
 type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; };
-type Rep         = { id: string; name: string; tier: string; };
+type Rep         = { id: string; name: string; tier: string; email: string | null; managerId: string | null; };
 type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; };
 
 // ─── Aging helpers ────────────────────────────────────────────────────────────
@@ -302,14 +302,43 @@ export default function RepPortalPage() {
     finally { setDownloadingId(null); }
   };
 
+  // ── Identify current rep from session email ──────────────────────────────────
+  // Match the logged-in user's email to a rep record. This determines what data
+  // is visible: "rep" sees their own, "rd" sees their reports', "ed" sees all.
+  const currentRep = useMemo(() => {
+    const email = (session?.user as any)?.email?.toLowerCase();
+    if (!email) return null;
+    return reps.find(r => r.email?.toLowerCase() === email) ?? null;
+  }, [reps, session]);
+
+  // Set of repIds this user is authorised to see.
+  // null = no restriction (admin or ED tier).
+  const visibleRepIds = useMemo((): Set<string> | null => {
+    if (!currentRep) return null; // admin / not-a-rep — sees everything
+    if (currentRep.tier === "ed") return null; // ED sees all
+    if (currentRep.tier === "rd") {
+      // RD sees their own + their direct reports
+      const reports = reps.filter(r => r.managerId === currentRep.id).map(r => r.id);
+      return new Set([currentRep.id, ...reports]);
+    }
+    // Individual rep — only their own entities
+    return new Set([currentRep.id]);
+  }, [currentRep, reps]);
+
   // ── Summary stats ────────────────────────────────────────────────────────────
   const openInvoices = useMemo(() =>
     invoices.filter(isOpenInvoice),
     [invoices]
   );
-  const totalAR      = openInvoices.reduce((s, i) => s + openBal(i), 0);
-  const overdueAR    = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
-  const overdueCnt   = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).length;
+  // Unapplied credit memos reduce the net AR total — match dashboard behaviour
+  const unappliedCMs = useMemo(() =>
+    invoices.filter(i => i.txnType === "CreditMemo" && openBal(i) < 0),
+    [invoices]
+  );
+  const totalAR    = openInvoices.reduce((s, i) => s + openBal(i), 0)
+                   + unappliedCMs.reduce((s, i) => s + openBal(i), 0); // CMs are negative
+  const overdueAR  = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
+  const overdueCnt = openInvoices.filter(i => daysOverdue(i.dueDate) > 0).length;
   const globalBuckets = useMemo(() => getAgingBuckets(invoices), [invoices]);
 
   // ── Entity list ──────────────────────────────────────────────────────────────
@@ -319,20 +348,29 @@ export default function RepPortalPage() {
 
     if (level === "customer") {
       return customers
-        .map(c => ({ entity: c as Customer | Project, invoices: invoices.filter(i => i.customerId === c.id), customer: undefined as Customer | undefined, repName: undefined as string | undefined }))
-        .filter(x => x.invoices.length > 0)
+        .filter(c => !visibleRepIds || visibleRepIds.has(c.repId ?? ""))
+        .map(c => ({
+          entity: c as Customer | Project,
+          invoices: invoices.filter(i => i.customerId === c.id),
+          customer: undefined as Customer | undefined,
+          repName: undefined as string | undefined,
+        }))
+        // Only show customers that have at least one open invoice
+        .filter(x => x.invoices.some(isOpenInvoice))
         .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
     }
     return projects
+      .filter(p => !visibleRepIds || visibleRepIds.has(p.repId ?? ""))
       .map(p => ({
         entity: p as Customer | Project,
         invoices: invoices.filter(i => i.projectId === p.id),
         customer: customers.find(c => c.id === p.customerId),
         repName: p.repId ? reps.find(r => r.id === p.repId)?.name : undefined,
       }))
-      .filter(x => x.invoices.length > 0)
+      // Only show projects that have at least one open invoice
+      .filter(x => x.invoices.some(isOpenInvoice))
       .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
-  }, [customers, projects, invoices, reps, level]);
+  }, [customers, projects, invoices, reps, level, visibleRepIds]);
 
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
@@ -410,7 +448,7 @@ export default function RepPortalPage() {
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Total AR</div>
                     <div className="text-base sm:text-xl font-bold text-stone-900 tabular-nums leading-tight truncate">{fmt.money(totalAR, ccy)}</div>
-                    <div className="text-[10px] text-stone-400 mt-0.5">{openInvoices.length} open</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">{openInvoices.length} open invoices</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Overdue</div>
@@ -422,7 +460,7 @@ export default function RepPortalPage() {
                       {level === "customer" ? "Customers" : "Projects"}
                     </div>
                     <div className="text-base sm:text-xl font-bold text-stone-900 leading-tight">{entityList.length}</div>
-                    <div className="text-[10px] text-stone-400 mt-0.5">with AR</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">with open invoices</div>
                   </div>
                 </div>
                 <AgingBar buckets={globalBuckets} />
