@@ -335,16 +335,30 @@ export default function RepPortalPage() {
     return new Set([myRep.id]);                    // "rep" tier — individual rep only
   }, [myRep, reps]);
 
-  // ── Scope invoices to visible entities ───────────────────────────────────────
-  // KPI stats (Total AR, Overdue) must only count invoices for entities the
-  // logged-in rep can see — NOT the whole org. If no filter (admin), all invoices.
+  // ── Scope invoices via invoice-level ownership rule ──────────────────────────
+  // An invoice belongs to a rep based on WHERE the assignment lives:
+  //   - has projectId  → the project's repId must be in visibleRepIds
+  //   - no  projectId  → the customer's repId must be in visibleRepIds
+  //
+  // This handles all org setups in one rule:
+  //   • Project-level classification → customer view works (customers appear
+  //     because their projects have visible invoices)
+  //   • Customer-level classification → project view works (no project invoices
+  //     but customer invoices surface under the right customer)
+  //   • Mixed (Customer A → Rep1, Project X → Rep2) → each rep sees only
+  //     their own slice; neither leaks into the other's view
   const visibleInvoices = useMemo(() => {
-    if (!visibleRepIds) return invoices;           // admin / unscoped → all
-    const cIds = new Set(customers.filter(c => visibleRepIds.has(c.repId ?? "")).map(c => c.id));
-    const pIds = new Set(projects.filter(p => visibleRepIds.has(p.repId ?? "")).map(p => p.id));
+    if (!visibleRepIds) return invoices;            // admin / unscoped → all
+    const cIds = new Set(
+      customers.filter(c => c.repId && visibleRepIds.has(c.repId)).map(c => c.id)
+    );
+    const pIds = new Set(
+      projects.filter(p => p.repId && visibleRepIds.has(p.repId)).map(p => p.id)
+    );
     return invoices.filter(i =>
-      cIds.has(i.customerId) ||
-      (i.projectId != null && pIds.has(i.projectId))
+      i.projectId
+        ? pIds.has(i.projectId)       // project invoice → owned via project.repId
+        : cIds.has(i.customerId)       // customer invoice → owned via customer.repId
     );
   }, [invoices, customers, projects, visibleRepIds]);
 
@@ -371,35 +385,39 @@ export default function RepPortalPage() {
   const globalBuckets = useMemo(() => getAgingBuckets(visibleInvoices), [visibleInvoices]);
 
   // ── Entity list ──────────────────────────────────────────────────────────────
+  // IMPORTANT: do NOT filter entities by entity.repId here.
+  // Instead, use visibleInvoices per entity — the invoice-level ownership rule
+  // already handles project-level, customer-level, and mixed assignment.
+  // An entity naturally disappears when it has no visible open invoices.
   const entityList = useMemo(() => {
     const byOutstanding = (invs: Invoice[]) =>
       invs.filter(isOpenInvoice).reduce((s, i) => s + openBal(i), 0);
 
     if (viewMode === "customer") {
       return customers
-        .filter(c => !visibleRepIds || visibleRepIds.has(c.repId ?? ""))
         .map(c => ({
           entity: c as Customer | Project,
-          invoices: invoices.filter(i => i.customerId === c.id),
+          // Only this customer's scoped invoices (respects invoice-level ownership)
+          invoices: visibleInvoices.filter(i => i.customerId === c.id),
           customer: undefined as Customer | undefined,
           repName: undefined as string | undefined,
         }))
-        // Only show customers that have at least one open invoice
+        // Only show customers that have at least one scoped open invoice
         .filter(x => x.invoices.some(isOpenInvoice))
         .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
     }
     return projects
-      .filter(p => !visibleRepIds || visibleRepIds.has(p.repId ?? ""))
       .map(p => ({
         entity: p as Customer | Project,
-        invoices: invoices.filter(i => i.projectId === p.id),
+        // Only this project's scoped invoices
+        invoices: visibleInvoices.filter(i => i.projectId === p.id),
         customer: customers.find(c => c.id === p.customerId),
         repName: p.repId ? reps.find(r => r.id === p.repId)?.name : undefined,
       }))
-      // Only show projects that have at least one open invoice
+      // Only show projects that have at least one scoped open invoice
       .filter(x => x.invoices.some(isOpenInvoice))
       .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
-  }, [customers, projects, invoices, reps, viewMode, visibleRepIds]);
+  }, [customers, projects, visibleInvoices, reps, viewMode]);
 
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
