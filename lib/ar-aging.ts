@@ -456,36 +456,60 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     });
   }
 
-  // 4c. Add Deposit AR lines. These are AR-posting Deposit lines synced from
-  // QBO with their customer assignment (typically customer overpayments
-  // sitting as a credit). Each deposit stands alone — no application netting
-  // because QBO doesn't link Deposit applications the way it links payment
-  // applications. Sign matches what's stored (negative = customer credit).
+  // 4c. Deposit AR lines and Purchase (Cheque Expense) AR lines.
+  //
+  // QBO Deposit lines that post to AR are typically customer credits
+  // (negative amount — customer overpayment sitting on account). QBO's own
+  // Aged Receivable Detail report does NOT show these as separate line items;
+  // it folds them into the customer's net balance. To match QBO's display:
+  //
+  //   • Negative deposits (AR credits) → accumulated per customer and
+  //     deducted from the customer's summary total in step 5b, exactly like
+  //     unapplied payments. No separate detail row.
+  //
+  //   • Positive deposits (Purchase / Cheque Expense AR debits) → treated as
+  //     invoice-like debits and added as detail rows so they age correctly.
+  //
+  // This prevents the "showing twice" symptom where a customer appears once
+  // for their open invoice and again for a deposit credit that nets it out.
+  const depositCreditsByCustomer = new Map<string, number>(); // customerId → total credit
+
   for (const d of depositRows) {
     if (!d.customerId) continue;
     if (Math.abs(d.amount) < 0.005) continue;
 
-    const dpd    = daysBetween(asOf, d.txnDate);
-    const bucket = bucketFor(dpd);
-    detail.push({
-      customerId:    d.customerId,
-      customerQboId: d.qboCustomerId,
-      projectId:     null,
-      txnType:       "Journal Entry", // closest existing type for grouping; deposit-line ARs behave the same
-      txnNumber:     d.qboId,
-      txnId:         d.id,
-      qboId:         d.qboId,
-      txnDate:       d.txnDate,
-      dueDate:       d.txnDate,
-      originalAmount: d.amount,
-      applied:       [],
-      totalApplied:  0,
-      openBalance:   d.amount,
-      daysPastDue:   dpd,
-      bucket,
-      currency:      d.currency,
-      flags:         ["deposit"],
-    });
+    if (d.amount < 0) {
+      // AR credit (QBO Deposit) — net into the customer's summary total,
+      // not as a separate detail row. Matches QBO Aged Receivable Detail.
+      depositCreditsByCustomer.set(
+        d.customerId,
+        (depositCreditsByCustomer.get(d.customerId) ?? 0) + Math.abs(d.amount),
+      );
+    } else {
+      // AR debit (Purchase / Cheque Expense) — add as a detail row so it
+      // ages and shows alongside the customer's open invoices.
+      const dpd    = daysBetween(asOf, d.txnDate);
+      const bucket = bucketFor(dpd);
+      detail.push({
+        customerId:    d.customerId,
+        customerQboId: d.qboCustomerId,
+        projectId:     null,
+        txnType:       "Journal Entry",
+        txnNumber:     d.qboId,
+        txnId:         d.id,
+        qboId:         d.qboId,
+        txnDate:       d.txnDate,
+        dueDate:       d.txnDate,
+        originalAmount: d.amount,
+        applied:       [],
+        totalApplied:  0,
+        openBalance:   d.amount,
+        daysPastDue:   dpd,
+        bucket,
+        currency:      d.currency,
+        flags:         ["purchase-ar"],
+      });
+    }
   }
 
   // 5. Build per-customer summary
@@ -534,6 +558,22 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     }
   }
 
+  // Deduct deposit credits (QBO Deposit lines that post a customer credit to
+  // AR). These are accumulated in depositCreditsByCustomer above and applied
+  // here — same bucket-waterfall logic as unapplied payments — so the grand
+  // total matches QBO without deposit credits appearing as separate rows.
+  for (const s of summary) {
+    let remaining = depositCreditsByCustomer.get(s.customerId) ?? 0;
+    if (remaining < 0.005) continue;
+    for (const b of BUCKETS) {
+      if (remaining < 0.005) break;
+      const reduce = Math.min(remaining, Math.max(0, s.buckets[b]));
+      s.buckets[b] -= reduce;
+      s.total      -= reduce;
+      remaining    -= reduce;
+    }
+  }
+
   // 6. Grand totals
   const grandTotals = { ...emptyBuckets(), total: 0 };
   for (const s of summary) {
@@ -545,6 +585,13 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   const negativeCustomerBalances = summary
     .filter(s => s.total < -0.005)
     .map(s => s.customerId);
+
+  // Merge deposit credits into unappliedByCustomer so ar-snapshot injects
+  // synthetic CreditMemo rows for them — keeping AgingByProject / Region / Rep
+  // totals consistent with the main AR Aging grand total.
+  for (const [custId, credit] of depositCreditsByCustomer.entries()) {
+    unappliedByCustomer.set(custId, (unappliedByCustomer.get(custId) ?? 0) + credit);
+  }
 
   return {
     asOf,
