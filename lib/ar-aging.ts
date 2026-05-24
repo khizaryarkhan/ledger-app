@@ -74,6 +74,11 @@ export type AgingResult = {
    *  Consumers (e.g. ar-snapshot) add these as synthetic credit rows so
    *  every downstream report agrees with the main AR Aging grand total. */
   unappliedByCustomer: Record<string, number>;
+  /** Per-customer deposit credit totals (keyed by our customerId).
+   *  Negative QBO Deposit AR lines — stored separately so ar-snapshot can
+   *  net them against open invoice rows (matching QBO's applied-deposit
+   *  behaviour) rather than injecting them as separate synthetic rows. */
+  depositCreditsByCustomer: Record<string, number>;
   flags: {
     missingDueDate: number;
     negativeCustomerBalances: string[]; // customerIds with overall negative AR
@@ -586,19 +591,13 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     .filter(s => s.total < -0.005)
     .map(s => s.customerId);
 
-  // Merge deposit credits into unappliedByCustomer so ar-snapshot injects
-  // synthetic CreditMemo rows for them — keeping AgingByProject / Region / Rep
-  // totals consistent with the main AR Aging grand total.
-  for (const [custId, credit] of depositCreditsByCustomer.entries()) {
-    unappliedByCustomer.set(custId, (unappliedByCustomer.get(custId) ?? 0) + credit);
-  }
-
   return {
     asOf,
     detail,
     summary,
     grandTotals,
     unappliedByCustomer: Object.fromEntries(unappliedByCustomer),
+    depositCreditsByCustomer: Object.fromEntries(depositCreditsByCustomer),
     flags: {
       missingDueDate,
       negativeCustomerBalances,

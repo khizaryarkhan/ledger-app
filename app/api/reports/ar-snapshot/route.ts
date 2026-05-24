@@ -59,12 +59,21 @@ export async function GET(req: Request) {
   }).from(invoices).where(eq(invoices.orgId, orgId!));
   const ourInvById = new Map(ourInvs.map(i => [i.id, i]));
 
-  // Unapplied payment amounts per customer. The main AR Aging engine deducts
-  // these from the per-customer summary but NOT from the individual detail rows.
-  // We inject synthetic CreditMemo-shaped rows here so every downstream report
-  // (Aging by Project / Customer / Region / Rep) produces the same grand total
-  // as the main AR Aging report.
+  // Unapplied payment amounts per customer (from the payments table).
+  // The aging engine deducts these from the per-customer summary. We inject
+  // synthetic CreditMemo rows so every downstream report produces the same
+  // grand total as the main AR Aging report.
   const unappliedByCustomer: Record<string, number> = localResult.unappliedByCustomer ?? {};
+
+  // Deposit credits per customer (QBO Deposit AR lines with negative amount).
+  // These are NETTED against the customer's open invoice rows oldest-first
+  // (matching QBO's behaviour when a deposit has been applied against an
+  // invoice). Any credit remaining after netting all invoices gets a synthetic
+  // CreditMemo row. This prevents customers from appearing twice — once for
+  // their open invoice and once for the deposit credit that offsets it.
+  const depositCreditsRemaining: Record<string, number> = {
+    ...(localResult.depositCreditsByCustomer ?? {}),
+  };
 
   const rows = detail.map((d) => {
     const owned = ourInvById.get(d.txnId);
@@ -128,55 +137,92 @@ export async function GET(req: Request) {
       };
     }
 
-    // Invoice (positive open balance)
+    // Invoice (positive open balance).
+    // Net any deposit credit for this customer against this invoice row.
+    // This mirrors QBO's behaviour: when a Deposit has been applied against an
+    // invoice, the invoice's open balance is reduced (and may reach zero).
+    // We apply credits oldest-overdue-first — detail rows arrive ordered by
+    // txnDate ascending from the aging engine.
+    const custId = owned?.customerId ?? d.customerId;
+    let effectiveOpenBalance = d.openBalance;
+    const depositCredit = depositCreditsRemaining[custId] ?? 0;
+    if (depositCredit > 0.005 && effectiveOpenBalance > 0.005) {
+      const applied = Math.min(depositCredit, effectiveOpenBalance);
+      depositCreditsRemaining[custId] = depositCredit - applied;
+      effectiveOpenBalance = effectiveOpenBalance - applied;
+    }
+    // If the deposit credit fully covers this invoice, drop the row (balance = 0).
+    if (effectiveOpenBalance < 0.005) return null;
+
     return {
       id:              d.txnId,
-      customerId:      owned?.customerId ?? d.customerId,
+      customerId:      custId,
       projectId:       owned?.projectId ?? d.projectId ?? null,
       invoiceNumber:   d.txnNumber,
       invoiceDate:     d.txnDate,
       dueDate:         d.dueDate,
       currency:        d.currency,
-      // Use the open balance as both total and qboBalance so the downstream
-      // bucketers (which use total - paid OR qboBalance) compute the right
-      // open amount. We don't have the original gross amount on historical
-      // dates without the snapshot.
-      total:           owned?.total ?? d.openBalance,
-      paid:            owned ? Math.max(0, (owned.total ?? 0) - d.openBalance) : 0,
-      qboBalance:      d.openBalance,
+      total:           owned?.total ?? effectiveOpenBalance,
+      paid:            owned ? Math.max(0, (owned.total ?? 0) - effectiveOpenBalance) : 0,
+      qboBalance:      effectiveOpenBalance,
       paymentStatus:   "Unpaid",
       collectionStage: "New",
       paidAt:          null,
       qboId:           d.qboId,
       txnType:         "Invoice",
-      amount:          d.openBalance,
+      amount:          effectiveOpenBalance,
       taxAmount:       0,
       paymentTerms:    30,
     };
-  });
+  }).filter((r): r is NonNullable<typeof r> => r !== null);
 
-  // Add one synthetic CreditMemo row per customer for their unapplied payment
-  // balance. invBuckets() on the client places CMs with negative qboBalance into
-  // the Current bucket, exactly matching how the main AR Aging summary handles it.
+  // Synthetic CreditMemo rows for unapplied payments (from the payments table).
   for (const [custId, unapplied] of Object.entries(unappliedByCustomer)) {
     if (unapplied < 0.005) continue;
     rows.push({
       id:              `__unapplied__${custId}`,
       customerId:      custId,
-      projectId:       null,       // no project — surfaces under "No project" in AgingByProject
+      projectId:       null,
       invoiceNumber:   "Unapplied Payment",
       invoiceDate:     asOf,
       dueDate:         asOf,
       currency:        "EUR",
-      total:           -unapplied, // negative so total-paid = negative open balance
+      total:           -unapplied,
       paid:            0,
-      qboBalance:      -unapplied, // negative → invBuckets CM path → Current bucket credit
+      qboBalance:      -unapplied,
       paymentStatus:   "Unpaid",
       collectionStage: "New",
       paidAt:          null,
       qboId:           null,
       txnType:         "CreditMemo",
       amount:          -unapplied,
+      taxAmount:       0,
+      paymentTerms:    0,
+    });
+  }
+
+  // Synthetic CreditMemo rows for any deposit credit that was NOT fully
+  // consumed by netting against invoice rows above. This happens when a
+  // customer has deposit credits but no (or fewer) open invoices to offset.
+  for (const [custId, remaining] of Object.entries(depositCreditsRemaining)) {
+    if (remaining < 0.005) continue;
+    rows.push({
+      id:              `__deposit_credit__${custId}`,
+      customerId:      custId,
+      projectId:       null,
+      invoiceNumber:   "Deposit Credit",
+      invoiceDate:     asOf,
+      dueDate:         asOf,
+      currency:        "EUR",
+      total:           -remaining,
+      paid:            0,
+      qboBalance:      -remaining,
+      paymentStatus:   "Unpaid",
+      collectionStage: "New",
+      paidAt:          null,
+      qboId:           null,
+      txnType:         "CreditMemo",
+      amount:          -remaining,
       taxAmount:       0,
       paymentTerms:    0,
     });
