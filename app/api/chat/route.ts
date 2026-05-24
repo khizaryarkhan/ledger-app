@@ -101,11 +101,19 @@ async function resolveEntity(
     if (matches.length === 1) {
       return { status: "ok", projectId: matches[0].id, label: matches[0].name };
     }
-    // Multiple matches — ask user to confirm
-    const list = matches.slice(0, 6).map((p, i) => `  ${i + 1}. ${p.name}`).join("\n");
+
+    // Multiple matches — check if exactly one starts with the search term (e.g. "MW22004")
+    const lower = projectName.toLowerCase();
+    const prefixMatches = matches.filter(p => p.name.toLowerCase().startsWith(lower));
+    if (prefixMatches.length === 1) {
+      return { status: "ok", projectId: prefixMatches[0].id, label: prefixMatches[0].name };
+    }
+
+    // Genuinely ambiguous — list options for the user
+    const list = matches.slice(0, 8).map((p, i) => `${i + 1}. ${p.name}`).join("\n");
     return {
       status: "confirm",
-      message: `I found ${matches.length} projects matching "${projectName}":\n${list}\n\nCould you confirm which project you mean?`,
+      message: `Found ${matches.length} projects matching "${projectName}":\n\n${list}\n\nWhich one did you mean?`,
     };
   }
 
@@ -121,10 +129,18 @@ async function resolveEntity(
     if (matches.length === 1) {
       return { status: "ok", customerId: matches[0].id, label: matches[0].name };
     }
-    const list = matches.slice(0, 6).map((c, i) => `  ${i + 1}. ${c.name}`).join("\n");
+
+    // Prefix match wins
+    const lower = customerName.toLowerCase();
+    const prefixMatches = matches.filter(c => c.name.toLowerCase().startsWith(lower));
+    if (prefixMatches.length === 1) {
+      return { status: "ok", customerId: prefixMatches[0].id, label: prefixMatches[0].name };
+    }
+
+    const list = matches.slice(0, 8).map((c, i) => `${i + 1}. ${c.name}`).join("\n");
     return {
       status: "confirm",
-      message: `I found ${matches.length} customers matching "${customerName}":\n${list}\n\nWhich one did you mean?`,
+      message: `Found ${matches.length} customers matching "${customerName}":\n\n${list}\n\nWhich one did you mean?`,
     };
   }
 
@@ -438,6 +454,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
   try { toolArgs = JSON.parse(toolCall.function.arguments); } catch {}
 
   let toolResult = "";
+  let isConfirmation = false;
   try {
     if      (toolName === "send_invoices")  toolResult = await toolSendInvoices(orgId!, toolArgs);
     else if (toolName === "get_invoices")   toolResult = await toolGetInvoices(orgId!, toolArgs);
@@ -445,6 +462,21 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
     else toolResult = "Unknown tool.";
   } catch (e: any) {
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
+  }
+
+  // If the tool returned a confirmation/clarification request, return it directly
+  // without a second Groq call — prevents Groq from paraphrasing the list away.
+  if (
+    toolResult.startsWith("Found ") ||
+    toolResult.startsWith("No project") ||
+    toolResult.startsWith("No customer") ||
+    toolResult.startsWith("No open")
+  ) {
+    isConfirmation = true;
+  }
+
+  if (isConfirmation) {
+    return NextResponse.json({ reply: toolResult });
   }
 
   // Second call — Groq formats the tool result as a natural reply
