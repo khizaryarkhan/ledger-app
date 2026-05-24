@@ -861,12 +861,19 @@ export async function runQboSync(orgId: string, userId: string) {
       console.log(`QBO sync: skipped ${zeroPaymentApps} application(s) from JE-backed zero-amount payments (CM-backed zero-payments were retained)`);
     }
 
-    // STEP F: Wipe and re-insert applications for these payments (idempotent)
+    // STEP F: Wipe and re-insert applications for these payments (idempotent).
+    // IMPORTANT: always scope deletes to the current org via paymentId AND
+    // orgId. Without the orgId guard a paymentId collision between orgs
+    // (extremely unlikely but possible with UUIDs) could corrupt another org's
+    // payment applications.
     if (allPaymentDbIds.length > 0) {
       // chunk the delete to avoid hitting parameter limits
       for (let i = 0; i < allPaymentDbIds.length; i += 500) {
         await db.delete(paymentApplications)
-          .where(inArray(paymentApplications.paymentId, allPaymentDbIds.slice(i, i + 500)));
+          .where(and(
+            eq(paymentApplications.orgId, orgId),
+            inArray(paymentApplications.paymentId, allPaymentDbIds.slice(i, i + 500)),
+          ));
       }
     }
     for (let i = 0; i < allApps.length; i += 200) {

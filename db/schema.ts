@@ -235,11 +235,13 @@ export const payments = pgTable("payments", {
   createdAt:         timestamp("created_at").notNull().defaultNow(),
   updatedAt:         timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
+  // qboId is unique per org — prevents duplicate QBO payments on re-sync.
+  // NOTE: orgCustomerIdx (unique on orgId+customerId+txnDate) was removed
+  // because it caused silent data loss when the same customer makes two
+  // separate payments on the same day (a legitimate, common scenario).
   orgQboIdUnique: uniqueIndex("payments_org_qbo_id_unique")
     .on(t.orgId, t.qboId)
     .where(sql`${t.qboId} IS NOT NULL`),
-  orgCustomerIdx: uniqueIndex("payments_org_customer_date_idx")
-    .on(t.orgId, t.customerId, t.txnDate),
 }));
 export type Payment = typeof payments.$inferSelect;
 
@@ -381,10 +383,13 @@ export const journalEntryArLines = pgTable("journal_entry_ar_lines", {
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
+  // Uniqueness is (orgId, qboJournalId, qboLineId) — the JE line is the
+  // idempotency key for re-sync. orgCustomerDateIdx (unique on orgId+customerId
+  // +txnDate) was removed because a single JE date can have multiple AR lines
+  // for the same customer (e.g. reversal pairs), and the constraint caused
+  // silent data loss on conflict.
   orgJournalLineUnique: uniqueIndex("je_ar_lines_org_journal_line_unique")
     .on(t.orgId, t.qboJournalId, t.qboLineId),
-  orgCustomerDateIdx: uniqueIndex("je_ar_lines_org_customer_date_idx")
-    .on(t.orgId, t.customerId, t.txnDate),
 }));
 export type JournalEntryArLine = typeof journalEntryArLines.$inferSelect;
 

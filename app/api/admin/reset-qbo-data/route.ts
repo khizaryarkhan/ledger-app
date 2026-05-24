@@ -32,6 +32,20 @@ export async function POST(req: Request) {
   const url = new URL(req.url);
   const full       = url.searchParams.get("full") === "true";
   const targetOrg  = url.searchParams.get("orgId"); // null = all orgs
+  const allOrgsConfirm = url.searchParams.get("allOrgs") === "true";
+
+  // Safety gate: wiping ALL orgs at once is catastrophic. Require an
+  // explicit ?allOrgs=true confirmation so it cannot happen by accident.
+  // When a specific orgId is provided the gate is bypassed (single-org wipe
+  // is intentional and scoped). This prevents ?orgId=<uuid> being omitted
+  // from the URL triggering a full cross-org data loss event.
+  if (!targetOrg && !allOrgsConfirm) {
+    return bad(
+      "Refusing to wipe all orgs without explicit confirmation. " +
+      "Add ?allOrgs=true to confirm, or provide ?orgId=<uuid> to scope the wipe to one org.",
+      400,
+    );
+  }
 
   const filter = (table: any) => targetOrg ? eq(table.orgId, targetOrg) : undefined;
 

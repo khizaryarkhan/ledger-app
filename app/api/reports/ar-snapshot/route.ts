@@ -65,6 +65,23 @@ export async function GET(req: Request) {
   // grand total as the main AR Aging report.
   const unappliedByCustomer: Record<string, number> = localResult.unappliedByCustomer ?? {};
 
+  // Build a best-guess currency per customer from the detail rows so that
+  // synthetic rows (Unapplied Payment, Deposit Credit) use the correct
+  // currency instead of the hardcoded "EUR" default.
+  const currencyByCustomer = new Map<string, string>();
+  for (const d of detail) {
+    if (!currencyByCustomer.has(d.customerId) && d.currency) {
+      currencyByCustomer.set(d.customerId, d.currency);
+    }
+  }
+  // Also try our locally-stored invoices for customers who appear only via
+  // synthetic rows (no open invoice detail rows).
+  for (const inv of ourInvs) {
+    if (!currencyByCustomer.has(inv.customerId) && inv.currency) {
+      currencyByCustomer.set(inv.customerId, inv.currency);
+    }
+  }
+
   // Deposit credits per customer (QBO Deposit AR lines with negative amount).
   // These are NETTED against the customer's open invoice rows oldest-first
   // (matching QBO's behaviour when a deposit has been applied against an
@@ -186,7 +203,7 @@ export async function GET(req: Request) {
       invoiceNumber:   "Unapplied Payment",
       invoiceDate:     asOf,
       dueDate:         asOf,
-      currency:        "EUR",
+      currency:        currencyByCustomer.get(custId) ?? "EUR",
       total:           -unapplied,
       paid:            0,
       qboBalance:      -unapplied,
@@ -213,7 +230,7 @@ export async function GET(req: Request) {
       invoiceNumber:   "Deposit Credit",
       invoiceDate:     asOf,
       dueDate:         asOf,
-      currency:        "EUR",
+      currency:        currencyByCustomer.get(custId) ?? "EUR",
       total:           -remaining,
       paid:            0,
       qboBalance:      -remaining,

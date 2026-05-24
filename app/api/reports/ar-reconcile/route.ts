@@ -131,8 +131,8 @@ export async function GET(req: Request) {
     if (ledger.flags.missingDueDate > 0) {
       reasons.push(`${ledger.flags.missingDueDate} transaction(s) without a due date — using transaction date as fallback`);
     }
-    reasons.push("Refund Receipts not yet linked back to invoices (rare in practice)");
-    reasons.push("Deposit lines posting to AR (uncommon) not yet captured");
+    reasons.push("Refund Receipts reduce net AR in our engine but are not linked to specific invoices — balance impact is captured, per-invoice detail may differ from QBO");
+    reasons.push("Direct Credit Memo → Invoice applications (no Payment intermediary) are not yet captured — these reduce the CM's unapplied balance without a payment_application row");
     explanation = `Variance of ${variance!.toFixed(2)}. Likely causes: ${reasons.join("; ")}.`;
   }
 

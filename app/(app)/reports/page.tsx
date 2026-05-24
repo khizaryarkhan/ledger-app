@@ -912,8 +912,11 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
       } else {
         if (inv.paymentStatus === "Paid") continue;
       }
-      const out = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
-      if (!asAt && out <= 0) continue;
+      // Use invBuckets as the single source of truth for open balance — it
+      // handles CreditMemos (negative balance) correctly. The old Math.max(0,…)
+      // guard silently dropped CMs because their balance is negative.
+      const ib = invBuckets(inv, asAtDate);
+      if (!asAt && ib.total === 0) continue;
 
       const proj = projects.find((p: any) => p.id === inv.projectId);
       const cust3 = customers.find((c: any) => c.id === inv.customerId);
@@ -928,7 +931,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
       }
 
       regionMap[regionLabel].invoices.push(inv);
-      regionMap[regionLabel].buckets = addBuckets(regionMap[regionLabel].buckets, invBuckets(inv, asAtDate));
+      regionMap[regionLabel].buckets = addBuckets(regionMap[regionLabel].buckets, ib);
       regionMap[regionLabel].customers.add(inv.customerId);
       if (daysOverdueAt(inv.dueDate, asAtDate) > 0) regionMap[regionLabel].overdueCount++;
     }
@@ -1073,8 +1076,10 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
       } else {
         if (inv.paymentStatus === "Paid") continue;
       }
-      const out = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
-      if (!asAt && out <= 0) continue;
+      // Use invBuckets as the single source of truth — handles CMs (negative
+      // balance) correctly. The old Math.max(0,…) guard silently dropped CMs.
+      const ib = invBuckets(inv, asAtDate);
+      if (!asAt && ib.total === 0) continue;
 
       const cust = customers.find((c: any) => c.id === inv.customerId);
       const proj = projects.find((p: any) => p.id === inv.projectId);
@@ -1088,7 +1093,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
 
       if (!repMap[repId]) repMap[repId] = { rep, invoices: [], buckets: emptyBuckets(), custSet: new Set(), overdueCount: 0 };
       repMap[repId].invoices.push(inv);
-      repMap[repId].buckets = addBuckets(repMap[repId].buckets, invBuckets(inv, asAtDate));
+      repMap[repId].buckets = addBuckets(repMap[repId].buckets, ib);
       repMap[repId].custSet.add(inv.customerId);
       if (daysOverdueAt(inv.dueDate, asAtDate) > 0) repMap[repId].overdueCount++;
     }

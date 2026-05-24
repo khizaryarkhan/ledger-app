@@ -23,6 +23,11 @@ import { runQboSync } from "@/lib/qbo-sync";
 export const maxDuration = 60; // Vercel Pro — seconds
 
 export async function GET(req: Request) {
+  // Guard: CRON_SECRET must be set in the environment. If it is undefined the
+  // comparison below would accept "Bearer undefined" from any caller.
+  if (!process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

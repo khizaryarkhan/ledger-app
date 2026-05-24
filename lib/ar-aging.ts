@@ -24,7 +24,7 @@
  */
 
 import { db } from "@/db";
-import { invoices, payments, paymentApplications, journalEntryArLines, deposits } from "@/db/schema";
+import { invoices, payments, paymentApplications, journalEntryArLines, deposits, refundReceipts } from "@/db/schema";
 import { and, eq, lte } from "drizzle-orm";
 
 export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "91+";
@@ -304,15 +304,21 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
         // paidAt is the authoritative payment receipt date from QBO. If it falls
         // on or before asOf the invoice was fully settled by the report date.
         // This is more reliable than payment_applications completeness.
+        //
+        // NOTE: collectionStage === "Closed" is deliberately NOT used here.
+        // collectionStage is a user-controlled collection-tracking field that
+        // can be set independently of actual QBO payment state. Using it would
+        // cause historical AR snapshots to diverge from the today snapshot for
+        // invoices where the user closed the stage before (or without) payment.
         const fullyPaidByDate =
-          (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") &&
+          inv.paymentStatus === "Paid" &&
           inv.paidAt != null &&
           inv.paidAt <= asOf;
 
         if (fullyPaidByDate) {
           openBalance = 0;
         } else if (
-          (inv.paymentStatus === "Paid" || inv.collectionStage === "Closed") &&
+          inv.paymentStatus === "Paid" &&
           inv.paidAt == null &&
           totalApplied < 0.005
         ) {
@@ -517,6 +523,29 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
     }
   }
 
+  // 4d. Refund Receipts — money paid OUT to a customer. In QBO this reduces
+  // the customer's AR (or their unapplied credits). We deduct refund totals
+  // from the customer's summary the same way we deduct unapplied payments —
+  // bucket waterfall, Current first. This prevents ghost AR on customers who
+  // received a refund without a specific invoice being voided.
+  const refundRows = await db.select({
+    customerId: refundReceipts.customerId,
+    totalAmount: refundReceipts.totalAmount,
+  }).from(refundReceipts)
+    .where(and(
+      eq(refundReceipts.orgId, orgId),
+      lte(refundReceipts.txnDate, asOf),
+    ));
+
+  const refundsByCustomer = new Map<string, number>();
+  for (const r of refundRows) {
+    if (!r.customerId || (r.totalAmount ?? 0) < 0.005) continue;
+    refundsByCustomer.set(
+      r.customerId,
+      (refundsByCustomer.get(r.customerId) ?? 0) + (r.totalAmount ?? 0),
+    );
+  }
+
   // 5. Build per-customer summary
   const byCustomer = new Map<string, SummaryRow>();
   for (const row of detail) {
@@ -569,6 +598,21 @@ export async function computeArAging(orgId: string, asOf: string, includeClosed 
   // total matches QBO without deposit credits appearing as separate rows.
   for (const s of summary) {
     let remaining = depositCreditsByCustomer.get(s.customerId) ?? 0;
+    if (remaining < 0.005) continue;
+    for (const b of BUCKETS) {
+      if (remaining < 0.005) break;
+      const reduce = Math.min(remaining, Math.max(0, s.buckets[b]));
+      s.buckets[b] -= reduce;
+      s.total      -= reduce;
+      remaining    -= reduce;
+    }
+  }
+
+  // Deduct Refund Receipts — money paid back to the customer reduces their AR.
+  // Applied with the same bucket-waterfall (Current first) so the summary
+  // accurately reflects the net AR after refunds.
+  for (const s of summary) {
+    let remaining = refundsByCustomer.get(s.customerId) ?? 0;
     if (remaining < 0.005) continue;
     for (const b of BUCKETS) {
       if (remaining < 0.005) break;
