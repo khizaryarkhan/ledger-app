@@ -485,26 +485,36 @@ export default function DashboardPage() {
     const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
     const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
-    // DSO — both Actual and Best Possible use the same 12-month revenue base.
-    // Annual sales smooths seasonal distortion better than a 90-day window.
+    // DSO — use the last 12 COMPLETE calendar months as the revenue base.
     //
-    //   DSO        = (Total Open AR        / Last-12-month sales) × 365
-    //   BP-DSO     = (Not-yet-due Open AR  / Last-12-month sales) × 365
-    //   DSO Gap    = DSO − BP-DSO  (days lost purely to late payment)
+    // Why exclude the current (partial) month:
+    //   This month's invoices are already in Open AR (numerator). Including
+    //   the same invoices' revenue in the denominator creates a feedback loop
+    //   where a strong billing month artificially suppresses DSO. Using only
+    //   closed months gives a stable, unbiased daily-sales rate.
     //
-    // Fix: was using (i as any).amount which doesn't exist → always 0.
-    // Correct field is i.total (invoice face value, same as the schema).
-    const threeSixtyFiveDaysAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    //   DSO        = (Total Open AR        / Sales: prev 12 full months) × 365
+    //   BP-DSO     = (Not-yet-due Open AR  / Sales: prev 12 full months) × 365
+    //   DSO Gap    = DSO − BP-DSO  (days attributable to late payment only)
+    //
+    // Both use i.total (invoice face value per schema).
+    const now = new Date();
+    const startOfThisMonth  = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const startOf12MonthsAgo = new Date(now.getFullYear() - 1, now.getMonth(), 1).getTime();
+
     const annualSales = regionInvoices
-      .filter((i: any) => i.txnType !== "CreditMemo" && new Date(i.invoiceDate).getTime() >= threeSixtyFiveDaysAgo)
+      .filter((i: any) => {
+        const d = new Date(i.invoiceDate).getTime();
+        return i.txnType !== "CreditMemo" && d >= startOf12MonthsAgo && d < startOfThisMonth;
+      })
       .reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
 
     const currentAR = open
       .filter((i: any) => daysOverdue(i.dueDate) <= 0)   // not yet overdue
       .reduce((s: number, i: any) => s + openBal(i), 0);
 
-    const dso   = annualSales > 0 ? Math.round((totalReceivable / annualSales) * 365) : 0;
-    const bpDso = annualSales > 0 ? Math.round((currentAR       / annualSales) * 365) : 0;
+    const dso    = annualSales > 0 ? Math.round((totalReceivable / annualSales) * 365) : 0;
+    const bpDso  = annualSales > 0 ? Math.round((currentAR       / annualSales) * 365) : 0;
     const dsoGap = Math.max(0, dso - bpDso);
 
     // Collection rate = invoices closed in last 30 days / total invoices
@@ -732,7 +742,7 @@ export default function DashboardPage() {
                       <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Best possible</span>
                       <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Collection gap</span>
                     </div>
-                    <div className="mt-2 text-[10px] text-stone-400">Based on last 12 months revenue</div>
+                    <div className="mt-2 text-[10px] text-stone-400">Based on prior 12 complete months' revenue</div>
                   </>
                 )}
               </Card>
