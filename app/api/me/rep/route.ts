@@ -1,42 +1,48 @@
 /**
  * GET /api/me/rep
  *
- * Returns the rep record that corresponds to the currently logged-in user,
- * matched by the session user's email address (case-insensitive).
+ * Returns the rep record linked to the currently logged-in user via
+ * users.repId — the authoritative FK that admins set in the Admin Portal.
  *
- * Returns null if the user is not registered as a rep (e.g. company admin).
- * The rep portal uses this to scope its entity list to the correct rep tier:
+ * The users table already has repId → reps.id. This is the correct lookup:
+ * no email/name guessing, just a direct FK join.
+ *
+ * Returns null if the user has no repId assigned (admin or member not yet
+ * linked to a rep record). The rep portal treats null as "see all" for admins.
+ *
+ * Rep portal visibility by tier:
  *   - tier "rep"  → their own projects/customers only
- *   - tier "rd"   → their direct reports' + their own
+ *   - tier "rd"   → their own + all direct reports (rep.managerId === rd.id)
  *   - tier "ed"   → all (no filter)
- *   - null        → admin user — no filter applied
+ *   - null        → admin / unlinked — no filter applied
  */
 
 import { db } from "@/db";
-import { reps } from "@/db/schema";
+import { users, reps } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export async function GET() {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
 
-  const email: string | undefined = (session?.user as any)?.email?.trim().toLowerCase();
-  const name:  string | undefined = (session?.user as any)?.name?.trim().toLowerCase();
+  const userId: string | undefined = (session?.user as any)?.id;
+  if (!userId) return ok(null);
 
-  if (!email && !name) return ok(null);
+  // Look up this user's repId from the users table — assigned by admin
+  const [user] = await db
+    .select({ repId: users.repId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
 
-  // 1st priority: match by email (most reliable)
-  // 2nd priority: match by name as fallback (for rep records where email is not set)
-  // Both are case-insensitive. Returns the first match found.
-  const conditions = [];
-  if (email) conditions.push(sql`lower(${reps.email}) = ${email}`);
-  if (name)  conditions.push(sql`lower(${reps.name})  = ${name}`);
+  if (!user?.repId) return ok(null);
 
+  // Fetch the full rep record (scoped to this org for safety)
   const [rep] = await db
     .select()
     .from(reps)
-    .where(and(eq(reps.orgId, orgId!), or(...conditions)))
+    .where(and(eq(reps.id, user.repId), eq(reps.orgId, orgId!)))
     .limit(1);
 
   return ok(rep ?? null);

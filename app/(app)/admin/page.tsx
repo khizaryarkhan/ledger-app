@@ -10,13 +10,18 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={status === "Active" ? "green" : "neutral"} size="sm">{status}</Badge>;
 }
 
-function RoleBadge({ role }: { role: string }) {
+function RoleBadge({ role, repTier }: { role: string; repTier?: string | null }) {
+  // repTier overrides the base role for display (rep/rd/ed)
+  const effective = repTier ?? role;
   const map: Record<string, any> = {
-    super_admin: { variant: "purple", label: "Super Admin" },
-    company_admin: { variant: "blue", label: "Company Admin" },
-    company_user: { variant: "neutral", label: "User" },
+    super_admin:   { variant: "purple",  label: "Super Admin"  },
+    company_admin: { variant: "blue",    label: "Company Admin" },
+    company_user:  { variant: "neutral", label: "User"          },
+    rep:           { variant: "orange",  label: "Rep / PM"      },
+    rd:            { variant: "blue",    label: "RD"            },
+    ed:            { variant: "green",   label: "ED / RM"       },
   };
-  const cfg = map[role] || { variant: "neutral", label: role };
+  const cfg = map[effective] || { variant: "neutral", label: effective };
   return <Badge variant={cfg.variant} size="sm">{cfg.label}</Badge>;
 }
 
@@ -477,11 +482,18 @@ export default function AdminPage() {
 
   const [orgs, setOrgs] = useState<any[]>([]);
   const [orgUsers, setOrgUsers] = useState<any[]>([]);
+  const [orgReps, setOrgReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [editingOrg, setEditingOrg] = useState<any | null>(null);
   const [tab, setTab] = useState<"orgs" | "users">(isSuperAdmin ? "orgs" : "users");
+
+  // Inline role editing for users tab
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ role: "", managerId: "" });
+  const [savingUserEdit, setSavingUserEdit] = useState(false);
+  const [userEditError, setUserEditError] = useState("");
 
   useEffect(() => {
     if (!isAdmin) { router.push("/dashboard"); return; }
@@ -495,8 +507,12 @@ export default function AdminPage() {
         const r = await fetch("/api/admin/organisations");
         if (r.ok) setOrgs(await r.json());
       }
-      const r2 = await fetch("/api/admin/users");
+      const [r2, r3] = await Promise.all([
+        fetch("/api/admin/users"),
+        fetch("/api/reps"),
+      ]);
       if (r2.ok) setOrgUsers(await r2.json());
+      if (r3.ok) setOrgReps(await r3.json());
     } finally { setLoading(false); }
   };
 
@@ -507,6 +523,29 @@ export default function AdminPage() {
       body: JSON.stringify({ userId, status: newStatus }),
     });
     setOrgUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+  };
+
+  const startEditUser = (u: any) => {
+    const virtualRole = u.repTier === "ed" ? "ed" : u.repTier === "rd" ? "rd" : u.repTier === "rep" ? "rep" : u.role;
+    setEditingUserId(u.id);
+    setEditUserForm({ role: virtualRole, managerId: u.repManagerId || "" });
+    setUserEditError("");
+  };
+
+  const saveUserEdit = async (userId: string) => {
+    setSavingUserEdit(true); setUserEditError("");
+    try {
+      const body: any = { userId, role: editUserForm.role };
+      if (editUserForm.managerId) body.managerId = editUserForm.managerId;
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setUserEditError(data.error || "Failed to update role"); return; }
+      setEditingUserId(null);
+      loadData();
+    } finally { setSavingUserEdit(false); }
   };
 
   if (!isAdmin) return null;
@@ -591,31 +630,99 @@ export default function AdminPage() {
                   <th className="text-left font-semibold px-4 py-3">Name</th>
                   <th className="text-left font-semibold px-4 py-3">Email</th>
                   <th className="text-left font-semibold px-4 py-3">Role</th>
+                  <th className="text-left font-semibold px-4 py-3">Manager</th>
                   <th className="text-left font-semibold px-4 py-3">Status</th>
                   <th className="text-left font-semibold px-4 py-3">Joined</th>
-                  <th className="px-4 py-3 w-24"></th>
+                  <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
               <tbody>
-                {orgUsers.map(user => (
-                  <tr key={user.id} className="border-b border-stone-100 hover:bg-stone-50">
-                    <td className="px-4 py-3 font-medium text-stone-900">{user.name}</td>
-                    <td className="px-4 py-3 text-stone-600 text-[12px]">{user.email}</td>
-                    <td className="px-4 py-3"><RoleBadge role={user.role} /></td>
-                    <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
-                    <td className="px-4 py-3 text-stone-500 text-[12px]">
-                      {new Date(user.createdAt).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.id !== (session?.user as any)?.id && (
-                        <button onClick={() => toggleUserStatus(user.id, user.status)}
-                          className={`text-[11px] px-2 py-1 rounded font-medium transition-colors ${user.status === "Active" ? "bg-rose-50 text-rose-700 hover:bg-rose-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
-                          {user.status === "Active" ? "Deactivate" : "Activate"}
-                        </button>
+                {orgUsers.map(user => {
+                  const managerRep = user.repManagerId
+                    ? orgReps.find((r: any) => r.id === user.repManagerId)
+                    : null;
+                  const isEditingThis = editingUserId === user.id;
+                  const isSelf = user.id === (session?.user as any)?.id;
+                  return (
+                    <tr key={user.id} className="border-b border-stone-100">
+                      {isEditingThis ? (
+                        <td colSpan={7} className="px-4 py-3">
+                          <div className="flex flex-wrap items-end gap-3">
+                            <div>
+                              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
+                              <select
+                                value={editUserForm.role}
+                                onChange={e => setEditUserForm(p => ({ ...p, role: e.target.value, managerId: "" }))}
+                                className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                                <option value="company_user">User</option>
+                                <option value="company_admin">Company Admin</option>
+                                <option value="rep">Rep / PM</option>
+                                <option value="rd">RD</option>
+                                <option value="ed">ED / RM</option>
+                              </select>
+                            </div>
+                            {(editUserForm.role === "rep" || editUserForm.role === "rd") && (
+                              <div>
+                                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Reports to (Manager)</label>
+                                <select
+                                  value={editUserForm.managerId}
+                                  onChange={e => setEditUserForm(p => ({ ...p, managerId: e.target.value }))}
+                                  className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white min-w-[180px]">
+                                  <option value="">— No manager —</option>
+                                  {orgReps
+                                    .filter((r: any) => r.tier === "ed" || r.tier === "rd")
+                                    .filter((r: any) => r.id !== user.repId) // can't report to self
+                                    .map((r: any) => (
+                                      <option key={r.id} value={r.id}>{r.name} ({r.tier.toUpperCase()})</option>
+                                    ))}
+                                </select>
+                              </div>
+                            )}
+                            {userEditError && (
+                              <div className="text-xs text-rose-600 bg-rose-50 px-2 py-1.5 rounded self-center">{userEditError}</div>
+                            )}
+                            <div className="flex gap-2 ml-auto self-end">
+                              <Button variant="secondary" size="sm" onClick={() => { setEditingUserId(null); setUserEditError(""); }}>Cancel</Button>
+                              <Button size="sm" onClick={() => saveUserEdit(user.id)} disabled={savingUserEdit}>
+                                {savingUserEdit ? "Saving…" : "Save"}
+                              </Button>
+                            </div>
+                          </div>
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3 font-medium text-stone-900">{user.name}</td>
+                          <td className="px-4 py-3 text-stone-600 text-[12px]">{user.email}</td>
+                          <td className="px-4 py-3"><RoleBadge role={user.role} repTier={user.repTier} /></td>
+                          <td className="px-4 py-3 text-[12px] text-stone-500">
+                            {managerRep ? managerRep.name : <span className="text-stone-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
+                          <td className="px-4 py-3 text-stone-500 text-[12px]">
+                            {new Date(user.createdAt).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1 justify-end">
+                              {!isSelf && (
+                                <button onClick={() => startEditUser(user)}
+                                  className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors"
+                                  title="Edit role / rep assignment">
+                                  <Pencil size={13} />
+                                </button>
+                              )}
+                              {!isSelf && (
+                                <button onClick={() => toggleUserStatus(user.id, user.status)}
+                                  className={`text-[11px] px-2 py-1 rounded font-medium transition-colors ${user.status === "Active" ? "bg-rose-50 text-rose-700 hover:bg-rose-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+                                  {user.status === "Active" ? "Deactivate" : "Activate"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {orgUsers.length === 0 && !loading && (

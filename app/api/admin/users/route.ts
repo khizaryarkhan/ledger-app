@@ -202,15 +202,20 @@ export async function PATCH(req: Request) {
         .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId!)));
 
       // Handle reps table for portal roles
+      // managerId can be set when assigning rep/ed tier — which RD/ED they report to
+      const managerId: string | null = body.managerId || null;
+
       if (targetTier) {
         if (target.repId) {
-          // Already has a rep record — just update the tier
-          await db.update(reps).set({ tier: targetTier })
+          // Already has a rep record — update tier and manager
+          await db.update(reps)
+            .set({ tier: targetTier, managerId })
             .where(and(eq(reps.id, target.repId), eq(reps.orgId, orgId!)));
         } else {
           // Create a new rep record and link
           const [repRecord] = await db.insert(reps).values({
             orgId: orgId!, name: target.name, email: target.email, tier: targetTier,
+            ...(managerId ? { managerId } : {}),
           }).returning();
           await db.update(users).set({ repId: repRecord.id }).where(eq(users.id, userId));
         }
