@@ -85,7 +85,9 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
-              <div className="text-[11px] text-stone-500 mt-0.5">{c.code} · {c.country || "—"}</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">
+                {c.code && !c.code.startsWith("QBO-") ? `${c.code} · ` : ""}{c.country || "—"}
+              </div>
               {(c.repName || c.regionName) && (
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                   {c.repName && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
@@ -298,7 +300,9 @@ export default function CustomersPage() {
                     <td className="px-3 py-2.5 font-medium text-stone-900">
                       <Link href={`/customers/${c.id}`} className="hover:underline">{c.name}</Link>
                     </td>
-                    <td className="px-3 py-2.5 text-stone-500 font-mono text-[12px]">{c.code}</td>
+                    <td className="px-3 py-2.5 text-stone-500 font-mono text-[12px]">
+                      {c.code?.startsWith("QBO-") ? "—" : c.code}
+                    </td>
                     <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.country || "—"}</td>
                     <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.repName || <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.regionName || <span className="text-stone-300">—</span>}</td>

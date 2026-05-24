@@ -805,7 +805,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex-1 text-left min-w-0">
                     <div className="text-sm font-medium text-stone-900 truncate">{customer.name}</div>
-                    <div className="text-[11px] text-stone-500">{customer.code} · {customer.country}</div>
+                    <div className="text-[11px] text-stone-500">
+                      {customer.code && !customer.code.startsWith("QBO-") ? `${customer.code} · ` : ""}{customer.country}
+                    </div>
                   </div>
                   {customer.riskRating === "High" && <Badge variant="red" size="sm">High risk</Badge>}
                   <div className="text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(amount, customer.currency)}</div>

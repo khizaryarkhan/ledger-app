@@ -649,7 +649,9 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2 pl-6">
                         <span className="text-[12px] font-medium text-stone-700">{project?.name || "Unknown Project"}</span>
-                        <span className="text-[10px] text-stone-400 font-mono">{project?.code}</span>
+                        {project?.code && !project.code.startsWith("QBO-") && (
+                          <span className="text-[10px] text-stone-400 font-mono">{project.code}</span>
+                        )}
                       </div>
                     </td>
                     {BUCKETS.map(b => <BucketCell key={b} value={pb[b]} ccy={ccy} />)}
@@ -806,7 +808,9 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                     {isOpen ? <ChevronDown size={14} className="text-stone-400" /> : <ChevronRight size={14} className="text-stone-400" />}
                     <div>
                       <div className="font-semibold text-stone-900">{project.name}</div>
-                      <div className="text-[10px] text-stone-400 font-mono mt-0.5">{project.code} · {customer?.name}</div>
+                      <div className="text-[10px] text-stone-400 font-mono mt-0.5">
+                        {project.code && !project.code.startsWith("QBO-") ? `${project.code} · ` : ""}{customer?.name}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -1005,7 +1009,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 return (
                   <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
-                    <td className="px-3 py-2 text-[11px] text-stone-500 font-mono">{proj?.code || "—"}</td>
+                    <td className="px-3 py-2 text-[11px] text-stone-500">{proj?.name || "—"}</td>
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
                     {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
@@ -1161,7 +1165,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 return (
                   <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
-                    <td className="px-3 py-2 text-[11px] text-stone-500 font-mono">{proj?.code || "—"}</td>
+                    <td className="px-3 py-2 text-[11px] text-stone-500">{proj?.name || "—"}</td>
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
                     {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}

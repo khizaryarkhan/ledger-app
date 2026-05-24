@@ -85,7 +85,9 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
       </td>
       <td className="px-4 py-3">
         <Link href={`/projects/${p.id}`} className="font-medium text-stone-900 hover:text-blue-700 hover:underline block">{p.name}</Link>
-        <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+        {p.code && !p.code.startsWith("QBO-") && (
+          <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+        )}
       </td>
       <td className="px-4 py-3">
         {p.customer && <Link href={`/customers/${p.customer.id}`} className="text-stone-700 hover:text-stone-900 hover:underline">{p.customer.name}</Link>}

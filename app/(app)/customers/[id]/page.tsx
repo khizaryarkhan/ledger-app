@@ -267,7 +267,9 @@ export default function CustomerDetailPage() {
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-stone-900 group-hover:text-blue-700 transition-colors truncate">{p.name}</div>
-                        <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+                        {p.code && !p.code.startsWith("QBO-") && (
+                          <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+                        )}
                       </div>
                       <Badge variant={p.status === "Active" ? "blue" : "neutral"} size="sm">{p.status}</Badge>
                     </div>

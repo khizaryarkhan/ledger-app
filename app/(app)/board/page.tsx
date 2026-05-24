@@ -85,7 +85,9 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] text-stone-400 font-mono mb-0.5">{entity.code}</div>
+          {entity.code && !entity.code.startsWith("QBO-") && (
+            <div className="text-[10px] text-stone-400 font-mono mb-0.5">{entity.code}</div>
+          )}
           <div className="text-sm font-semibold text-stone-900 leading-tight truncate">{entity.name}</div>
         </div>
         {hasOverdue && <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1 flex-shrink-0 ml-2" />}
