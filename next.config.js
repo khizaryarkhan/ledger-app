@@ -9,7 +9,7 @@ const nextConfig = {
   experimental: {
     serverActions: { allowedOrigins: ["*"] }
   },
-  serverExternalPackages: ["groq-sdk"],
+  serverExternalPackages: ["groq-sdk", "pdfkit"],
 };
 
 module.exports = nextConfig;
