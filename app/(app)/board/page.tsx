@@ -7,6 +7,13 @@ import { fmt, daysOverdue } from "@/lib/format";
 import { Users, Briefcase, ChevronRight } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 
+// Use qboBalance as the authoritative open balance — same as dashboard & reports.
+// Falls back to total-paid for rows that pre-date the QBO snapshot.
+function openBal(inv: any): number {
+  if (inv.qboBalance != null) return Number(inv.qboBalance);
+  return Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
+}
+
 const AGING_COLORS = [
   { label: "Current", color: "bg-emerald-500", key: "current" },
   { label: "1–30d", color: "bg-amber-400", key: "d30" },
@@ -18,8 +25,8 @@ const AGING_COLORS = [
 function getAgingBuckets(invs: any[]) {
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
   for (const inv of invs) {
-    if (inv.paymentStatus === "Paid" || inv.txnType === "CreditMemo") continue;
-    const out = inv.total - (inv.paid || 0);
+    if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off" || inv.txnType === "CreditMemo") continue;
+    const out = openBal(inv);
     const d = daysOverdue(inv.dueDate);
     buckets.total += out;
     if (d <= 0) buckets.current += out;
@@ -61,8 +68,8 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
 
 function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages }: any) {
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
-  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-  const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+  const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
@@ -144,14 +151,14 @@ export default function BoardPage() {
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
 
-      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-      const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+      const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
       if (outstanding === 0 && open.length === 0) return;
 
       const stageValues: Record<string, number> = {};
       open.forEach((i: any) => {
         const ns = resolveStageLabel(i.collectionStage, stages);
-        stageValues[ns] = (stageValues[ns] || 0) + (i.total - (i.paid || 0));
+        stageValues[ns] = (stageValues[ns] || 0) + openBal(i);
       });
       const stage = Object.entries(stageValues).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
 
@@ -189,7 +196,7 @@ export default function BoardPage() {
     const item = grouped[draggingId];
     if (!item || item.stage === stage) return;
     // Update all open invoices for this entity to the new stage
-    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
     await Promise.all(openInvs.map((i: any) => updateInvoice(i.id, { collectionStage: stage })));
     setDraggingId(null);
   };
