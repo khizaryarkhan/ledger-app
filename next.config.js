@@ -8,7 +8,8 @@ const nextConfig = {
   },
   experimental: {
     serverActions: { allowedOrigins: ["*"] }
-  }
+  },
+  serverExternalPackages: ["groq-sdk"],
 };
 
 module.exports = nextConfig;
