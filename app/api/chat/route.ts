@@ -3,7 +3,7 @@ import { invoices, customers, projects, users, reps as repsTable } from "@/db/sc
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
-import { eq, and, ilike, ne } from "drizzle-orm";
+import { eq, and, ilike, ne, gte, lte } from "drizzle-orm";
 import Groq from "groq-sdk";
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -16,22 +16,55 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "list_portfolio",
-      description: `Show all open projects/customers within the user's portfolio sorted by outstanding balance.
-Use this when the user asks: "show my projects", "what's open?", "what should I chase?", "my portfolio", "show everything", "what do I have?", "list all invoices".
-No parameters needed — automatically scoped to the user's visible data.`,
+      description: "Show all open projects/customers in the user's portfolio with balances.\nTRIGGER: \"show my portfolio\", \"what's open\", \"list my projects\", \"what do I have\", \"show everything\", \"all projects\", \"my accounts\".",
       parameters: {
         type: "object",
         properties: {
-          sortBy: {
-            type: "string",
-            enum: ["outstanding", "overdue", "oldest"],
-            description: "Sort order: outstanding (default, highest balance first), overdue (most overdue days first), oldest (invoice date)"
-          },
-          filter: {
-            type: "string",
-            enum: ["all", "overdue", "current"],
-            description: "Filter: all (default), overdue (past due only), current (not yet due)"
-          }
+          sortBy: { type: "string", enum: ["outstanding", "overdue", "oldest"], description: "Default: outstanding" },
+          filter: { type: "string", enum: ["all", "overdue", "current"], description: "Default: all" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_priority_list",
+      description: "Return a prioritised chase list — invoices most urgently needing action, scored by days overdue x balance.\nTRIGGER: \"what should I chase\", \"what needs attention\", \"priority list\", \"what to follow up\", \"most urgent\", \"top overdue\", \"worst accounts\", \"where should I focus\", \"who hasn't paid\".",
+      parameters: {
+        type: "object",
+        properties: {
+          minDaysOverdue: { type: "number", description: "Only include invoices overdue by at least this many days. E.g. 90 for '90+ days' queries." },
+          limit: { type: "number", description: "Max results to return (default 10)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_aging",
+      description: "Show aging breakdown: Current / 1-30d / 31-60d / 61-90d / 90+ days.\nTRIGGER: \"aging breakdown\", \"aging report\", \"how old is the debt\", \"aging for X\", \"bucket breakdown\", \"what's in 90+ days\", \"how much is current vs overdue\".",
+      parameters: {
+        type: "object",
+        properties: {
+          projectName: { type: "string" },
+          customerName: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_due_soon",
+      description: "Show invoices coming due within the next N days — for proactive chasing before they go overdue.\nTRIGGER: \"due this week\", \"due soon\", \"coming due\", \"due in 7 days\", \"due in 30 days\", \"what's due next week\", \"upcoming payments\", \"invoices due this month\".",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Look ahead window in days (default 7, use 30 for this month)" },
+          projectName: { type: "string" },
+          customerName: { type: "string" },
         },
       },
     },
@@ -40,20 +73,13 @@ No parameters needed — automatically scoped to the user's visible data.`,
     type: "function",
     function: {
       name: "get_invoices",
-      description: `Get the invoice list for a SPECIFIC named project or customer.
-Use this when the user mentions a specific project name or customer name and wants to see their invoices.
-Examples: "show invoices for MW22004", "what's open for Acme Corp?", "invoices of Barna project", "overdue for O'Connor Homes", "total overdue of MW22004".
-Always set status="overdue" when user says "overdue", "past due", or "late". Set status="open" for general open invoices.`,
+      description: "Get the full invoice list for a SPECIFIC named project or customer.\nTRIGGER: when user names a specific project or customer and wants to see their invoices.\nExamples: \"show invoices for MW22004\", \"open invoices for Acme\", \"overdue for Barna project\".\nSet status=\"overdue\" when user says overdue/past due/late. status=\"open\" for unpaid. status=\"all\" for everything.",
       parameters: {
         type: "object",
         properties: {
-          projectName:  { type: "string", description: "Project name or code (e.g. 'MW22004', 'Barna Residential'). Use the exact words the user mentioned." },
-          customerName: { type: "string", description: "Customer/company name (e.g. 'Acme Corp', 'O Connor Homes'). Use when user mentions a company not a project." },
-          status: {
-            type: "string",
-            enum: ["open", "overdue", "all"],
-            description: "open = unpaid invoices, overdue = past due date only, all = everything including paid",
-          },
+          projectName: { type: "string", description: "Project name or code — use exact words the user said" },
+          customerName: { type: "string", description: "Customer/company name" },
+          status: { type: "string", enum: ["open", "overdue", "all"] },
         },
       },
     },
@@ -62,14 +88,12 @@ Always set status="overdue" when user says "overdue", "past due", or "late". Set
     type: "function",
     function: {
       name: "get_ar_summary",
-      description: `Get a quick AR summary (totals only — no invoice list) for a specific project or customer, or for the whole portfolio.
-Use for: "AR summary for X", "how much does X owe?", "total outstanding for X", "what's the balance on X?", "overdue amount for X".
-Prefer this over get_invoices when the user just wants totals/amounts, not the full invoice list.`,
+      description: "Get total AR amounts (no invoice list) for a project, customer, or whole portfolio.\nTRIGGER: \"AR summary for X\", \"how much does X owe\", \"total outstanding for X\", \"balance on X\", \"overdue amount for X\", \"total AR\".",
       parameters: {
         type: "object",
         properties: {
-          projectName:  { type: "string", description: "Project name or code" },
-          customerName: { type: "string", description: "Customer or company name" },
+          projectName: { type: "string" },
+          customerName: { type: "string" },
         },
       },
     },
@@ -77,18 +101,32 @@ Prefer this over get_invoices when the user just wants totals/amounts, not the f
   {
     type: "function",
     function: {
-      name: "send_invoices",
-      description: `Email open invoices for a project or customer as PDF attachments.
-Use ONLY when the user explicitly says "send", "email", "forward" invoices to someone.
-Examples: "send open invoices of MW22004 to billing@client.com", "email all overdue invoices to finance@acme.com CC manager@acme.com".
-If the user doesn't provide a 'to' email address, omit it — the system will use the billing email on file.`,
+      name: "update_invoice",
+      description: "Update the collection stage of an invoice or add a follow-up note.\nTRIGGER: \"mark invoice X as promised\", \"set #7544 to disputed\", \"mark as in progress\", \"add note to invoice X\", \"escalate invoice X\", \"promise to pay on invoice X\".",
       parameters: {
         type: "object",
         properties: {
-          projectName:  { type: "string", description: "Project name or code to send invoices for" },
-          customerName: { type: "string", description: "Customer name to send invoices for" },
-          to:           { type: "string", description: "Recipient email address. Omit if not stated — system will use billing email on file." },
-          cc:           { type: "string", description: "CC email address(es), comma-separated" },
+          invoiceNumber: { type: "string", description: "Invoice number (e.g. '7544' or '#7544')" },
+          stage: { type: "string", enum: ["New", "In Progress", "Promised", "Disputed", "Escalated", "Written Off"], description: "New collection stage to set" },
+          note: { type: "string", description: "Optional note to attach" },
+          promiseDate: { type: "string", description: "Promise-to-pay date YYYY-MM-DD (for Promised stage)" },
+        },
+        required: ["invoiceNumber"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_invoices",
+      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.",
+      parameters: {
+        type: "object",
+        properties: {
+          projectName: { type: "string" },
+          customerName: { type: "string" },
+          to: { type: "string", description: "Recipient email. Omit if not stated." },
+          cc: { type: "string", description: "CC email(s), comma-separated" },
         },
         required: [],
       },
@@ -575,6 +613,165 @@ async function toolGetArSummary(orgId: string, args: any, visibleRepIds: Set<str
   ].filter(Boolean).join("\n");
 }
 
+// ── Tool: get_priority_list ───────────────────────────────────────────────────
+async function toolGetPriorityList(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const allRows = await fetchOpenInvoices(orgId);
+  const scoped = visibleRepIds
+    ? allRows.filter(i => {
+        const repId = i.projectId ? (i as any).projectRepId : (i as any).customerRepId;
+        return repId && visibleRepIds.has(repId);
+      })
+    : allRows;
+
+  const minDays = args.minDaysOverdue ?? 1;
+  const limit   = args.limit ?? 10;
+
+  const overdue = scoped
+    .filter(i => daysOverdue(i.dueDate) >= minDays)
+    .map(i => ({ ...i, days: daysOverdue(i.dueDate), bal: openBal(i), score: daysOverdue(i.dueDate) * openBal(i) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  if (overdue.length === 0) return minDays > 1 ? `No invoices overdue by ${minDays}+ days.` : "No overdue invoices found.";
+
+  const lines = overdue.map((i, idx) => {
+    const label = i.projectName ?? i.customerName ?? "Unknown";
+    return `${idx + 1}. #${i.invoiceNumber} — ${label} — ${fmt(i.bal, i.currency)} (${i.days}d overdue)`;
+  }).join("\n");
+
+  const total = overdue.reduce((s, i) => s + i.bal, 0);
+  return `Top ${overdue.length} invoices to chase (${minDays > 1 ? `${minDays}+d overdue` : "by priority"}) — ${fmt(total)} total:\n\n${lines}`;
+}
+
+// ── Tool: get_aging ───────────────────────────────────────────────────────────
+async function toolGetAging(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const resolved = args.projectName || args.customerName
+    ? await resolveEntity(orgId, args.projectName, args.customerName)
+    : { status: "ok" as const, label: "portfolio" };
+
+  if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+
+  const rows = await fetchOpenInvoices(
+    orgId,
+    (resolved as any).projectId,
+    (resolved as any).customerId,
+  );
+
+  const scoped = visibleRepIds
+    ? rows.filter(i => {
+        const repId = i.projectId ? (i as any).projectRepId : (i as any).customerRepId;
+        return repId == null || visibleRepIds.has(repId);
+      })
+    : rows;
+
+  if (scoped.length === 0) return `No open invoices found for ${resolved.label}.`;
+
+  const buckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
+  const counts  = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
+
+  for (const i of scoped) {
+    const d   = daysOverdue(i.dueDate);
+    const bal = openBal(i);
+    if (d <= 0)       { buckets.current += bal; counts.current++; }
+    else if (d <= 30) { buckets.d30     += bal; counts.d30++; }
+    else if (d <= 60) { buckets.d60     += bal; counts.d60++; }
+    else if (d <= 90) { buckets.d90     += bal; counts.d90++; }
+    else              { buckets.d90plus += bal; counts.d90plus++; }
+  }
+
+  const total = Object.values(buckets).reduce((s, v) => s + v, 0);
+  const pct   = (v: number) => total > 0 ? ` (${Math.round(v / total * 100)}%)` : "";
+
+  return [
+    `Aging breakdown for ${resolved.label}:`,
+    `• Current:   ${fmt(buckets.current)}${pct(buckets.current)} — ${counts.current} invoice(s)`,
+    `• 1–30d:     ${fmt(buckets.d30)}${pct(buckets.d30)} — ${counts.d30} invoice(s)`,
+    `• 31–60d:    ${fmt(buckets.d60)}${pct(buckets.d60)} — ${counts.d60} invoice(s)`,
+    `• 61–90d:    ${fmt(buckets.d90)}${pct(buckets.d90)} — ${counts.d90} invoice(s)`,
+    `• 90+ days:  ${fmt(buckets.d90plus)}${pct(buckets.d90plus)} — ${counts.d90plus} invoice(s)`,
+    `\nTotal open: ${fmt(total)}`,
+  ].join("\n");
+}
+
+// ── Tool: get_due_soon ────────────────────────────────────────────────────────
+async function toolGetDueSoon(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const days    = args.days ?? 7;
+  const todayMs = Date.now();
+  const endMs   = todayMs + days * 86_400_000;
+
+  const resolved = args.projectName || args.customerName
+    ? await resolveEntity(orgId, args.projectName, args.customerName)
+    : { status: "ok" as const, label: "portfolio" };
+
+  if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+
+  const rows = await fetchOpenInvoices(orgId, (resolved as any).projectId, (resolved as any).customerId);
+
+  const scoped = visibleRepIds
+    ? rows.filter(i => {
+        const repId = i.projectId ? (i as any).projectRepId : (i as any).customerRepId;
+        return repId == null || visibleRepIds.has(repId);
+      })
+    : rows;
+
+  const dueSoon = scoped
+    .filter(i => {
+      const t = new Date(i.dueDate).getTime();
+      return t >= todayMs && t <= endMs;
+    })
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  if (dueSoon.length === 0) return `No invoices due in the next ${days} day(s).`;
+
+  const total = dueSoon.reduce((s, i) => s + openBal(i), 0);
+  const lines = dueSoon.map(i => {
+    const label = i.projectName ?? i.customerName ?? "Unknown";
+    return `• #${i.invoiceNumber} — ${label} — ${fmt(openBal(i), i.currency)} (due ${i.dueDate})`;
+  }).join("\n");
+
+  return `${dueSoon.length} invoice(s) due in the next ${days} day(s) — ${fmt(total)} total:\n\n${lines}`;
+}
+
+// ── Tool: update_invoice ──────────────────────────────────────────────────────
+async function toolUpdateInvoice(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const num = String(args.invoiceNumber).replace(/^#/, "").trim();
+
+  const [inv] = await db
+    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, projectId: invoices.projectId, customerId: invoices.customerId, collectionStage: invoices.collectionStage })
+    .from(invoices)
+    .where(and(eq(invoices.orgId, orgId), eq(invoices.invoiceNumber, num)))
+    .limit(1);
+
+  if (!inv) return `No invoice found with number "${num}" in your org.`;
+
+  // Scope check
+  if (visibleRepIds) {
+    const [projRep] = inv.projectId
+      ? await db.select({ repId: projects.repId }).from(projects).where(eq(projects.id, inv.projectId)).limit(1)
+      : [];
+    const [custRep] = !inv.projectId
+      ? await db.select({ repId: customers.repId }).from(customers).where(eq(customers.id, inv.customerId)).limit(1)
+      : [];
+    const repId = projRep?.repId ?? custRep?.repId ?? null;
+    if (!repId || !visibleRepIds.has(repId)) return `⛔ Invoice #${num} is not within your portfolio.`;
+  }
+
+  const updates: Record<string, any> = {};
+  if (args.stage)       updates.collectionStage = args.stage;
+  if (args.promiseDate) updates.promiseDate      = args.promiseDate;
+  if (args.note)        updates.notes            = args.note;
+
+  if (Object.keys(updates).length === 0) return `Nothing to update on invoice #${num}. Specify a stage, note, or promise date.`;
+
+  await db.update(invoices).set(updates).where(eq(invoices.id, inv.id));
+
+  const parts = [];
+  if (args.stage)       parts.push(`stage → ${args.stage}`);
+  if (args.promiseDate) parts.push(`promise date → ${args.promiseDate}`);
+  if (args.note)        parts.push(`note added`);
+  return `✅ Invoice #${num} updated: ${parts.join(", ")}.`;
+}
+
 // ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   const { error, session, orgId } = await requireOrg();
@@ -619,16 +816,33 @@ export async function POST(req: Request) {
     repContext = "\nThis user is an admin and can access all projects and customers.";
   }
 
-  const systemPrompt = `You are an AR (Accounts Receivable) assistant built into a financial management app called Ledger AR.
-You help the user manage invoices, chase overdue payments, and send invoice emails.
+  const systemPrompt = `You are an expert AR (Accounts Receivable) assistant embedded in Ledger AR, a financial management platform.
+You help users manage invoices, track overdue payments, prioritise collections, and send invoice emails.
 
-CRITICAL RULES:
-1. NEVER answer questions about invoice amounts, balances, or AR data from memory. ALWAYS call a tool.
-2. For ANY question about invoices, overdue amounts, balances, or portfolio data — call a tool immediately.
-3. When a tool returns a numbered list asking for clarification, repeat it EXACTLY and wait for the user's choice.
-4. Keep responses concise. No need to re-explain what you just did.
-5. If the user says "send" or "email" — call send_invoices. If they ask "what", "show", "list", or amounts — call get_invoices or get_ar_summary.
-6. For follow-up questions like "total overdue?" or "how many?" — use the project/customer name from the previous message in the conversation.
+STRICT RULES — follow these without exception:
+1. NEVER answer questions about amounts, balances, or AR data from memory. ALWAYS call a tool first.
+2. ANY question about invoices, balances, overdue amounts, aging, or portfolio data requires a tool call.
+3. When a tool returns a numbered list asking for clarification, copy it EXACTLY and wait for the user to choose.
+4. Be concise — no need to restate what you just did. Lead with the result.
+5. For follow-up questions like "total overdue?", "how many?", "send those" — infer the project/customer from conversation history.
+6. If the user's request is unclear, ask one short clarifying question.
+
+TOOL SELECTION GUIDE:
+- "show my portfolio / what's open / list projects" → list_portfolio
+- "what should I chase / priority / most urgent / who hasn't paid" → get_priority_list
+- "aging breakdown / aging report / buckets / 90+ days" → get_aging
+- "due this week / coming due / due soon / due in X days" → get_due_soon
+- "invoices for X / open for X / overdue for X" (specific entity) → get_invoices
+- "how much does X owe / balance on X / total AR for X" → get_ar_summary
+- "mark as promised / set to disputed / update stage / add note" → update_invoice
+- "send / email / forward invoices to [email]" → send_invoices
+
+AR DOMAIN KNOWLEDGE:
+- Collection stages: New → In Progress → Promised → Disputed → Escalated → Written Off
+- "Promised" means the customer has committed to a payment date — always set a promiseDate
+- "Disputed" means there is a disagreement about the invoice — no chasing until resolved
+- 90+ days overdue = high risk, prioritise immediately
+- Best practice: chase at 7 days before due, 1 day after due, 7 days overdue, 30 days overdue
 
 User: ${userData?.name ?? "Unknown"}${repContext}
 Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
@@ -662,10 +876,14 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
 
   let toolResult = "";
   try {
-    if      (toolName === "list_portfolio")  toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "send_invoices")   toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "get_invoices")    toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "get_ar_summary")  toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
+    if      (toolName === "list_portfolio")   toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_priority_list") toolResult = await toolGetPriorityList(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_aging")         toolResult = await toolGetAging(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_due_soon")      toolResult = await toolGetDueSoon(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_invoices")      toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_ar_summary")    toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "update_invoice")    toolResult = await toolUpdateInvoice(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "send_invoices")     toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
     else toolResult = "Unknown tool.";
   } catch (e: any) {
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
