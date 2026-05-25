@@ -15,17 +15,24 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "send_invoices",
-      description: "Send open invoices for a project or customer via email with a PDF statement attached",
+      name: "list_portfolio",
+      description: `Show all open projects/customers within the user's portfolio sorted by outstanding balance.
+Use this when the user asks: "show my projects", "what's open?", "what should I chase?", "my portfolio", "show everything", "what do I have?", "list all invoices".
+No parameters needed — automatically scoped to the user's visible data.`,
       parameters: {
         type: "object",
         properties: {
-          projectName:  { type: "string", description: "Project name (partial match ok)" },
-          customerName: { type: "string", description: "Customer name (partial match ok)" },
-          to:           { type: "string", description: "Recipient email address. If not specified by the user, omit this and the system will use the customer's billing email on file." },
-          cc:           { type: "string", description: "CC email address(es), comma-separated" },
+          sortBy: {
+            type: "string",
+            enum: ["outstanding", "overdue", "oldest"],
+            description: "Sort order: outstanding (default, highest balance first), overdue (most overdue days first), oldest (invoice date)"
+          },
+          filter: {
+            type: "string",
+            enum: ["all", "overdue", "current"],
+            description: "Filter: all (default), overdue (past due only), current (not yet due)"
+          }
         },
-        required: [],
       },
     },
   },
@@ -33,16 +40,19 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "get_invoices",
-      description: "Look up open or overdue invoices for a project or customer and return a summary",
+      description: `Get the invoice list for a SPECIFIC named project or customer.
+Use this when the user mentions a specific project name or customer name and wants to see their invoices.
+Examples: "show invoices for MW22004", "what's open for Acme Corp?", "invoices of Barna project", "overdue for O'Connor Homes", "total overdue of MW22004".
+Always set status="overdue" when user says "overdue", "past due", or "late". Set status="open" for general open invoices.`,
       parameters: {
         type: "object",
         properties: {
-          projectName:  { type: "string" },
-          customerName: { type: "string" },
+          projectName:  { type: "string", description: "Project name or code (e.g. 'MW22004', 'Barna Residential'). Use the exact words the user mentioned." },
+          customerName: { type: "string", description: "Customer/company name (e.g. 'Acme Corp', 'O Connor Homes'). Use when user mentions a company not a project." },
           status: {
             type: "string",
             enum: ["open", "overdue", "all"],
-            description: "Filter: open (unpaid), overdue (past due date), all",
+            description: "open = unpaid invoices, overdue = past due date only, all = everything including paid",
           },
         },
       },
@@ -52,13 +62,35 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "get_ar_summary",
-      description: "Get accounts receivable summary — total open AR and overdue amounts, optionally scoped to a customer or project",
+      description: `Get a quick AR summary (totals only — no invoice list) for a specific project or customer, or for the whole portfolio.
+Use for: "AR summary for X", "how much does X owe?", "total outstanding for X", "what's the balance on X?", "overdue amount for X".
+Prefer this over get_invoices when the user just wants totals/amounts, not the full invoice list.`,
       parameters: {
         type: "object",
         properties: {
-          customerName: { type: "string" },
-          projectName:  { type: "string" },
+          projectName:  { type: "string", description: "Project name or code" },
+          customerName: { type: "string", description: "Customer or company name" },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_invoices",
+      description: `Email open invoices for a project or customer as PDF attachments.
+Use ONLY when the user explicitly says "send", "email", "forward" invoices to someone.
+Examples: "send open invoices of MW22004 to billing@client.com", "email all overdue invoices to finance@acme.com CC manager@acme.com".
+If the user doesn't provide a 'to' email address, omit it — the system will use the billing email on file.`,
+      parameters: {
+        type: "object",
+        properties: {
+          projectName:  { type: "string", description: "Project name or code to send invoices for" },
+          customerName: { type: "string", description: "Customer name to send invoices for" },
+          to:           { type: "string", description: "Recipient email address. Omit if not stated — system will use billing email on file." },
+          cc:           { type: "string", description: "CC email address(es), comma-separated" },
+        },
+        required: [],
       },
     },
   },
@@ -166,10 +198,12 @@ async function fetchOpenInvoices(
       paymentStatus: invoices.paymentStatus,
       txnType:       invoices.txnType,
       currency:      invoices.currency,
-      customerId:    invoices.customerId,
-      projectId:     invoices.projectId,
-      customerName:  customers.name,
-      projectName:   projects.name,
+      customerId:     invoices.customerId,
+      projectId:      invoices.projectId,
+      customerName:   customers.name,
+      customerRepId:  customers.repId,
+      projectName:    projects.name,
+      projectRepId:   projects.repId,
     })
     .from(invoices)
     .leftJoin(customers, eq(customers.id, invoices.customerId))
@@ -303,6 +337,57 @@ async function generateStatementPDF(
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
+}
+
+// ── Tool: list_portfolio ──────────────────────────────────────────────────────
+async function toolListPortfolio(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const allRows = await fetchOpenInvoices(orgId);
+
+  // Scope to visible reps using invoice-level ownership rule
+  const visibleRows = visibleRepIds
+    ? allRows.filter(i => {
+        if (i.projectId) {
+          return i.projectRepId != null && visibleRepIds.has(i.projectRepId as string);
+        }
+        return i.customerRepId != null && visibleRepIds.has(i.customerRepId as string);
+      })
+    : allRows;
+
+  if (visibleRows.length === 0) return "No open invoices found in your portfolio.";
+
+  // Group by project (or customer if no project)
+  const groups: Record<string, { label: string; balance: number; overdue: number; count: number; maxDays: number }> = {};
+  for (const i of visibleRows) {
+    const key   = i.projectId ?? i.customerId;
+    const label = i.projectName ?? i.customerName ?? "Unknown";
+    const bal   = openBal(i);
+    const days  = daysOverdue(i.dueDate);
+    if (!groups[key]) groups[key] = { label, balance: 0, overdue: 0, count: 0, maxDays: 0 };
+    groups[key].balance += bal;
+    groups[key].count   += 1;
+    if (days > 0) { groups[key].overdue += bal; groups[key].maxDays = Math.max(groups[key].maxDays, days); }
+  }
+
+  let sorted = Object.values(groups);
+  const sortBy = args.sortBy || "outstanding";
+  if (sortBy === "overdue")  sorted.sort((a, b) => b.maxDays - a.maxDays);
+  else if (sortBy === "oldest") sorted.sort((a, b) => b.maxDays - a.maxDays);
+  else sorted.sort((a, b) => b.balance - a.balance);
+
+  const filter = args.filter || "all";
+  if (filter === "overdue")  sorted = sorted.filter(g => g.overdue > 0);
+  if (filter === "current")  sorted = sorted.filter(g => g.overdue === 0);
+
+  const totalBal = sorted.reduce((s, g) => s + g.balance, 0);
+  const totalOvd = sorted.reduce((s, g) => s + g.overdue, 0);
+
+  const lines = sorted.slice(0, 15).map(g => {
+    const ovdTag = g.overdue > 0 ? ` ⚠ ${fmt(g.overdue)} overdue (${g.maxDays}d)` : "";
+    return `• ${g.label} — ${fmt(g.balance)} (${g.count} invoice${g.count > 1 ? "s" : ""})${ovdTag}`;
+  }).join("\n");
+
+  const more = sorted.length > 15 ? `\n…and ${sorted.length - 15} more` : "";
+  return `Portfolio: ${sorted.length} project(s) · ${fmt(totalBal)} open · ${fmt(totalOvd)} overdue\n\n${lines}${more}`;
 }
 
 // ── Tool: get_invoices ────────────────────────────────────────────────────────
@@ -516,12 +601,37 @@ export async function POST(req: Request) {
     }
   }
 
-  const systemPrompt = `You are a helpful accounts receivable assistant embedded in a financial management app.
-You help users query invoices, check overdue amounts, and send invoice statement emails with PDF attachments.
-Be concise and professional. When the tool returns a confirmation request (multiple matches found), relay it exactly and wait for the user to clarify.
-When users ask to send invoices, confirm what was sent including the PDF attachment.
-If no email address is provided for sending, ask for one.
-Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`;
+  // Build user context for the system prompt
+  const [userData] = await db
+    .select({ name: users.name, repId: users.repId })
+    .from(users).where(eq(users.id, userId)).limit(1);
+
+  let repContext = "";
+  if (userData?.repId) {
+    const [rep] = await db.select().from(repsTable).where(eq(repsTable.id, userData.repId)).limit(1);
+    if (rep) {
+      const reports = await db.select({ name: repsTable.name }).from(repsTable)
+        .where(and(eq(repsTable.orgId, orgId!), eq(repsTable.managerId, rep.id)));
+      repContext = `\nThe user's rep profile: name="${rep.name}", tier="${rep.tier}"${reports.length > 0 ? `, manages: ${reports.map(r => r.name).join(", ")}` : ""}.`;
+      if (visibleRepIds) repContext += `\nThey can only see/act on projects within their portfolio (${visibleRepIds.size} rep(s) in scope).`;
+    }
+  } else {
+    repContext = "\nThis user is an admin and can access all projects and customers.";
+  }
+
+  const systemPrompt = `You are an AR (Accounts Receivable) assistant built into a financial management app called Ledger AR.
+You help the user manage invoices, chase overdue payments, and send invoice emails.
+
+CRITICAL RULES:
+1. NEVER answer questions about invoice amounts, balances, or AR data from memory. ALWAYS call a tool.
+2. For ANY question about invoices, overdue amounts, balances, or portfolio data — call a tool immediately.
+3. When a tool returns a numbered list asking for clarification, repeat it EXACTLY and wait for the user's choice.
+4. Keep responses concise. No need to re-explain what you just did.
+5. If the user says "send" or "email" — call send_invoices. If they ask "what", "show", "list", or amounts — call get_invoices or get_ar_summary.
+6. For follow-up questions like "total overdue?" or "how many?" — use the project/customer name from the previous message in the conversation.
+
+User: ${userData?.name ?? "Unknown"}${repContext}
+Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
 
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -535,7 +645,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
     messages,
     tools:        TOOLS,
     tool_choice:  "auto",
-    temperature:  0.1,
+    temperature:  0,
   });
 
   const choice = first.choices[0];
@@ -552,9 +662,10 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
 
   let toolResult = "";
   try {
-    if      (toolName === "send_invoices")  toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "get_invoices")   toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "get_ar_summary") toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
+    if      (toolName === "list_portfolio")  toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "send_invoices")   toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_invoices")    toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_ar_summary")  toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
     else toolResult = "Unknown tool.";
   } catch (e: any) {
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
