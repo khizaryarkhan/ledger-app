@@ -372,8 +372,9 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
   // Generate PDF
   const pdfBuffer = await generateStatementPDF(rows, subject);
 
+  let transport = "";
   try {
-    await sendEmail(orgId, {
+    const result = await sendEmail(orgId, {
       to:      args.to,
       cc:      args.cc,
       subject,
@@ -384,10 +385,13 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
         contentType: "application/pdf",
       }],
     });
-    return `✓ Sent ${rows.length} invoice(s) totalling ${fmt(total)} to ${args.to}${args.cc ? ` (CC: ${args.cc})` : ""}. PDF statement attached.`;
+    transport = result.transport;
   } catch (e: any) {
-    return `Failed to send email: ${e?.message ?? "Unknown error"}. Check Settings → Email.`;
+    const msg = e?.message ?? "Unknown error";
+    return `❌ Email not sent — ${msg}\n\nCheck Settings → Email to make sure Gmail, Outlook or SMTP is connected.`;
   }
+
+  return `✅ Sent ${rows.length} invoice(s) totalling ${fmt(total)} to ${args.to}${args.cc ? ` (CC: ${args.cc})` : ""}\nPDF statement attached · via ${transport}`;
 }
 
 // ── Tool: get_ar_summary ──────────────────────────────────────────────────────
@@ -454,7 +458,6 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
   try { toolArgs = JSON.parse(toolCall.function.arguments); } catch {}
 
   let toolResult = "";
-  let isConfirmation = false;
   try {
     if      (toolName === "send_invoices")  toolResult = await toolSendInvoices(orgId!, toolArgs);
     else if (toolName === "get_invoices")   toolResult = await toolGetInvoices(orgId!, toolArgs);
@@ -464,31 +467,7 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
   }
 
-  // If the tool returned a confirmation/clarification request, return it directly
-  // without a second Groq call — prevents Groq from paraphrasing the list away.
-  if (
-    toolResult.startsWith("Found ") ||
-    toolResult.startsWith("No project") ||
-    toolResult.startsWith("No customer") ||
-    toolResult.startsWith("No open")
-  ) {
-    isConfirmation = true;
-  }
-
-  if (isConfirmation) {
-    return NextResponse.json({ reply: toolResult });
-  }
-
-  // Second call — Groq formats the tool result as a natural reply
-  const second = await groq.chat.completions.create({
-    model:       "llama-3.3-70b-versatile",
-    messages: [
-      ...messages,
-      choice.message,
-      { role: "tool", tool_call_id: toolCall.id, content: toolResult },
-    ],
-    temperature: 0.2,
-  });
-
-  return NextResponse.json({ reply: second.choices[0].message.content ?? toolResult });
+  // Always return tool results verbatim — never let Groq paraphrase them.
+  // This ensures errors are shown as errors and confirmations preserve their lists.
+  return NextResponse.json({ reply: toolResult });
 }
