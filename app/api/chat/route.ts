@@ -22,10 +22,10 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
         properties: {
           projectName:  { type: "string", description: "Project name (partial match ok)" },
           customerName: { type: "string", description: "Customer name (partial match ok)" },
-          to:           { type: "string", description: "Recipient email address" },
+          to:           { type: "string", description: "Recipient email address. If not specified by the user, omit this and the system will use the customer's billing email on file." },
           cc:           { type: "string", description: "CC email address(es), comma-separated" },
         },
-        required: ["to"],
+        required: [],
       },
     },
   },
@@ -315,6 +315,22 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
   const rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
   if (rows.length === 0) return `No open invoices found for "${resolved.label}" — nothing sent.`;
 
+  // Resolve recipient — use chat-provided address or fall back to billing email on file
+  let toAddress = args.to?.trim();
+  if (!toAddress) {
+    // Try invoice billingEmail first, then customer email
+    const [sample] = await db
+      .select({ billingEmail: invoices.billingEmail, customerEmail: customers.email })
+      .from(invoices)
+      .leftJoin(customers, eq(customers.id, invoices.customerId))
+      .where(eq(invoices.id, rows[0].id))
+      .limit(1);
+    toAddress = sample?.billingEmail?.split(",")[0]?.trim() || sample?.customerEmail?.trim() || "";
+  }
+  if (!toAddress) {
+    return `No recipient email provided and no billing email found on file for "${resolved.label}". Please specify an email address to send to.`;
+  }
+
   const total   = rows.reduce((s, i) => s + openBal(i), 0);
   const subject = `Open Invoices — ${resolved.label}`;
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -375,7 +391,7 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
   let transport = "";
   try {
     const result = await sendEmail(orgId, {
-      to:      args.to,
+      to:      toAddress,
       cc:      args.cc,
       subject,
       body,
@@ -391,7 +407,7 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
     return `❌ Email not sent — ${msg}\n\nCheck Settings → Email to make sure Gmail, Outlook or SMTP is connected.`;
   }
 
-  return `✅ Sent ${rows.length} invoice(s) totalling ${fmt(total)} to ${args.to}${args.cc ? ` (CC: ${args.cc})` : ""}\nPDF statement attached · via ${transport}`;
+  return `✅ Sent ${rows.length} invoice(s) totalling ${fmt(total)} to ${toAddress}${args.cc ? ` (CC: ${args.cc})` : ""}\nPDF statement attached · via ${transport}`;
 }
 
 // ── Tool: get_ar_summary ──────────────────────────────────────────────────────
