@@ -1,7 +1,8 @@
 import { db } from "@/db";
 import { invoices, customers, projects } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
-import { sendEmail } from "@/lib/mailer";
+import { sendEmail, type MailAttachment } from "@/lib/mailer";
+import { getOrgQboToken } from "@/lib/qbo-token";
 import { eq, and, ilike, ne } from "drizzle-orm";
 import Groq from "groq-sdk";
 import { NextResponse } from "next/server";
@@ -161,6 +162,7 @@ async function fetchOpenInvoices(
       total:         invoices.total,
       paid:          invoices.paid,
       qboBalance:    invoices.qboBalance,
+      qboId:         invoices.qboId,
       paymentStatus: invoices.paymentStatus,
       txnType:       invoices.txnType,
       currency:      invoices.currency,
@@ -183,6 +185,26 @@ async function fetchOpenInvoices(
     );
 
   return rows;
+}
+
+// ── QBO individual invoice PDF fetcher ───────────────────────────────────────
+const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
+
+async function fetchQboPdf(token: { accessToken: string; realmId: string }, qboId: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(
+      `${QBO_API}/${token.realmId}/invoice/${qboId}/pdf?minorversion=65`,
+      {
+        headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/pdf" },
+        signal: AbortSignal.timeout(15_000),
+      }
+    );
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    return buf.byteLength > 0 ? Buffer.from(buf) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── PDF statement generator (pdf-lib — no filesystem, Vercel-safe) ────────────
@@ -385,8 +407,26 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
       </div>
     </div>`;
 
-  // Generate PDF
-  const pdfBuffer = await generateStatementPDF(rows, subject);
+  // Build attachments — prefer individual QBO invoice PDFs, fall back to statement
+  let attachments: MailAttachment[] = [];
+  const qboToken = await getOrgQboToken(orgId);
+  if (qboToken) {
+    const pdfs = await Promise.all(
+      rows
+        .filter(r => r.qboId && !r.qboId.startsWith("CM-"))
+        .map(async r => {
+          const buf = await fetchQboPdf(qboToken, r.qboId!);
+          if (!buf) return null;
+          return { filename: `Invoice-${r.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" } as MailAttachment;
+        })
+    );
+    attachments = pdfs.filter(Boolean) as MailAttachment[];
+  }
+  // Fall back to a single statement PDF if QBO not connected or all fetches failed
+  if (attachments.length === 0) {
+    const statementBuf = await generateStatementPDF(rows, subject);
+    attachments = [{ filename: `${resolved.label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`, content: statementBuf, contentType: "application/pdf" }];
+  }
 
   let transport = "";
   try {
@@ -395,11 +435,7 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
       cc:      args.cc,
       subject,
       body,
-      attachments: [{
-        filename:    `${resolved.label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`,
-        content:     pdfBuffer,
-        contentType: "application/pdf",
-      }],
+      attachments,
     });
     transport = result.transport;
   } catch (e: any) {
