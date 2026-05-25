@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { invoices, customers, projects, users, reps as repsTable } from "@/db/schema";
+import { invoices, customers, projects, users, reps as repsTable, communications } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
@@ -120,7 +120,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "send_invoices",
-      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\", \"send invoices overdue 365+ days to finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.\nUse minDaysOverdue when user says 'overdue 180 days', '1 year+', '365+ days', etc.",
+      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\", \"send invoices overdue 365+ days to finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.\nUse minDaysOverdue when user says 'overdue 180 days', '1 year+', '365+ days', etc.\nIMPORTANT: First call WITHOUT confirmed=true — the tool returns a confirmation summary. Only set confirmed=true after the user explicitly says yes/confirm/send it.",
       parameters: {
         type: "object",
         properties: {
@@ -129,6 +129,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
           to: { type: "string", description: "Recipient email. Omit if not stated." },
           cc: { type: "string", description: "CC email(s), comma-separated" },
           minDaysOverdue: { type: "number", description: "Only send invoices overdue by at least this many days. Use 365 for '1 year+', 180 for '6 months+', 90 for '90+ days'." },
+          confirmed: { type: "boolean", description: "Set to true ONLY after the user has explicitly confirmed the send. Default: omit (do not set)." },
         },
         required: [],
       },
@@ -463,7 +464,7 @@ async function toolGetInvoices(orgId: string, args: any, visibleRepIds: Set<stri
 }
 
 // ── Tool: send_invoices ───────────────────────────────────────────────────────
-async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<string> | null, userId: string): Promise<string> {
   const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
   if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
 
@@ -497,6 +498,28 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
   }
   if (!toAddress) {
     return `No recipient email provided and no billing email found on file for "${resolved.label}". Please specify an email address to send to.`;
+  }
+
+  // ── Confirmation gate — show summary and wait for user to confirm ─────────
+  if (!args.confirmed) {
+    const total = rows.reduce((s, i) => s + openBal(i), 0);
+    const ageNote = args.minDaysOverdue ? ` (overdue ${args.minDaysOverdue}+ days)` : "";
+    const invLines = rows.slice(0, 8).map(i => {
+      const days = daysOverdue(i.dueDate);
+      const tag  = days > 0 ? ` — ${days}d overdue` : ` — due ${i.dueDate}`;
+      return `  • #${i.invoiceNumber}${tag} — ${fmt(openBal(i), i.currency)}`;
+    }).join("\n");
+    const more = rows.length > 8 ? `\n  …and ${rows.length - 8} more` : "";
+    return [
+      `📋 Please confirm before sending:`,
+      ``,
+      `Project/Customer: ${resolved.label}`,
+      `To: ${toAddress}${args.cc ? `\nCC: ${args.cc}` : ""}`,
+      `Invoices${ageNote}: ${rows.length} invoice(s) — ${fmt(total)} total`,
+      invLines + more,
+      ``,
+      `Reply "confirm" or "yes, send" to proceed.`,
+    ].join("\n");
   }
 
   const total   = rows.reduce((s, i) => s + openBal(i), 0);
@@ -588,6 +611,25 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     const msg = e?.message ?? "Unknown error";
     return `❌ Email not sent — ${msg}\n\nCheck Settings → Email to make sure Gmail, Outlook or SMTP is connected.`;
   }
+
+  // Log each invoice to the communications tab
+  const logRows = rows.map(i => ({
+    orgId,
+    customerId:  i.customerId!,
+    projectId:   i.projectId ?? null,
+    invoiceId:   i.id,
+    direction:   "Outbound" as const,
+    channel:     "Email" as const,
+    subject,
+    recipients:  toAddress + (args.cc ? `, ${args.cc}` : ""),
+    matchedBy:   "AI",
+    isDraft:     false,
+    authorId:    userId,
+    stageAtSend: null as string | null,
+  }));
+  await db.insert(communications).values(logRows).catch(err =>
+    console.warn("chat: failed to log communications:", err?.message)
+  );
 
   return `✅ Sent ${rows.length} invoice(s) totalling ${fmt(total)} to ${toAddress}${args.cc ? ` (CC: ${args.cc})` : ""}\nPDF statement attached · via ${transport}`;
 }
@@ -890,7 +932,7 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
     else if (toolName === "get_invoices")      toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_ar_summary")    toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "update_invoice")    toolResult = await toolUpdateInvoice(orgId!, toolArgs, visibleRepIds);
-    else if (toolName === "send_invoices")     toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "send_invoices")     toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds, userId);
     else toolResult = "Unknown tool.";
   } catch (e: any) {
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
