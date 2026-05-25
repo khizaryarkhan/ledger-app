@@ -5,8 +5,7 @@ import { sendEmail } from "@/lib/mailer";
 import { eq, and, ilike, ne } from "drizzle-orm";
 import Groq from "groq-sdk";
 import { NextResponse } from "next/server";
-// @ts-ignore — pdfkit types are loaded separately
-import PDFDocument from "pdfkit";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -186,101 +185,102 @@ async function fetchOpenInvoices(
   return rows;
 }
 
-// ── PDF statement generator ───────────────────────────────────────────────────
+// ── PDF statement generator (pdf-lib — no filesystem, Vercel-safe) ────────────
 async function generateStatementPDF(
   rows: Awaited<ReturnType<typeof fetchOpenInvoices>>,
   title: string,
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: "A4" });
-    const chunks: Buffer[] = [];
-    doc.on("data", (c: Buffer) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
+  const pdfDoc   = await PDFDocument.create();
+  const regular  = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold     = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const dateStr = new Date().toLocaleDateString("en-GB", {
-      day: "numeric", month: "long", year: "numeric",
-    });
+  const W = 595.28, H = 841.89; // A4
+  const margin = 50;
+  const colX   = { num: margin, customer: 130, date: 340, due: 415, bal: 500 };
 
-    // Header bar
-    doc.rect(0, 0, doc.page.width, 80).fill("#1c1917");
-    doc.fillColor("#ffffff").fontSize(18).font("Helvetica-Bold")
-       .text(title, 50, 25, { width: doc.page.width - 100 });
-    doc.fillColor("#a8a29e").fontSize(10).font("Helvetica")
-       .text(`Statement as of ${dateStr}`, 50, 52);
+  const stone900 = rgb(0.11, 0.10, 0.09);
+  const stone600 = rgb(0.42, 0.40, 0.38);
+  const stone200 = rgb(0.90, 0.89, 0.88);
+  const red      = rgb(0.86, 0.15, 0.15);
+  const white    = rgb(1, 1, 1);
 
-    doc.fillColor("#111827");
-    let y = 110;
+  let page = pdfDoc.addPage([W, H]);
+  let y = H - margin;
 
-    // Column config
-    const cols = { num: 50, customer: 130, date: 330, due: 400, bal: 490 };
-    const colW = doc.page.width - 100;
+  function addPage() {
+    page = pdfDoc.addPage([W, H]);
+    y = H - margin;
+  }
 
-    // Table header
-    doc.rect(50, y, colW, 22).fill("#f3f4f6");
-    doc.fillColor("#6b7280").fontSize(8).font("Helvetica-Bold");
-    doc.text("INVOICE",      cols.num,      y + 7);
-    doc.text("CUSTOMER / PROJECT", cols.customer, y + 7);
-    doc.text("DATE",         cols.date,     y + 7);
-    doc.text("DUE",          cols.due,      y + 7);
-    doc.text("BALANCE",      cols.bal,      y + 7, { width: 55, align: "right" });
-    y += 22;
+  function ensureSpace(needed: number) {
+    if (y - needed < margin + 40) addPage();
+  }
 
-    // Rows
-    rows.forEach((inv, idx) => {
-      const bal  = openBal(inv);
-      const days = daysOverdue(inv.dueDate);
-      const rowH = inv.projectName ? 28 : 20;
+  // Header
+  page.drawRectangle({ x: 0, y: H - 70, width: W, height: 70, color: stone900 });
+  page.drawText(title, { x: margin, y: H - 35, size: 14, font: bold, color: white, maxWidth: W - margin * 2 });
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  page.drawText(`Statement as of ${dateStr}`, { x: margin, y: H - 55, size: 9, font: regular, color: rgb(0.66, 0.64, 0.62) });
 
-      if (y + rowH > doc.page.height - 80) {
-        doc.addPage();
-        y = 50;
-      }
+  y = H - 90;
 
-      // Alternating row bg
-      if (idx % 2 === 0) doc.rect(50, y, colW, rowH).fill("#fafafa");
+  // Column headers
+  page.drawRectangle({ x: margin, y: y - 18, width: W - margin * 2, height: 20, color: rgb(0.95, 0.95, 0.95) });
+  const headerY = y - 12;
+  [
+    ["INVOICE",   colX.num],
+    ["CUSTOMER / PROJECT", colX.customer],
+    ["DATE",      colX.date],
+    ["DUE",       colX.due],
+    ["BALANCE",   colX.bal],
+  ].forEach(([label, x]) =>
+    page.drawText(String(label), { x: Number(x), y: headerY, size: 7, font: bold, color: stone600 })
+  );
+  y -= 22;
 
-      doc.fillColor("#374151").fontSize(9).font("Helvetica");
-      doc.text(`#${inv.invoiceNumber}`, cols.num, y + 5, { width: 75 });
+  // Rows
+  rows.forEach((inv, idx) => {
+    const bal  = openBal(inv);
+    const days = daysOverdue(inv.dueDate);
+    const rowH = inv.projectName ? 26 : 18;
 
-      // Customer + project sub-label
-      doc.text(inv.customerName ?? "—", cols.customer, inv.projectName ? y + 2 : y + 5, { width: 190 });
-      if (inv.projectName) {
-        doc.fillColor("#9ca3af").fontSize(7.5)
-           .text(inv.projectName, cols.customer, y + 14, { width: 190 });
-        doc.fillColor("#374151").fontSize(9).font("Helvetica");
-      }
+    ensureSpace(rowH + 4);
 
-      doc.text(inv.invoiceDate, cols.date, y + 5, { width: 65 });
+    // Alternating background
+    if (idx % 2 === 0) {
+      page.drawRectangle({ x: margin, y: y - rowH + 4, width: W - margin * 2, height: rowH, color: rgb(0.98, 0.98, 0.98) });
+    }
 
-      // Overdue in red
-      if (days > 0) {
-        doc.fillColor("#dc2626").font("Helvetica-Bold")
-           .text(`${days}d overdue`, cols.due, y + 5, { width: 85 });
-        doc.fillColor("#374151").font("Helvetica");
-      } else {
-        doc.text(inv.dueDate, cols.due, y + 5, { width: 85 });
-      }
+    const textY = y - 10;
+    page.drawText(`#${inv.invoiceNumber}`, { x: colX.num, y: textY, size: 8, font: regular, color: stone900 });
+    page.drawText(inv.customerName ?? "—", { x: colX.customer, y: inv.projectName ? textY + 4 : textY, size: 8, font: regular, color: stone900, maxWidth: 200 });
+    if (inv.projectName) {
+      page.drawText(inv.projectName, { x: colX.customer, y: textY - 7, size: 6.5, font: regular, color: stone600, maxWidth: 200 });
+    }
+    page.drawText(inv.invoiceDate, { x: colX.date, y: textY, size: 8, font: regular, color: stone900 });
 
-      doc.font("Helvetica-Bold").fillColor("#111827")
-         .text(fmt(bal, inv.currency || "EUR"), cols.bal, y + 5, { width: 55, align: "right" });
-      doc.font("Helvetica");
+    if (days > 0) {
+      page.drawText(`${days}d overdue`, { x: colX.due, y: textY, size: 8, font: bold, color: red });
+    } else {
+      page.drawText(inv.dueDate, { x: colX.due, y: textY, size: 8, font: regular, color: stone900 });
+    }
 
-      // Row bottom border
-      doc.moveTo(50, y + rowH).lineTo(50 + colW, y + rowH).strokeColor("#e5e7eb").lineWidth(0.5).stroke();
-      y += rowH;
-    });
+    page.drawText(fmt(bal, inv.currency || "EUR"), { x: colX.bal, y: textY, size: 8, font: bold, color: stone900 });
 
-    // Total footer
-    const total = rows.reduce((s, i) => s + openBal(i), 0);
-    const footerY = Math.min(y + 8, doc.page.height - 70);
-    doc.rect(50, footerY, colW, 28).fill("#1c1917");
-    doc.fillColor("#ffffff").fontSize(10).font("Helvetica-Bold")
-       .text("TOTAL OUTSTANDING", 55, footerY + 9)
-       .text(fmt(total), cols.bal, footerY + 9, { width: 55, align: "right" });
-
-    doc.end();
+    // Row divider
+    page.drawLine({ start: { x: margin, y: y - rowH + 4 }, end: { x: W - margin, y: y - rowH + 4 }, thickness: 0.4, color: stone200 });
+    y -= rowH;
   });
+
+  // Total footer
+  ensureSpace(30);
+  const total = rows.reduce((s, i) => s + openBal(i), 0);
+  page.drawRectangle({ x: margin, y: y - 22, width: W - margin * 2, height: 26, color: stone900 });
+  page.drawText("TOTAL OUTSTANDING", { x: margin + 5, y: y - 12, size: 9, font: bold, color: white });
+  page.drawText(fmt(total), { x: colX.bal, y: y - 12, size: 9, font: bold, color: white });
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
 
 // ── Tool: get_invoices ────────────────────────────────────────────────────────
