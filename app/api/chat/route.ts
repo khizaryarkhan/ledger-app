@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { invoices, customers, projects } from "@/db/schema";
+import { invoices, customers, projects, users, reps as repsTable } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
@@ -80,7 +80,7 @@ function fmt(n: number, ccy = "EUR") {
 
 // ── Fuzzy entity lookup — returns matches or a CONFIRM_NEEDED signal ──────────
 type MatchResult =
-  | { status: "ok";      projectId?: string; customerId?: string; label: string }
+  | { status: "ok";      projectId?: string; customerId?: string; projectRepId?: string | null; label: string }
   | { status: "confirm"; message: string }
   | { status: "none";    message: string };
 
@@ -91,7 +91,7 @@ async function resolveEntity(
 ): Promise<MatchResult> {
   if (projectName) {
     const matches = await db
-      .select({ id: projects.id, name: projects.name })
+      .select({ id: projects.id, name: projects.name, repId: projects.repId })
       .from(projects)
       .where(and(eq(projects.orgId, orgId), ilike(projects.name, `%${projectName}%`)));
 
@@ -99,14 +99,14 @@ async function resolveEntity(
       return { status: "none", message: `No project found matching "${projectName}".` };
     }
     if (matches.length === 1) {
-      return { status: "ok", projectId: matches[0].id, label: matches[0].name };
+      return { status: "ok", projectId: matches[0].id, projectRepId: matches[0].repId, label: matches[0].name };
     }
 
     // Multiple matches — check if exactly one starts with the search term (e.g. "MW22004")
     const lower = projectName.toLowerCase();
     const prefixMatches = matches.filter(p => p.name.toLowerCase().startsWith(lower));
     if (prefixMatches.length === 1) {
-      return { status: "ok", projectId: prefixMatches[0].id, label: prefixMatches[0].name };
+      return { status: "ok", projectId: prefixMatches[0].id, projectRepId: prefixMatches[0].repId, label: prefixMatches[0].name };
     }
 
     // Genuinely ambiguous — list options for the user
@@ -306,9 +306,16 @@ async function generateStatementPDF(
 }
 
 // ── Tool: get_invoices ────────────────────────────────────────────────────────
-async function toolGetInvoices(orgId: string, args: any): Promise<string> {
+async function toolGetInvoices(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
   const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
   if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+
+  if (visibleRepIds && resolved.projectId) {
+    const projectRepId = resolved.projectRepId ?? null;
+    if (!projectRepId || !visibleRepIds.has(projectRepId)) {
+      return `⛔ "${resolved.label}" is not within your portfolio.`;
+    }
+  }
 
   const rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
   if (rows.length === 0) return `No open invoices found for ${resolved.label}.`;
@@ -330,9 +337,18 @@ async function toolGetInvoices(orgId: string, args: any): Promise<string> {
 }
 
 // ── Tool: send_invoices ───────────────────────────────────────────────────────
-async function toolSendInvoices(orgId: string, args: any): Promise<string> {
+async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
   const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
   if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+
+  // Rep scoping: same visibility rules as the rep portal UI.
+  // visibleRepIds=null means admin (no restriction).
+  if (visibleRepIds && resolved.projectId) {
+    const projectRepId = resolved.projectRepId ?? null;
+    if (!projectRepId || !visibleRepIds.has(projectRepId)) {
+      return `⛔ "${resolved.label}" is not within your portfolio. You can only send invoices for projects assigned to you or your team.`;
+    }
+  }
 
   const rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
   if (rows.length === 0) return `No open invoices found for "${resolved.label}" — nothing sent.`;
@@ -447,9 +463,16 @@ async function toolSendInvoices(orgId: string, args: any): Promise<string> {
 }
 
 // ── Tool: get_ar_summary ──────────────────────────────────────────────────────
-async function toolGetArSummary(orgId: string, args: any): Promise<string> {
+async function toolGetArSummary(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
   const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
   if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+
+  if (visibleRepIds && resolved.projectId) {
+    const projectRepId = resolved.projectRepId ?? null;
+    if (!projectRepId || !visibleRepIds.has(projectRepId)) {
+      return `⛔ "${resolved.label}" is not within your portfolio.`;
+    }
+  }
 
   const rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
   if (rows.length === 0) return `No open AR found for "${resolved.label}".`;
@@ -469,11 +492,29 @@ async function toolGetArSummary(orgId: string, args: any): Promise<string> {
 
 // ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
 
   const { message, history = [] } = await req.json();
   if (!message?.trim()) return bad("message required");
+
+  // Build visibleRepIds — mirrors rep portal scoping logic exactly.
+  // null = no restriction (admin users see everything).
+  const userId   = (session!.user as any).id as string;
+  const userRole = (session!.user as any).role as string;
+  const isAdmin  = userRole === "company_admin" || userRole === "company_user" || userRole === "super_admin";
+
+  let visibleRepIds: Set<string> | null = null;
+  if (!isAdmin) {
+    const [u] = await db.select({ repId: users.repId }).from(users).where(eq(users.id, userId)).limit(1);
+    if (u?.repId) {
+      const myRepId = u.repId;
+      // Direct reports of this rep
+      const reports = await db.select({ id: repsTable.id }).from(repsTable)
+        .where(and(eq(repsTable.orgId, orgId!), eq(repsTable.managerId, myRepId)));
+      visibleRepIds = new Set([myRepId, ...reports.map(r => r.id)]);
+    }
+  }
 
   const systemPrompt = `You are a helpful accounts receivable assistant embedded in a financial management app.
 You help users query invoices, check overdue amounts, and send invoice statement emails with PDF attachments.
@@ -511,9 +552,9 @@ Today is ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "nume
 
   let toolResult = "";
   try {
-    if      (toolName === "send_invoices")  toolResult = await toolSendInvoices(orgId!, toolArgs);
-    else if (toolName === "get_invoices")   toolResult = await toolGetInvoices(orgId!, toolArgs);
-    else if (toolName === "get_ar_summary") toolResult = await toolGetArSummary(orgId!, toolArgs);
+    if      (toolName === "send_invoices")  toolResult = await toolSendInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_invoices")   toolResult = await toolGetInvoices(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_ar_summary") toolResult = await toolGetArSummary(orgId!, toolArgs, visibleRepIds);
     else toolResult = "Unknown tool.";
   } catch (e: any) {
     toolResult = `Error: ${e?.message ?? "Something went wrong."}`;
