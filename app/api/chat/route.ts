@@ -551,9 +551,11 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
         <p style="color:#a8a29e;margin:6px 0 0;font-size:13px;">As of ${dateStr}</p>
       </div>
       <div style="padding:24px 32px;">
-        <p style="font-size:14px;color:#374151;margin:0 0 20px;">
-          Please find below the outstanding invoices. A PDF statement is attached for your records.
-          Kindly arrange payment at your earliest convenience.
+        <p style="font-size:14px;color:#374151;margin:0 0 20px;line-height:1.7;">
+          Hi,<br><br>
+          Please find attached the statement of open invoices along with the invoice copies for your reference.<br>
+          Kindly share the tentative payment dates at your earliest convenience.<br>
+          Feel free to reach out for any queries.
         </p>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
           <thead>
