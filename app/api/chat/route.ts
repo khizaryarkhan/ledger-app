@@ -80,6 +80,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
           projectName: { type: "string", description: "Project name or code — use exact words the user said" },
           customerName: { type: "string", description: "Customer/company name" },
           status: { type: "string", enum: ["open", "overdue", "all"] },
+          minDaysOverdue: { type: "number", description: "Only include invoices overdue by at least this many days. Use 365 for '1 year+', 180 for '6 months+', 90 for '90+ days', etc." },
         },
       },
     },
@@ -119,7 +120,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "send_invoices",
-      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.",
+      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\", \"send invoices overdue 365+ days to finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.\nUse minDaysOverdue when user says 'overdue 180 days', '1 year+', '365+ days', etc.",
       parameters: {
         type: "object",
         properties: {
@@ -127,6 +128,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
           customerName: { type: "string" },
           to: { type: "string", description: "Recipient email. Omit if not stated." },
           cc: { type: "string", description: "CC email(s), comma-separated" },
+          minDaysOverdue: { type: "number", description: "Only send invoices overdue by at least this many days. Use 365 for '1 year+', 180 for '6 months+', 90 for '90+ days'." },
         },
         required: [],
       },
@@ -446,6 +448,7 @@ async function toolGetInvoices(orgId: string, args: any, visibleRepIds: Set<stri
   const status = args.status || "open";
   let display = rows;
   if (status === "overdue") display = rows.filter(i => daysOverdue(i.dueDate) > 0);
+  if (args.minDaysOverdue)  display = display.filter(i => daysOverdue(i.dueDate) >= args.minDaysOverdue);
 
   const total = display.reduce((s, i) => s + openBal(i), 0);
   const lines = display.slice(0, 10).map(i => {
@@ -473,8 +476,12 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     }
   }
 
-  const rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
-  if (rows.length === 0) return `No open invoices found for "${resolved.label}" — nothing sent.`;
+  let rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
+  if (args.minDaysOverdue) rows = rows.filter(i => daysOverdue(i.dueDate) >= args.minDaysOverdue);
+  if (rows.length === 0) {
+    const ageTag = args.minDaysOverdue ? ` overdue by ${args.minDaysOverdue}+ days` : "";
+    return `No open invoices${ageTag} found for "${resolved.label}" — nothing sent.`;
+  }
 
   // Resolve recipient — use chat-provided address or fall back to billing email on file
   let toAddress = args.to?.trim();
@@ -872,7 +879,7 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
   const toolCall = choice.message.tool_calls[0];
   const toolName = toolCall.function.name;
   let toolArgs: any = {};
-  try { toolArgs = JSON.parse(toolCall.function.arguments); } catch {}
+  try { toolArgs = JSON.parse(toolCall.function.arguments) ?? {}; } catch {}
 
   let toolResult = "";
   try {
