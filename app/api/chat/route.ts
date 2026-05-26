@@ -510,6 +510,15 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
       return `  • #${i.invoiceNumber}${tag} — ${fmt(openBal(i), i.currency)}`;
     }).join("\n");
     const more = rows.length > 8 ? `\n  …and ${rows.length - 8} more` : "";
+    // Embed resolved args so the handler can replay the send on "confirm"
+    // without asking Groq to reconstruct parameters (which it gets wrong).
+    const pendingPayload = JSON.stringify({
+      projectName:    args.projectName,
+      customerName:   args.customerName,
+      to:             toAddress,        // already resolved
+      cc:             args.cc,
+      minDaysOverdue: args.minDaysOverdue,
+    });
     return [
       `📋 Please confirm before sending:`,
       ``,
@@ -518,7 +527,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
       `Invoices${ageNote}: ${rows.length} invoice(s) — ${fmt(total)} total`,
       invLines + more,
       ``,
-      `Reply "confirm" or "yes, send" to proceed.`,
+      `Reply "confirm" or "yes, send" to proceed.[__PENDING__:${pendingPayload}]`,
     ].join("\n");
   }
 
@@ -897,6 +906,28 @@ AR DOMAIN KNOWLEDGE:
 
 User: ${userData?.name ?? "Unknown"}${repContext}
 Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+
+  // ── Confirmation interceptor — if user just said "confirm"/"yes/send it"
+  //    and there's a pending send in history, execute it directly. This
+  //    bypasses Groq entirely so it can't reconstruct params incorrectly.
+  const CONFIRM_RE = /^(confirm|yes|yes,?\s*send(\s*it)?|send\s*it|proceed|ok,?\s*(go|send)|go\s*ahead)$/i;
+  if (CONFIRM_RE.test(message.trim())) {
+    const pendingMsg = [...history].reverse().find((h: any) =>
+      h.role === "assistant" && typeof h.content === "string" && h.content.includes("[__PENDING__:")
+    );
+    if (pendingMsg) {
+      const match = (pendingMsg.content as string).match(/\[__PENDING__:(.*?)\]/);
+      if (match) {
+        try {
+          const pendingArgs = { ...JSON.parse(match[1]), confirmed: true };
+          const result = await toolSendInvoices(orgId!, pendingArgs, visibleRepIds, userId);
+          return NextResponse.json({ reply: result });
+        } catch (e: any) {
+          return NextResponse.json({ reply: `❌ Failed to send: ${e?.message ?? "Unknown error"}` });
+        }
+      }
+    }
+  }
 
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

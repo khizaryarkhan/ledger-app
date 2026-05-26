@@ -131,7 +131,7 @@ export function ChatWidget() {
                     ? "bg-stone-900 text-white rounded-tr-sm"
                     : "bg-stone-100 text-stone-800 rounded-tl-sm"
                 }`}>
-                  {m.content}
+                  {m.content.replace(/\[__PENDING__:[^\]]*\]/g, "").trim()}
                 </div>
               </div>
             ))}
