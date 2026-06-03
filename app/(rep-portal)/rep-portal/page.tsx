@@ -6,8 +6,9 @@ import { fmt, formatDate, daysOverdue } from "@/lib/format";
 import {
   LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
   Download, Loader, ChevronDown, ChevronUp, FileText, Search, X,
-  Users, Briefcase,
+  Users, Briefcase, MessageSquare,
 } from "lucide-react";
+import { ResponsesInbox } from "@/components/responses-inbox";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Invoice = {
@@ -614,6 +615,18 @@ export default function RepPortalPage() {
                 </div>
                 <AgingBar buckets={globalBuckets} />
               </div>
+            )}
+
+            {/* Customer Responses (promises + disputes) — collapsible */}
+            {!loading && (
+              <details className="bg-white rounded-xl ring-1 ring-stone-200 p-4 mb-4">
+                <summary className="cursor-pointer text-sm font-semibold text-stone-900 flex items-center gap-2 select-none">
+                  <MessageSquare size={14} className="text-stone-500" /> Customer Responses
+                </summary>
+                <div className="mt-3">
+                  <ResponsesInbox linkInvoices={false} />
+                </div>
+              </details>
             )}
 
             {/* Customer / Project toggle */}

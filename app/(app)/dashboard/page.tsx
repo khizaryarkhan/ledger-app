@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail } from "lucide-react";
+import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -679,6 +680,9 @@ export default function DashboardPage() {
           </>
         );
       })()}
+
+      {/* Customer Responses summary → inbox */}
+      <ResponsesDashboardWidget />
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="col-span-2">

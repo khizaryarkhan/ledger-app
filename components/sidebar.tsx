@@ -1,11 +1,13 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
-  CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X
+  CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X,
+  MessageSquare
 } from "lucide-react";
 import { useData } from "./data-provider";
 
@@ -22,10 +24,20 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const role = (session?.user as any)?.role;
   const isAdmin = role === "super_admin" || role === "company_admin";
 
+  // Customer-response "needs attention" count (open disputes + broken promises)
+  const [responsesCount, setResponsesCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/responses")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.counts) setResponsesCount(d.counts.needsAttention || 0); })
+      .catch(() => {});
+  }, [pathname]); // refresh count on navigation
+
   const counts = {
     inbox: communications.filter(c => c.direction === "Inbound").length,
     invoices: invoices.filter(i => i.paymentStatus !== "Paid").length,
     tasks: tasks.filter(t => !t.completed).length,
+    responses: responsesCount,
   };
 
   const sections = [
@@ -47,6 +59,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       items: [
         { href: "/board", label: "Collections Board", icon: Kanban },
         { href: "/automations", label: "Automations", icon: Zap },
+        { href: "/responses", label: "Customer Responses", icon: MessageSquare, count: counts.responses, urgent: true },
         { href: "/inbox", label: "Communication Notes", icon: Inbox, count: counts.inbox },
         { href: "/tasks", label: "Tasks", icon: CheckSquare, count: counts.tasks },
       ],
@@ -140,7 +153,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                   {item.count != null && item.count > 0 && (
                     <span
                       className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                        isActive ? "bg-white/20 text-white" : "bg-stone-200/60 text-stone-600"
+                        (item as any).urgent
+                          ? "bg-rose-500 text-white"
+                          : isActive ? "bg-white/20 text-white" : "bg-stone-200/60 text-stone-600"
                       }`}
                     >
                       {item.count}

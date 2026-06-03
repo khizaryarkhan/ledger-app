@@ -43,6 +43,7 @@ export default function InvoicesPage() {
   const [stageFilter, setStageFilter] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
+  const [responseFilter, setResponseFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
 
   // Date period filter — defaults to last month
@@ -158,9 +159,12 @@ export default function InvoicesPage() {
       const proj = projects.find((p: any) => p.id === i.projectId);
       return proj?.regionId === regionFilter;
     });
+    // Customer Response Portal filters (uses cached invoice fields)
+    if (responseFilter === "dispute") res = res.filter((i: any) => i.hasOpenDispute);
+    if (responseFilter === "promise") res = res.filter((i: any) => !!i.promiseDate);
     res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
-  }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter, periodFrom, periodTo]);
+  }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter, responseFilter, periodFrom, periodTo]);
 
   // Column definitions for sort + filter
   const INV_COLS: ColDef[] = [
@@ -341,8 +345,10 @@ export default function InvoicesPage() {
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          {(search || statusFilter || stageFilter || customerFilter || regionFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); setRegionFilter(""); }}>Clear</Button>
+          <Select value={responseFilter} onChange={(e: any) => setResponseFilter(e.target.value)} placeholder="All responses"
+            options={[{ value: "dispute", label: "⚠ Open dispute" }, { value: "promise", label: "📅 Has promise" }]} />
+          {(search || statusFilter || stageFilter || customerFilter || regionFilter || responseFilter) && (
+            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); setRegionFilter(""); setResponseFilter(""); }}>Clear</Button>
           )}
         </div>
         <ActiveFiltersBar dt={dt} cols={INV_COLS} />
@@ -385,7 +391,11 @@ export default function InvoicesPage() {
                     </Link>
                   </td>
                   <td className="px-3 py-2.5">
-                    <Link href={`/invoices/${inv.id}`}><Badge variant={dueStatusBadge(inv.dueStatus)}>{inv.dueStatus}</Badge></Link>
+                    <Link href={`/invoices/${inv.id}`} className="inline-flex items-center gap-1 flex-wrap">
+                      <Badge variant={dueStatusBadge(inv.dueStatus)}>{inv.dueStatus}</Badge>
+                      {inv.hasOpenDispute && <Badge variant="red" size="sm">⚠ Dispute</Badge>}
+                      {!inv.hasOpenDispute && inv.promiseDate && <Badge variant="blue" size="sm">📅 Promised</Badge>}
+                    </Link>
                   </td>
                   <td className="px-3 py-2.5">
                     <Link href={`/invoices/${inv.id}`}><Badge variant={stageBadge(inv.collectionStage)}>{inv.collectionStage}</Badge></Link>

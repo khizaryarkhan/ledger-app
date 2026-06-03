@@ -1,0 +1,161 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { Card, Badge, Button, EmptyState } from "@/components/ui";
+import { AlertOctagon, CalendarClock, Check, X, Loader, Inbox as InboxIcon, ExternalLink } from "lucide-react";
+
+type Dispute = {
+  id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
+  projectName: string | null; category: string; reason: string | null; source: string;
+  status: string; resolution: string | null; createdAt: string; raisedByName: string | null;
+};
+type Promise_ = {
+  id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
+  projectName: string | null; promiseDate: string; amount: number | null; currency: string;
+  source: string; status: string; note: string | null; createdAt: string;
+  enteredByName: string | null; isBroken: boolean;
+};
+type Data = {
+  disputes: Dispute[]; promises: Promise_[];
+  counts: { needsAttention: number; openDisputes: number; activePromises: number; brokenPromises: number };
+};
+
+const sourceBadge = (s: string) => s === "Customer Portal" ? "blue" : s === "Accountant" ? "yellow" : "neutral";
+const money = (n: number, ccy: string) => new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy || "EUR", maximumFractionDigits: 0 }).format(n);
+
+export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`, linkInvoices = true }: { invoiceHref?: (id: string) => string; linkInvoices?: boolean }) {
+  const [data, setData] = useState<Data | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"attention" | "promises" | "disputes" | "all">("attention");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/responses");
+      if (res.ok) setData(await res.json());
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function resolveDispute(id: string, status: "Resolved" | "Rejected") {
+    setBusy(id);
+    try {
+      const resolution = prompt(status === "Resolved" ? "Resolution note (optional):" : "Reason for rejecting (optional):") ?? "";
+      await fetch(`/api/disputes/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, resolution }),
+      });
+      await load();
+    } finally { setBusy(null); }
+  }
+
+  if (loading) return <div className="text-stone-400 text-sm py-8 text-center">Loading…</div>;
+  if (!data) return null;
+
+  // Invoice label — a link in the main app, plain text in the rep portal (no detail page there)
+  const Inv = ({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) =>
+    linkInvoices ? <Link href={invoiceHref(id)} className={className}>{children}</Link> : <span className={className}>{children}</span>;
+
+  const openDisputes = data.disputes.filter(d => d.status === "Open" || d.status === "Under Review");
+  const brokenPromises = data.promises.filter(p => p.isBroken);
+  const activePromises = data.promises.filter(p => p.status === "Active");
+
+  const TABS = [
+    { id: "attention", label: "Needs attention", count: data.counts.needsAttention },
+    { id: "promises",  label: "Promises",        count: data.counts.activePromises },
+    { id: "disputes",  label: "Disputes",        count: data.counts.openDisputes },
+    { id: "all",       label: "All activity",    count: data.disputes.length + data.promises.length },
+  ];
+
+  const DisputeRow = ({ d }: { d: Dispute }) => {
+    const isOpen = d.status === "Open" || d.status === "Under Review";
+    return (
+      <div className={`flex items-start gap-3 p-3.5 rounded-lg ring-1 ${isOpen ? "bg-rose-50 ring-rose-200" : "bg-white ring-stone-200"}`}>
+        <AlertOctagon size={16} className={isOpen ? "text-rose-500 mt-0.5 shrink-0" : "text-stone-400 mt-0.5 shrink-0"} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Inv id={d.invoiceId} className="text-sm font-medium text-stone-900 hover:underline font-mono">#{d.invoiceNumber}</Inv>
+            <span className="text-sm text-stone-500">·</span>
+            <span className="text-sm text-stone-700">{d.customerName}{d.projectName ? ` / ${d.projectName}` : ""}</span>
+            <Badge variant="red" size="sm">Dispute · {d.category}</Badge>
+            <Badge variant={sourceBadge(d.source)} size="sm">{d.source}</Badge>
+            <Badge variant={isOpen ? "red" : "green"} size="sm">{d.status}</Badge>
+          </div>
+          {d.reason && <div className="text-[13px] text-stone-600 mt-1">{d.reason}</div>}
+          {d.resolution && <div className="text-[12px] text-stone-500 mt-1 italic">Resolution: {d.resolution}</div>}
+          <div className="text-[11px] text-stone-400 mt-1">{d.raisedByName ? `by ${d.raisedByName}` : "via portal"} · {new Date(d.createdAt).toLocaleDateString()}</div>
+        </div>
+        {isOpen && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {busy === d.id ? <Loader size={14} className="animate-spin text-stone-400" /> : (
+              <>
+                <button onClick={() => resolveDispute(d.id, "Resolved")} title="Resolve" className="p-1.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200"><Check size={13} /></button>
+                <button onClick={() => resolveDispute(d.id, "Rejected")} title="Reject" className="p-1.5 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300"><X size={13} /></button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const PromiseRow = ({ p }: { p: Promise_ }) => (
+    <div className={`flex items-start gap-3 p-3.5 rounded-lg ring-1 ${p.isBroken ? "bg-amber-50 ring-amber-200" : "bg-white ring-stone-200"}`}>
+      <CalendarClock size={16} className={p.isBroken ? "text-amber-500 mt-0.5 shrink-0" : "text-blue-500 mt-0.5 shrink-0"} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Inv id={p.invoiceId} className="text-sm font-medium text-stone-900 hover:underline font-mono">#{p.invoiceNumber}</Inv>
+          <span className="text-sm text-stone-500">·</span>
+          <span className="text-sm text-stone-700">{p.customerName}{p.projectName ? ` / ${p.projectName}` : ""}</span>
+          <Badge variant={sourceBadge(p.source)} size="sm">{p.source}</Badge>
+          {p.isBroken && <Badge variant="yellow" size="sm">⚠ Broken</Badge>}
+          {p.status !== "Active" && <Badge variant="neutral" size="sm">{p.status}</Badge>}
+        </div>
+        <div className="text-[13px] text-stone-700 mt-1">
+          Promised <strong>{p.amount != null ? money(p.amount, p.currency) : "full balance"}</strong> by <strong>{p.promiseDate}</strong>
+          {p.note ? <span className="text-stone-500"> — {p.note}</span> : null}
+        </div>
+        <div className="text-[11px] text-stone-400 mt-1">{p.enteredByName ? `by ${p.enteredByName}` : "via portal"} · {new Date(p.createdAt).toLocaleDateString()}</div>
+      </div>
+      {linkInvoices && <Link href={invoiceHref(p.invoiceId)} className="p-1.5 text-stone-300 hover:text-stone-600 shrink-0"><ExternalLink size={14} /></Link>}
+    </div>
+  );
+
+  // Build the visible list per tab, newest-first
+  let content: React.ReactNode;
+  if (tab === "attention") {
+    const items = [
+      ...openDisputes.map(d => ({ t: "d" as const, when: d.createdAt, node: <DisputeRow key={`d${d.id}`} d={d} /> })),
+      ...brokenPromises.map(p => ({ t: "p" as const, when: p.createdAt, node: <PromiseRow key={`p${p.id}`} p={p} /> })),
+    ].sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
+    content = items.length ? items.map(i => i.node) : <EmptyState icon={Check} title="All clear" description="No open disputes or broken promises. Nice." />;
+  } else if (tab === "promises") {
+    content = activePromises.length ? activePromises.map(p => <PromiseRow key={p.id} p={p} />) : <EmptyState icon={CalendarClock} title="No active promises" description="Promises customers make will appear here." />;
+  } else if (tab === "disputes") {
+    content = data.disputes.length ? data.disputes.map(d => <DisputeRow key={d.id} d={d} />) : <EmptyState icon={AlertOctagon} title="No disputes" description="Disputes raised by customers or staff appear here." />;
+  } else {
+    const items = [
+      ...data.disputes.map(d => ({ when: d.createdAt, node: <DisputeRow key={`d${d.id}`} d={d} /> })),
+      ...data.promises.map(p => ({ when: p.createdAt, node: <PromiseRow key={`p${p.id}`} p={p} /> })),
+    ].sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
+    content = items.length ? items.map(i => i.node) : <EmptyState icon={InboxIcon} title="No responses yet" description="Customer responses will show up here." />;
+  }
+
+  return (
+    <div>
+      <div className="border-b border-stone-200 mb-4">
+        <div className="flex items-center gap-1">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1.5 ${tab === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
+              {t.label}
+              {t.count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${t.id === "attention" ? "bg-rose-100 text-rose-700" : "bg-stone-100 text-stone-600"}`}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">{content}</div>
+    </div>
+  );
+}
