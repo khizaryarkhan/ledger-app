@@ -4,14 +4,14 @@ import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
 import { eq, and, ilike, ne, gte, lte } from "drizzle-orm";
-import Groq from "groq-sdk";
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
-const TOOLS: Groq.Chat.ChatCompletionTool[] = [
+const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
@@ -929,15 +929,15 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
     }
   }
 
-  const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...history.slice(-8),
     { role: "user", content: message },
   ];
 
-  // First call — let Groq decide if a tool is needed
-  const first = await groq.chat.completions.create({
-    model:        "llama-3.3-70b-versatile",
+  // First call — let GPT decide if a tool is needed
+  const first = await openai.chat.completions.create({
+    model:        "gpt-4o-mini",
     messages,
     tools:        TOOLS,
     tool_choice:  "auto",

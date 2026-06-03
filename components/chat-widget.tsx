@@ -99,7 +99,7 @@ export function ChatWidget() {
               </div>
               <div>
                 <div className="text-sm font-semibold leading-none">AR Assistant</div>
-                <div className="text-[10px] text-stone-400 mt-0.5">Powered by Groq · Llama 3.3</div>
+                <div className="text-[10px] text-stone-400 mt-0.5">Powered by GPT-4o</div>
               </div>
             </div>
             <button
