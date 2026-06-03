@@ -122,9 +122,11 @@ export default function InvoicesPage() {
     });
 
     // Date filter on invoice date
+    // Use T00:00:00 to force local-time parsing — bare "YYYY-MM-DD" is interpreted
+    // as UTC midnight, which causes off-by-one errors for users outside UTC.
     res = res.filter((i: any) => {
       if (!i.invoiceDate) return true;
-      const d = new Date(i.invoiceDate);
+      const d = new Date(i.invoiceDate + "T00:00:00");
       return d >= periodFrom && d <= periodTo;
     });
 
@@ -139,10 +141,12 @@ export default function InvoicesPage() {
     }
     if (statusFilter) res = res.filter((i: any) => i.dueStatus === statusFilter);
     if (stageFilter) {
+      // Keep legacy aliases so old data with alternate stage names still matches
       const STAGE_ALIASES: Record<string, string[]> = {
-        "Scheduled": ["Scheduled", "Reminder Scheduled"],
-        "Awaiting":  ["Awaiting", "Awaiting Reply"],
-        "Promised":  ["Promised", "Promise to Pay"],
+        "Scheduled":   ["Scheduled", "Reminder Scheduled"],
+        "Awaiting":    ["Awaiting", "Awaiting Reply"],
+        "Promised":    ["Promised", "Promise to Pay"],
+        "In Progress": ["In Progress", "Reminder Sent", "Second Notice", "Final Notice"],
       };
       const aliases = STAGE_ALIASES[stageFilter] || [stageFilter];
       res = res.filter((i: any) => aliases.includes(i.collectionStage));
@@ -326,7 +330,10 @@ export default function InvoicesPage() {
         <div className="p-3 border-b border-stone-200 flex items-center gap-2 flex-wrap">
           <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, email, PO..." icon={Search} className="w-72" />
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
-          <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages" options={["New", "Scheduled", "Reminder Sent", "Second Notice", "Final Notice", "Awaiting", "Promised", "Disputed", "Escalated", "On Hold", "Closed"]} />
+          <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages"
+            options={(orgSettings?.stages ?? ["New","In Progress","Promised","Disputed","Escalated","Closed"]).map((s: any) =>
+              typeof s === "string" ? s : { value: s.key, label: s.label }
+            )} />
           <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
           <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
             className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"

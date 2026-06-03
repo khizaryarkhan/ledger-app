@@ -1558,16 +1558,21 @@ export async function syncTargetedEntities(
     if (existing) {
       updatePromises.push(
         db.update(invoices).set({
+          // Financial fields
           total,
           amount,     // Net ex tax
           taxAmount,
           paid,
           qboId: qi.Id,
           qboBalance,
-          qboSyncedAt: new Date(),
-          updatedAt: new Date(),
           billingEmail,
           paymentStatus: isPaid ? "Paid" : paid > 0 ? ("Partially Paid" as any) : "Unpaid",
+          // Invoice metadata — sync any edits the accountant made in QBO
+          invoiceNumber: qi.DocNumber || existing.invoiceNumber,
+          invoiceDate:   qi.TxnDate   || existing.invoiceDate,
+          dueDate:       qi.DueDate   || existing.dueDate,
+          qboSyncedAt: new Date(),
+          updatedAt: new Date(),
           // Close when paid; reopen (reset stage + clear paidAt) when a previously
           // paid/closed invoice regains a positive balance (e.g. reversed payment).
           ...(isPaid
