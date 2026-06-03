@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
+import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown } from "lucide-react";
 
@@ -289,7 +290,7 @@ export default function InvoiceDetailPage() {
               </div>
             )}
           </Card>
-          <Card>
+          <Card className="col-span-1">
             <h3 className="text-sm font-semibold text-stone-900 mb-4">Contacts</h3>
             {customerContacts.length === 0 ? <div className="text-sm text-stone-500">No contacts added</div> : (
               <div className="space-y-3">
@@ -308,6 +309,9 @@ export default function InvoiceDetailPage() {
               </div>
             )}
           </Card>
+
+          {/* Promise & Dispute event timeline (Customer Response Portal) */}
+          <PromiseDisputePanel invoiceId={inv.id} currency={inv.currency} onChange={refresh} />
         </div>
       )}
 
