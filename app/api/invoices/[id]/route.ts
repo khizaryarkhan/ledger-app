@@ -1,8 +1,9 @@
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
+import { invoices, invoicePromises, invoiceDisputes } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
+import { recomputeInvoiceState } from "@/lib/portal";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
@@ -13,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId, session } = await requireOrg();
+  const { error, orgId, role, session } = await requireOrg();
   if (error) return error;
 
   // Fetch before-state for change detection
@@ -73,6 +74,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         invoiceNo: updated.invoiceNumber,
       },
     });
+  }
+
+  // ── Unify with the Customer Response system ─────────────────────────────────
+  // When staff log a promise/dispute via the board or invoice modals, also
+  // create the corresponding EVENT so it appears in the Responses inbox and the
+  // invoice timeline — and recompute derived state (board stage, auto-pause).
+  // This makes the event tables the single source of truth (no duplication).
+  const staffSource = role === "rep" ? "Rep" : "Accountant";
+  let touchedEvents = false;
+
+  if (body.promiseDate && body.promiseDate !== before.promiseDate) {
+    await db.insert(invoicePromises).values({
+      orgId: orgId!, invoiceId: updated.id, customerId: updated.customerId,
+      promiseDate: String(body.promiseDate).slice(0, 16),
+      amount: null, source: staffSource, enteredBy: actorId, status: "Active",
+    });
+    touchedEvents = true;
+  }
+
+  if (body.disputeReason && body.disputeReason !== before.disputeReason) {
+    await db.insert(invoiceDisputes).values({
+      orgId: orgId!, invoiceId: updated.id, customerId: updated.customerId,
+      category: "Other", reason: body.disputeReason,
+      source: staffSource, raisedBy: actorId, status: "Open",
+    });
+    touchedEvents = true;
+  }
+
+  if (touchedEvents) {
+    await recomputeInvoiceState(orgId!, updated.id).catch(() => {});
   }
 
   return ok(updated);

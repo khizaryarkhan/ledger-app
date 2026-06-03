@@ -68,6 +68,10 @@ export async function validatePortalToken(token: string): Promise<TokenValidatio
  *  - hasOpenDispute = any dispute with status Open/Under Review.
  *  - automationsPaused mirrors hasOpenDispute (disputes auto-pause chasing).
  */
+// Stage keys this function manages automatically. We only ever auto-revert
+// THESE — a manually-set stage like "Escalated" or "Reminder Sent" is left alone.
+const MANAGED_STAGES = new Set(["Disputed", "Promised", "Promise to Pay"]);
+
 export async function recomputeInvoiceState(orgId: string, invoiceId: string) {
   // Latest active promise
   const [promise] = await db
@@ -81,15 +85,38 @@ export async function recomputeInvoiceState(orgId: string, invoiceId: string) {
     .orderBy(desc(invoicePromises.createdAt))
     .limit(1);
 
-  // Any unresolved dispute
-  const openDisputes = await db
-    .select({ id: invoiceDisputes.id, status: invoiceDisputes.status })
+  // Open disputes (newest first — used for the legacy cache fields too)
+  const openDisputeRows = await db
+    .select({ id: invoiceDisputes.id, status: invoiceDisputes.status, reason: invoiceDisputes.reason, category: invoiceDisputes.category, createdAt: invoiceDisputes.createdAt })
     .from(invoiceDisputes)
     .where(and(
       eq(invoiceDisputes.orgId, orgId),
       eq(invoiceDisputes.invoiceId, invoiceId),
-    ));
-  const hasOpen = openDisputes.some(d => d.status === "Open" || d.status === "Under Review");
+    ))
+    .orderBy(desc(invoiceDisputes.createdAt));
+  const openOnes = openDisputeRows.filter(d => d.status === "Open" || d.status === "Under Review");
+  const hasOpen = openOnes.length > 0;
+  const latestOpen = openOnes[0];
+
+  // Current stage/payment status — needed to drive the Collections Board.
+  const [inv] = await db
+    .select({ collectionStage: invoices.collectionStage, paymentStatus: invoices.paymentStatus })
+    .from(invoices)
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.orgId, orgId)))
+    .limit(1);
+
+  // ── Collection-stage sync (so the board reflects portal responses) ────────
+  // Disputes win over promises. We never touch paid/closed invoices, and we
+  // only auto-revert a stage WE manage (so manual stages survive).
+  const stagePatch: Record<string, any> = {};
+  if (inv && inv.paymentStatus !== "Paid" && inv.collectionStage !== "Closed") {
+    const target = hasOpen ? "Disputed" : promise ? "Promised" : null;
+    if (target) {
+      if (inv.collectionStage !== target) stagePatch.collectionStage = target;
+    } else if (MANAGED_STAGES.has(inv.collectionStage)) {
+      stagePatch.collectionStage = "New"; // nothing open anymore — back to the funnel
+    }
+  }
 
   await db.update(invoices).set({
     promiseDate:       promise?.promiseDate ?? null,
@@ -97,8 +124,10 @@ export async function recomputeInvoiceState(orgId: string, invoiceId: string) {
     promiseSource:     promise?.source ?? null,
     hasOpenDispute:    hasOpen,
     automationsPaused: hasOpen,
-    // Keep legacy single-field dispute cache roughly in sync for old UI
-    ...(hasOpen ? {} : { disputeReason: null, disputeDate: null }),
+    // Keep legacy single-field dispute cache in sync so older UI stays correct
+    disputeReason: hasOpen ? (latestOpen?.reason || latestOpen?.category || "Disputed") : null,
+    disputeDate:   hasOpen && latestOpen ? new Date(latestOpen.createdAt as any).toISOString().slice(0, 10) : null,
+    ...stagePatch,
     updatedAt: new Date(),
   }).where(and(eq(invoices.id, invoiceId), eq(invoices.orgId, orgId)));
 }
