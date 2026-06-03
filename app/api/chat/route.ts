@@ -3,6 +3,7 @@ import { invoices, customers, projects, users, reps as repsTable, communications
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
+import { createPortalToken } from "@/lib/portal";
 import { eq, and, ilike, ne, gte, lte } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
@@ -535,6 +536,25 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
   const subject = `Open Invoices — ${resolved.label}`;
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
+  // Generate a single-use customer portal link covering these invoices so the
+  // customer can self-report a promise date or raise a dispute.
+  let portalButton = "";
+  const portalCustomerId = rows[0]?.customerId;
+  if (portalCustomerId) {
+    try {
+      const { url } = await createPortalToken(orgId, portalCustomerId, rows.map(r => r.id), userId);
+      portalButton = `
+        <div style="margin:24px 0;text-align:center;">
+          <a href="${url}" style="display:inline-block;background:#1c1917;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">
+            View &amp; Respond to Your Invoices →
+          </a>
+          <p style="font-size:11px;color:#9ca3af;margin:8px 0 0;">Set a payment date or raise a query in seconds.</p>
+        </div>`;
+    } catch (e: any) {
+      console.warn("chat: portal link generation failed:", e?.message);
+    }
+  }
+
   // HTML email body
   const rowsHtml = rows.map(i => {
     const bal   = openBal(i);
@@ -566,6 +586,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
           Kindly share the tentative payment dates at your earliest convenience.<br>
           Feel free to reach out for any queries.
         </p>
+        ${portalButton}
         <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
           <thead>
             <tr style="background:#f9fafb;">
@@ -954,6 +975,9 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
 
   // Execute tool
   const toolCall = choice.message.tool_calls[0];
+  if (toolCall.type !== "function") {
+    return NextResponse.json({ reply: "I'm not sure how to help with that." });
+  }
   const toolName = toolCall.function.name;
   let toolArgs: any = {};
   try { toolArgs = JSON.parse(toolCall.function.arguments) ?? {}; } catch {}

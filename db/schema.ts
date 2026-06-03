@@ -192,6 +192,11 @@ export const invoices = pgTable("invoices", {
   qboSyncedAt: timestamp("qbo_synced_at"),
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   paidAt: varchar("paid_at", { length: 16 }), // Date payment was received (YYYY-MM-DD) — NULL if unpaid
+  // ── Customer Response Portal derived/cached state ──────────────────────
+  promiseAmount:     real("promise_amount"),                              // current promise amount (null = full)
+  promiseSource:     varchar("promise_source", { length: 24 }),           // Customer Portal | Rep | Accountant
+  hasOpenDispute:    boolean("has_open_dispute").notNull().default(false),
+  automationsPaused: boolean("automations_paused").notNull().default(false), // true while a dispute is open
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -200,6 +205,72 @@ export const invoices = pgTable("invoices", {
     .on(t.orgId, t.qboId)
     .where(sql`${t.qboId} IS NOT NULL`),
 }));
+
+// =========================================================================
+// CUSTOMER RESPONSE PORTAL
+// A tokenised, no-login portal sent to customers by email. Lets them set
+// promise-to-pay dates and/or raise disputes on their open invoices.
+//
+// Promises and disputes are modelled as first-class EVENTS (one row each)
+// rather than single fields on the invoice, so we keep a full audit timeline
+// and can capture multiple sources (Customer Portal / Rep / Accountant).
+// The invoices table caches the current derived state for fast filtering.
+// =========================================================================
+
+// One token = one "request" covering a snapshot of the customer's open
+// invoices. The customer responds once; submitting marks it Completed and the
+// link dies. A new request issues a fresh token.
+export const customerPortalTokens = pgTable("customer_portal_tokens", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  customerId:  uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  token:       varchar("token", { length: 80 }).notNull().unique(), // url-safe random string
+  // Snapshot of which invoice IDs this request covers (jsonb array of uuids)
+  invoiceIds:  jsonb("invoice_ids").notNull().default([]),
+  status:      varchar("status", { length: 16 }).notNull().default("Active"), // Active | Completed | Expired
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }), // staff who issued it (null = automation)
+  expiresAt:   timestamp("expires_at").notNull(),
+  lastViewedAt:timestamp("last_viewed_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+});
+export type CustomerPortalToken = typeof customerPortalTokens.$inferSelect;
+
+// A promise-to-pay event. `amount` supports partial promises.
+export const invoicePromises = pgTable("invoice_promises", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  invoiceId:   uuid("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  customerId:  uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  promiseDate: varchar("promise_date", { length: 16 }).notNull(),       // YYYY-MM-DD
+  amount:      real("amount"),                                          // null = full balance
+  source:      varchar("source", { length: 24 }).notNull(),            // Customer Portal | Rep | Accountant
+  enteredBy:   uuid("entered_by").references(() => users.id, { onDelete: "set null" }), // null when from portal
+  note:        text("note"),
+  status:      varchar("status", { length: 16 }).notNull().default("Active"), // Active | Met | Broken | Superseded
+  tokenId:     uuid("token_id").references(() => customerPortalTokens.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+});
+export type InvoicePromise = typeof invoicePromises.$inferSelect;
+
+// A dispute event.
+export const invoiceDisputes = pgTable("invoice_disputes", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  invoiceId:   uuid("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  customerId:  uuid("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  category:    varchar("category", { length: 32 }).notNull(), // Wrong Amount | Already Paid | Goods/Service | Duplicate | Other
+  reason:      text("reason"),
+  source:      varchar("source", { length: 24 }).notNull(),  // Customer Portal | Rep | Accountant
+  raisedBy:    uuid("raised_by").references(() => users.id, { onDelete: "set null" }), // null when from portal
+  status:      varchar("status", { length: 16 }).notNull().default("Open"), // Open | Under Review | Resolved | Rejected
+  resolution:  text("resolution"),
+  resolvedBy:  uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt:  timestamp("resolved_at"),
+  tokenId:     uuid("token_id").references(() => customerPortalTokens.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+});
+export type InvoiceDispute = typeof invoiceDisputes.$inferSelect;
 
 // =========================================================================
 // PAYMENTS (QBO Receive Payment)

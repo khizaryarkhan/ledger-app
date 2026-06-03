@@ -96,6 +96,9 @@ export async function GET(req: Request) {
             if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return false;
             if ((inv.total - (inv.paid || 0)) <= 0) return false;
             if (PAUSE_STAGES.includes(inv.collectionStage)) return false;
+            // Customer Response Portal: an open dispute pauses chasing for this
+            // invoice until the dispute is resolved (auto-set by recomputeInvoiceState).
+            if ((inv as any).automationsPaused) return false;
             if (contact.projectId) return inv.projectId === contact.projectId;
             return inv.customerId === contact.customerId;
           });
