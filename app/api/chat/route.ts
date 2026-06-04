@@ -4,6 +4,7 @@ import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
+import { genEmailRef } from "@/lib/email-ref";
 import { eq, and, ilike, ne, gte, lte, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
@@ -573,9 +574,10 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     ].join("\n");
   }
 
-  const total   = rows.reduce((s, i) => s + openBal(i), 0);
-  const subject = `Open Invoices — ${resolved.label}`;
-  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const total    = rows.reduce((s, i) => s + openBal(i), 0);
+  const emailRef = genEmailRef();
+  const subject  = `Open Invoices — ${resolved.label} — Ref ${emailRef}`;
+  const dateStr  = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   // Generate a single-use customer portal link covering these invoices so the
   // customer can self-report a promise date or raise a dispute.
@@ -699,6 +701,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     isDraft:     false,
     authorId:    userId,
     stageAtSend: null as string | null,
+    refNumber:   emailRef,
   }));
   await db.insert(communications).values(logRows).catch(err =>
     console.warn("chat: failed to log communications:", err?.message)

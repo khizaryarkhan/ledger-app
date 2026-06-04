@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { fmt, daysOverdue, today, daysFromNow } from "@/lib/format";
+import { genEmailRef } from "@/lib/email-ref";
 import { useData } from "./data-provider";
 import { useSession } from "next-auth/react";
 import {
@@ -987,10 +988,11 @@ ${senderName}`;
     const failed: string[]    = [];
     const pdfErrors: string[] = [];
     const skipped = withoutEmail.map(r => r.customerName);
+    const emailRef = genEmailRef();
 
     for (const { inv, email } of withEmail) {
       if (!email) continue;
-      const filledSubject = fillVars(subject, inv);
+      const filledSubject = `${fillVars(subject, inv)} — Ref ${emailRef}`;
       const filledBody    = fillVars(body, inv);
       try {
         const isClosedOrPaid =
@@ -1027,6 +1029,7 @@ ${senderName}`;
             recipients: email,
             body:       filledBody,
             matchedBy:  "Manual",
+            refNumber:  emailRef,
           }),
         });
 

@@ -16,7 +16,8 @@ export async function POST() {
 
   const year = new Date().getFullYear();
   const seq = String(updated?.colRefSeq ?? 1).padStart(5, "0");
-  const refNumber = `EDC-COL-${year}-${seq}`;
+  // Neutral, sequential collection reference (never org-specific).
+  const refNumber = `AR-${year}-${seq}`;
 
   return ok({ refNumber, seq: updated?.colRefSeq ?? 1 });
 }

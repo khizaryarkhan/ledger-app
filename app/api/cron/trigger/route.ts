@@ -22,6 +22,7 @@ import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { createPortalToken } from "@/lib/portal";
+import { genEmailRef } from "@/lib/email-ref";
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
@@ -175,8 +176,9 @@ export async function POST(req: Request) {
     const invRefs  = triggeredInvoices.map((inv) => inv.invoiceNumber);
 
     // Subject: fill placeholders + append invoice refs
+    const emailRef = genEmailRef();
     const subjectParts = [fillTemplate(template.subject, greeting, invoiceLines, entityRef)];
-    subjectParts.push(`Ref: ${invRefs.join(", ")}`);
+    subjectParts.push(`Ref ${emailRef}`);
     const subject = subjectParts.join(" | ");
 
     let bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
@@ -248,6 +250,7 @@ export async function POST(req: Request) {
           isDraft:     false,
           stageAtSend: matchedInv.collectionStage,
           authorId:    (session?.user as any)?.id ?? null,
+          refNumber:   emailRef,
         }).catch((err) => {
           console.warn("trigger: failed to log communication for", contact.email, err?.message);
         });

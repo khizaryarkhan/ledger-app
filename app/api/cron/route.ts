@@ -5,6 +5,7 @@ import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
+import { genEmailRef } from "@/lib/email-ref";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -141,7 +142,8 @@ export async function GET(req: Request) {
 
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
           const invRefs  = relatedInvoices.map((inv) => inv.invoiceNumber).join(", ");
-          const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref: ${invRefs}`;
+          const emailRef = genEmailRef();
+          const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref ${emailRef}`;
           let bodyText   = fillTemplate(template.body, greeting, invoiceLines, entityRef);
 
           // Append a self-service "View & Respond" link so the customer can set a
@@ -192,6 +194,7 @@ export async function GET(req: Request) {
             isDraft:     false,
             stageAtSend: matchedInv.collectionStage,
             authorId:    null,
+            refNumber:   emailRef,
           }).catch((err) => {
             console.warn(`cron: failed to log communication for ${contact.email}:`, err?.message);
           });

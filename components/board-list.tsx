@@ -4,7 +4,8 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download } from "lucide-react";
+import { genEmailRef } from "@/lib/email-ref";
 
 export type BoardRow = {
   inv: any;
@@ -23,13 +24,6 @@ export type BoardRow = {
 
 const DISPUTE_CATEGORIES = ["Wrong Amount", "Already Paid", "Goods/Service", "Duplicate", "Other"];
 const todayStr = () => new Date().toISOString().slice(0, 10);
-// Unique, human-friendly email reference. Neutral "AR-" prefix (never org-specific).
-function genEmailRef(): string {
-  const d = new Date();
-  const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `AR-${ymd}-${rnd}`;
-}
 const uniqEmails = (vals: (string | null)[]) => {
   const set = new Set<string>();
   vals.forEach(v => (v || "").split(/[,;]/).map(e => e.trim().toLowerCase()).filter(e => e.includes("@")).forEach(e => set.add(e)));
@@ -117,6 +111,28 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
     setRespEdit(null); setRDate(""); setRReason("");
   }
 
+  // Export selected (or all filtered) rows to an Excel-compatible CSV.
+  function exportExcel() {
+    const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : filteredRows;
+    const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due", "Days overdue", "Outstanding"];
+    const esc = (v: any) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [headers.join(",")];
+    src.forEach(r => {
+      const resp = r.inv.hasOpenDispute ? `Disputed${r.inv.disputeReason ? ": " + r.inv.disputeReason : ""}`
+        : r.inv.promiseDate ? `Promised ${r.inv.promiseDate}` : "";
+      lines.push([
+        r.inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
+        r.stageLabel, resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
+        r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
+      ].map(esc).join(","));
+    });
+    const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `collections-${todayStr()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Selection action bar */}
@@ -136,6 +152,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
           </button>
         </div>
       )}
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-100 bg-white shrink-0">
+        <span className="text-[12px] text-stone-500">
+          {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
+        </span>
+        <button onClick={exportExcel}
+          className="flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 border border-stone-200 rounded-md px-2.5 py-1.5 hover:bg-stone-50">
+          <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
+        </button>
+      </div>
 
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
