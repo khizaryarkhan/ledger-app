@@ -5,6 +5,7 @@ import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
+import { renderInvoiceEmail } from "@/lib/ar-email";
 import { eq, and, ilike, ne, gte, lte, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
@@ -597,75 +598,34 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
 
   // Generate a single-use customer portal link covering these invoices so the
   // customer can self-report a promise date or raise a dispute.
-  let portalButton = "";
+  let portalUrl: string | null = null;
   const portalCustomerId = rows[0]?.customerId;
   if (portalCustomerId) {
     try {
       const { url } = await createPortalToken(orgId, portalCustomerId, rows.map(r => r.id), userId);
-      portalButton = `
-        <div style="margin:24px 0;text-align:center;">
-          <a href="${url}" style="display:inline-block;background:#1c1917;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">
-            View &amp; Respond to Your Invoices →
-          </a>
-          <p style="font-size:11px;color:#9ca3af;margin:8px 0 0;">Set a payment date or raise a query in seconds.</p>
-        </div>`;
+      portalUrl = url;
     } catch (e: any) {
       console.warn("chat: portal link generation failed:", e?.message);
     }
   }
 
-  // HTML email body
-  const rowsHtml = rows.map(i => {
-    const bal   = openBal(i);
-    const days  = daysOverdue(i.dueDate);
-    const style = days > 0 ? "color:#dc2626;font-weight:600;" : "color:#374151;";
-    const label = days > 0 ? `${days}d overdue` : `Due ${i.dueDate}`;
-    return `
-      <tr style="border-bottom:1px solid #e5e7eb;">
-        <td style="padding:10px 12px;font-size:13px;color:#374151;">#${i.invoiceNumber}</td>
-        <td style="padding:10px 12px;font-size:13px;color:#374151;">
-          ${i.customerName ?? "—"}${i.projectName ? `<br><span style="font-size:11px;color:#6b7280;">${i.projectName}</span>` : ""}
-        </td>
-        <td style="padding:10px 12px;font-size:13px;color:#374151;">${i.invoiceDate}</td>
-        <td style="padding:10px 12px;font-size:13px;${style}">${label}</td>
-        <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">${fmt(bal, i.currency)}</td>
-      </tr>`;
-  }).join("");
-
-  const body = `
-    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#fff;">
-      <div style="background:#1c1917;padding:24px 32px;">
-        <h1 style="color:#fff;margin:0;font-size:20px;font-weight:600;">${subject}</h1>
-        <p style="color:#a8a29e;margin:6px 0 0;font-size:13px;">As of ${dateStr}</p>
-      </div>
-      <div style="padding:24px 32px;">
-        <p style="font-size:14px;color:#374151;margin:0 0 20px;line-height:1.7;">
-          Hi,<br><br>
-          Please find attached the statement of open invoices along with the invoice copies for your reference.<br>
-          Kindly share the tentative payment dates at your earliest convenience.<br>
-          Feel free to reach out for any queries.
-        </p>
-        ${portalButton}
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
-          <thead>
-            <tr style="background:#f9fafb;">
-              <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Invoice</th>
-              <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Customer / Project</th>
-              <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Date</th>
-              <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Due</th>
-              <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:right;">Balance</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-          <tfoot>
-            <tr style="background:#f9fafb;">
-              <td colspan="4" style="padding:12px;font-size:13px;font-weight:700;color:#111827;">Total Outstanding</td>
-              <td style="padding:12px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${fmt(total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>`;
+  // HTML email body — shared branded template (single source of truth)
+  const body = renderInvoiceEmail({
+    subject,
+    dateStr,
+    total,
+    rows: rows.map(i => ({
+      invoiceNumber: i.invoiceNumber,
+      customerName:  i.customerName,
+      projectName:   i.projectName,
+      invoiceDate:   i.invoiceDate,
+      dueDate:       i.dueDate,
+      balance:       openBal(i),
+      currency:      i.currency,
+      daysOverdue:   daysOverdue(i.dueDate),
+    })),
+    portalUrl,
+  });
 
   // Build attachments — prefer individual QBO invoice PDFs, fall back to statement
   let attachments: MailAttachment[] = [];

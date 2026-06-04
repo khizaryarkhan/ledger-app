@@ -7,6 +7,7 @@ import { fmt } from "@/lib/format";
 import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { genEmailRef } from "@/lib/email-ref";
+import { renderInvoiceEmail } from "@/lib/ar-email";
 
 export type BoardRow = {
   inv: any;
@@ -445,15 +446,15 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
   rows: BoardRow[]; ccy: string; multiCustomer: boolean;
   onClose: () => void; onSent: () => void; toast?: (m: string, t?: string) => void;
 }) {
-  const refs = rows.map(r => r.inv.invoiceNumber).join(", ");
   const total = rows.reduce((s, r) => s + r.bal, 0);
   // Unique email reference (neutral prefix — not org-specific)
   const [emailRef] = useState(genEmailRef);
   const [to, setTo] = useState(uniqEmails(rows.map(r => r.email)).join(", "));
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(`Outstanding invoices — Ref ${emailRef}`);
+  const [subject, setSubject] = useState(`Open Invoices — Ref ${emailRef}`);
+  // Editable intro message; the branded template renders the table/total/portal button.
   const [body, setBody] = useState(
-    `Dear Sir/Madam,\n\nPlease find attached the following outstanding invoice(s) for your reference:\n${rows.map(r => `  • ${r.inv.invoiceNumber} — ${fmt.money(r.bal, r.inv.currency)} (due ${r.inv.dueDate})`).join("\n")}\n\nTotal outstanding: ${fmt.money(total, ccy)}\n\nKindly arrange payment or let us know a payment date at your earliest convenience.\n\nKind regards`
+    `Hi,\n\nPlease find attached the statement of open invoices along with the invoice copies for your reference.\nKindly share the tentative payment dates at your earliest convenience.\nFeel free to reach out for any queries.`
   );
   const [sending, setSending] = useState(false);
 
@@ -461,9 +462,30 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
     if (!to.trim()) { toast?.("Add at least one recipient", "error"); return; }
     setSending(true);
     try {
+      const ids = rows.map(r => r.inv.id);
+      // Portal link — only when all invoices belong to one customer (a token is per-customer)
+      let portalUrl: string | null = null;
+      const custIds = new Set(rows.map(r => r.custId));
+      if (custIds.size === 1) {
+        try {
+          const tk = await fetch("/api/portal/token", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ customerId: rows[0].custId, invoiceIds: ids }),
+          });
+          if (tk.ok) portalUrl = (await tk.json()).url ?? null;
+        } catch {}
+      }
+      const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      const html = renderInvoiceEmail({
+        subject, dateStr, total, currency: ccy, portalUrl, intro: body,
+        rows: rows.map(r => ({
+          invoiceNumber: r.inv.invoiceNumber, customerName: r.custName, projectName: r.projName,
+          invoiceDate: r.inv.invoiceDate, dueDate: r.inv.dueDate, balance: r.bal, currency: r.inv.currency, daysOverdue: r.days,
+        })),
+      });
       const res = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to, cc: cc || undefined, subject, body, attachInvoiceIds: rows.map(r => r.inv.id) }),
+        body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, attachInvoiceIds: ids }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Send failed"); }
       // Log a communication per invoice so it shows on each timeline
@@ -515,7 +537,7 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
             <label className="text-[11px] font-medium text-stone-500">Message</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300 resize-none" />
           </div>
-          <p className="text-[11px] text-stone-400">Invoice PDFs are attached automatically (where available from QuickBooks).</p>
+          <p className="text-[11px] text-stone-400">Sent in the standard branded format with an invoice table, the "View &amp; Respond" portal link, and invoice PDFs attached automatically. The text above is the intro message.</p>
         </div>
         <div className="px-5 py-3 border-t border-stone-200 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-600">Cancel</button>
