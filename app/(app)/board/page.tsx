@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon } from "lucide-react";
+import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 
 // Use qboBalance as the authoritative open balance — same as dashboard & reports.
@@ -66,7 +66,7 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
   );
 }
 
-function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages }: any) {
+function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName }: any) {
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
   const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
@@ -114,6 +114,11 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
         <span>{open.length} open invoice{open.length !== 1 ? "s" : ""}</span>
         {invoices.length > open.length && <span>· {invoices.length - open.length} closed</span>}
       </div>
+      {repName && (
+        <div className="flex items-center gap-1 mt-1.5 text-[11px] text-stone-400">
+          <Users size={11} /> {repName}
+        </div>
+      )}
 
       {(disputedCount > 0 || promisedCount > 0) && (
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -145,15 +150,21 @@ export default function BoardPage() {
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [regionFilter, setRegionFilter] = useState("");
   const [repFilter, setRepFilter] = useState("");
+  const [search, setSearch] = useState("");
+
+  const repName = (id: string | null | undefined) => (reps ?? []).find((r: any) => r.id === id)?.name ?? null;
 
   // Group entities by their dominant collection stage
   const grouped = useMemo(() => {
     const entities = groupBy === "customer" ? customers : projects;
     const map: Record<string, { entity: any; invoices: any[]; outstanding: number; stage: string }> = {};
 
+    const q = search.trim().toLowerCase();
     entities.forEach((e: any) => {
       // Rep filter — skip entities not assigned to the selected rep
       if (repFilter && e.repId !== repFilter) return;
+      // Search filter — match entity name or code
+      if (q && !(`${e.name ?? ""} ${e.code ?? ""}`.toLowerCase().includes(q))) return;
 
       // Get invoices for this entity
       let entityInvoices = invoices.filter((i: any) =>
@@ -187,7 +198,7 @@ export default function BoardPage() {
     });
 
     return map;
-  }, [invoices, customers, projects, groupBy, regionFilter, repFilter]);
+  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search]);
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};
@@ -236,7 +247,9 @@ export default function BoardPage() {
       if (repFilter && (proj?.repId ?? cust?.repId) !== repFilter) return;
       if (regionFilter && !(cust?.regionId === regionFilter || proj?.regionId === regionFilter)) return;
       if (stageFilter && stageLabel !== stageFilter) return;
-      rows.push({ inv: i, cust, proj, stageLabel, bal: openBal(i), days: daysOverdue(i.dueDate) });
+      const q = search.trim().toLowerCase();
+      if (q && !(`${cust?.name ?? ""} ${proj?.name ?? ""} ${i.invoiceNumber ?? ""}`.toLowerCase().includes(q))) return;
+      rows.push({ inv: i, cust, proj, stageLabel, bal: openBal(i), days: daysOverdue(i.dueDate), repName: repName(proj?.repId ?? cust?.repId) });
     });
     // Disputes first, then promises, then by balance — most actionable on top
     rows.sort((a, b) => {
@@ -245,7 +258,7 @@ export default function BoardPage() {
       return d !== 0 ? d : b.bal - a.bal;
     });
     return rows;
-  }, [invoices, customers, projects, stages, closedLabel, repFilter, regionFilter, stageFilter]);
+  }, [invoices, customers, projects, stages, closedLabel, repFilter, regionFilter, stageFilter, search]);
 
   return (
     <div className="flex flex-col h-screen">
@@ -258,6 +271,16 @@ export default function BoardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Search */}
+          <div className="relative">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${groupBy === "customer" ? "customer" : "project"}…`}
+              className="h-8 w-48 pl-7 pr-2 text-xs rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none"
+            />
+          </div>
           {/* Rep filter */}
           {(reps ?? []).length > 0 && (
             <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
@@ -351,6 +374,7 @@ export default function BoardPage() {
                       draggingId={draggingId}
                       setDraggingId={setDraggingId}
                       stages={stages}
+                      repName={repName(entity.repId)}
                     />
                   ))}
                   {items.length === 0 && (
@@ -377,6 +401,7 @@ export default function BoardPage() {
                 <tr className="border-b border-stone-200 text-left">
                   <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Invoice</th>
                   <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">{groupBy === "project" ? "Project / Customer" : "Customer / Project"}</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Rep</th>
                   <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Stage</th>
                   <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Response</th>
                   <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Due</th>
@@ -384,7 +409,7 @@ export default function BoardPage() {
                 </tr>
               </thead>
               <tbody>
-                {openInvoiceRows.map(({ inv, cust, proj, stageLabel, bal, days }) => {
+                {openInvoiceRows.map(({ inv, cust, proj, stageLabel, bal, days, repName: rn }) => {
                   const stageColor = STAGE_COLOR_CLASSES[stages.find(s => s.label === stageLabel)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
                   return (
                     <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
@@ -396,6 +421,7 @@ export default function BoardPage() {
                           {cust?.name ?? "—"}{proj ? <span className="text-stone-400"> / {proj.name}</span> : null}
                         </Link>
                       </td>
+                      <td className="px-4 py-2.5 text-stone-500 text-[12px]">{rn ?? "—"}</td>
                       <td className="px-4 py-2.5">
                         <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${stageColor}`}>{stageLabel}</span>
                       </td>
