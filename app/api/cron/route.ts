@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
-import { eq, and, or, isNull, lte } from "drizzle-orm";
+import { invoices, contacts, customers, projects, emailTemplates, communications, organisations, invoicePromises } from "@/db/schema";
+import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
 import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { createPortalToken } from "@/lib/portal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -141,7 +142,16 @@ export async function GET(req: Request) {
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
           const invRefs  = relatedInvoices.map((inv) => inv.invoiceNumber).join(", ");
           const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref: ${invRefs}`;
-          const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+          let bodyText   = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+
+          // Append a self-service "View & Respond" link so the customer can set a
+          // payment date or raise a query without replying. Single-use token.
+          try {
+            const { url } = await createPortalToken(orgId, contact.customerId, relatedInvoices.map((i) => i.id), null);
+            bodyText += `\n\n----------------------------------------\nView these invoices and let us know a payment date — or raise a query — here:\n${url}\n`;
+          } catch (e: any) {
+            console.warn("cron: portal link generation failed:", e?.message);
+          }
 
           // PDF attachments (silent failures — email still sends without them)
           const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
@@ -207,5 +217,23 @@ export async function GET(req: Request) {
       .catch(() => {}); // never let stat-writing crash the response
   }
 
-  return NextResponse.json({ ran: today, emailsSent, skipped, errors: errors.length > 0 ? errors : undefined });
+  // ── Broken-promise sweep — flip passed, unpaid Active promises to "Broken" ──
+  // Gives an audit trail and keeps active-vs-broken counts accurate.
+  let promisesBroken = 0;
+  try {
+    const stale = await db
+      .select({ id: invoicePromises.id, paymentStatus: invoices.paymentStatus })
+      .from(invoicePromises)
+      .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
+      .where(and(eq(invoicePromises.status, "Active"), lt(invoicePromises.promiseDate, today)));
+    const toBreak = stale.filter((s) => s.paymentStatus !== "Paid").map((s) => s.id);
+    for (let i = 0; i < toBreak.length; i += 100) {
+      await db.update(invoicePromises).set({ status: "Broken" }).where(inArray(invoicePromises.id, toBreak.slice(i, i + 100)));
+      promisesBroken += Math.min(100, toBreak.length - i);
+    }
+  } catch (e: any) {
+    console.warn("cron: broken-promise sweep failed:", e?.message);
+  }
+
+  return NextResponse.json({ ran: today, emailsSent, skipped, promisesBroken, errors: errors.length > 0 ? errors : undefined });
 }

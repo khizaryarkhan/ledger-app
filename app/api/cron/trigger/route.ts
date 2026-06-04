@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { createPortalToken } from "@/lib/portal";
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
@@ -178,7 +179,15 @@ export async function POST(req: Request) {
     subjectParts.push(`Ref: ${invRefs.join(", ")}`);
     const subject = subjectParts.join(" | ");
 
-    const bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+    let bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+
+    // Self-service "View & Respond" link (single-use token)
+    try {
+      const { url } = await createPortalToken(orgId!, contact.customerId, triggeredInvoices.map((i) => i.id), null);
+      bodyText += `\n\n----------------------------------------\nView these invoices and let us know a payment date — or raise a query — here:\n${url}\n`;
+    } catch (e: any) {
+      console.warn("trigger: portal link generation failed:", e?.message);
+    }
 
     // Fetch PDF attachments from QBO for each triggered invoice
     // Failures are silent — the email still sends without the attachment
