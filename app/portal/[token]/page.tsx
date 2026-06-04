@@ -172,31 +172,28 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     </div>
                   </div>
 
-                  {/* Already-disputed banner — no further action needed */}
-                  {inv.alreadyDisputed ? (
-                    <div className="mx-4 mt-3 mb-1 flex items-center gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-[12px] text-rose-800">
-                      ⚠️ You've already raised a query on this invoice — our team is reviewing it.
+                  {/* Current status — informational; the customer can always override below */}
+                  {inv.alreadyDisputed && (
+                    <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-[12px] text-rose-800">
+                      ⚠️ A query is currently open on this invoice. You can update it, or switch to a payment date below.
                     </div>
-                  ) : (
-                    <>
-                      {inv.existingPromise && (
-                        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-blue-50 ring-1 ring-blue-100 px-3 py-2 text-[12px] text-blue-800">
-                          📅 You previously indicated payment by {inv.existingPromise}. You can update it below.
-                        </div>
-                      )}
-                      {/* Mode toggle */}
-                      <div className="px-4 pt-3 flex flex-col sm:flex-row gap-2">
-                        <button
-                          onClick={() => update(inv.id, { mode: r.mode === "promise" ? "none" : "promise" })}
-                          className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "promise" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
-                        >📅 I'll pay by…</button>
-                        <button
-                          onClick={() => update(inv.id, { mode: r.mode === "dispute" ? "none" : "dispute" })}
-                          className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
-                        >⚠️ Raise a query</button>
-                      </div>
-                    </>
                   )}
+                  {!inv.alreadyDisputed && inv.existingPromise && (
+                    <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-blue-50 ring-1 ring-blue-100 px-3 py-2 text-[12px] text-blue-800">
+                      📅 You previously indicated payment by {inv.existingPromise}. You can update it or raise a query below.
+                    </div>
+                  )}
+                  {/* Mode toggle — always available so the customer can override / switch */}
+                  <div className="px-4 pt-3 flex flex-col sm:flex-row gap-2">
+                    <button
+                      onClick={() => update(inv.id, { mode: r.mode === "promise" ? "none" : "promise" })}
+                      className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "promise" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+                    >📅 I'll pay by…</button>
+                    <button
+                      onClick={() => update(inv.id, { mode: r.mode === "dispute" ? "none" : "dispute" })}
+                      className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+                    >⚠️ Raise a query</button>
+                  </div>
 
                   {/* Promise form */}
                   {r.mode === "promise" && (

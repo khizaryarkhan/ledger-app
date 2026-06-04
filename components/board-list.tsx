@@ -136,15 +136,30 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
     finally { setBusyId(null); }
   }
 
+  async function postResponse(id: string, payload: any) {
+    setBusyId(id);
+    try {
+      await fetch(`/api/invoices/${id}/response`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      await refresh();
+    } finally { setBusyId(null); }
+  }
+
   async function submitResponse() {
     if (!respEdit) return;
     if (respEdit.mode === "promise") {
       if (!rDate) return;
-      await save(respEdit.id, { promiseDate: rDate });
+      await postResponse(respEdit.id, { type: "promise", promiseDate: rDate });
     } else {
-      await save(respEdit.id, { disputeReason: rReason || rCat, collectionStage: "Disputed" });
+      await postResponse(respEdit.id, { type: "dispute", category: rCat, reason: rReason });
     }
     setRespEdit(null); setRDate(""); setRReason("");
+  }
+
+  async function clearResponse(id: string) {
+    await postResponse(id, { type: "clear" });
+    setRespEdit(null);
   }
 
   // Export selected (or all filtered) rows to an Excel-compatible CSV.
@@ -305,9 +320,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                               <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
                             </>
                           )}
-                          <div className="flex justify-end gap-1">
-                            <button onClick={() => setRespEdit(null)} className="text-[11px] text-stone-500 px-2 py-0.5">Cancel</button>
-                            <button onClick={submitResponse} disabled={busyId === inv.id} className="text-[11px] font-semibold text-white bg-stone-900 rounded px-2 py-0.5 disabled:opacity-50">Save</button>
+                          <div className="flex items-center justify-between gap-1">
+                            {(inv.hasOpenDispute || inv.promiseDate) ? (
+                              <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
+                                className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800 disabled:opacity-50">
+                                {inv.hasOpenDispute ? "✓ Resolve" : "✕ Clear"}
+                              </button>
+                            ) : <span />}
+                            <div className="flex gap-1">
+                              <button onClick={() => setRespEdit(null)} className="text-[11px] text-stone-500 px-2 py-0.5">Cancel</button>
+                              <button onClick={submitResponse} disabled={busyId === inv.id} className="text-[11px] font-semibold text-white bg-stone-900 rounded px-2 py-0.5 disabled:opacity-50">Save</button>
+                            </div>
                           </div>
                         </div>
                       ) : (

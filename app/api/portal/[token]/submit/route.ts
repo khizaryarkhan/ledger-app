@@ -103,6 +103,20 @@ export async function POST(req: Request, { params }: { params: { token: string }
     return NextResponse.json({ error: "Nothing to submit" }, { status: 400 });
   }
 
+  // Switching dispute → promise: if the customer set a promise on an invoice
+  // (and did NOT also raise a new dispute on it), resolve any open dispute there.
+  const disputedNow = new Set(disputeRows.map(d => d.invoiceId));
+  const promisedSwitchIds = [...new Set(promiseRows.map(p => p.invoiceId))].filter(id => !disputedNow.has(id));
+  if (promisedSwitchIds.length > 0) {
+    await db.update(invoiceDisputes)
+      .set({ status: "Resolved", outcome: "Customer agreed to pay", resolvedAt: new Date() })
+      .where(and(
+        eq(invoiceDisputes.orgId, orgId),
+        inArray(invoiceDisputes.invoiceId, promisedSwitchIds),
+        inArray(invoiceDisputes.status, ["Open", "Under Review"]),
+      )).catch(() => {});
+  }
+
   // Persist events
   if (promiseRows.length > 0) await db.insert(invoicePromises).values(promiseRows);
   if (disputeRows.length > 0) await db.insert(invoiceDisputes).values(disputeRows);
