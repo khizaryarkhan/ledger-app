@@ -185,8 +185,10 @@ export default function InvoiceDetailPage() {
             </Button>
           )}
           <Button variant="secondary" icon={CheckSquare} onClick={() => setShowTask(true)}>Task</Button>
-          <Button variant="secondary" icon={CalendarClock} onClick={() => setShowPromise(true)}>Promise</Button>
-          <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}>Dispute</Button>
+          <Button variant="secondary" icon={CalendarClock} onClick={() => setShowPromise(true)}
+            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — no promise needed" : undefined}>Promise</Button>
+          <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}
+            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — cannot dispute" : undefined}>Dispute</Button>
           <Button variant="secondary" icon={CreditCard} onClick={() => setShowPay(true)}>Record payment</Button>
           <Button icon={Mail} onClick={() => setShowCompose(true)}>Send email</Button>
           {!confirmDelete ? (
