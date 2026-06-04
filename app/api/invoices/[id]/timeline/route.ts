@@ -33,6 +33,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .select({
       id: invoiceDisputes.id, category: invoiceDisputes.category, reason: invoiceDisputes.reason,
       source: invoiceDisputes.source, status: invoiceDisputes.status, resolution: invoiceDisputes.resolution,
+      outcome: invoiceDisputes.outcome,
       resolvedAt: invoiceDisputes.resolvedAt, createdAt: invoiceDisputes.createdAt, raisedByName: users.name,
     })
     .from(invoiceDisputes)

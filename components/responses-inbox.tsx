@@ -9,8 +9,9 @@ type Dispute = {
   id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
   projectName: string | null; category: string; reason: string | null; source: string;
   status: string; outcome: string | null; resolution: string | null; createdAt: string;
-  raisedByName: string | null; assignedToName: string | null;
+  raisedByName: string | null; assignedToName: string | null; assignedTo: string | null;
 };
+type Assignee = { id: string; name: string };
 
 const DISPUTE_OUTCOMES = ["Invoice corrected", "Credit issued", "Customer agreed to pay", "Written off"];
 type Promise_ = {
@@ -37,6 +38,8 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
   const [outcome, setOutcome] = useState(DISPUTE_OUTCOMES[0]);
   const [note, setNote] = useState("");
 
+  const [assignees, setAssignees] = useState<Assignee[]>([]);
+
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/responses");
@@ -44,6 +47,13 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    fetch("/api/responses/assignees").then(r => r.ok ? r.json() : null).then(d => { if (d?.assignees) setAssignees(d.assignees); }).catch(() => {});
+  }, []);
+
+  async function reassign(id: string, assignedTo: string) {
+    await patchDispute(id, { assignedTo: assignedTo || null });
+  }
 
   async function patchDispute(id: string, body: any) {
     setBusy(id);
@@ -106,9 +116,22 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
             </div>
             {d.reason && <div className="text-[13px] text-stone-600 mt-1">{d.reason}</div>}
             {d.resolution && <div className="text-[12px] text-stone-500 mt-1 italic">Resolution: {d.resolution}</div>}
-            <div className="text-[11px] text-stone-400 mt-1">
-              {d.raisedByName ? `by ${d.raisedByName}` : "via portal"} · {new Date(d.createdAt).toLocaleDateString()}
-              {d.assignedToName && <span> · assigned to <span className="text-stone-600 font-medium">{d.assignedToName}</span></span>}
+            <div className="text-[11px] text-stone-400 mt-1 flex items-center gap-1.5 flex-wrap">
+              <span>{d.raisedByName ? `by ${d.raisedByName}` : "via portal"} · {new Date(d.createdAt).toLocaleDateString()}</span>
+              {isOpen && assignees.length > 0 ? (
+                <span className="flex items-center gap-1">· assigned to
+                  <select
+                    value={d.assignedTo ?? ""}
+                    onChange={e => reassign(d.id, e.target.value)}
+                    className="text-[11px] border border-stone-200 rounded px-1 py-0.5 bg-white text-stone-700 max-w-[140px]"
+                  >
+                    <option value="">Unassigned</option>
+                    {assignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </span>
+              ) : d.assignedToName ? (
+                <span>· assigned to <span className="text-stone-600 font-medium">{d.assignedToName}</span></span>
+              ) : null}
             </div>
           </div>
           {isOpen && !isActioning && (

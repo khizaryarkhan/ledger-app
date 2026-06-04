@@ -42,7 +42,7 @@ export async function GET(_req: Request, _ctx?: any) {
       id: invoiceDisputes.id, invoiceId: invoiceDisputes.invoiceId,
       category: invoiceDisputes.category, reason: invoiceDisputes.reason,
       source: invoiceDisputes.source, status: invoiceDisputes.status,
-      outcome: invoiceDisputes.outcome,
+      outcome: invoiceDisputes.outcome, assignedTo: invoiceDisputes.assignedTo,
       resolution: invoiceDisputes.resolution, createdAt: invoiceDisputes.createdAt,
       invoiceNumber: invoices.invoiceNumber, currency: invoices.currency,
       customerName: customers.name, customerRepId: customers.repId,
@@ -64,7 +64,7 @@ export async function GET(_req: Request, _ctx?: any) {
       id: d.id, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
       customerName: d.customerName, projectName: d.projectName,
       category: d.category, reason: d.reason, source: d.source, status: d.status,
-      outcome: d.outcome,
+      outcome: d.outcome, assignedTo: d.assignedTo,
       resolution: d.resolution, createdAt: d.createdAt, raisedByName: d.raisedByName,
       assignedToName: d.assignedToName,
     }));
