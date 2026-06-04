@@ -158,10 +158,11 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "send_invoices",
-      description: "Email open invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoices of MW22004 to billing@client.com CC finance@client.com\", \"send invoices overdue 365+ days to finance@client.com\".\nOmit 'to' if no address given — system uses billing email on file.\nUse minDaysOverdue when user says 'overdue 180 days', '1 year+', '365+ days', etc.\nIMPORTANT: First call WITHOUT confirmed=true — the tool returns a confirmation summary. Only set confirmed=true after the user explicitly says yes/confirm/send it.",
+      description: "Email invoices as individual PDF attachments (fetched from QuickBooks).\nTRIGGER: ONLY when user says \"send\", \"email\", \"forward\" invoices to an address.\nExamples: \"send invoice 7786 to billing@client.com\" (a number = invoiceNumber), \"send invoices of MW22004 to billing@client.com CC finance@client.com\", \"send invoices overdue 365+ days to finance@client.com\".\nIf the user gives a bare number, treat it as invoiceNumber, NOT a project.\nOmit 'to' if no address given — system uses billing email on file.\nUse minDaysOverdue when user says 'overdue 180 days', '1 year+', '365+ days', etc.\nIMPORTANT: First call WITHOUT confirmed=true — the tool returns a confirmation summary. Only set confirmed=true after the user explicitly says yes/confirm/send it.",
       parameters: {
         type: "object",
         properties: {
+          invoiceNumber: { type: "string", description: "A specific invoice number to send (e.g. '7786'). Use this when the user names an invoice number rather than a project/customer." },
           projectName: { type: "string" },
           customerName: { type: "string" },
           to: { type: "string", description: "Recipient email. Omit if not stated." },
@@ -508,23 +509,37 @@ async function toolGetInvoices(orgId: string, args: any, visibleRepIds: Set<stri
 
 // ── Tool: send_invoices ───────────────────────────────────────────────────────
 async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<string> | null, userId: string): Promise<string> {
-  const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
-  if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+  let rows: Awaited<ReturnType<typeof fetchOpenInvoices>>;
+  let label: string;
 
-  // Rep scoping: same visibility rules as the rep portal UI.
-  // visibleRepIds=null means admin (no restriction).
-  if (visibleRepIds && resolved.projectId) {
-    const projectRepId = resolved.projectRepId ?? null;
-    if (!projectRepId || !visibleRepIds.has(projectRepId)) {
-      return `⛔ "${resolved.label}" is not within your portfolio. You can only send invoices for projects assigned to you or your team.`;
+  // Path A: a specific invoice number was given ("send invoice 7786 to …")
+  if (args.invoiceNumber && !args.projectName && !args.customerName) {
+    const num = String(args.invoiceNumber).replace(/^#/, "").trim();
+    const all = await fetchOpenInvoices(orgId);
+    rows = all.filter(i => i.invoiceNumber === num);
+    if (rows.length === 0) return `No open invoice found with number "${num}". It may be paid, closed, or the number may be different.`;
+    if (visibleRepIds) {
+      rows = scopeToVisible(rows, visibleRepIds);
+      if (rows.length === 0) return `⛔ Invoice #${num} is not within your portfolio.`;
     }
-  }
-
-  let rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
-  if (args.minDaysOverdue) rows = rows.filter(i => daysOverdue(i.dueDate) >= args.minDaysOverdue);
-  if (rows.length === 0) {
-    const ageTag = args.minDaysOverdue ? ` overdue by ${args.minDaysOverdue}+ days` : "";
-    return `No open invoices${ageTag} found for "${resolved.label}" — nothing sent.`;
+    label = `#${num}`;
+  } else {
+    // Path B: resolve a project / customer
+    const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
+    if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+    if (visibleRepIds && resolved.projectId) {
+      const projectRepId = resolved.projectRepId ?? null;
+      if (!projectRepId || !visibleRepIds.has(projectRepId)) {
+        return `⛔ "${resolved.label}" is not within your portfolio. You can only send invoices for projects assigned to you or your team.`;
+      }
+    }
+    rows = await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId);
+    if (args.minDaysOverdue) rows = rows.filter(i => daysOverdue(i.dueDate) >= args.minDaysOverdue);
+    if (rows.length === 0) {
+      const ageTag = args.minDaysOverdue ? ` overdue by ${args.minDaysOverdue}+ days` : "";
+      return `No open invoices${ageTag} found for "${resolved.label}" — nothing sent.`;
+    }
+    label = resolved.label;
   }
 
   // Resolve recipient — use chat-provided address or fall back to billing email on file
@@ -540,7 +555,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     toAddress = sample?.billingEmail?.split(",")[0]?.trim() || sample?.customerEmail?.trim() || "";
   }
   if (!toAddress) {
-    return `No recipient email provided and no billing email found on file for "${resolved.label}". Please specify an email address to send to.`;
+    return `No recipient email provided and no billing email found on file for "${label}". Please specify an email address to send to.`;
   }
 
   // ── Confirmation gate — show summary and wait for user to confirm ─────────
@@ -556,6 +571,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     // Embed resolved args so the handler can replay the send on "confirm"
     // without asking Groq to reconstruct parameters (which it gets wrong).
     const pendingPayload = JSON.stringify({
+      invoiceNumber:  args.invoiceNumber,
       projectName:    args.projectName,
       customerName:   args.customerName,
       to:             toAddress,        // already resolved
@@ -565,7 +581,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     return [
       `📋 Please confirm before sending:`,
       ``,
-      `Project/Customer: ${resolved.label}`,
+      `Project/Customer: ${label}`,
       `To: ${toAddress}${args.cc ? `\nCC: ${args.cc}` : ""}`,
       `Invoices${ageNote}: ${rows.length} invoice(s) — ${fmt(total)} total`,
       invLines + more,
@@ -576,7 +592,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
 
   const total    = rows.reduce((s, i) => s + openBal(i), 0);
   const emailRef = genEmailRef();
-  const subject  = `Open Invoices — ${resolved.label} — Ref ${emailRef}`;
+  const subject  = `Open Invoices — ${label} — Ref ${emailRef}`;
   const dateStr  = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   // Generate a single-use customer portal link covering these invoices so the
@@ -669,7 +685,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
   // Fall back to a single statement PDF if QBO not connected or all fetches failed
   if (attachments.length === 0) {
     const statementBuf = await generateStatementPDF(rows, subject);
-    attachments = [{ filename: `${resolved.label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`, content: statementBuf, contentType: "application/pdf" }];
+    attachments = [{ filename: `${label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`, content: statementBuf, contentType: "application/pdf" }];
   }
 
   let transport = "";
@@ -1117,7 +1133,8 @@ STRICT RULES — follow these without exception:
 3. NEVER answer questions about amounts, balances, or AR data from memory. ALWAYS call a tool first.
 4. ANY question about invoices, balances, overdue amounts, aging, or portfolio data requires a tool call.
 5. When a tool returns a numbered list asking for clarification, copy it EXACTLY and wait for the user to choose.
-6. Be concise — no need to restate what you just did. Lead with the result.
+6. A bare number like "7786" or "#7544" is an INVOICE NUMBER — pass it as invoiceNumber (send_invoices / update_invoice), never as a project or customer name.
+7. Be concise — no need to restate what you just did. Lead with the result.
 7. For follow-up questions like "total overdue?", "how many?", "send those" — infer the project/customer from conversation history.
 8. If the user's request is unclear, ask one short clarifying question.
 
