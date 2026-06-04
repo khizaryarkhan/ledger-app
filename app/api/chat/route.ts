@@ -1,10 +1,10 @@
 import { db } from "@/db";
-import { invoices, customers, projects, users, reps as repsTable, communications } from "@/db/schema";
+import { invoices, customers, projects, users, reps as repsTable, communications, contacts } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
-import { eq, and, ilike, ne, gte, lte } from "drizzle-orm";
+import { eq, and, ilike, ne, gte, lte, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -30,6 +30,20 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
         type: "object",
         properties: {
           projectName: { type: "string" },
+          customerName: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_contact_info",
+      description: "Get the billing email(s) and contacts on file for a specific project or customer.\nTRIGGER: \"what's the email for X\", \"who do I contact at X\", \"billing email on X\", \"contact details for X\", \"what email is on [project/invoice]\".",
+      parameters: {
+        type: "object",
+        properties: {
+          projectName: { type: "string", description: "Project name or code (e.g. D24005)" },
           customerName: { type: "string" },
         },
       },
@@ -978,6 +992,73 @@ async function toolSuggestNextAction(orgId: string, args: any, visibleRepIds: Se
   return `Recommended actions for "${resolved.label}" (${rows.length} open · ${fmt(total)}):\n${body}\n\nWant me to send the invoices, set a promise/escalate the stage, or add a note? Just tell me.`;
 }
 
+// ── Tool: get_contact_info — emails across all three levels ───────────────────
+async function toolGetContactInfo(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
+  if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+  if (visibleRepIds && resolved.projectId) {
+    const repId = resolved.projectRepId ?? null;
+    if (!repId || !visibleRepIds.has(repId)) return `⛔ "${resolved.label}" is not within your portfolio.`;
+  }
+
+  const projectId = resolved.projectId ?? null;
+  let customerId = resolved.customerId ?? null;
+  const projectName = projectId ? resolved.label : null;
+  if (projectId && !customerId) {
+    const [p] = await db.select({ customerId: projects.customerId }).from(projects).where(eq(projects.id, projectId)).limit(1);
+    customerId = p?.customerId ?? null;
+  }
+  if (!customerId) return `Couldn't resolve a customer for "${resolved.label}".`;
+
+  const [cust] = await db.select({ name: customers.name, email: customers.email })
+    .from(customers).where(eq(customers.id, customerId)).limit(1);
+
+  // Project-level chase contacts (automations)
+  const projContacts = projectId
+    ? await db.select().from(contacts).where(and(eq(contacts.orgId, orgId), eq(contacts.projectId, projectId)))
+    : [];
+  // Customer-level chase contacts (not tied to a project)
+  const custContacts = await db.select().from(contacts)
+    .where(and(eq(contacts.orgId, orgId), eq(contacts.customerId, customerId), isNull(contacts.projectId)));
+
+  // Billing emails on the actual invoices (from QBO), scoped to this entity
+  const invRows = await db.select({ billingEmail: invoices.billingEmail })
+    .from(invoices)
+    .where(and(
+      eq(invoices.orgId, orgId), ne(invoices.txnType, "CreditMemo"),
+      ...(projectId ? [eq(invoices.projectId, projectId)] : [eq(invoices.customerId, customerId)]),
+    ));
+  const billingSet = new Set<string>();
+  invRows.forEach(r => (r.billingEmail || "").split(/[,;]/).map(e => e.trim().toLowerCase()).filter(e => e.includes("@")).forEach(e => billingSet.add(e)));
+
+  const fmtC = (c: any) =>
+    `${c.email}${c.name ? ` — ${c.name}` : ""}${c.isPrimary ? " (primary)" : ""}${c.isEscalation ? " (escalation)" : ""}${c.receivesAuto ? "" : " [auto OFF]"}`;
+
+  const lines: string[] = [`📇 Contacts for ${projectName ? `project "${projectName}"` : `"${cust?.name ?? resolved.label}"`}:`];
+
+  if (projectId) {
+    lines.push(`\n▸ Project-level chase contacts (used by automations for this project):`);
+    lines.push(projContacts.length ? projContacts.map(c => `  • ${fmtC(c)}`).join("\n") : "  — none set at project level");
+  }
+  lines.push(`\n▸ Customer-level chase contacts (automations):`);
+  lines.push(custContacts.length ? custContacts.map(c => `  • ${fmtC(c)}`).join("\n") : "  — none set");
+  if (cust?.email) lines.push(`\n▸ Customer record email: ${cust.email}`);
+  lines.push(`\n▸ Billing email(s) on the invoices (from QuickBooks):`);
+  lines.push(billingSet.size ? [...billingSet].map(e => `  • ${e}`).join("\n") : "  — none on file");
+
+  // Divergence warning — these sources can legitimately differ
+  const allEmails = new Set<string>([
+    ...billingSet,
+    ...projContacts.map((c: any) => c.email.toLowerCase()),
+    ...custContacts.map((c: any) => c.email.toLowerCase()),
+  ]);
+  if (allEmails.size > 1) {
+    lines.push(`\n⚠️ These addresses differ across levels — confirm which to use before sending. By default an automated chase uses the project-level contact if set, otherwise the customer-level one; a manual send uses whatever you specify (falling back to the invoice billing email).`);
+  }
+
+  return lines.join("\n");
+}
+
 // ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   const { error, session, orgId } = await requireOrg();
@@ -1028,8 +1109,8 @@ When someone opens with a vague "where do I start / help me" → call get_collec
 After showing a briefing or recommendation, suggest the concrete next step and offer to do it.
 
 STRICT RULES — follow these without exception:
-1. You are ONLY an AR assistant. You ONLY answer questions about invoices, payments, collections, customers, and projects inside this app.
-2. If the user asks ANYTHING unrelated to AR — general knowledge, essays, coding, news, opinions, or anything outside this app's data — respond with exactly: "I can only help with AR-related questions such as invoices, outstanding balances, collections, and sending statements. What would you like to know about your AR?"
+1. IN SCOPE = everything about this company's AR: invoices, balances, aging, payments, collections, promises, disputes, customers, projects, AND their contacts / billing email addresses / who to chase. Questions like "what's the email on D24005" or "who do I contact at X" ARE in scope — call get_contact_info.
+2. Only refuse if the request is clearly NOT about this company's AR data (general knowledge, essays, coding, weather, world news, opinions). Then reply exactly: "I can only help with AR-related questions such as invoices, outstanding balances, collections, and sending statements. What would you like to know about your AR?" When in doubt, assume it IS in scope and call the most relevant tool — do NOT refuse.
 3. NEVER answer questions about amounts, balances, or AR data from memory. ALWAYS call a tool first.
 4. ANY question about invoices, balances, overdue amounts, aging, or portfolio data requires a tool call.
 5. When a tool returns a numbered list asking for clarification, copy it EXACTLY and wait for the user to choose.
@@ -1040,6 +1121,7 @@ STRICT RULES — follow these without exception:
 TOOL SELECTION GUIDE:
 - "what should I do today / daily briefing / where do I start / morning summary / help me prioritise" → get_collections_briefing
 - "what should I do about X / next step for X / how do I handle X / should I escalate X" → suggest_next_action
+- "what's the email on X / who do I contact at X / billing email for X / contact details" → get_contact_info
 - "show my portfolio / what's open / list projects" → list_portfolio
 - "what should I chase / priority / most urgent / who hasn't paid" → get_priority_list
 - "aging breakdown / aging report / buckets / 90+ days" → get_aging
@@ -1115,6 +1197,7 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
   try {
     if      (toolName === "get_collections_briefing") toolResult = await toolGetCollectionsBriefing(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "suggest_next_action")      toolResult = await toolSuggestNextAction(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "get_contact_info")         toolResult = await toolGetContactInfo(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "list_portfolio")   toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_priority_list") toolResult = await toolGetPriorityList(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_aging")         toolResult = await toolGetAging(orgId!, toolArgs, visibleRepIds);
