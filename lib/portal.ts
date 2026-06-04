@@ -11,7 +11,7 @@ import { db } from "@/db";
 import {
   customerPortalTokens, invoicePromises, invoiceDisputes, invoices,
 } from "@/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, inArray } from "drizzle-orm";
 
 const TOKEN_TTL_DAYS = 30;
 
@@ -94,7 +94,23 @@ export async function recomputeInvoiceState(orgId: string, invoiceId: string) {
       eq(invoiceDisputes.invoiceId, invoiceId),
     ))
     .orderBy(desc(invoiceDisputes.createdAt));
-  const openOnes = openDisputeRows.filter(d => d.status === "Open" || d.status === "Under Review");
+  let openOnes = openDisputeRows.filter(d => d.status === "Open" || d.status === "Under Review");
+
+  // "Latest action wins": if the most recent ACTIVE promise is newer than the
+  // newest open dispute, the customer/staff has switched to a promise — so
+  // auto-resolve the open disputes (this is what fixes "promised but still
+  // shows disputed", regardless of which path created the promise).
+  if (promise && openOnes.length > 0 && new Date(promise.createdAt) > new Date(openOnes[0].createdAt as any)) {
+    await db.update(invoiceDisputes)
+      .set({ status: "Resolved", outcome: "Customer agreed to pay", resolvedAt: new Date() })
+      .where(and(
+        eq(invoiceDisputes.orgId, orgId),
+        eq(invoiceDisputes.invoiceId, invoiceId),
+        inArray(invoiceDisputes.status, ["Open", "Under Review"]),
+      ));
+    openOnes = [];
+  }
+
   const hasOpen = openOnes.length > 0;
   const latestOpen = openOnes[0];
 
