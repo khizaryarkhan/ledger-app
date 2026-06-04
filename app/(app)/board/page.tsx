@@ -6,6 +6,7 @@ import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
+import { BoardList, type BoardRow } from "@/components/board-list";
 
 // Use qboBalance as the authoritative open balance — same as dashboard & reports.
 // Falls back to total-paid for rows that pre-date the QBO snapshot.
@@ -137,7 +138,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings } = useData() as any;
+  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
   const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
@@ -236,8 +237,8 @@ export default function BoardPage() {
   const visibleStages = stageFilter ? [stageFilter] : visibleLabels;
 
   // ── Invoice-level rows for the List view (honours all the same filters) ────
-  const openInvoiceRows = useMemo(() => {
-    const rows: any[] = [];
+  const openInvoiceRows = useMemo<BoardRow[]>(() => {
+    const rows: BoardRow[] = [];
     invoices.forEach((i: any) => {
       if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off" || i.txnType === "CreditMemo") return;
       const stageLabel = resolveStageLabel(i.collectionStage, stages);
@@ -249,16 +250,28 @@ export default function BoardPage() {
       if (stageFilter && stageLabel !== stageFilter) return;
       const q = search.trim().toLowerCase();
       if (q && !(`${cust?.name ?? ""} ${proj?.name ?? ""} ${i.invoiceNumber ?? ""}`.toLowerCase().includes(q))) return;
-      rows.push({ inv: i, cust, proj, stageLabel, bal: openBal(i), days: daysOverdue(i.dueDate), repName: repName(proj?.repId ?? cust?.repId) });
+      const regionId = cust?.regionId ?? proj?.regionId;
+      rows.push({
+        inv: i,
+        custId: i.customerId,
+        custName: cust?.name ?? "—",
+        projName: proj?.name ?? null,
+        regionName: (regions ?? []).find((r: any) => r.id === regionId)?.name ?? null,
+        repName: repName(proj?.repId ?? cust?.repId),
+        stageLabel,
+        bal: openBal(i),
+        days: daysOverdue(i.dueDate),
+        email: i.billingEmail || cust?.email || null,
+      });
     });
     // Disputes first, then promises, then by balance — most actionable on top
     rows.sort((a, b) => {
-      const score = (r: any) => (r.inv.hasOpenDispute ? 2 : r.inv.promiseDate ? 1 : 0);
+      const score = (r: BoardRow) => (r.inv.hasOpenDispute ? 2 : r.inv.promiseDate ? 1 : 0);
       const d = score(b) - score(a);
       return d !== 0 ? d : b.bal - a.bal;
     });
     return rows;
-  }, [invoices, customers, projects, stages, closedLabel, repFilter, regionFilter, stageFilter, search]);
+  }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, search]);
 
   return (
     <div className="flex flex-col h-screen">
@@ -390,60 +403,16 @@ export default function BoardPage() {
       </div>
       )}
 
-      {/* Invoice-level List view */}
+      {/* Invoice-level List view — editable, bulk-action grid */}
       {viewMode === "list" && (
-        <div className="flex-1 overflow-auto">
-          {openInvoiceRows.length === 0 ? (
-            <div className="text-center text-sm text-stone-400 py-16">No open invoices match the current filters.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-stone-50 z-10">
-                <tr className="border-b border-stone-200 text-left">
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Invoice</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">{groupBy === "project" ? "Project / Customer" : "Customer / Project"}</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Rep</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Stage</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Response</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Due</th>
-                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
-                </tr>
-              </thead>
-              <tbody>
-                {openInvoiceRows.map(({ inv, cust, proj, stageLabel, bal, days, repName: rn }) => {
-                  const stageColor = STAGE_COLOR_CLASSES[stages.find(s => s.label === stageLabel)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
-                  return (
-                    <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
-                      <td className="px-4 py-2.5">
-                        <Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-900 hover:underline">#{inv.invoiceNumber}</Link>
-                      </td>
-                      <td className="px-4 py-2.5 text-stone-700">
-                        <Link href={`/invoices/${inv.id}`} className="hover:underline">
-                          {cust?.name ?? "—"}{proj ? <span className="text-stone-400"> / {proj.name}</span> : null}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-2.5 text-stone-500 text-[12px]">{rn ?? "—"}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${stageColor}`}>{stageLabel}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {inv.hasOpenDispute
-                          ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">⚠ Disputed</span>
-                          : inv.promiseDate
-                          ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">📅 Promised {inv.promiseDate}</span>
-                          : <span className="text-stone-300">—</span>}
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap text-stone-600 text-[12px]">
-                        {inv.dueDate}
-                        {days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <BoardList
+          rows={openInvoiceRows}
+          stages={stages}
+          updateInvoice={updateInvoice}
+          refresh={refresh}
+          toast={toast}
+          ccy={ccy}
+        />
       )}
 
       {/* Legend */}
