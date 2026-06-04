@@ -18,10 +18,18 @@ export type BoardRow = {
   days: number;
   email: string | null;
   lastSent: string | null; // ISO date of last outbound email, or null
+  lastRef: string | null;  // reference number of the last outbound email
 };
 
 const DISPUTE_CATEGORIES = ["Wrong Amount", "Already Paid", "Goods/Service", "Duplicate", "Other"];
 const todayStr = () => new Date().toISOString().slice(0, 10);
+// Unique, human-friendly email reference. Neutral "AR-" prefix (never org-specific).
+function genEmailRef(): string {
+  const d = new Date();
+  const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `AR-${ymd}-${rnd}`;
+}
 const uniqEmails = (vals: (string | null)[]) => {
   const set = new Set<string>();
   vals.forEach(v => (v || "").split(/[,;]/).map(e => e.trim().toLowerCase()).filter(e => e.includes("@")).forEach(e => set.add(e)));
@@ -69,6 +77,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
       if (cf.email === "none" && r.email) return false;
       if (cf.lastSent === "sent" && !r.lastSent) return false;
       if (cf.lastSent === "never" && r.lastSent) return false;
+      if (cf.lastRef && !has(r.lastRef, cf.lastRef)) return false;
       if (cf.due && !has(r.inv.dueDate, cf.due)) return false;
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
       return true;
@@ -136,7 +145,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
             <thead className="sticky top-0 bg-stone-50 z-10">
               <tr className="border-b border-stone-200 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
-                {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Due"].map(h => (
+                {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due"].map(h => (
                   <th key={h} className={thCls}>{h}</th>
                 ))}
                 <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
@@ -179,12 +188,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                     <option value="">All</option><option value="sent">Sent</option><option value="never">Never sent</option>
                   </select>
                 </th>
+                <th className="px-2 py-1.5"><input value={cf.lastRef ?? ""} onChange={e => setFilter("lastRef", e.target.value)} placeholder="Ref" className={inputCls} /></th>
                 <th className="px-2 py-1.5"><input value={cf.due ?? ""} onChange={e => setFilter("due", e.target.value)} placeholder="YYYY-MM" className={inputCls} /></th>
                 <th className="px-2 py-1.5"><input type="number" value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="≥ €" className={`${inputCls} text-right`} /></th>
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent }) => {
+              {filteredRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef }) => {
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
                 return (
@@ -265,6 +275,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                     <td className="px-3 py-2 whitespace-nowrap text-[12px]">
                       {lastSent ? <span className="text-stone-600">{fmtSent(lastSent)}</span> : <span className="text-stone-300">Never</span>}
                     </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-[12px] font-mono">
+                      {lastRef ? <span className="text-stone-500">{lastRef}</span> : <span className="text-stone-300">—</span>}
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-600 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}</td>
                     <td className="px-3 py-2 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
                   </tr>
@@ -292,9 +305,11 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
 }) {
   const refs = rows.map(r => r.inv.invoiceNumber).join(", ");
   const total = rows.reduce((s, r) => s + r.bal, 0);
+  // Unique email reference (neutral prefix — not org-specific)
+  const [emailRef] = useState(genEmailRef);
   const [to, setTo] = useState(uniqEmails(rows.map(r => r.email)).join(", "));
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(`Outstanding invoices — Ref: ${refs}`);
+  const [subject, setSubject] = useState(`Outstanding invoices — Ref ${emailRef}`);
   const [body, setBody] = useState(
     `Dear Sir/Madam,\n\nPlease find attached the following outstanding invoice(s) for your reference:\n${rows.map(r => `  • ${r.inv.invoiceNumber} — ${fmt.money(r.bal, r.inv.currency)} (due ${r.inv.dueDate})`).join("\n")}\n\nTotal outstanding: ${fmt.money(total, ccy)}\n\nKindly arrange payment or let us know a payment date at your earliest convenience.\n\nKind regards`
   );
@@ -315,7 +330,7 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
         body: JSON.stringify({
           customerId: r.custId, invoiceId: r.inv.id, projectId: r.inv.projectId ?? null,
           direction: "Outbound", channel: "Email", subject, recipients: to, body,
-          matchedBy: "Manual", isDraft: false,
+          matchedBy: "Manual", isDraft: false, refNumber: emailRef,
         }),
       }).catch(() => {})));
       toast?.(`Sent ${rows.length} invoice(s) to ${to}`);
@@ -329,7 +344,10 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h3 className="font-semibold text-stone-900">Send {rows.length} invoice(s)</h3>
+          <div>
+            <h3 className="font-semibold text-stone-900">Send {rows.length} invoice(s)</h3>
+            <div className="text-[11px] text-stone-400 mt-0.5">Email reference: <span className="font-mono text-stone-600">{emailRef}</span></div>
+          </div>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-700"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-3">

@@ -140,14 +140,14 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 export default function BoardPage() {
   const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast, communications } = useData() as any;
 
-  // invoiceId → most-recent outbound email date (for the "Last sent" column)
+  // invoiceId → most-recent outbound email { date, ref } (for Last sent / Last ref columns)
   const lastSentByInv = useMemo(() => {
-    const m: Record<string, string> = {};
+    const m: Record<string, { at: string; ref: string | null }> = {};
     (communications ?? []).forEach((c: any) => {
       if (!c.invoiceId || c.direction !== "Outbound") return;
       const t = c.sentAt ?? c.createdAt;
       if (!t) return;
-      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId])) m[c.invoiceId] = t;
+      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId].at)) m[c.invoiceId] = { at: t, ref: c.refNumber ?? null };
     });
     return m;
   }, [communications]);
@@ -274,7 +274,8 @@ export default function BoardPage() {
         bal: openBal(i),
         days: daysOverdue(i.dueDate),
         email: i.billingEmail || cust?.email || null,
-        lastSent: lastSentByInv[i.id] ?? null,
+        lastSent: lastSentByInv[i.id]?.at ?? null,
+        lastRef: lastSentByInv[i.id]?.ref ?? null,
       });
     });
     // Disputes first, then promises, then by balance — most actionable on top
