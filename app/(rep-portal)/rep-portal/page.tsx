@@ -16,7 +16,8 @@ type Invoice = {
   invoiceDate: string; dueDate: string; total: number; paid: number; currency: string;
   paymentStatus: string; collectionStage: string; billingEmail: string | null;
   qboId: string | null; txnType: string | null; qboBalance: number | null;
-  hasOpenDispute?: boolean; promiseDate?: string | null;
+  hasOpenDispute?: boolean; promiseDate?: string | null; promiseAmount?: number | null;
+  promiseSource?: string | null; disputeReason?: string | null; disputeDate?: string | null;
 };
 
 // Use qboBalance as the authoritative open balance (same as dashboard/reports)
@@ -245,6 +246,29 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
               <div className="font-medium text-stone-700">{inv.paymentStatus}</div>
             </div>
           </div>
+
+          {/* Promise-to-pay detail */}
+          {inv.promiseDate && !inv.hasOpenDispute && (
+            <div className="flex items-start gap-2 rounded-lg bg-blue-50 ring-1 ring-blue-100 px-3 py-2">
+              <span className="text-sm">📅</span>
+              <div className="text-[12px] text-blue-900">
+                <span className="font-semibold">Promised payment by {formatDate(inv.promiseDate, df)}</span>
+                {inv.promiseAmount != null && <span> · {fmt.money(inv.promiseAmount, inv.currency)}</span>}
+                {inv.promiseSource && <span className="text-blue-600"> · via {inv.promiseSource}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Dispute detail */}
+          {inv.hasOpenDispute && (
+            <div className="flex items-start gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2">
+              <span className="text-sm">⚠️</span>
+              <div className="text-[12px] text-rose-900">
+                <span className="font-semibold">Disputed{inv.disputeDate ? ` since ${formatDate(inv.disputeDate, df)}` : ""}</span>
+                {inv.disputeReason && <div className="text-rose-700 mt-0.5">{inv.disputeReason}</div>}
+              </div>
+            </div>
+          )}
 
           {canDownload && (
             <button
