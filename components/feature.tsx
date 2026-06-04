@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { fmt, daysOverdue, today, daysFromNow } from "@/lib/format";
 import { genEmailRef } from "@/lib/email-ref";
+import { renderInvoiceEmail } from "@/lib/ar-email";
 import { useData } from "./data-provider";
 import { useSession } from "next-auth/react";
 import {
@@ -999,13 +1000,36 @@ ${senderName}`;
           ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
         const canAttach = attachPdf && inv.qboId && !inv.qboId.startsWith("CM-") && !isClosedOrPaid;
 
+        // Branded email (same template as every channel) + portal link
+        let portalUrl: string | null = null;
+        try {
+          const tk = await fetch("/api/portal/token", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ customerId: inv.customerId, invoiceIds: [inv.id] }),
+          });
+          if (tk.ok) portalUrl = (await tk.json()).url ?? null;
+        } catch {}
+        const cust = (customers as any[]).find((c: any) => c.id === inv.customerId);
+        const proj = (projects as any[]).find((p: any) => p.id === inv.projectId);
+        const outstanding = isClosedOrPaid ? 0 : inv.total - (inv.paid || 0);
+        const html = renderInvoiceEmail({
+          subject: filledSubject,
+          dateStr: fmt.date(new Date()),
+          total: outstanding, currency: inv.currency, portalUrl, intro: filledBody,
+          rows: [{
+            invoiceNumber: inv.invoiceNumber, customerName: cust?.name ?? null, projectName: proj?.name ?? null,
+            invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, balance: outstanding,
+            currency: inv.currency, daysOverdue: daysOverdue(inv.dueDate),
+          }],
+        });
+
         const res = await fetch("/api/email/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             to:      email,
             subject: filledSubject,
-            body:    filledBody,
+            body:    html,
             ...(canAttach ? { attachInvoiceIds: [inv.id] } : {}),
           }),
         });

@@ -28,8 +28,9 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
 }
 import { requireOrg } from "@/lib/api";
-import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
+import { getSmtpConfig, sendSmtp, sendEmail } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { renderInvoiceEmail } from "@/lib/ar-email";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -154,14 +155,17 @@ export async function POST(req: Request) {
     // {ref} = project full name (not QBO code) for projects; customer code for customers
     let entityName = "";
     let entityRef  = "";
+    let projName: string | null = null;
+    const [custRow] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
+    const custName = custRow?.name ?? null;
     if (contact.projectId) {
       const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
+      projName   = proj?.name ?? null;
       entityName = proj?.name ?? contact.projectId;
       entityRef  = proj?.name ?? proj?.code ?? ""; // use full project name, not QBO code
     } else {
-      const [cust] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
-      entityName = cust?.name ?? contact.customerId;
-      entityRef  = cust?.code ?? cust?.name ?? "";
+      entityName = custRow?.name ?? contact.customerId;
+      entityRef  = custRow?.code ?? custRow?.name ?? "";
     }
 
     // Build invoice lines for the body placeholder
@@ -181,15 +185,26 @@ export async function POST(req: Request) {
     subjectParts.push(`Ref ${emailRef}`);
     const subject = subjectParts.join(" | ");
 
-    let bodyText = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+    const introText = fillTemplate(template.body, greeting, [], entityRef);
 
-    // Self-service "View & Respond" link (single-use token)
+    // Self-service "View & Respond" portal link (single-use) → branded button
+    let portalUrl: string | null = null;
     try {
-      const { url } = await createPortalToken(orgId!, contact.customerId, triggeredInvoices.map((i) => i.id), null);
-      bodyText += `\n\n----------------------------------------\nView these invoices and let us know a payment date — or raise a query — here:\n${url}\n`;
+      portalUrl = (await createPortalToken(orgId!, contact.customerId, triggeredInvoices.map((i) => i.id), null)).url;
     } catch (e: any) {
       console.warn("trigger: portal link generation failed:", e?.message);
     }
+
+    const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const bodyHtml = renderInvoiceEmail({
+      subject, dateStr, portalUrl, intro: introText,
+      total: triggeredInvoices.reduce((s, i) => s + (i.total - (i.paid || 0)), 0),
+      rows: triggeredInvoices.map((i) => ({
+        invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,
+        invoiceDate: i.invoiceDate, dueDate: i.dueDate, balance: i.total - (i.paid || 0),
+        currency: i.currency, daysOverdue: daysFromDate(i.dueDate),
+      })),
+    });
 
     // Fetch PDF attachments from QBO for each triggered invoice
     // Failures are silent — the email still sends without the attachment
@@ -218,10 +233,10 @@ export async function POST(req: Request) {
 
     if (!dryRun) {
       try {
-        await sendSmtp(smtp, {
+        await sendEmail(orgId!, {
           to:          contact.email!,
           subject,
-          body:        bodyText,
+          body:        bodyHtml,
           attachments: attachments.length > 0 ? attachments : undefined,
         });
         detail.sent = true;
@@ -243,7 +258,7 @@ export async function POST(req: Request) {
           direction:   "Outbound",
           channel:     "Email",
           subject,
-          body:        bodyText,
+          body:        introText,
           sender:      smtp.fromEmail,
           recipients:  contact.email!,
           matchedBy:   "Auto",

@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations, invoicePromises } from "@/db/schema";
 import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
-import { getSmtpConfig, sendSmtp } from "@/lib/mailer";
+import { getSmtpConfig, sendSmtp, sendEmail } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
+import { renderInvoiceEmail } from "@/lib/ar-email";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -122,14 +123,17 @@ export async function GET(req: Request) {
           const template     = templateByStage.get(matchedInv.collectionStage)!;
           const intervalDays = template.sendIntervalDays ?? 7;
 
-          // Entity ref
+          // Entity ref + names (for the branded email rows)
           let entityRef = "";
+          let projName: string | null = null;
+          const [custRow] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
+          const custName = custRow?.name ?? custRow?.code ?? null;
           if (contact.projectId) {
             const [proj] = await db.select().from(projects).where(eq(projects.id, contact.projectId)).limit(1);
+            projName = proj?.name ?? null;
             entityRef = proj?.name ?? proj?.code ?? "";
           } else {
-            const [cust] = await db.select().from(customers).where(eq(customers.id, contact.customerId)).limit(1);
-            entityRef = cust?.code ?? cust?.name ?? "";
+            entityRef = custRow?.code ?? custRow?.name ?? "";
           }
 
           // Build invoice lines — ALL open invoices go in the email
@@ -141,19 +145,30 @@ export async function GET(req: Request) {
           });
 
           const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
-          const invRefs  = relatedInvoices.map((inv) => inv.invoiceNumber).join(", ");
           const emailRef = genEmailRef();
           const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref ${emailRef}`;
-          let bodyText   = fillTemplate(template.body, greeting, invoiceLines, entityRef);
+          // Template body becomes the intro message; the branded table lists the
+          // invoices (so we strip {invoicelines} to avoid duplicating the list).
+          const introText = fillTemplate(template.body, greeting, [], entityRef);
 
-          // Append a self-service "View & Respond" link so the customer can set a
-          // payment date or raise a query without replying. Single-use token.
+          // Single-use "View & Respond" portal link → rendered as the branded button.
+          let portalUrl: string | null = null;
           try {
-            const { url } = await createPortalToken(orgId, contact.customerId, relatedInvoices.map((i) => i.id), null);
-            bodyText += `\n\n----------------------------------------\nView these invoices and let us know a payment date — or raise a query — here:\n${url}\n`;
+            portalUrl = (await createPortalToken(orgId, contact.customerId, relatedInvoices.map((i) => i.id), null)).url;
           } catch (e: any) {
             console.warn("cron: portal link generation failed:", e?.message);
           }
+
+          const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+          const bodyHtml = renderInvoiceEmail({
+            subject, dateStr, portalUrl, intro: introText,
+            total: relatedInvoices.reduce((s, i) => s + (i.total - (i.paid || 0)), 0),
+            rows: relatedInvoices.map((i) => ({
+              invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,
+              invoiceDate: i.invoiceDate, dueDate: i.dueDate, balance: i.total - (i.paid || 0),
+              currency: i.currency, daysOverdue: daysFromDate(i.dueDate),
+            })),
+          });
 
           // PDF attachments (silent failures — email still sends without them)
           const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
@@ -162,11 +177,11 @@ export async function GET(req: Request) {
             if (pdf) attachments.push({ filename: `Invoice-${inv.invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" });
           }
 
-          // ── SEND ──────────────────────────────────────────────────────────
-          await sendSmtp(smtp, {
+          // ── SEND ── via the unified transport (same branded HTML as every channel)
+          await sendEmail(orgId, {
             to: contact.email!,
             subject,
-            body: bodyText,
+            body: bodyHtml,
             attachments: attachments.length > 0 ? attachments : undefined,
           });
 
@@ -187,7 +202,7 @@ export async function GET(req: Request) {
             direction:   "Outbound",
             channel:     "Email",
             subject,
-            body:        bodyText,
+            body:        introText,
             sender:      smtp.fromEmail,
             recipients:  contact.email!,
             matchedBy:   "Auto",
