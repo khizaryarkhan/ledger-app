@@ -17,6 +17,7 @@ export type BoardRow = {
   bal: number;
   days: number;
   email: string | null;
+  lastSent: string | null; // ISO date of last outbound email, or null
 };
 
 const DISPUTE_CATEGORIES = ["Wrong Amount", "Already Paid", "Goods/Service", "Duplicate", "Other"];
@@ -43,14 +44,50 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
   const [emailVal, setEmailVal] = useState("");
   const [showSend, setShowSend] = useState(false);
 
+  // ── Per-column filters ──────────────────────────────────────────────────
+  const [cf, setCf] = useState<Record<string, string>>({});
+  const setFilter = (k: string, v: string) => setCf(p => ({ ...p, [k]: v }));
+  const distinct = (vals: (string | null)[]) => [...new Set(vals.filter(Boolean) as string[])].sort();
+  const regionOpts = useMemo(() => distinct(rows.map(r => r.regionName)), [rows]);
+  const repOpts    = useMemo(() => distinct(rows.map(r => r.repName)), [rows]);
+  const stageOpts  = useMemo(() => distinct(rows.map(r => r.stageLabel)), [rows]);
+
+  const filteredRows = useMemo(() => {
+    const has = (v: string | null, q: string) => (v ?? "").toLowerCase().includes(q.toLowerCase());
+    return rows.filter(r => {
+      if (cf.invoice && !has(r.inv.invoiceNumber, cf.invoice)) return false;
+      if (cf.customer && !has(r.custName, cf.customer)) return false;
+      if (cf.project && !has(r.projName, cf.project)) return false;
+      if (cf.region && r.regionName !== cf.region) return false;
+      if (cf.rep && r.repName !== cf.rep) return false;
+      if (cf.stage && r.stageLabel !== cf.stage) return false;
+      if (cf.response) {
+        const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Promised" : "None";
+        if (resp !== cf.response) return false;
+      }
+      if (cf.email === "has" && !r.email) return false;
+      if (cf.email === "none" && r.email) return false;
+      if (cf.lastSent === "sent" && !r.lastSent) return false;
+      if (cf.lastSent === "never" && r.lastSent) return false;
+      if (cf.due && !has(r.inv.dueDate, cf.due)) return false;
+      if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
+      return true;
+    });
+  }, [rows, cf]);
+
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
+  const fmtSent = (d: string | null) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : null;
 
-  const allSelected = rows.length > 0 && rows.every(r => selected.has(r.inv.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(rows.map(r => r.inv.id)));
+  const allSelected = filteredRows.length > 0 && filteredRows.every(r => selected.has(r.inv.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filteredRows.map(r => r.inv.id)));
   const toggleOne = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.inv.id)), [rows, selected]);
+  const anyFilter = Object.values(cf).some(Boolean);
+
+  const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider whitespace-nowrap";
+  const inputCls = "w-full text-[11px] border border-stone-200 rounded px-1.5 py-1 bg-white outline-none focus:ring-1 focus:ring-stone-400";
   const selectedCustomers = useMemo(() => new Set(selectedRows.map(r => r.custId)), [selectedRows]);
   const selectedTotal = selectedRows.reduce((s, r) => s + r.bal, 0);
 
@@ -99,14 +136,55 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
             <thead className="sticky top-0 bg-stone-50 z-10">
               <tr className="border-b border-stone-200 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
-                {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Due"].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Due"].map(h => (
+                  <th key={h} className={thCls}>{h}</th>
                 ))}
                 <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
               </tr>
+              {/* Per-column filter row */}
+              <tr className="border-b border-stone-200 bg-white">
+                <th className="px-2 py-1.5 align-top">
+                  {anyFilter && <button onClick={() => setCf({})} title="Clear filters" className="text-stone-400 hover:text-rose-600"><X size={13} /></button>}
+                </th>
+                <th className="px-2 py-1.5"><input value={cf.invoice ?? ""} onChange={e => setFilter("invoice", e.target.value)} placeholder="#" className={inputCls} /></th>
+                <th className="px-2 py-1.5"><input value={cf.customer ?? ""} onChange={e => setFilter("customer", e.target.value)} placeholder="Filter" className={inputCls} /></th>
+                <th className="px-2 py-1.5"><input value={cf.project ?? ""} onChange={e => setFilter("project", e.target.value)} placeholder="Filter" className={inputCls} /></th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.region ?? ""} onChange={e => setFilter("region", e.target.value)} className={inputCls}>
+                    <option value="">All</option>{regionOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.rep ?? ""} onChange={e => setFilter("rep", e.target.value)} className={inputCls}>
+                    <option value="">All</option>{repOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.stage ?? ""} onChange={e => setFilter("stage", e.target.value)} className={inputCls}>
+                    <option value="">All</option>{stageOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.response ?? ""} onChange={e => setFilter("response", e.target.value)} className={inputCls}>
+                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Promised">Promised</option><option value="None">No response</option>
+                  </select>
+                </th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.email ?? ""} onChange={e => setFilter("email", e.target.value)} className={inputCls}>
+                    <option value="">All</option><option value="has">Has email</option><option value="none">No email</option>
+                  </select>
+                </th>
+                <th className="px-2 py-1.5">
+                  <select value={cf.lastSent ?? ""} onChange={e => setFilter("lastSent", e.target.value)} className={inputCls}>
+                    <option value="">All</option><option value="sent">Sent</option><option value="never">Never sent</option>
+                  </select>
+                </th>
+                <th className="px-2 py-1.5"><input value={cf.due ?? ""} onChange={e => setFilter("due", e.target.value)} placeholder="YYYY-MM" className={inputCls} /></th>
+                <th className="px-2 py-1.5"><input type="number" value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="≥ €" className={`${inputCls} text-right`} /></th>
+              </tr>
             </thead>
             <tbody>
-              {rows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email }) => {
+              {filteredRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent }) => {
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
                 return (
@@ -184,6 +262,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                       )}
                     </td>
 
+                    <td className="px-3 py-2 whitespace-nowrap text-[12px]">
+                      {lastSent ? <span className="text-stone-600">{fmtSent(lastSent)}</span> : <span className="text-stone-300">Never</span>}
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-600 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}</td>
                     <td className="px-3 py-2 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
                   </tr>

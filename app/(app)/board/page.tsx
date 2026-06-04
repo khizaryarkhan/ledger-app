@@ -138,7 +138,19 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast } = useData() as any;
+  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast, communications } = useData() as any;
+
+  // invoiceId → most-recent outbound email date (for the "Last sent" column)
+  const lastSentByInv = useMemo(() => {
+    const m: Record<string, string> = {};
+    (communications ?? []).forEach((c: any) => {
+      if (!c.invoiceId || c.direction !== "Outbound") return;
+      const t = c.sentAt ?? c.createdAt;
+      if (!t) return;
+      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId])) m[c.invoiceId] = t;
+    });
+    return m;
+  }, [communications]);
   const ccy: string = orgSettings?.currency ?? "EUR";
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
   const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
@@ -262,6 +274,7 @@ export default function BoardPage() {
         bal: openBal(i),
         days: daysOverdue(i.dueDate),
         email: i.billingEmail || cust?.email || null,
+        lastSent: lastSentByInv[i.id] ?? null,
       });
     });
     // Disputes first, then promises, then by balance — most actionable on top
@@ -271,7 +284,7 @@ export default function BoardPage() {
       return d !== 0 ? d : b.bal - a.bal;
     });
     return rows;
-  }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, search]);
+  }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, search, lastSentByInv]);
 
   return (
     <div className="flex flex-col h-screen">
