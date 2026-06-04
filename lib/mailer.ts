@@ -80,6 +80,17 @@ export async function getSmtpConfig(orgId: string): Promise<SmtpConfig | null> {
 }
 
 /**
+ * True if the org has ANY working email transport (Gmail, Microsoft, or SMTP).
+ * Use this to gate bulk sends so Gmail/MS365-only orgs aren't skipped.
+ */
+export async function hasEmailTransport(orgId: string): Promise<boolean> {
+  if (await getValidGmailToken(orgId).catch(() => null)) return true;
+  if (await getValidMicrosoftToken(orgId).catch(() => null)) return true;
+  if (await getSmtpConfig(orgId).catch(() => null)) return true;
+  return false;
+}
+
+/**
  * Unified send — tries Gmail → Microsoft → SMTP in order.
  * Throws if no transport is configured or the send fails.
  * Returns an object describing which transport was used.

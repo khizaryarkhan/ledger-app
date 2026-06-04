@@ -28,7 +28,7 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
 }
 import { requireOrg } from "@/lib/api";
-import { getSmtpConfig, sendSmtp, sendEmail } from "@/lib/mailer";
+import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 
@@ -75,14 +75,14 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const dryRun: boolean = body.dryRun === true;
 
-  // 1. SMTP config
-  const smtp = await getSmtpConfig(orgId!);
-  if (!smtp) {
+  // 1. Email transport — Gmail / Microsoft / SMTP (any one)
+  if (!(await hasEmailTransport(orgId!))) {
     return NextResponse.json(
-      { error: "Email not configured. Go to Settings → Email to set up SMTP credentials." },
+      { error: "Email not configured. Connect Gmail, Microsoft, or SMTP in Settings → Email." },
       { status: 422 },
     );
   }
+  const smtp = await getSmtpConfig(orgId!).catch(() => null); // for fallback sender label
 
   // 2. Load org templates (stage → template map)
   const orgTemplates = await db
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
 
     if (!dryRun) {
       try {
-        await sendEmail(orgId!, {
+        const sendResult = await sendEmail(orgId!, {
           to:          contact.email!,
           subject,
           body:        bodyHtml,
@@ -259,7 +259,7 @@ export async function POST(req: Request) {
           channel:     "Email",
           subject,
           body:        introText,
-          sender:      smtp.fromEmail,
+          sender:      sendResult.from,
           recipients:  contact.email!,
           matchedBy:   "Auto",
           isDraft:     false,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations, invoicePromises } from "@/db/schema";
 import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
-import { getSmtpConfig, sendSmtp, sendEmail } from "@/lib/mailer";
+import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
@@ -64,8 +64,9 @@ export async function GET(req: Request) {
   for (const orgId of allOrgs) {
     const orgErrors: string[] = [];
     try {
-      const smtp = await getSmtpConfig(orgId).catch(() => null);
-      if (!smtp) continue;
+      // Gate on ANY transport (Gmail / Microsoft / SMTP) — not SMTP only.
+      if (!(await hasEmailTransport(orgId))) continue;
+      const smtp = await getSmtpConfig(orgId).catch(() => null); // for default-CC + fallback sender label
 
       const orgTemplates = await db
         .select()
@@ -178,7 +179,7 @@ export async function GET(req: Request) {
           }
 
           // ── SEND ── via the unified transport (same branded HTML as every channel)
-          await sendEmail(orgId, {
+          const sendResult = await sendEmail(orgId, {
             to: contact.email!,
             subject,
             body: bodyHtml,
@@ -203,7 +204,7 @@ export async function GET(req: Request) {
             channel:     "Email",
             subject,
             body:        introText,
-            sender:      smtp.fromEmail,
+            sender:      sendResult.from,
             recipients:  contact.email!,
             matchedBy:   "Auto",
             isDraft:     false,
