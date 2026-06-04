@@ -172,33 +172,47 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     </div>
                   </div>
 
-                  {/* Mode toggle */}
-                  <div className="px-4 pt-3 flex gap-2">
-                    <button
-                      onClick={() => update(inv.id, { mode: r.mode === "promise" ? "none" : "promise" })}
-                      className={`flex-1 text-xs font-medium py-2 rounded-lg transition-colors ${r.mode === "promise" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
-                    >📅 I’ll pay by…</button>
-                    <button
-                      onClick={() => update(inv.id, { mode: r.mode === "dispute" ? "none" : "dispute" })}
-                      className={`flex-1 text-xs font-medium py-2 rounded-lg transition-colors ${r.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
-                    >⚠️ Raise a query</button>
-                  </div>
+                  {/* Already-disputed banner — no further action needed */}
+                  {inv.alreadyDisputed ? (
+                    <div className="mx-4 mt-3 mb-1 flex items-center gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-[12px] text-rose-800">
+                      ⚠️ You've already raised a query on this invoice — our team is reviewing it.
+                    </div>
+                  ) : (
+                    <>
+                      {inv.existingPromise && (
+                        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-blue-50 ring-1 ring-blue-100 px-3 py-2 text-[12px] text-blue-800">
+                          📅 You previously indicated payment by {inv.existingPromise}. You can update it below.
+                        </div>
+                      )}
+                      {/* Mode toggle */}
+                      <div className="px-4 pt-3 flex flex-col sm:flex-row gap-2">
+                        <button
+                          onClick={() => update(inv.id, { mode: r.mode === "promise" ? "none" : "promise" })}
+                          className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "promise" ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+                        >📅 I'll pay by…</button>
+                        <button
+                          onClick={() => update(inv.id, { mode: r.mode === "dispute" ? "none" : "dispute" })}
+                          className={`flex-1 text-xs font-medium py-2.5 rounded-lg transition-colors ${r.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+                        >⚠️ Raise a query</button>
+                      </div>
+                    </>
+                  )}
 
                   {/* Promise form */}
                   {r.mode === "promise" && (
                     <div className="px-4 py-3 space-y-2.5">
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <div className="flex-1">
                           <label className="text-[11px] text-stone-500 font-medium">Payment date</label>
                           <input type="date" min={todayStr} value={r.promiseDate || ""}
                             onChange={e => update(inv.id, { promiseDate: e.target.value })}
-                            className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
+                            className="w-full mt-1 text-base sm:text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
                         </div>
-                        <div className="w-32">
+                        <div className="w-full sm:w-32">
                           <label className="text-[11px] text-stone-500 font-medium">Amount (optional)</label>
-                          <input type="number" placeholder="Full" value={r.promiseAmount || ""}
+                          <input type="number" inputMode="decimal" placeholder="Full" value={r.promiseAmount || ""}
                             onChange={e => update(inv.id, { promiseAmount: e.target.value })}
-                            className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
+                            className="w-full mt-1 text-base sm:text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
                         </div>
                       </div>
                       <input type="text" placeholder="Note (optional)" value={r.promiseNote || ""}
@@ -237,8 +251,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             <button
               onClick={submit}
               disabled={!hasAnyResponse || submitting}
-              className="w-full bg-stone-900 text-white font-medium py-3 rounded-xl shadow-lg hover:bg-stone-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full bg-stone-900 text-white font-medium py-3 rounded-xl shadow-lg hover:bg-stone-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
+              {submitting && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
               {submitting ? "Submitting…" : "Submit response"}
             </button>
             <p className="text-center text-[11px] text-stone-400 mt-2">
