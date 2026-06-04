@@ -11,6 +11,30 @@ export interface Stage {
   visible: boolean;   // show as a column on the board
 }
 
+// Mandatory, system-managed stages. These cannot be renamed, deleted, or
+// hidden because core logic depends on their exact keys:
+//   New      — default landing stage for new invoices
+//   Promised — set automatically when a customer/staff logs a promise-to-pay
+//   Disputed — set automatically when a dispute is raised (pauses automations)
+//   Closed   — end-of-lifecycle stage
+export const LOCKED_STAGE_KEYS = ["New", "Promised", "Disputed", "Closed"] as const;
+export function isLockedStage(key: string): boolean {
+  return (LOCKED_STAGE_KEYS as readonly string[]).includes(key);
+}
+
+/** Ensure all mandatory stages exist in a stage list (injects any missing). */
+export function ensureLockedStages(stages: Stage[]): Stage[] {
+  const byKey = new Map(stages.map(s => [s.key, s]));
+  const result = [...stages];
+  for (const key of LOCKED_STAGE_KEYS) {
+    if (!byKey.has(key)) {
+      const fallback = DEFAULT_STAGES.find(s => s.key === key)!;
+      result.push({ ...fallback });
+    }
+  }
+  return result;
+}
+
 export const DEFAULT_STAGES: Stage[] = [
   { key: "New",           label: "New",           color: "stone",   isDefault: true,  isClosed: false, visible: true },
   { key: "Scheduled",     label: "Scheduled",     color: "blue",    isDefault: false, isClosed: false, visible: true },

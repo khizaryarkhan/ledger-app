@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Users, Briefcase, ChevronRight } from "lucide-react";
+import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 
 // Use qboBalance as the authoritative open balance — same as dashboard & reports.
@@ -83,6 +83,11 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
   const dominantStage = (stages as Stage[]).find(s => s.label === dominantLabel);
   const badgeCls = STAGE_COLOR_CLASSES[dominantStage?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
 
+  // Per-invoice customer-response signals — so a single disputed/promised
+  // invoice never hides behind the entity's dominant stage.
+  const disputedCount = open.filter((i: any) => i.hasOpenDispute).length;
+  const promisedCount = open.filter((i: any) => !i.hasOpenDispute && i.promiseDate).length;
+
   return (
     <Link href={href}
       draggable
@@ -110,6 +115,17 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
         {invoices.length > open.length && <span>· {invoices.length - open.length} closed</span>}
       </div>
 
+      {(disputedCount > 0 || promisedCount > 0) && (
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          {disputedCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">⚠ {disputedCount} disputed</span>
+          )}
+          {promisedCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">📅 {promisedCount} promised</span>
+          )}
+        </div>
+      )}
+
       <AgingBar buckets={buckets} />
     </Link>
   );
@@ -123,6 +139,7 @@ export default function BoardPage() {
   const closedLabel = stages.find(s => s.isClosed)?.label ?? "Closed";
 
   const [groupBy, setGroupBy] = useState<"customer" | "project">("customer");
+  const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
@@ -207,6 +224,29 @@ export default function BoardPage() {
 
   const visibleStages = stageFilter ? [stageFilter] : visibleLabels;
 
+  // ── Invoice-level rows for the List view (honours all the same filters) ────
+  const openInvoiceRows = useMemo(() => {
+    const rows: any[] = [];
+    invoices.forEach((i: any) => {
+      if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off" || i.txnType === "CreditMemo") return;
+      const stageLabel = resolveStageLabel(i.collectionStage, stages);
+      if (stageLabel === closedLabel) return;
+      const cust = customers.find((c: any) => c.id === i.customerId);
+      const proj = projects.find((p: any) => p.id === i.projectId);
+      if (repFilter && (proj?.repId ?? cust?.repId) !== repFilter) return;
+      if (regionFilter && !(cust?.regionId === regionFilter || proj?.regionId === regionFilter)) return;
+      if (stageFilter && stageLabel !== stageFilter) return;
+      rows.push({ inv: i, cust, proj, stageLabel, bal: openBal(i), days: daysOverdue(i.dueDate) });
+    });
+    // Disputes first, then promises, then by balance — most actionable on top
+    rows.sort((a, b) => {
+      const score = (r: any) => (r.inv.hasOpenDispute ? 2 : r.inv.promiseDate ? 1 : 0);
+      const d = score(b) - score(a);
+      return d !== 0 ? d : b.bal - a.bal;
+    });
+    return rows;
+  }, [invoices, customers, projects, stages, closedLabel, repFilter, regionFilter, stageFilter]);
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -242,21 +282,36 @@ export default function BoardPage() {
             {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
           </select>
 
-          {/* Group by toggle */}
+          {/* Group by toggle — only meaningful in card view */}
+          {viewMode === "cards" && (
+            <div className="flex bg-stone-100 rounded-md p-0.5">
+              <button onClick={() => setGroupBy("customer")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+                <Users size={12} /> Customers
+              </button>
+              <button onClick={() => setGroupBy("project")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+                <Briefcase size={12} /> Projects
+              </button>
+            </div>
+          )}
+
+          {/* Cards / List view toggle */}
           <div className="flex bg-stone-100 rounded-md p-0.5">
-            <button onClick={() => setGroupBy("customer")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
-              <Users size={12} /> Customers
+            <button onClick={() => setViewMode("cards")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+              <LayoutGrid size={12} /> Cards
             </button>
-            <button onClick={() => setGroupBy("project")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
-              <Briefcase size={12} /> Projects
+            <button onClick={() => setViewMode("list")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+              <ListIcon size={12} /> List
             </button>
           </div>
         </div>
       </div>
 
-      {/* Board */}
+      {/* Board — card (entity) view */}
+      {viewMode === "cards" && (
       <div className="flex-1 overflow-x-auto">
         <div className="flex gap-3 p-4 h-full" style={{ minWidth: `${visibleStages.length * 280}px` }}>
           {visibleStages.map(stage => {
@@ -309,6 +364,61 @@ export default function BoardPage() {
           })}
         </div>
       </div>
+      )}
+
+      {/* Invoice-level List view */}
+      {viewMode === "list" && (
+        <div className="flex-1 overflow-auto">
+          {openInvoiceRows.length === 0 ? (
+            <div className="text-center text-sm text-stone-400 py-16">No open invoices match the current filters.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-stone-50 z-10">
+                <tr className="border-b border-stone-200 text-left">
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Invoice</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">{groupBy === "project" ? "Project / Customer" : "Customer / Project"}</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Stage</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Response</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Due</th>
+                  <th className="px-4 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
+                </tr>
+              </thead>
+              <tbody>
+                {openInvoiceRows.map(({ inv, cust, proj, stageLabel, bal, days }) => {
+                  const stageColor = STAGE_COLOR_CLASSES[stages.find(s => s.label === stageLabel)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
+                  return (
+                    <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
+                      <td className="px-4 py-2.5">
+                        <Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-900 hover:underline">#{inv.invoiceNumber}</Link>
+                      </td>
+                      <td className="px-4 py-2.5 text-stone-700">
+                        <Link href={`/invoices/${inv.id}`} className="hover:underline">
+                          {cust?.name ?? "—"}{proj ? <span className="text-stone-400"> / {proj.name}</span> : null}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${stageColor}`}>{stageLabel}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {inv.hasOpenDispute
+                          ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">⚠ Disputed</span>
+                          : inv.promiseDate
+                          ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">📅 Promised {inv.promiseDate}</span>
+                          : <span className="text-stone-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-stone-600 text-[12px]">
+                        {inv.dueDate}
+                        {days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* Legend */}
       <div className="px-6 py-2 border-t border-stone-200 bg-white flex-shrink-0 flex items-center gap-6">

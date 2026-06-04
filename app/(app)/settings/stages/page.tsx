@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import { ArrowLeft, Eye, EyeOff, Save, Info, AlertTriangle, Plus, Trash2 } from "lucide-react";
-import { DEFAULT_STAGES, Stage, STAGE_COLOR_CLASSES, COLOR_OPTIONS } from "@/lib/stages";
+import { DEFAULT_STAGES, Stage, STAGE_COLOR_CLASSES, COLOR_OPTIONS, isLockedStage, ensureLockedStages } from "@/lib/stages";
+import { Lock } from "lucide-react";
 
 export default function StagesSettingsPage() {
   const { orgSettings, invoices, refresh, toast } = useData() as any;
@@ -19,7 +20,10 @@ export default function StagesSettingsPage() {
   // Initialise from orgSettings once loaded
   useEffect(() => {
     const src: Stage[] = (orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES);
-    setStages(src.map(s => ({ ...s })));
+    // Guarantee the mandatory stages always exist and are visible
+    const ensured = ensureLockedStages(src.map(s => ({ ...s })))
+      .map(s => isLockedStage(s.key) ? { ...s, visible: true } : s);
+    setStages(ensured);
     setDirty(false);
   }, [orgSettings]);
 
@@ -130,6 +134,7 @@ export default function StagesSettingsPage() {
           Renaming a stage automatically updates all invoices using that stage.
           One stage must be set as <strong>Default</strong> (where new invoices land) and one as <strong>Closed</strong> (end of lifecycle).
           You cannot delete the Default or Closed stage, or a stage that has active invoices.
+          <br /><strong>New, Promised, Disputed and Closed</strong> are mandatory system stages (🔒) — they can be recoloured but not renamed, hidden, or deleted, because automations and customer responses depend on them.
         </span>
       </div>
 
@@ -165,9 +170,12 @@ export default function StagesSettingsPage() {
         {stages.map((stage, i) => {
           const cls = STAGE_COLOR_CLASSES[stage.color] ?? STAGE_COLOR_CLASSES.stone;
           const activeCount = activeCountByKey[stage.key] ?? 0;
+          const locked = isLockedStage(stage.key);
           const isBlocked = !stage.visible && activeCount > 0;
-          const canDelete = !stage.isDefault && !stage.isClosed && activeCount === 0;
-          const deleteTitle = stage.isDefault
+          const canDelete = !locked && !stage.isDefault && !stage.isClosed && activeCount === 0;
+          const deleteTitle = locked
+            ? "Mandatory stage — cannot be deleted"
+            : stage.isDefault
             ? "Cannot delete the Default stage"
             : stage.isClosed
             ? "Cannot delete the Closed stage"
@@ -189,13 +197,18 @@ export default function StagesSettingsPage() {
               <div className="flex items-center gap-2 min-w-0">
                 <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${cls.dot}`} />
                 <div className="flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={stage.label}
-                    maxLength={40}
-                    onChange={(e) => update(stage.key, "label", e.target.value)}
-                    className="w-full h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={stage.label}
+                      maxLength={40}
+                      readOnly={locked}
+                      onChange={(e) => !locked && update(stage.key, "label", e.target.value)}
+                      title={locked ? "Mandatory stage — name is fixed" : undefined}
+                      className={`w-full h-8 px-2.5 ${locked ? "pr-7" : ""} text-sm rounded-md ring-1 ring-stone-200 focus:outline-none ${locked ? "bg-stone-50 text-stone-500 cursor-not-allowed" : "focus:ring-2 focus:ring-stone-900 bg-white"}`}
+                    />
+                    {locked && <Lock size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400" />}
+                  </div>
                   {activeCount > 0 && (
                     <div className={`text-[10px] mt-0.5 font-medium ${isBlocked ? "text-amber-600" : "text-stone-400"}`}>
                       {activeCount} active invoice{activeCount !== 1 ? "s" : ""}
@@ -246,14 +259,19 @@ export default function StagesSettingsPage() {
               {/* Visible toggle */}
               <div className="flex items-center justify-center">
                 <button
-                  onClick={() => update(stage.key, "visible", !stage.visible)}
+                  onClick={() => !locked && update(stage.key, "visible", !stage.visible)}
+                  disabled={locked}
                   title={
-                    isBlocked
+                    locked
+                      ? "Mandatory stage — always visible"
+                      : isBlocked
                       ? `Cannot hide — ${activeCount} active invoice${activeCount !== 1 ? "s" : ""} in this stage`
                       : stage.visible ? "Hide from board" : "Show on board"
                   }
                   className={`transition-colors ${
-                    isBlocked
+                    locked
+                      ? "text-stone-300 cursor-not-allowed"
+                      : isBlocked
                       ? "text-amber-500 cursor-not-allowed"
                       : stage.visible
                       ? "text-stone-400 hover:text-stone-700"
