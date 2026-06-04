@@ -426,6 +426,7 @@ export default function BoardPage() {
           refresh={refresh}
           toast={toast}
           ccy={ccy}
+          comments={communications ?? []}
         />
       )}
 

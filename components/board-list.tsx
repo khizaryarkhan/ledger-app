@@ -4,7 +4,8 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { genEmailRef } from "@/lib/email-ref";
 
 export type BoardRow = {
@@ -30,15 +31,49 @@ const uniqEmails = (vals: (string | null)[]) => {
   return [...set];
 };
 
-export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: {
+export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, comments = [] }: {
   rows: BoardRow[];
   stages: Stage[];
   updateInvoice: (id: string, patch: any) => Promise<any>;
   refresh: () => Promise<any> | void;
   toast?: (m: string, t?: string) => void;
   ccy: string;
+  comments?: any[];
 }) {
+  const { data: session } = useSession();
+  const userName = (session?.user?.name as string) || "User";
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [notesOpenId, setNotesOpenId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  // Notes (channel="Note") grouped by invoice, newest first
+  const notesByInv = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    (comments ?? []).forEach((c: any) => {
+      if (c.channel !== "Note" || !c.invoiceId) return;
+      (m[c.invoiceId] ??= []).push(c);
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
+    return m;
+  }, [comments]);
+
+  async function addNote(row: BoardRow) {
+    if (!noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      await fetch("/api/communications", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: row.custId, invoiceId: row.inv.id, projectId: row.inv.projectId ?? null,
+          direction: "Outbound", channel: "Note", subject: "Internal note",
+          body: noteText.trim(), sender: userName, matchedBy: "Manual",
+        }),
+      });
+      setNoteText(""); await refresh();
+    } finally { setSavingNote(false); }
+  }
   const [busyId, setBusyId] = useState<string | null>(null);
   const [respEdit, setRespEdit] = useState<{ id: string; mode: "promise" | "dispute" } | null>(null);
   const [rDate, setRDate] = useState(""); const [rCat, setRCat] = useState(DISPUTE_CATEGORIES[0]); const [rReason, setRReason] = useState("");
@@ -57,6 +92,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
   const filteredRows = useMemo(() => {
     const has = (v: string | null, q: string) => (v ?? "").toLowerCase().includes(q.toLowerCase());
     return rows.filter(r => {
+      if (overdueOnly && r.days <= 0) return false;
       if (cf.invoice && !has(r.inv.invoiceNumber, cf.invoice)) return false;
       if (cf.customer && !has(r.custName, cf.customer)) return false;
       if (cf.project && !has(r.projName, cf.project)) return false;
@@ -76,7 +112,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
       return true;
     });
-  }, [rows, cf]);
+  }, [rows, cf, overdueOnly]);
 
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
@@ -156,12 +192,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-stone-100 bg-white shrink-0">
         <span className="text-[12px] text-stone-500">
-          {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
+          {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
         </span>
-        <button onClick={exportExcel}
-          className="flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 border border-stone-200 rounded-md px-2.5 py-1.5 hover:bg-stone-50">
-          <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setOverdueOnly(v => !v)}
+            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-600 border-stone-200 hover:bg-stone-50"}`}>
+            <AlertTriangle size={13} /> Overdue only
+          </button>
+          <button onClick={exportExcel}
+            className="flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 border border-stone-200 rounded-md px-2.5 py-1.5 hover:bg-stone-50">
+            <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -176,6 +218,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                   <th key={h} className={thCls}>{h}</th>
                 ))}
                 <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
+                <th className={`${thCls} text-center`}>Notes</th>
               </tr>
               {/* Per-column filter row */}
               <tr className="border-b border-stone-200 bg-white">
@@ -218,6 +261,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                 <th className="px-2 py-1.5"><input value={cf.lastRef ?? ""} onChange={e => setFilter("lastRef", e.target.value)} placeholder="Ref" className={inputCls} /></th>
                 <th className="px-2 py-1.5"><input value={cf.due ?? ""} onChange={e => setFilter("due", e.target.value)} placeholder="YYYY-MM" className={inputCls} /></th>
                 <th className="px-2 py-1.5"><input type="number" value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="≥ €" className={`${inputCls} text-right`} /></th>
+                <th className="px-2 py-1.5" />
               </tr>
             </thead>
             <tbody>
@@ -307,10 +351,58 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy }: 
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-600 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}</td>
                     <td className="px-3 py-2 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
+
+                    {/* Notes / comments */}
+                    <td className="px-3 py-2 text-center relative">
+                      <button onClick={() => { setNotesOpenId(notesOpenId === inv.id ? null : inv.id); setNoteText(""); }}
+                        className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700" title="Notes">
+                        <MessageSquare size={15} />
+                        {(notesByInv[inv.id]?.length ?? 0) > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold">{notesByInv[inv.id].length}</span>
+                        )}
+                      </button>
+                      {notesOpenId === inv.id && (
+                        <div className="absolute right-2 top-9 z-30 w-72 bg-white rounded-xl shadow-2xl ring-1 ring-stone-200 text-left" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-stone-100">
+                            <span className="text-[12px] font-semibold text-stone-700">Notes · #{inv.invoiceNumber}</span>
+                            <button onClick={() => setNotesOpenId(null)} className="text-stone-400 hover:text-stone-700"><X size={14} /></button>
+                          </div>
+                          <div className="max-h-52 overflow-auto p-3 space-y-2.5">
+                            {(notesByInv[inv.id] ?? []).length === 0 ? (
+                              <div className="text-[12px] text-stone-400 text-center py-2">No notes yet</div>
+                            ) : (notesByInv[inv.id] ?? []).map((n: any) => (
+                              <div key={n.id} className="text-[12px]">
+                                <div className="flex items-center justify-between text-[10px] text-stone-400">
+                                  <span className="font-medium text-stone-500">{n.sender || "User"}</span>
+                                  <span>{new Date(n.sentAt ?? n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })}{n.refNumber ? ` · ${n.refNumber}` : ""}</span>
+                                </div>
+                                <div className="text-stone-700 mt-0.5 whitespace-pre-wrap">{n.body}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="p-2 border-t border-stone-100 flex items-center gap-1.5">
+                            <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") { const r = filteredRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
+                              placeholder="Add a note…" className="flex-1 text-[12px] border border-stone-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-stone-400" />
+                            <button onClick={() => addNote(filteredRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
+                              className="text-[11px] font-semibold text-white bg-stone-900 rounded-md px-2 py-1.5 disabled:opacity-40">Add</button>
+                          </div>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-stone-200 bg-stone-50 font-semibold">
+                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-600 text-right">
+                  Subtotal · {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}
+                </td>
+                <td className="px-3 py-2.5 text-right text-stone-900 tabular-nums">{fmt.money(filteredRows.reduce((s, r) => s + r.bal, 0), ccy)}</td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>
