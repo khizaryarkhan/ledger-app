@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, collectionOwnerId: invoices.collectionOwnerId })
     .from(invoices)
     .where(and(eq(invoices.orgId, orgId), eq(invoices.customerId, customerId), inArray(invoices.id, ids)));
-  const invById = new Map(invRows.map(i => [i.id, i]));
+  const invById = new Map(invRows.map(i => [i.id, i as { id: string; invoiceNumber: string; collectionOwnerId: string | null }]));
 
   const promiseRows: any[] = [];
   const disputeRows: any[] = [];
@@ -77,6 +77,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
         reason: r.dispute.reason ? String(r.dispute.reason).slice(0, 2000) : null,
         source: "Customer Portal",
         raisedBy: null,
+        assignedTo: inv.collectionOwnerId ?? null, // auto-assign to the invoice owner
         status: "Open",
         tokenId: row.id,
       });

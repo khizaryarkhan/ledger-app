@@ -263,7 +263,9 @@ export const invoiceDisputes = pgTable("invoice_disputes", {
   reason:      text("reason"),
   source:      varchar("source", { length: 24 }).notNull(),  // Customer Portal | Rep | Accountant
   raisedBy:    uuid("raised_by").references(() => users.id, { onDelete: "set null" }), // null when from portal
+  assignedTo:  uuid("assigned_to").references(() => users.id, { onDelete: "set null" }), // owner accountable for actioning
   status:      varchar("status", { length: 16 }).notNull().default("Open"), // Open | Under Review | Resolved | Rejected
+  outcome:     varchar("outcome", { length: 32 }), // Invoice corrected | Credit issued | Customer agreed to pay | Written off | Rejected
   resolution:  text("resolution"),
   resolvedBy:  uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
   resolvedAt:  timestamp("resolved_at"),

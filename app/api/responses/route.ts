@@ -5,6 +5,7 @@ import {
 } from "@/db/schema";
 import { requireOrg } from "@/lib/api";
 import { and, eq, desc } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { NextResponse } from "next/server";
 
 /**
@@ -35,22 +36,25 @@ export async function GET(_req: Request, _ctx?: any) {
   };
 
   // ── Disputes ──
+  const assignee = alias(users, "assignee");
   const disputeRows = await db
     .select({
       id: invoiceDisputes.id, invoiceId: invoiceDisputes.invoiceId,
       category: invoiceDisputes.category, reason: invoiceDisputes.reason,
       source: invoiceDisputes.source, status: invoiceDisputes.status,
+      outcome: invoiceDisputes.outcome,
       resolution: invoiceDisputes.resolution, createdAt: invoiceDisputes.createdAt,
       invoiceNumber: invoices.invoiceNumber, currency: invoices.currency,
       customerName: customers.name, customerRepId: customers.repId,
       projectName: projects.name, projectRepId: projects.repId,
-      raisedByName: users.name,
+      raisedByName: users.name, assignedToName: assignee.name,
     })
     .from(invoiceDisputes)
     .leftJoin(invoices, eq(invoices.id, invoiceDisputes.invoiceId))
     .leftJoin(customers, eq(customers.id, invoiceDisputes.customerId))
     .leftJoin(projects, eq(projects.id, invoices.projectId))
     .leftJoin(users, eq(users.id, invoiceDisputes.raisedBy))
+    .leftJoin(assignee, eq(assignee.id, invoiceDisputes.assignedTo))
     .where(eq(invoiceDisputes.orgId, orgId!))
     .orderBy(desc(invoiceDisputes.createdAt));
 
@@ -60,7 +64,9 @@ export async function GET(_req: Request, _ctx?: any) {
       id: d.id, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
       customerName: d.customerName, projectName: d.projectName,
       category: d.category, reason: d.reason, source: d.source, status: d.status,
+      outcome: d.outcome,
       resolution: d.resolution, createdAt: d.createdAt, raisedByName: d.raisedByName,
+      assignedToName: d.assignedToName,
     }));
 
   // ── Promises ──

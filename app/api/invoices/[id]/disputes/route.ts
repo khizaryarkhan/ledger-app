@@ -15,7 +15,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { error, orgId, role, session } = await requireOrg();
   if (error) return error;
 
-  const [inv] = await db.select({ id: invoices.id, customerId: invoices.customerId })
+  const [inv] = await db.select({ id: invoices.id, customerId: invoices.customerId, collectionOwnerId: invoices.collectionOwnerId })
     .from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
   if (!inv) return bad("Invoice not found", 404);
 
@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     reason: body.reason ? String(body.reason).slice(0, 2000) : null,
     source,
     raisedBy: userId,
+    assignedTo: inv.collectionOwnerId ?? userId, // auto-assign to invoice owner, else the raiser
     status: "Open",
   });
 

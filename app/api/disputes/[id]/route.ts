@@ -19,7 +19,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (error) return error;
 
   const body = await req.json().catch(() => ({}));
-  if (!VALID.includes(body.status)) return bad("Invalid status");
 
   const [dispute] = await db.select({ id: invoiceDisputes.id, invoiceId: invoiceDisputes.invoiceId })
     .from(invoiceDisputes)
@@ -27,15 +26,30 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .limit(1);
   if (!dispute) return bad("Dispute not found", 404);
 
-  const isClosing = body.status === "Resolved" || body.status === "Rejected";
   const userId = (session!.user as any).id as string;
+  const patch: Record<string, any> = {};
 
-  await db.update(invoiceDisputes).set({
-    status: body.status,
-    resolution: body.resolution ? String(body.resolution).slice(0, 2000) : null,
-    ...(isClosing ? { resolvedBy: userId, resolvedAt: new Date() } : {}),
-  }).where(eq(invoiceDisputes.id, params.id));
+  // Reassign (no status change required)
+  if ("assignedTo" in body) patch.assignedTo = body.assignedTo || null;
 
-  await recomputeInvoiceState(orgId!, dispute.invoiceId);
+  // Status transition
+  if (body.status !== undefined) {
+    if (!VALID.includes(body.status)) return bad("Invalid status");
+    patch.status = body.status;
+    const isClosing = body.status === "Resolved" || body.status === "Rejected";
+    if (isClosing) {
+      patch.resolvedBy = userId;
+      patch.resolvedAt = new Date();
+      if (body.outcome) patch.outcome = String(body.outcome).slice(0, 32);
+      if (body.resolution) patch.resolution = String(body.resolution).slice(0, 2000);
+    }
+  }
+
+  if (Object.keys(patch).length === 0) return bad("Nothing to update");
+
+  await db.update(invoiceDisputes).set(patch).where(eq(invoiceDisputes.id, params.id));
+
+  // Only recompute (which can move the invoice off "Disputed") when status changed
+  if (body.status !== undefined) await recomputeInvoiceState(orgId!, dispute.invoiceId);
   return NextResponse.json({ ok: true });
 }

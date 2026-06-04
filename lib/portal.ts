@@ -139,3 +139,13 @@ export const DISPUTE_CATEGORIES = [
   "Duplicate",
   "Other",
 ] as const;
+
+// Structured resolution outcomes. "Rejected" maps to status Rejected; the
+// rest map to status Resolved.
+export const DISPUTE_OUTCOMES = [
+  "Invoice corrected",
+  "Credit issued",
+  "Customer agreed to pay",
+  "Written off",
+  "Rejected",
+] as const;

@@ -16,6 +16,7 @@ type Invoice = {
   invoiceDate: string; dueDate: string; total: number; paid: number; currency: string;
   paymentStatus: string; collectionStage: string; billingEmail: string | null;
   qboId: string | null; txnType: string | null; qboBalance: number | null;
+  hasOpenDispute?: boolean; promiseDate?: string | null;
 };
 
 // Use qboBalance as the authoritative open balance (same as dashboard/reports)
@@ -124,6 +125,8 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
   const outstanding = open.reduce((s, i) => s + openBal(i), 0);
   const buckets     = getAgingBuckets(invoices);
   const hasOverdue  = open.some(i => daysOverdue(i.dueDate) > 0);
+  const disputedCount = open.filter(i => (i as any).hasOpenDispute).length;
+  const promisedCount = open.filter(i => !(i as any).hasOpenDispute && i.promiseDate).length;
 
   const stageCounts: Record<string, number> = {};
   open.forEach(i => { stageCounts[i.collectionStage] = (stageCounts[i.collectionStage] || 0) + 1; });
@@ -158,6 +161,13 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
         {invoices.length > open.length && ` · ${invoices.length - open.length} closed`}
       </div>
 
+      {(disputedCount > 0 || promisedCount > 0) && (
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          {disputedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-rose-100 text-rose-700">⚠ {disputedCount} disputed</span>}
+          {promisedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-blue-100 text-blue-700">📅 {promisedCount} promised</span>}
+        </div>
+      )}
+
       <AgingBar buckets={buckets} />
     </button>
   );
@@ -186,6 +196,8 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${STATUS_COLORS[dueStatus] || "bg-stone-100 text-stone-500"}`}>
                 {dueStatus}
               </span>
+              {inv.hasOpenDispute && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-700">⚠ Disputed</span>}
+              {!inv.hasOpenDispute && inv.promiseDate && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-700">📅 Promised</span>}
             </div>
             <div className="text-[11px] text-stone-400 mt-0.5">
               Due {formatDate(inv.dueDate, df)}

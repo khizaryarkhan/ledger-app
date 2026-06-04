@@ -8,8 +8,11 @@ import { AlertOctagon, CalendarClock, Check, X, Loader, Inbox as InboxIcon, Exte
 type Dispute = {
   id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
   projectName: string | null; category: string; reason: string | null; source: string;
-  status: string; resolution: string | null; createdAt: string; raisedByName: string | null;
+  status: string; outcome: string | null; resolution: string | null; createdAt: string;
+  raisedByName: string | null; assignedToName: string | null;
 };
+
+const DISPUTE_OUTCOMES = ["Invoice corrected", "Credit issued", "Customer agreed to pay", "Written off"];
 type Promise_ = {
   id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
   projectName: string | null; promiseDate: string; amount: number | null; currency: string;
@@ -29,6 +32,10 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"attention" | "promises" | "disputes" | "all">("attention");
   const [busy, setBusy] = useState<string | null>(null);
+  // Inline action panel state: which dispute + mode + form fields
+  const [action, setAction] = useState<{ id: string; mode: "resolve" | "reject" } | null>(null);
+  const [outcome, setOutcome] = useState(DISPUTE_OUTCOMES[0]);
+  const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -38,16 +45,28 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function resolveDispute(id: string, status: "Resolved" | "Rejected") {
+  async function patchDispute(id: string, body: any) {
     setBusy(id);
     try {
-      const resolution = prompt(status === "Resolved" ? "Resolution note (optional):" : "Reason for rejecting (optional):") ?? "";
       await fetch(`/api/disputes/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, resolution }),
+        body: JSON.stringify(body),
       });
       await load();
     } finally { setBusy(null); }
+  }
+
+  function openAction(id: string, mode: "resolve" | "reject") {
+    setAction({ id, mode }); setOutcome(DISPUTE_OUTCOMES[0]); setNote("");
+  }
+
+  async function submitAction() {
+    if (!action) return;
+    const body = action.mode === "resolve"
+      ? { status: "Resolved", outcome, resolution: note }
+      : { status: "Rejected", outcome: "Rejected", resolution: note };
+    await patchDispute(action.id, body);
+    setAction(null);
   }
 
   if (loading) return <div className="text-stone-400 text-sm py-8 text-center">Loading…</div>;
@@ -70,30 +89,66 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
 
   const DisputeRow = ({ d }: { d: Dispute }) => {
     const isOpen = d.status === "Open" || d.status === "Under Review";
+    const isActioning = action?.id === d.id;
     return (
-      <div className={`flex items-start gap-3 p-3.5 rounded-lg ring-1 ${isOpen ? "bg-rose-50 ring-rose-200" : "bg-white ring-stone-200"}`}>
-        <AlertOctagon size={16} className={isOpen ? "text-rose-500 mt-0.5 shrink-0" : "text-stone-400 mt-0.5 shrink-0"} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Inv id={d.invoiceId} className="text-sm font-medium text-stone-900 hover:underline font-mono">#{d.invoiceNumber}</Inv>
-            <span className="text-sm text-stone-500">·</span>
-            <span className="text-sm text-stone-700">{d.customerName}{d.projectName ? ` / ${d.projectName}` : ""}</span>
-            <Badge variant="red" size="sm">Dispute · {d.category}</Badge>
-            <Badge variant={sourceBadge(d.source)} size="sm">{d.source}</Badge>
-            <Badge variant={isOpen ? "red" : "green"} size="sm">{d.status}</Badge>
+      <div className={`p-3.5 rounded-lg ring-1 ${isOpen ? "bg-rose-50 ring-rose-200" : "bg-white ring-stone-200"}`}>
+        <div className="flex items-start gap-3">
+          <AlertOctagon size={16} className={isOpen ? "text-rose-500 mt-0.5 shrink-0" : "text-stone-400 mt-0.5 shrink-0"} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Inv id={d.invoiceId} className="text-sm font-medium text-stone-900 hover:underline font-mono">#{d.invoiceNumber}</Inv>
+              <span className="text-sm text-stone-500">·</span>
+              <span className="text-sm text-stone-700">{d.customerName}{d.projectName ? ` / ${d.projectName}` : ""}</span>
+              <Badge variant="red" size="sm">Dispute · {d.category}</Badge>
+              <Badge variant={sourceBadge(d.source)} size="sm">{d.source}</Badge>
+              <Badge variant={d.status === "Open" ? "red" : d.status === "Under Review" ? "yellow" : "green"} size="sm">{d.status}</Badge>
+              {d.outcome && <Badge variant="neutral" size="sm">{d.outcome}</Badge>}
+            </div>
+            {d.reason && <div className="text-[13px] text-stone-600 mt-1">{d.reason}</div>}
+            {d.resolution && <div className="text-[12px] text-stone-500 mt-1 italic">Resolution: {d.resolution}</div>}
+            <div className="text-[11px] text-stone-400 mt-1">
+              {d.raisedByName ? `by ${d.raisedByName}` : "via portal"} · {new Date(d.createdAt).toLocaleDateString()}
+              {d.assignedToName && <span> · assigned to <span className="text-stone-600 font-medium">{d.assignedToName}</span></span>}
+            </div>
           </div>
-          {d.reason && <div className="text-[13px] text-stone-600 mt-1">{d.reason}</div>}
-          {d.resolution && <div className="text-[12px] text-stone-500 mt-1 italic">Resolution: {d.resolution}</div>}
-          <div className="text-[11px] text-stone-400 mt-1">{d.raisedByName ? `by ${d.raisedByName}` : "via portal"} · {new Date(d.createdAt).toLocaleDateString()}</div>
+          {isOpen && !isActioning && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {busy === d.id ? <Loader size={14} className="animate-spin text-stone-400" /> : (
+                <>
+                  {d.status === "Open" && (
+                    <button onClick={() => patchDispute(d.id, { status: "Under Review" })} title="Acknowledge — start review"
+                      className="px-2 py-1 rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 text-[11px] font-semibold">Acknowledge</button>
+                  )}
+                  <button onClick={() => openAction(d.id, "resolve")} title="Resolve" className="px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 text-[11px] font-semibold flex items-center gap-1"><Check size={12} /> Resolve</button>
+                  <button onClick={() => openAction(d.id, "reject")} title="Reject" className="px-2 py-1 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300 text-[11px] font-semibold flex items-center gap-1"><X size={12} /> Reject</button>
+                </>
+              )}
+            </div>
+          )}
         </div>
-        {isOpen && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            {busy === d.id ? <Loader size={14} className="animate-spin text-stone-400" /> : (
-              <>
-                <button onClick={() => resolveDispute(d.id, "Resolved")} title="Resolve" className="p-1.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200"><Check size={13} /></button>
-                <button onClick={() => resolveDispute(d.id, "Rejected")} title="Reject" className="p-1.5 rounded-md bg-stone-200 text-stone-600 hover:bg-stone-300"><X size={13} /></button>
-              </>
+
+        {/* Inline action panel */}
+        {isActioning && (
+          <div className="mt-3 pt-3 border-t border-rose-200 space-y-2">
+            {action!.mode === "resolve" && (
+              <div>
+                <label className="text-[11px] font-medium text-stone-500">Outcome</label>
+                <select value={outcome} onChange={e => setOutcome(e.target.value)}
+                  className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-2 focus:ring-stone-300">
+                  {DISPUTE_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
             )}
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              placeholder={action!.mode === "resolve" ? "Resolution note (optional)" : "Reason for rejecting (optional)"}
+              className="w-full text-sm border border-stone-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-stone-300 resize-none" />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setAction(null)} className="px-3 py-1.5 text-xs font-medium text-stone-600 hover:text-stone-900">Cancel</button>
+              <button onClick={submitAction} disabled={busy === d.id}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-700 hover:bg-stone-800"}`}>
+                {busy === d.id ? "Saving…" : action!.mode === "resolve" ? "Confirm resolve" : "Confirm reject"}
+              </button>
+            </div>
           </div>
         )}
       </div>

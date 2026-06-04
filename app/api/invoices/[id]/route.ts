@@ -97,7 +97,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await db.insert(invoiceDisputes).values({
       orgId: orgId!, invoiceId: updated.id, customerId: updated.customerId,
       category: "Other", reason: body.disputeReason,
-      source: staffSource, raisedBy: actorId, status: "Open",
+      source: staffSource, raisedBy: actorId,
+      assignedTo: updated.collectionOwnerId ?? actorId,
+      status: "Open",
     });
     touchedEvents = true;
   }
