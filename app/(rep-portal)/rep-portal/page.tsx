@@ -174,13 +174,46 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
   );
 }
 
+const DISPUTE_CATEGORIES = ["Wrong Amount", "Already Paid", "Goods/Service", "Duplicate", "Other"];
+
 // ─── Invoice Row ──────────────────────────────────────────────────────────────
-function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
+function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChanged }: {
   inv: Invoice; df: string;
   onDownload: (inv: Invoice) => void; downloading: boolean;
   nested?: boolean; // true → no outer card; used inside ProjectGroupCard
+  onChanged?: () => void; // called after logging a promise/dispute to refresh data
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [logMode, setLogMode] = useState<null | "promise" | "dispute">(null);
+  const [pDate, setPDate] = useState(""); const [pAmount, setPAmount] = useState(""); const [pNote, setPNote] = useState("");
+  const [dCat, setDCat] = useState(DISPUTE_CATEGORIES[0]); const [dReason, setDReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  async function submitPromise() {
+    if (!pDate) return;
+    setSaving(true);
+    try {
+      await fetch(`/api/invoices/${inv.id}/promises`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ promiseDate: pDate, amount: pAmount ? Number(pAmount) : undefined, note: pNote || undefined }),
+      });
+      setLogMode(null); setPDate(""); setPAmount(""); setPNote("");
+      onChanged?.();
+    } finally { setSaving(false); }
+  }
+
+  async function submitDispute() {
+    setSaving(true);
+    try {
+      await fetch(`/api/invoices/${inv.id}/disputes`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: dCat, reason: dReason || undefined }),
+      });
+      setLogMode(null); setDReason("");
+      onChanged?.();
+    } finally { setSaving(false); }
+  }
   const isPaidOrClosed = !isOpenInvoice(inv);
   const outstanding    = isPaidOrClosed ? 0 : openBal(inv);
   const dueStatus      = getDueStatus(inv);
@@ -280,6 +313,60 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
                 : <><Download size={14} /> Download Invoice PDF</>}
             </button>
           )}
+
+          {/* Manually log a call outcome — promise or dispute */}
+          {!isPaidOrClosed && (
+            <div className="pt-1">
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setLogMode(m => m === "promise" ? null : "promise")}
+                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "promise" ? "bg-blue-600 text-white ring-blue-600" : "bg-blue-50 text-blue-700 ring-blue-200"}`}>
+                  📅 Log promise
+                </button>
+                <button onClick={() => setLogMode(m => m === "dispute" ? null : "dispute")}
+                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "dispute" ? "bg-rose-600 text-white ring-rose-600" : "bg-rose-50 text-rose-700 ring-rose-200"}`}>
+                  ⚠️ Raise dispute
+                </button>
+              </div>
+
+              {logMode === "promise" && (
+                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-blue-200 bg-blue-50/60 p-3">
+                  <div className="text-[11px] font-semibold text-blue-900">Customer promised to pay…</div>
+                  <input type="date" value={pDate} min={todayStr} onChange={e => setPDate(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                  <input type="number" placeholder="Amount (leave blank = full balance)" value={pAmount} onChange={e => setPAmount(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                  <input type="text" placeholder="Note (e.g. spoke to John)" value={pNote} onChange={e => setPNote(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-600">Cancel</button>
+                    <button onClick={submitPromise} disabled={!pDate || saving}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white disabled:opacity-50">
+                      {saving ? "Saving…" : "Save promise"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {logMode === "dispute" && (
+                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-rose-200 bg-rose-50/60 p-3">
+                  <div className="text-[11px] font-semibold text-rose-900">Customer raised a query…</div>
+                  <select value={dCat} onChange={e => setDCat(e.target.value)}
+                    className="w-full text-sm border border-rose-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-rose-300 bg-white">
+                    {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <textarea rows={2} placeholder="What's the issue?" value={dReason} onChange={e => setDReason(e.target.value)}
+                    className="w-full text-sm border border-rose-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-rose-300 bg-white resize-none" />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-600">Cancel</button>
+                    <button onClick={submitDispute} disabled={saving}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-rose-600 text-white disabled:opacity-50">
+                      {saving ? "Saving…" : "Raise dispute"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -289,12 +376,13 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false }: {
 // ─── Project Group Card (used in Customer detail view) ───────────────────────
 // Shows a collapsible card for one project (or "Direct Customer Invoices")
 // containing all invoices for that project under the parent customer.
-function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, downloadingId }: {
+function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, downloadingId, onChanged }: {
   project: Project | null;  // null → "Direct Customer Invoices"
   invoices: Invoice[];
   df: string; ccy: string;
   onDownload: (inv: Invoice) => void;
   downloadingId: string | null;
+  onChanged?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const open        = grpInvs.filter(isOpenInvoice);
@@ -353,6 +441,7 @@ function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, dow
               onDownload={onDownload}
               downloading={downloadingId === inv.id}
               nested
+              onChanged={onChanged}
             />
           ))}
         </div>
@@ -787,6 +876,7 @@ export default function RepPortalPage() {
                     ccy={ccy}
                     onDownload={handleDownload}
                     downloadingId={downloadingId}
+                    onChanged={load}
                   />
                 ))}
               </div>
@@ -806,6 +896,7 @@ export default function RepPortalPage() {
                       df={df}
                       onDownload={handleDownload}
                       downloading={downloadingId === inv.id}
+                      onChanged={load}
                     />
                   ))}
               </div>
