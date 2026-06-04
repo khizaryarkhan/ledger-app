@@ -9,10 +9,10 @@ interface Message {
 }
 
 const SUGGESTIONS = [
-  "Show all open invoices",
-  "What's overdue for Acme Corp?",
+  "What should I chase today?",
+  "What should I do about Reddy Architecture?",
+  "Show me the aging breakdown",
   "Send open invoices of Project X to billing@client.com",
-  "AR summary for this month",
 ];
 
 export function ChatWidget() {

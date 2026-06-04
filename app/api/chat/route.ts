@@ -16,6 +16,28 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_collections_briefing",
+      description: "Proactive 'what should I chase today' digest — prioritised across the whole portfolio. Returns: top priority chases, broken promises, promises due today, new disputes, and accounts crossing 90 days.\nTRIGGER: \"what should I do today\", \"daily briefing\", \"where do I start\", \"what needs my attention\", \"morning summary\", \"what to chase\", \"help me prioritise\", \"give me a plan\".",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "suggest_next_action",
+      description: "Recommend the next-best collection action for a SPECIFIC customer or project, based on aging, stage, promises, disputes and last contact. Explains the reasoning and proposes the concrete next step.\nTRIGGER: \"what should I do about X\", \"how should I handle X\", \"next step for X\", \"what's the best action for X\", \"should I escalate X\", \"how do I chase X\".",
+      parameters: {
+        type: "object",
+        properties: {
+          projectName: { type: "string" },
+          customerName: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_portfolio",
       description: "Show all open projects/customers in the user's portfolio with balances.\nTRIGGER: \"show my portfolio\", \"what's open\", \"list my projects\", \"what do I have\", \"show everything\", \"all projects\", \"my accounts\".",
       parameters: {
@@ -246,6 +268,11 @@ async function fetchOpenInvoices(
       customerRepId:  customers.repId,
       projectName:    projects.name,
       projectRepId:   projects.repId,
+      collectionStage: invoices.collectionStage,
+      promiseDate:    invoices.promiseDate,
+      promiseAmount:  invoices.promiseAmount,
+      hasOpenDispute: invoices.hasOpenDispute,
+      lastFollowupDate: invoices.lastFollowupDate,
     })
     .from(invoices)
     .leftJoin(customers, eq(customers.id, invoices.customerId))
@@ -853,6 +880,104 @@ async function toolUpdateInvoice(orgId: string, args: any, visibleRepIds: Set<st
   return `✅ Invoice #${num} updated: ${parts.join(", ")}.`;
 }
 
+// ── Shared scoping helper ─────────────────────────────────────────────────────
+function scopeToVisible<T extends { projectId: string | null; projectRepId: any; customerRepId: any }>(
+  rows: T[], visibleRepIds: Set<string> | null,
+): T[] {
+  if (!visibleRepIds) return rows;
+  return rows.filter(i => {
+    const owner = i.projectId ? i.projectRepId : i.customerRepId;
+    return owner != null && visibleRepIds.has(owner as string);
+  });
+}
+
+// ── Tool: get_collections_briefing — proactive "what to chase today" ──────────
+async function toolGetCollectionsBriefing(orgId: string, _args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const all = scopeToVisible(await fetchOpenInvoices(orgId), visibleRepIds);
+  if (all.length === 0) return "Your portfolio is all clear — no open invoices to chase. 🎉";
+
+  const today = new Date().toISOString().slice(0, 10);
+  const openNonDisputed = all.filter(i => !i.hasOpenDispute);
+
+  const priority = openNonDisputed
+    .filter(i => daysOverdue(i.dueDate) > 0)
+    .map(i => ({ ...i, d: daysOverdue(i.dueDate), bal: openBal(i) }))
+    .sort((a, b) => (b.d * b.bal) - (a.d * a.bal))
+    .slice(0, 5);
+  const broken   = all.filter(i => i.promiseDate && i.promiseDate < today && !i.hasOpenDispute);
+  const dueToday = all.filter(i => i.promiseDate === today && !i.hasOpenDispute);
+  const disputes = all.filter(i => i.hasOpenDispute);
+  const over90   = openNonDisputed.filter(i => daysOverdue(i.dueDate) > 90);
+
+  const totalOpen  = all.reduce((s, i) => s + openBal(i), 0);
+  const overdueAmt = openNonDisputed.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + openBal(i), 0);
+  const nm = (i: any) => i.projectName ?? i.customerName ?? "Unknown";
+
+  const lines: string[] = [`📊 Portfolio: ${fmt(totalOpen)} open · ${fmt(overdueAmt)} overdue`];
+
+  if (priority.length) {
+    lines.push(`\n🔴 Chase first (${priority.length}):`);
+    priority.forEach((i, idx) => lines.push(`  ${idx + 1}. #${i.invoiceNumber} — ${nm(i)} — ${fmt(i.bal, i.currency)} (${i.d}d overdue)`));
+  }
+  if (broken.length) {
+    lines.push(`\n⚠️ Broken promises (${broken.length}) — follow up:`);
+    broken.slice(0, 5).forEach(i => lines.push(`  • #${i.invoiceNumber} — ${nm(i)} — promised ${i.promiseDate}, ${fmt(openBal(i), i.currency)}`));
+  }
+  if (dueToday.length) {
+    lines.push(`\n📅 Promises due TODAY (${dueToday.length}):`);
+    dueToday.forEach(i => lines.push(`  • #${i.invoiceNumber} — ${nm(i)} — ${fmt(openBal(i), i.currency)}`));
+  }
+  if (disputes.length) {
+    lines.push(`\n🔵 Open disputes (${disputes.length}) — resolve (chasing is paused):`);
+    disputes.slice(0, 5).forEach(i => lines.push(`  • #${i.invoiceNumber} — ${nm(i)} — ${fmt(openBal(i), i.currency)}`));
+  }
+  if (over90.length) {
+    lines.push(`\n🚨 90+ days (${over90.length}) — ${fmt(over90.reduce((s, i) => s + openBal(i), 0))} — escalate or write off`);
+  }
+  if (priority.length === 0 && broken.length === 0 && dueToday.length === 0 && disputes.length === 0) {
+    lines.push(`\n✅ Nothing urgent — everything is current or promised for a future date.`);
+  }
+  lines.push(`\nSay e.g. "send invoices for [the top one]", "escalate #X", or "what should I do about [customer]" and I'll help.`);
+  return lines.join("\n");
+}
+
+// ── Tool: suggest_next_action — next-best-action for one customer/project ──────
+async function toolSuggestNextAction(orgId: string, args: any, visibleRepIds: Set<string> | null): Promise<string> {
+  const resolved = await resolveEntity(orgId, args.projectName, args.customerName);
+  if (resolved.status === "confirm" || resolved.status === "none") return resolved.message;
+  if (visibleRepIds && resolved.projectId) {
+    const repId = resolved.projectRepId ?? null;
+    if (!repId || !visibleRepIds.has(repId)) return `⛔ "${resolved.label}" is not within your portfolio.`;
+  }
+
+  const rows = scopeToVisible(await fetchOpenInvoices(orgId, resolved.projectId, resolved.customerId), visibleRepIds);
+  if (rows.length === 0) return `No open invoices for "${resolved.label}" — nothing to action.`;
+
+  const today  = new Date().toISOString().slice(0, 10);
+  const total  = rows.reduce((s, i) => s + openBal(i), 0);
+  const disputed       = rows.filter(i => i.hasOpenDispute);
+  const broken         = rows.filter(i => i.promiseDate && i.promiseDate < today && !i.hasOpenDispute);
+  const promisedFuture = rows.filter(i => i.promiseDate && i.promiseDate >= today && !i.hasOpenDispute);
+  const overdue        = rows.filter(i => !i.hasOpenDispute && daysOverdue(i.dueDate) > 0);
+  const maxDays        = rows.reduce((m, i) => Math.max(m, daysOverdue(i.dueDate)), 0);
+  const neverContacted = overdue.filter(i => !i.lastFollowupDate);
+
+  const recs: string[] = [];
+  if (disputed.length)       recs.push(`Resolve the dispute on ${disputed.length} invoice(s) FIRST — chasing is paused until it's closed. Review the reason, then correct/credit or reject.`);
+  if (broken.length)         recs.push(`${broken.length} promise(s) have passed unpaid — CALL to secure a firm new date or escalate. A repeat email rarely works after a broken promise.`);
+  if (promisedFuture.length) recs.push(`${promisedFuture.length} invoice(s) have a future promise date — no chasing needed yet; set a reminder for the promised day.`);
+  if (overdue.length) {
+    if (maxDays > 90)      recs.push(`Oldest is ${maxDays}d overdue — send a FINAL notice and escalate; assess write-off if uncollectable.`);
+    else if (maxDays > 30) recs.push(`Up to ${maxDays}d overdue — send a FIRM reminder and request a committed payment date.`);
+    else                   recs.push(`Up to ${maxDays}d overdue — a GENTLE reminder is appropriate at this stage.`);
+    if (neverContacted.length) recs.push(`${neverContacted.length} overdue invoice(s) have NO contact logged — reach out today.`);
+  }
+  if (recs.length === 0) recs.push(`Everything is current — no action needed yet. Best practice: a courtesy reminder ~7 days before the due date.`);
+
+  const body = recs.map((r, i) => `${i + 1}. ${r}`).join("\n");
+  return `Recommended actions for "${resolved.label}" (${rows.length} open · ${fmt(total)}):\n${body}\n\nWant me to send the invoices, set a promise/escalate the stage, or add a note? Just tell me.`;
+}
+
 // ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   const { error, session, orgId } = await requireOrg();
@@ -897,8 +1022,10 @@ export async function POST(req: Request) {
     repContext = "\nThis user is an admin and can access all projects and customers.";
   }
 
-  const systemPrompt = `You are an expert AR (Accounts Receivable) assistant embedded in Ledger AR, a financial management platform.
-You help users manage invoices, track overdue payments, prioritise collections, and send invoice emails.
+  const systemPrompt = `You are a proactive AR (Accounts Receivable) collections copilot embedded in Ledger AR.
+You don't just answer questions — you help the accountant decide WHO to chase, WHAT action to take next, and you carry it out (send invoices, set promises, escalate stages, add notes).
+When someone opens with a vague "where do I start / help me" → call get_collections_briefing.
+After showing a briefing or recommendation, suggest the concrete next step and offer to do it.
 
 STRICT RULES — follow these without exception:
 1. You are ONLY an AR assistant. You ONLY answer questions about invoices, payments, collections, customers, and projects inside this app.
@@ -911,6 +1038,8 @@ STRICT RULES — follow these without exception:
 8. If the user's request is unclear, ask one short clarifying question.
 
 TOOL SELECTION GUIDE:
+- "what should I do today / daily briefing / where do I start / morning summary / help me prioritise" → get_collections_briefing
+- "what should I do about X / next step for X / how do I handle X / should I escalate X" → suggest_next_action
 - "show my portfolio / what's open / list projects" → list_portfolio
 - "what should I chase / priority / most urgent / who hasn't paid" → get_priority_list
 - "aging breakdown / aging report / buckets / 90+ days" → get_aging
@@ -984,7 +1113,9 @@ Today: ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric
 
   let toolResult = "";
   try {
-    if      (toolName === "list_portfolio")   toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
+    if      (toolName === "get_collections_briefing") toolResult = await toolGetCollectionsBriefing(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "suggest_next_action")      toolResult = await toolSuggestNextAction(orgId!, toolArgs, visibleRepIds);
+    else if (toolName === "list_portfolio")   toolResult = await toolListPortfolio(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_priority_list") toolResult = await toolGetPriorityList(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_aging")         toolResult = await toolGetAging(orgId!, toolArgs, visibleRepIds);
     else if (toolName === "get_due_soon")      toolResult = await toolGetDueSoon(orgId!, toolArgs, visibleRepIds);
