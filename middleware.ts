@@ -6,21 +6,32 @@ export default auth((req) => {
   const path = req.nextUrl.pathname;
   const role = (req.auth?.user as any)?.role;
 
-  // ── Canonical-domain redirect ──────────────────────────────────────────────
-  // Send the auto-generated *.vercel.app pages to the real domain so the app
-  // isn't browsable on the Vercel URL. API routes are left alone so webhooks,
-  // cron, and OAuth callbacks still work on any host.
+  // ── *.vercel.app → "under development in Foodready" placeholder ─────────────
+  // The auto-generated Vercel URL shows a coming-soon page so the app isn't
+  // browsable there. The real domain (primeaccountax.com) serves the app
+  // normally. /api/* is left alone so webhooks, cron, and OAuth callbacks work.
   const host = req.headers.get("host") || "";
-  const canonicalHost = process.env.CANONICAL_HOST || "primeaccountax.com";
   if (
     process.env.VERCEL_ENV === "production" &&
     host.endsWith(".vercel.app") &&
     !path.startsWith("/api/")
   ) {
-    const url = new URL(req.nextUrl);
-    url.protocol = "https:";
-    url.host = canonicalHost;
-    return NextResponse.redirect(url, 308);
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Foodready — Coming soon</title><style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0c0a09;color:#fafaf9;padding:24px}
+      .card{max-width:520px;text-align:center}
+      .badge{display:inline-block;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#a8a29e;border:1px solid #292524;border-radius:999px;padding:6px 14px;margin-bottom:28px}
+      h1{font-size:30px;font-weight:700;line-height:1.25;margin-bottom:14px}
+      p{font-size:16px;line-height:1.6;color:#d6d3d1}
+      .brand{color:#34d399;font-weight:600}
+      .foot{margin-top:32px;font-size:13px;color:#78716c}
+    </style></head><body><div class="card">
+      <span class="badge">Coming soon</span>
+      <h1>Receivable flows are now under development in <span class="brand">Foodready</span></h1>
+      <p>This module is being built into the Foodready platform. Check back soon.</p>
+      <div class="foot">Foodready</div>
+    </div></body></html>`;
+    return new NextResponse(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
   }
 
   // Customer Response Portal — public, token-authenticated (no login)
