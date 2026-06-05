@@ -37,7 +37,8 @@ export default auth((req) => {
   // Customer Response Portal — public, token-authenticated (no login)
   const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/");
   const isLegal = path === "/privacy" || path === "/terms";
-  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
+  const isHome = path === "/"; // public marketing landing (Google verification needs this)
+  const isPublic = isHome || path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
@@ -46,8 +47,8 @@ export default auth((req) => {
 
   if (isPublic) {
     if (isAuth) {
-      if (path === "/login" || path === "/register") {
-        // Redirect reps to their portal, others to dashboard
+      // Logged-in users skip the landing/login pages and go straight to the app
+      if (path === "/login" || path === "/register" || path === "/") {
         const dest = role === "rep" ? "/rep-portal" : "/dashboard";
         return NextResponse.redirect(new URL(dest, req.nextUrl));
       }
