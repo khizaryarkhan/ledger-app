@@ -6,6 +6,23 @@ export default auth((req) => {
   const path = req.nextUrl.pathname;
   const role = (req.auth?.user as any)?.role;
 
+  // ── Canonical-domain redirect ──────────────────────────────────────────────
+  // Send the auto-generated *.vercel.app pages to the real domain so the app
+  // isn't browsable on the Vercel URL. API routes are left alone so webhooks,
+  // cron, and OAuth callbacks still work on any host.
+  const host = req.headers.get("host") || "";
+  const canonicalHost = process.env.CANONICAL_HOST || "primeaccountax.com";
+  if (
+    process.env.VERCEL_ENV === "production" &&
+    host.endsWith(".vercel.app") &&
+    !path.startsWith("/api/")
+  ) {
+    const url = new URL(req.nextUrl);
+    url.protocol = "https:";
+    url.host = canonicalHost;
+    return NextResponse.redirect(url, 308);
+  }
+
   // Customer Response Portal — public, token-authenticated (no login)
   const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/");
   const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal;
