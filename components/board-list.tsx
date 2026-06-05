@@ -77,6 +77,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
   }
   const [busyId, setBusyId] = useState<string | null>(null);
   const [respEdit, setRespEdit] = useState<{ id: string; mode: "promise" | "dispute" } | null>(null);
+  // Optimistic response overrides per invoice (instant UI feedback until refetch)
+  const [opt, setOpt] = useState<Record<string, { hasOpenDispute?: boolean; promiseDate?: string | null; disputeReason?: string | null }>>({});
   const [rDate, setRDate] = useState(""); const [rCat, setRCat] = useState(DISPUTE_CATEGORIES[0]); const [rReason, setRReason] = useState("");
   const [emailEdit, setEmailEdit] = useState<string | null>(null);
   const [emailVal, setEmailVal] = useState("");
@@ -148,7 +150,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
         toast?.(d.error || `Update failed (${res.status})`, "error");
         return;
       }
+      // Optimistic: reflect the change instantly, then reconcile with the refetch
+      const override = payload.type === "clear"
+        ? { hasOpenDispute: false, promiseDate: null, disputeReason: null }
+        : payload.type === "promise"
+        ? { hasOpenDispute: false, promiseDate: payload.promiseDate, disputeReason: null }
+        : { hasOpenDispute: true, disputeReason: payload.reason ?? "Disputed" };
+      setOpt(prev => ({ ...prev, [id]: override }));
       await refresh();
+      setOpt(prev => { const n = { ...prev }; delete n[id]; return n; });
     } catch (e: any) {
       toast?.(e?.message || "Network error", "error");
     } finally { setBusyId(null); }
@@ -341,19 +351,25 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                             </div>
                           </div>
                         </div>
-                      ) : (
-                        <button onClick={() => { setRespEdit({ id: inv.id, mode: inv.hasOpenDispute ? "dispute" : "promise" }); setRDate(inv.promiseDate || ""); setRReason(inv.disputeReason || ""); }}
+                      ) : (() => {
+                        const o = opt[inv.id] || {};
+                        const effDispute = o.hasOpenDispute ?? inv.hasOpenDispute;
+                        const effPromise = "promiseDate" in o ? o.promiseDate : inv.promiseDate;
+                        const effReason  = o.disputeReason ?? inv.disputeReason;
+                        return (
+                        <button onClick={() => { setRespEdit({ id: inv.id, mode: effDispute ? "dispute" : "promise" }); setRDate(effPromise || ""); setRReason(effReason || ""); }}
                           className="group inline-flex items-center gap-1">
-                          {inv.hasOpenDispute ? (
-                            <span title={inv.disputeReason || "Disputed"} className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold inline-flex items-center gap-1"><AlertOctagon size={10} /> Disputed</span>
-                          ) : inv.promiseDate ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold inline-flex items-center gap-1"><CalendarClock size={10} /> Promised {inv.promiseDate}</span>
+                          {effDispute ? (
+                            <span title={effReason || "Disputed"} className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold inline-flex items-center gap-1"><AlertOctagon size={10} /> Disputed</span>
+                          ) : effPromise ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold inline-flex items-center gap-1"><CalendarClock size={10} /> Promised {effPromise}</span>
                           ) : (
                             <span className="text-stone-300 text-[12px]">—</span>
                           )}
                           <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100" />
                         </button>
-                      )}
+                        );
+                      })()}
                     </td>
 
                     {/* Email (editable inline) */}
