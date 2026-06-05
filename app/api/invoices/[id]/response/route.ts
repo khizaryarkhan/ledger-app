@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
   if (!inv) return bad("Invoice not found", 404);
 
+  try {
   const body = await req.json().catch(() => ({}));
   const userId = (session!.user as any).id as string;
   const source = role === "rep" ? "Rep" : "Accountant";
@@ -82,4 +83,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   await recomputeInvoiceState(orgId!, inv.id).catch((e) => console.warn("response recompute failed:", e?.message));
   return ok({ ok: true });
+  } catch (e: any) {
+    // Surface the real DB error (e.g. a missing column) instead of a generic 500
+    console.error("response endpoint error:", e?.message);
+    return bad(e?.message?.includes("column") ? `Database not migrated: ${e.message}` : (e?.message || "Failed to update response"), 500);
+  }
 }
