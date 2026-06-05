@@ -321,53 +321,70 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                     </td>
 
                     {/* Response (editable) */}
-                    <td className="px-3 py-2 min-w-[180px]">
-                      {editingResp ? (
-                        <div className="flex flex-col gap-1.5 bg-white ring-1 ring-stone-200 rounded-lg p-2">
-                          <div className="flex gap-1">
-                            <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-100 text-stone-600"}`}>📅 Promise</button>
-                            <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600"}`}>⚠️ Dispute</button>
-                          </div>
-                          {respEdit!.mode === "promise" ? (
-                            <input type="date" min={todayStr()} value={rDate} onChange={e => setRDate(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
-                          ) : (
-                            <>
-                              <select value={rCat} onChange={e => setRCat(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1 bg-white">
-                                {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                              </select>
-                              <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
-                            </>
-                          )}
-                          <div className="flex items-center justify-between gap-1">
-                            {(inv.hasOpenDispute || inv.promiseDate) ? (
-                              <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
-                                className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800 disabled:opacity-50">
-                                {inv.hasOpenDispute ? "✓ Resolve" : "✕ Clear"}
-                              </button>
-                            ) : <span />}
-                            <div className="flex gap-1">
-                              <button onClick={() => setRespEdit(null)} className="text-[11px] text-stone-500 px-2 py-0.5">Cancel</button>
-                              <button onClick={submitResponse} disabled={busyId === inv.id} className="text-[11px] font-semibold text-white bg-stone-900 rounded px-2 py-0.5 disabled:opacity-50">Save</button>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (() => {
+                    <td className="px-3 py-2 min-w-[200px]">
+                      {(() => {
+                        // Always use effective (optimistic) values so UI is instant
                         const o = opt[inv.id] || {};
                         const effDispute = o.hasOpenDispute ?? inv.hasOpenDispute;
                         const effPromise = "promiseDate" in o ? o.promiseDate : inv.promiseDate;
                         const effReason  = o.disputeReason ?? inv.disputeReason;
+
+                        if (editingResp) return (
+                          <div className="flex flex-col gap-1.5 bg-white ring-1 ring-stone-200 rounded-lg p-2">
+                            <div className="flex gap-1">
+                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-100 text-stone-600"}`}>📅 Promise</button>
+                              <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600"}`}>⚠️ Dispute</button>
+                            </div>
+                            {respEdit!.mode === "promise" ? (
+                              <input type="date" min={todayStr()} value={rDate} onChange={e => setRDate(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
+                            ) : (
+                              <>
+                                <select value={rCat} onChange={e => setRCat(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1 bg-white">
+                                  {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
+                              </>
+                            )}
+                            <div className="flex items-center justify-between gap-1">
+                              {/* Use effective values — not raw inv — to avoid stale state */}
+                              {(effDispute || effPromise) ? (
+                                <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
+                                  className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800 disabled:opacity-50">
+                                  {effDispute ? "✓ Resolve" : "✕ Clear"}
+                                </button>
+                              ) : <span />}
+                              <div className="flex gap-1">
+                                <button onClick={() => setRespEdit(null)} className="text-[11px] text-stone-500 px-2 py-0.5">Cancel</button>
+                                <button onClick={submitResponse} disabled={busyId === inv.id} className="text-[11px] font-semibold text-white bg-stone-900 rounded px-2 py-0.5 disabled:opacity-50">Save</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+
+                        // Collapsed view — badge + edit pencil
+                        // Disputed badge also shows inline Resolve to avoid the extra click
                         return (
-                        <button onClick={() => { setRespEdit({ id: inv.id, mode: effDispute ? "dispute" : "promise" }); setRDate(effPromise || ""); setRReason(effReason || ""); }}
-                          className="group inline-flex items-center gap-1">
-                          {effDispute ? (
-                            <span title={effReason || "Disputed"} className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold inline-flex items-center gap-1"><AlertOctagon size={10} /> Disputed</span>
-                          ) : effPromise ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold inline-flex items-center gap-1"><CalendarClock size={10} /> Promised {effPromise}</span>
-                          ) : (
-                            <span className="text-stone-300 text-[12px]">—</span>
-                          )}
-                          <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100" />
-                        </button>
+                          <div className="group inline-flex items-center gap-1">
+                            {effDispute ? (
+                              <>
+                                <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
+                                  title={effReason || "Click to resolve"}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold inline-flex items-center gap-1 hover:bg-rose-200 disabled:opacity-50">
+                                  <AlertOctagon size={10} /> Disputed
+                                </button>
+                                <span className="text-[10px] text-emerald-600 opacity-0 group-hover:opacity-100 font-medium">click to resolve</span>
+                              </>
+                            ) : effPromise ? (
+                              <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(effPromise || ""); setRReason(""); }}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold inline-flex items-center gap-1 hover:bg-blue-200">
+                                <CalendarClock size={10} /> Promised {effPromise}
+                              </button>
+                            ) : (
+                              <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(""); setRReason(""); }}
+                                className="text-stone-300 text-[12px] hover:text-stone-500">—</button>
+                            )}
+                            {!effDispute && <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100" onClick={() => { setRespEdit({ id: inv.id, mode: effDispute ? "dispute" : "promise" }); setRDate(effPromise || ""); setRReason(effReason || ""); }} />}
+                          </div>
                         );
                       })()}
                     </td>
