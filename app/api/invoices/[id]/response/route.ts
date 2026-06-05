@@ -68,10 +68,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } else if (body.type === "clear") {
     await resolveOpenDisputes("Resolved");
     await supersedePromises();
+    // Defensive: clear the cached flags directly so the badge clears even if a
+    // recompute hiccups. recompute below reconciles the rest (stage, etc.).
+    await db.update(invoices).set({
+      hasOpenDispute: false, automationsPaused: false,
+      disputeReason: null, disputeDate: null,
+      promiseDate: null, promiseAmount: null, promiseSource: null,
+      updatedAt: new Date(),
+    }).where(and(eq(invoices.id, inv.id), eq(invoices.orgId, orgId!)));
   } else {
     return bad("Invalid type");
   }
 
-  await recomputeInvoiceState(orgId!, inv.id);
+  await recomputeInvoiceState(orgId!, inv.id).catch((e) => console.warn("response recompute failed:", e?.message));
   return ok({ ok: true });
 }

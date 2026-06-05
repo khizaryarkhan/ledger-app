@@ -140,10 +140,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
   async function postResponse(id: string, payload: any) {
     setBusyId(id);
     try {
-      await fetch(`/api/invoices/${id}/response`, {
+      const res = await fetch(`/api/invoices/${id}/response`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast?.(d.error || `Update failed (${res.status})`, "error");
+        return;
+      }
       await refresh();
+    } catch (e: any) {
+      toast?.(e?.message || "Network error", "error");
     } finally { setBusyId(null); }
   }
 
