@@ -7,6 +7,7 @@
  */
 
 import { randomBytes } from "crypto";
+import { headers } from "next/headers";
 import { db } from "@/db";
 import {
   customerPortalTokens, invoicePromises, invoiceDisputes, invoices,
@@ -15,8 +16,23 @@ import { and, eq, desc, inArray } from "drizzle-orm";
 
 const TOKEN_TTL_DAYS = 30;
 
-/** Resolve the public base URL for building portal links. */
+/**
+ * Resolve the public base URL for building portal links.
+ * Auto-detects from the live request host first, so links always match whatever
+ * domain the app is served on (e.g. primeaccountax.com) with zero config.
+ * Order: request host → NEXT_PUBLIC_APP_URL → VERCEL_URL → localhost.
+ */
 export function getAppUrl(): string {
+  // 1. Live request host (covers chat/board/trigger/cron — anything request-driven)
+  try {
+    const h = headers();
+    const host = h.get("x-forwarded-host") || h.get("host");
+    if (host && !host.includes("localhost")) {
+      const proto = h.get("x-forwarded-proto") || "https";
+      return `${proto}://${host}`;
+    }
+  } catch { /* not in a request scope (e.g. build) — fall through */ }
+  // 2. Explicit override / fallbacks
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
