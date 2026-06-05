@@ -36,7 +36,8 @@ export default auth((req) => {
 
   // Customer Response Portal — public, token-authenticated (no login)
   const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/");
-  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal;
+  const isLegal = path === "/privacy" || path === "/terms";
+  const isPublic = path === "/login" || path.startsWith("/api/auth") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
