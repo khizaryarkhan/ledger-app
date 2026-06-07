@@ -504,22 +504,22 @@ function ReminderProgramme() {
     const currentStage  = uniqueStages.length === 1 ? uniqueStages[0] : null;
 
     const statusBadge =
-      effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" } :
-      effectiveStatus === "On Hold"  ? { label: "On Hold",  cls: "bg-amber-50 text-amber-700 ring-amber-200"       } :
-                                       { label: "Inactive", cls: "bg-stone-100 text-stone-500 ring-stone-200"      };
+      effectiveStatus === "Active"   ? { label: "Active",   cls: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30" } :
+      effectiveStatus === "On Hold"  ? { label: "On Hold",  cls: "bg-amber-500/15 text-amber-400 ring-amber-500/30"       } :
+                                       { label: "Inactive", cls: "bg-stone-800 text-stone-500 ring-stone-700"              };
 
     return (
       <div
         key={entity.id}
-        className={`grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
-          entity.chaseByProject ? "bg-violet-50/40" : isSelected ? "bg-stone-50" : ""
+        className={`grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 items-center px-4 py-3 border-b border-stone-800 last:border-0 transition-colors ${
+          entity.chaseByProject ? "bg-violet-500/5" : isSelected ? "bg-stone-800/40" : ""
         } ${isSaving ? "opacity-60" : ""}`}
       >
         {/* Checkbox */}
         <div className="flex items-center justify-center">
           <button
             onClick={() => setSelected((prev) => { const s = new Set(prev); s.has(entity.id) ? s.delete(entity.id) : s.add(entity.id); return s; })}
-            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? "bg-stone-900 border-stone-900" : "border-stone-300 hover:border-stone-500"}`}
+            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? "bg-emerald-500 border-emerald-500" : "border-stone-600 hover:border-stone-400"}`}
           >
             {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
           </button>
@@ -527,7 +527,7 @@ function ReminderProgramme() {
 
         {/* Entity name — no code/QBO ID shown */}
         <div className="min-w-0">
-          <div className="text-sm font-medium text-stone-900 truncate">{entity.name}</div>
+          <div className="text-sm font-medium text-white truncate">{entity.name}</div>
           <div className="flex items-center gap-2 mt-0.5">
             {!isProjectLevel && projectCount !== null && (
               <span className="text-[11px] text-stone-400">
@@ -552,11 +552,11 @@ function ReminderProgramme() {
         {/* Outstanding */}
         <div className="text-right tabular-nums">
           {outstanding > 0 ? (
-            <span className="text-sm font-semibold text-stone-900">
+            <span className="text-sm font-semibold text-white">
               {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
             </span>
           ) : (
-            <span className="text-[11px] text-stone-400">—</span>
+            <span className="text-[11px] text-stone-500">—</span>
           )}
         </div>
 
@@ -567,8 +567,8 @@ function ReminderProgramme() {
               value={currentStage ?? ""}
               disabled={isStageChange}
               onChange={e => handleStageChange(entity.id, openInvoices, e.target.value)}
-              className={`w-full h-8 px-2 text-xs rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white disabled:opacity-50 ${
-                isMixed ? "text-amber-600 ring-amber-300" : "text-stone-700"
+              className={`w-full h-8 px-2 text-xs rounded-md border focus:border-emerald-500 focus:outline-none bg-stone-800 disabled:opacity-50 ${
+                isMixed ? "text-amber-400 border-amber-500/50" : "text-stone-300 border-stone-700"
               }`}
             >
               {isMixed && <option value="">Mixed stages</option>}
@@ -602,12 +602,12 @@ function ReminderProgramme() {
               }}
               onKeyDown={(e) => { if (e.key === "Enter") saveEmail(entity, emailVal, row); }}
               onBlur={() => { if (isDirty && emailVal.trim()) saveEmail(entity, emailVal, row); }}
-              className={`w-full h-8 px-2.5 text-sm rounded-md ring-1 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white transition-colors ${
-                isDirty ? "ring-amber-300 bg-amber-50" : emailVal ? "ring-stone-200" : "ring-stone-200 placeholder:text-stone-300"
+              className={`w-full h-8 px-2.5 text-sm rounded-md border focus:border-emerald-500 focus:outline-none transition-colors text-white placeholder:text-stone-500 ${
+                isDirty ? "border-amber-500/50 bg-amber-500/10" : "border-stone-700 bg-stone-800"
               }`}
             />
             {isDirty && (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600 font-medium pointer-events-none">unsaved</span>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-400 font-medium pointer-events-none">unsaved</span>
             )}
           </div>
           {!emailVal ? (
@@ -655,12 +655,12 @@ function ReminderProgramme() {
                 if (mode === "on" && !emailVal && !entity.chaseByProject) { toast("Enter an email address first", "error"); return; }
                 handleChaseMode(entity, row, mode);
               }}
-              className={`h-8 pl-2.5 pr-6 text-[12px] font-semibold rounded-lg border-0 ring-1 focus:outline-none focus:ring-2 focus:ring-stone-900 appearance-none cursor-pointer transition-colors disabled:opacity-50 ${
+              className={`h-8 pl-2.5 pr-6 text-[12px] font-semibold rounded-lg border focus:outline-none appearance-none cursor-pointer transition-colors disabled:opacity-50 ${
                 entity.chaseByProject
-                  ? "bg-violet-50 ring-violet-300 text-violet-700"
-                  : isOn ? "bg-emerald-50 ring-emerald-300 text-emerald-700" : "bg-stone-100 ring-stone-200 text-stone-500"
+                  ? "bg-violet-500/15 border-violet-500/30 text-violet-300"
+                  : isOn ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400" : "bg-stone-800 border-stone-700 text-stone-400"
               }`}
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
             >
               <option value="off">Off</option>
               <option value="on">Programme On</option>
@@ -673,11 +673,11 @@ function ReminderProgramme() {
                 disabled={isSaving}
                 onClick={() => handleToggle(entity, row, !isOn)}
                 title={isOn ? "Click to turn off" : emailVal ? "Click to turn on" : "Enter email first"}
-                className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${isOn ? "bg-emerald-500" : "bg-stone-200"}`}
+                className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${isOn ? "bg-emerald-500" : "bg-stone-700"}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200 ${isOn ? "translate-x-6" : "translate-x-0"}`} />
               </button>
-              <span className={`text-[11px] font-semibold w-7 ${isOn ? "text-emerald-600" : "text-stone-400"}`}>
+              <span className={`text-[11px] font-semibold w-7 ${isOn ? "text-emerald-400" : "text-stone-500"}`}>
                 {isOn ? "ON" : "OFF"}
               </span>
             </div>
@@ -692,15 +692,15 @@ function ReminderProgramme() {
 
       {/* ── SMTP health check banner ── */}
       {smtpOk === false && (
-        <div className="bg-amber-50 ring-1 ring-amber-300 rounded-xl px-5 py-3.5 flex items-center gap-3 mb-4 text-sm">
-          <AlertTriangle size={16} className="text-amber-500 shrink-0" />
-          <span className="flex-1 text-amber-900">
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-5 py-3.5 flex items-center gap-3 mb-4 text-sm">
+          <AlertTriangle size={16} className="text-amber-400 shrink-0" />
+          <span className="flex-1 text-amber-200">
             <strong>Email is not configured</strong> — automated reminders won&apos;t send.{" "}
             Set up SMTP in Settings → Email to enable sending.
           </span>
           <Link
             href="/settings/company"
-            className="shrink-0 text-amber-700 font-semibold hover:underline whitespace-nowrap"
+            className="shrink-0 text-amber-300 font-semibold hover:underline whitespace-nowrap"
           >
             Go to Settings →
           </Link>
@@ -708,12 +708,12 @@ function ReminderProgramme() {
       )}
 
       {/* ── Run Now panel ── */}
-      <div className="bg-white rounded-xl ring-1 ring-stone-200 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+      <div className="bg-stone-900 rounded-xl border border-stone-800 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-sm font-semibold text-stone-900">Manual trigger</div>
+          <div className="text-sm font-semibold text-white">Manual trigger</div>
           <div className="text-[11px] text-stone-400 mt-0.5">
-            Send collection emails now via SMTP using the template assigned to each invoice's collection stage.
-            Use <span className="font-medium text-stone-600">Preview</span> first to see what would be sent.
+            Send collection emails now via SMTP using the template assigned to each invoice&apos;s collection stage.
+            Use <span className="font-medium text-stone-300">Preview</span> first to see what would be sent.
             Contacts with no matching template are skipped.
           </div>
         </div>
@@ -721,41 +721,41 @@ function ReminderProgramme() {
           <button
             onClick={() => handleRunNow(true)}
             disabled={triggerState === "running"}
-            className="h-8 px-4 text-xs font-medium rounded-md ring-1 ring-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-50 transition-colors"
+            className="h-8 px-4 text-xs font-medium rounded-md border border-stone-700 text-stone-300 hover:bg-stone-800 disabled:opacity-50 transition-colors"
           >
             {triggerState === "running" ? "Running…" : "Preview"}
           </button>
           <button
             onClick={() => handleRunNow(false)}
             disabled={triggerState === "running"}
-            className="h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
+            className="h-8 px-4 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-white disabled:opacity-50 transition-colors"
           >
             {triggerState === "running" ? "Sending…" : "Send Now"}
           </button>
           {triggerState === "done" && (
             <button onClick={() => { setTriggerState("idle"); setTriggerResult(null); }}
-              className="h-8 px-3 text-xs text-stone-400 hover:text-stone-700">✕</button>
+              className="h-8 px-3 text-xs text-stone-500 hover:text-stone-300">✕</button>
           )}
         </div>
       </div>
 
       {/* ── Trigger result ── */}
       {triggerResult && (
-        <div className={`rounded-xl ring-1 px-5 py-4 text-sm ${triggerResult.dryRun ? "bg-amber-50 ring-amber-200" : "bg-emerald-50 ring-emerald-200"}`}>
+        <div className={`rounded-xl border px-5 py-4 text-sm ${triggerResult.dryRun ? "bg-amber-500/10 border-amber-500/30" : "bg-emerald-500/10 border-emerald-500/30"}`}>
           <div className="flex items-center justify-between mb-3">
-            <div className="font-semibold text-stone-900">
+            <div className={`font-semibold ${triggerResult.dryRun ? "text-amber-200" : "text-emerald-200"}`}>
               {triggerResult.dryRun
                 ? `Preview — ${triggerResult.sent ?? triggerResult.drafted} email${(triggerResult.sent ?? triggerResult.drafted) !== 1 ? "s" : ""} would be sent`
                 : `✓ ${triggerResult.sent ?? triggerResult.drafted} email${(triggerResult.sent ?? triggerResult.drafted) !== 1 ? "s" : ""} sent`}
               {triggerResult.skipped > 0 && (
-                <span className="ml-2 text-[11px] font-normal text-stone-500">· {triggerResult.skipped} skipped (no pending invoices)</span>
+                <span className="ml-2 text-[11px] font-normal text-stone-400">· {triggerResult.skipped} skipped (no pending invoices)</span>
               )}
             </div>
           </div>
           {triggerResult.details?.length > 0 && (
             <table className="w-full text-[11px]">
               <thead>
-                <tr className="text-stone-500 border-b border-stone-200">
+                <tr className="text-stone-500 border-b border-stone-700">
                   <th className="text-left font-semibold pb-1.5 pr-3">Contact</th>
                   <th className="text-left font-semibold pb-1.5 pr-3">Entity</th>
                   <th className="text-left font-semibold pb-1.5 pr-3">Stage</th>
@@ -766,20 +766,20 @@ function ReminderProgramme() {
               </thead>
               <tbody>
                 {triggerResult.details.map((d: any, i: number) => (
-                  <tr key={i} className="border-b border-stone-100 last:border-0">
-                    <td className="py-1.5 pr-3 text-stone-700 font-mono text-[10px]">{d.contact}</td>
-                    <td className="py-1.5 pr-3 text-stone-700">{d.entity}</td>
+                  <tr key={i} className="border-b border-stone-800 last:border-0">
+                    <td className="py-1.5 pr-3 text-stone-300 font-mono text-[10px]">{d.contact}</td>
+                    <td className="py-1.5 pr-3 text-stone-300">{d.entity}</td>
                     <td className="py-1.5 pr-3">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-700">{d.stage}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-800 text-stone-200 border border-stone-700">{d.stage}</span>
                     </td>
-                    <td className="py-1.5 pr-3 text-stone-500 text-[10px]">{d.templateName}</td>
-                    <td className="py-1.5 text-stone-600">{d.invoices?.join(", ")}</td>
+                    <td className="py-1.5 pr-3 text-stone-400 text-[10px]">{d.templateName}</td>
+                    <td className="py-1.5 text-stone-300">{d.invoices?.join(", ")}</td>
                     <td className="py-1.5 pl-3">
                       {d.error
-                        ? <span className="text-rose-600">✗ {d.error}</span>
+                        ? <span className="text-rose-400">✗ {d.error}</span>
                         : triggerResult.dryRun
-                          ? <span className="text-amber-700">would be sent</span>
-                          : <span className="text-emerald-700">✓ sent</span>}
+                          ? <span className="text-amber-400">would be sent</span>
+                          : <span className="text-emerald-400">✓ sent</span>}
                     </td>
                   </tr>
                 ))}
@@ -787,7 +787,7 @@ function ReminderProgramme() {
             </table>
           )}
           {triggerResult.details?.length === 0 && (
-            <div className="text-stone-500 text-[12px]">No pending reminders — all invoices are either not yet due, already paid, or paused.</div>
+            <div className="text-stone-400 text-[12px]">No pending reminders — all invoices are either not yet due, already paid, or paused.</div>
           )}
         </div>
       )}
@@ -795,11 +795,11 @@ function ReminderProgramme() {
       {/* KPI cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Programme ON",   value: onCount,      color: "text-emerald-600" },
-          { label: "Programme OFF",  value: offCount,     color: "text-stone-500"   },
-          { label: "No email set",   value: noEmailCount, color: "text-amber-600"   },
+          { label: "Programme ON",   value: onCount,      color: "text-emerald-400" },
+          { label: "Programme OFF",  value: offCount,     color: "text-stone-400"   },
+          { label: "No email set",   value: noEmailCount, color: "text-amber-400"   },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white rounded-lg ring-1 ring-stone-200 px-4 py-3 text-center">
+          <div key={label} className="bg-stone-900 rounded-lg border border-stone-800 px-4 py-3 text-center">
             <div className={`text-2xl font-bold ${color}`}>{value}</div>
             <div className="text-[11px] text-stone-500 mt-0.5">{label}</div>
           </div>
@@ -809,15 +809,15 @@ function ReminderProgramme() {
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Level toggle */}
-        <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-stone-800 rounded-lg p-1">
             <button onClick={() => { setViewLevel("customer"); setSelected(new Set()); setStatusFilter("Active"); }}
             title="Customers chased at account level"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "customer" ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
             <Users size={12} /> By Customer
           </button>
           <button onClick={() => { setViewLevel("project"); setSelected(new Set()); setStatusFilter("Active"); }}
             title="Projects for customers flagged 'Chase by Project'"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${viewLevel === "project" ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
             <Briefcase size={12} /> By Project
           </button>
         </div>
@@ -826,7 +826,7 @@ function ReminderProgramme() {
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as any); setSelected(new Set()); }}
-          className="h-9 px-2.5 pr-7 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white text-stone-700"
+          className="h-9 px-2.5 pr-7 text-sm rounded-md border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-stone-300"
         >
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
@@ -839,10 +839,10 @@ function ReminderProgramme() {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
           <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${isProjectLevel ? "projects" : "customers"}…`}
-            className="w-full h-9 pl-8 pr-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white" />
+            className="w-full h-9 pl-8 pr-3 text-sm rounded-md border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-stone-300 placeholder-stone-500" />
         </div>
 
-        <div className="ml-auto text-[11px] text-stone-400">{rows.length} {isProjectLevel ? "projects" : "customers"}</div>
+        <div className="ml-auto text-[11px] text-stone-500">{rows.length} {isProjectLevel ? "projects" : "customers"}</div>
       </div>
 
       {/* Bulk action bar */}
@@ -875,17 +875,17 @@ function ReminderProgramme() {
       {/* Table */}
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[40px_1fr_90px_100px_140px_2fr_110px_155px] gap-3 px-4 py-2.5 border-b border-stone-800 bg-stone-900/60">
           {/* Select all */}
           <div className="flex items-center justify-center">
             <button
               onClick={toggleSelectAll}
               className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
                 allSelected
-                  ? "bg-stone-900 border-stone-900"
+                  ? "bg-emerald-500 border-emerald-500"
                   : someSelected
-                  ? "bg-stone-400 border-stone-400"
-                  : "border-stone-300 hover:border-stone-500"
+                  ? "bg-stone-500 border-stone-500"
+                  : "border-stone-600 hover:border-stone-400"
               }`}
             >
               {allSelected && <Check size={10} className="text-white" strokeWidth={3} />}
@@ -941,10 +941,10 @@ function ReminderProgramme() {
           return groups.map(({ customerId, customerName, rows: groupRows }) => (
             <div key={customerId}>
               {/* Customer group header */}
-              <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 border-b border-violet-100">
-                <Users size={12} className="text-violet-500 shrink-0" />
-                <span className="text-[12px] font-semibold text-violet-800">{customerName}</span>
-                <span className="text-[11px] text-violet-400">{groupRows.length} project{groupRows.length !== 1 ? "s" : ""}</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-violet-500/10 border-b border-violet-500/20">
+                <Users size={12} className="text-violet-400 shrink-0" />
+                <span className="text-[12px] font-semibold text-violet-300">{customerName}</span>
+                <span className="text-[11px] text-violet-500">{groupRows.length} project{groupRows.length !== 1 ? "s" : ""}</span>
               </div>
               {groupRows.map((row) => renderRow(row))}
             </div>
@@ -958,14 +958,14 @@ function ReminderProgramme() {
       </Card>
 
       {/* Footer note */}
-      <div className="flex items-start gap-2 px-1 text-[12px] text-stone-400">
+      <div className="flex items-start gap-2 px-1 text-[12px] text-stone-500">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          Emails are sent only for <strong className="text-stone-600">open invoices with an outstanding balance</strong>.
+          Emails are sent only for <strong className="text-stone-300">open invoices with an outstanding balance</strong>.
           Invoices in Disputed or Promise to Pay stages are always skipped.
           Email subjects include the project/customer reference and invoice numbers.
           Type directly in the email field — it saves automatically on Enter or when you click away.
-          <strong className="text-stone-600"> Multiple recipients supported</strong> — just separate addresses with a comma.
+          <strong className="text-stone-300"> Multiple recipients supported</strong> — just separate addresses with a comma.
         </span>
       </div>
     </div>
@@ -1125,42 +1125,42 @@ function EmailTemplates() {
     <div className="space-y-4">
 
       {/* Info banner */}
-      <Card className="bg-blue-50 ring-blue-200">
+      <div className="rounded-xl bg-blue-500/10 border border-blue-500/30 p-4">
         <div className="flex items-start gap-3">
-          <Info size={18} className="text-blue-700 mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-blue-900">
+          <Info size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-blue-200">
             <div className="font-medium mb-1">You control every word — we never decide for you</div>
-            <div>
+            <div className="text-blue-300">
               Write your own email for each collection stage. When an email is sent, the tool looks at the
-              invoice's current <strong>collection stage</strong> and uses the matching template.
+              invoice's current <strong className="text-blue-200">collection stage</strong> and uses the matching template.
               No wording is ever chosen based on age numbers.
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Placeholder reference — collapsible */}
-      <div className="rounded-xl ring-1 ring-stone-200 bg-white overflow-hidden">
+      <div className="rounded-xl border border-stone-800 bg-stone-900 overflow-hidden">
         <button
           onClick={() => setShowHelp((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-stone-300 hover:bg-stone-800 transition-colors"
         >
-          <span className="flex items-center gap-2"><FileText size={14} className="text-stone-400" /> Template placeholder reference</span>
-          <ChevronDown size={14} className={`text-stone-400 transition-transform ${showHelp ? "rotate-180" : ""}`} />
+          <span className="flex items-center gap-2"><FileText size={14} className="text-stone-500" /> Template placeholder reference</span>
+          <ChevronDown size={14} className={`text-stone-500 transition-transform ${showHelp ? "rotate-180" : ""}`} />
         </button>
         {showHelp && (
-          <div className="px-4 pb-4 border-t border-stone-100">
-            <p className="text-[12px] text-stone-500 mt-3 mb-2">Use these placeholders anywhere in your subject or body — they are replaced automatically when an email is sent:</p>
+          <div className="px-4 pb-4 border-t border-stone-800">
+            <p className="text-[12px] text-stone-400 mt-3 mb-2">Use these placeholders anywhere in your subject or body — they are replaced automatically when an email is sent:</p>
             <div className="space-y-1.5">
               {PLACEHOLDER_HELP.map(({ key, desc }) => (
                 <div key={key} className="flex items-start gap-3">
-                  <code className="text-[12px] font-mono bg-stone-100 px-2 py-0.5 rounded text-stone-800 shrink-0">{key}</code>
-                  <span className="text-[12px] text-stone-600">{desc}</span>
+                  <code className="text-[12px] font-mono bg-stone-800 px-2 py-0.5 rounded text-emerald-400 shrink-0">{key}</code>
+                  <span className="text-[12px] text-stone-300">{desc}</span>
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-stone-400 mt-3">
-              The invoice reference and entity code are automatically appended to the subject line — you don't need to add those manually.
+            <p className="text-[11px] text-stone-500 mt-3">
+              The invoice reference and entity code are automatically appended to the subject line — you don&apos;t need to add those manually.
             </p>
           </div>
         )}
@@ -1168,12 +1168,12 @@ function EmailTemplates() {
 
       {/* Template list */}
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-stone-900">
+        <div className="text-sm font-semibold text-white">
           {templates.length === 0 ? "No templates yet" : `${templates.length} template${templates.length !== 1 ? "s" : ""}`}
         </div>
         <button
           onClick={openNew}
-          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-white transition-colors"
         >
           <Plus size={13} /> New Template
         </button>
@@ -1184,12 +1184,12 @@ function EmailTemplates() {
       {!loading && templates.length === 0 && (
         <Card>
           <div className="py-8 text-center">
-            <Mail size={28} className="mx-auto text-stone-300 mb-3" />
-            <div className="text-sm font-medium text-stone-600 mb-1">No email templates yet</div>
-            <div className="text-[12px] text-stone-400 mb-4 max-w-xs mx-auto">
-              Create a template for each collection stage you use — e.g. "1st Reminder Sent", "Final Demand Sent".
+            <Mail size={28} className="mx-auto text-stone-600 mb-3" />
+            <div className="text-sm font-medium text-stone-300 mb-1">No email templates yet</div>
+            <div className="text-[12px] text-stone-500 mb-4 max-w-xs mx-auto">
+              Create a template for each collection stage you use — e.g. &ldquo;1st Reminder Sent&rdquo;, &ldquo;Final Demand Sent&rdquo;.
             </div>
-            <button onClick={openNew} className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-md bg-stone-900 text-white hover:bg-stone-700 transition-colors mx-auto">
+            <button onClick={openNew} className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-white transition-colors mx-auto">
               <Plus size={13} /> Create first template
             </button>
           </div>
@@ -1202,11 +1202,11 @@ function EmailTemplates() {
             {/* Stage badge / unassigned */}
             <div className="shrink-0 mt-0.5">
               {t.collectionStage ? (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-900 text-white">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   {t.collectionStage}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-100 text-stone-500 ring-1 ring-stone-200">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-800 text-stone-500 border border-stone-700">
                   Unassigned
                 </span>
               )}
@@ -1215,21 +1215,21 @@ function EmailTemplates() {
             {/* Content */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-stone-900">{t.name}</span>
+                <span className="text-sm font-semibold text-white">{t.name}</span>
                 {!t.isActive && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-400 ring-1 ring-stone-200">Inactive</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-800 text-stone-500 border border-stone-700">Inactive</span>
                 )}
               </div>
-              <div className="text-[12px] text-stone-500 mt-0.5 truncate">
-                <strong className="text-stone-700">Subject:</strong> {t.subject}
+              <div className="text-[12px] text-stone-400 mt-0.5 truncate">
+                <strong className="text-stone-300">Subject:</strong> {t.subject}
               </div>
-              <div className="text-[11px] text-stone-400 mt-1 line-clamp-2 whitespace-pre-wrap leading-relaxed">
+              <div className="text-[11px] text-stone-500 mt-1 line-clamp-2 whitespace-pre-wrap leading-relaxed">
                 {t.body.slice(0, 180)}{t.body.length > 180 ? "…" : ""}
               </div>
               {t.sendIntervalDays && (
                 <div className="flex items-center gap-1 mt-1.5">
-                  <span className="text-[10px] text-stone-400 font-medium">Sends</span>
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">
+                  <span className="text-[10px] text-stone-500 font-medium">Sends</span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 border border-stone-700">
                     {FREQUENCY_OPTIONS.find(o => o.days === t.sendIntervalDays)?.label
                       ?? `every ${t.sendIntervalDays} days`}
                   </span>
@@ -1241,7 +1241,7 @@ function EmailTemplates() {
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => openEdit(t)}
-                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-500 hover:text-stone-900 transition-colors"
+                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-300 transition-colors"
                 title="Edit template"
               >
                 <Pencil size={13} />
@@ -1249,7 +1249,7 @@ function EmailTemplates() {
               <button
                 onClick={() => handleDelete(t.id)}
                 disabled={deleting === t.id}
-                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-rose-50 text-stone-400 hover:text-rose-600 transition-colors disabled:opacity-40"
+                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-rose-500/15 text-stone-500 hover:text-rose-400 transition-colors disabled:opacity-40"
                 title="Delete template"
               >
                 <Trash2 size={13} />
@@ -1261,14 +1261,14 @@ function EmailTemplates() {
 
       {/* ── Editor modal ── */}
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-              <h2 className="text-base font-semibold text-stone-900">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800">
+              <h2 className="text-base font-semibold text-white">
                 {isNew ? "New email template" : "Edit template"}
               </h2>
-              <button onClick={closeEditor} className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-100 text-stone-500">
+              <button onClick={closeEditor} className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-300">
                 <X size={16} />
               </button>
             </div>
@@ -1276,26 +1276,26 @@ function EmailTemplates() {
             <div className="px-6 py-5 space-y-4">
               {/* Template name */}
               <div>
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Template name</label>
+                <label className="block text-[12px] font-semibold text-stone-400 mb-1">Template name</label>
                 <input
                   type="text"
                   value={editing.name}
                   onChange={(e) => setEditing((p) => p && ({ ...p, name: e.target.value }))}
                   placeholder="e.g. Friendly Reminder, Final Demand"
-                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
                 />
               </div>
 
               {/* Collection stage */}
               <div>
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Collection stage</label>
-                <p className="text-[11px] text-stone-400 mb-1.5">
+                <label className="block text-[12px] font-semibold text-stone-400 mb-1">Collection stage</label>
+                <p className="text-[11px] text-stone-500 mb-1.5">
                   Choose the invoice stage that triggers this template. Only one template per stage.
                 </p>
                 <select
                   value={editing.collectionStage ?? ""}
                   onChange={(e) => setEditing((p) => p && ({ ...p, collectionStage: e.target.value || null }))}
-                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-white"
                 >
                   <option value="">— Not assigned —</option>
                   {orgStages.map((s) => (
@@ -1308,31 +1308,31 @@ function EmailTemplates() {
 
               {/* Subject */}
               <div>
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Email subject</label>
-                <p className="text-[11px] text-stone-400 mb-1.5">Supports <code className="font-mono bg-stone-100 px-1 rounded">{"{ref}"}</code> placeholder. Invoice numbers are appended automatically.</p>
+                <label className="block text-[12px] font-semibold text-stone-400 mb-1">Email subject</label>
+                <p className="text-[11px] text-stone-500 mb-1.5">Supports <code className="font-mono bg-stone-800 px-1 rounded text-emerald-400">{"{ref}"}</code> placeholder. Invoice numbers are appended automatically.</p>
                 <input
                   type="text"
                   value={editing.subject}
                   onChange={(e) => setEditing((p) => p && ({ ...p, subject: e.target.value }))}
                   placeholder="e.g. Payment Reminder | {ref}"
-                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500"
                 />
               </div>
 
               {/* Body */}
               <div>
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Email body</label>
-                <p className="text-[11px] text-stone-400 mb-1.5">
-                  Use <code className="font-mono bg-stone-100 px-1 rounded">{"{name}"}</code> for the contact's first name,{" "}
-                  <code className="font-mono bg-stone-100 px-1 rounded">{"{invoiceLines}"}</code> for the invoice list,{" "}
-                  <code className="font-mono bg-stone-100 px-1 rounded">{"{ref}"}</code> for the entity code.
+                <label className="block text-[12px] font-semibold text-stone-400 mb-1">Email body</label>
+                <p className="text-[11px] text-stone-500 mb-1.5">
+                  Use <code className="font-mono bg-stone-800 px-1 rounded text-emerald-400">{"{name}"}</code> for the contact&apos;s first name,{" "}
+                  <code className="font-mono bg-stone-800 px-1 rounded text-emerald-400">{"{invoiceLines}"}</code> for the invoice list,{" "}
+                  <code className="font-mono bg-stone-800 px-1 rounded text-emerald-400">{"{ref}"}</code> for the entity code.
                 </p>
                 <textarea
                   value={editing.body}
                   onChange={(e) => setEditing((p) => p && ({ ...p, body: e.target.value }))}
                   rows={10}
                   placeholder={`Hi {name},\n\nI hope you are well. Please find the following invoices outstanding on your account:\n\n{invoiceLines}\n\nPlease don't hesitate to get in touch if you have any queries.\n\nMany thanks`}
-                  className="w-full px-3 py-2.5 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white resize-none font-mono leading-relaxed"
+                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-stone-800/60 text-white placeholder-stone-500 resize-none font-mono leading-relaxed"
                 />
               </div>
 
@@ -1340,17 +1340,17 @@ function EmailTemplates() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setEditing((p) => p && ({ ...p, isActive: !p.isActive }))}
-                  className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${editing.isActive ? "bg-emerald-500" : "bg-stone-200"}`}
+                  className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${editing.isActive ? "bg-emerald-500" : "bg-stone-700"}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${editing.isActive ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
-                <span className="text-sm text-stone-600">{editing.isActive ? "Active — will be used when emails are sent" : "Inactive — will be skipped"}</span>
+                <span className="text-sm text-stone-300">{editing.isActive ? "Active — will be used when emails are sent" : "Inactive — will be skipped"}</span>
               </div>
 
               {/* Send frequency */}
-              <div className="border-t border-stone-100 pt-4">
-                <label className="block text-[12px] font-semibold text-stone-600 mb-1">Send frequency</label>
-                <p className="text-[11px] text-stone-400 mb-3">
+              <div className="border-t border-stone-800 pt-4">
+                <label className="block text-[12px] font-semibold text-stone-400 mb-1">Send frequency</label>
+                <p className="text-[11px] text-stone-500 mb-3">
                   How often to re-send reminders to this contact after the first email goes out.
                 </p>
                 {(() => {
@@ -1363,10 +1363,10 @@ function EmailTemplates() {
                           key={opt.days}
                           type="button"
                           onClick={() => setEditing((p) => p && ({ ...p, sendIntervalDays: opt.days }))}
-                          className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                          className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
                             editing.sendIntervalDays === opt.days
-                              ? "bg-stone-900 text-white ring-stone-900"
-                              : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
+                              ? "bg-emerald-500 text-white border-emerald-500"
+                              : "bg-stone-800 text-stone-300 border-stone-700 hover:border-stone-500"
                           }`}
                         >
                           {opt.label}
@@ -1378,10 +1378,10 @@ function EmailTemplates() {
                         onClick={() => {
                           if (!isCustom) setEditing((p) => p && ({ ...p, sendIntervalDays: 21 }));
                         }}
-                        className={`px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 transition-colors ${
+                        className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
                           isCustom
-                            ? "bg-stone-900 text-white ring-stone-900"
-                            : "bg-white text-stone-600 ring-stone-200 hover:ring-stone-400"
+                            ? "bg-emerald-500 text-white border-emerald-500"
+                            : "bg-stone-800 text-stone-300 border-stone-700 hover:border-stone-500"
                         }`}
                       >
                         Custom
@@ -1398,7 +1398,7 @@ function EmailTemplates() {
                               const n = parseInt(e.target.value, 10);
                               if (!isNaN(n) && n >= 1) setEditing((p) => p && ({ ...p, sendIntervalDays: n }));
                             }}
-                            className="w-16 h-8 px-2 text-sm rounded-md ring-2 ring-stone-900 focus:outline-none bg-white text-center font-medium"
+                            className="w-16 h-8 px-2 text-sm rounded-md border-2 border-emerald-500 focus:outline-none bg-stone-800 text-white text-center font-medium"
                           />
                           <span className="text-[12px] text-stone-500">days</span>
                         </div>
@@ -1410,14 +1410,14 @@ function EmailTemplates() {
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-stone-100">
-              <button onClick={closeEditor} className="h-9 px-4 text-sm rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50 transition-colors">
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-stone-800">
+              <button onClick={closeEditor} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-400 hover:bg-stone-800 transition-colors">
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="h-9 px-5 text-sm font-semibold rounded-lg bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50 transition-colors"
+                className="h-9 px-5 text-sm font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white disabled:opacity-50 transition-colors"
               >
                 {saving ? "Saving…" : isNew ? "Create template" : "Save changes"}
               </button>
@@ -1438,8 +1438,8 @@ function CronStatusBanner() {
 
   if (!lastCronRun) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] text-stone-500">
-        <span className="w-2 h-2 rounded-full bg-stone-300 flex-shrink-0" />
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800/50 border border-stone-700 text-[12px] text-stone-400">
+        <span className="w-2 h-2 rounded-full bg-stone-600 flex-shrink-0" />
         Automated emails have not run yet. Cron fires daily at 9 AM UTC.
       </div>
     );
@@ -1456,9 +1456,9 @@ function CronStatusBanner() {
   const hasErrors = (lastCronStats?.errors?.length ?? 0) > 0;
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ring-1 text-[12px] ${hasErrors ? "bg-rose-50 ring-rose-200" : "bg-emerald-50 ring-emerald-200"}`}>
+    <div className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-[12px] ${hasErrors ? "bg-rose-500/10 border-rose-500/30" : "bg-emerald-500/10 border-emerald-500/30"}`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${hasErrors ? "bg-rose-400" : "bg-emerald-500"}`} />
-      <span className={hasErrors ? "text-rose-700" : "text-emerald-700"}>
+      <span className={hasErrors ? "text-rose-300" : "text-emerald-300"}>
         Last run <strong>{timeLabel}</strong>
         {lastCronStats && (
           <> — {lastCronStats.emailsSent} email{lastCronStats.emailsSent !== 1 ? "s" : ""} sent
@@ -1484,18 +1484,18 @@ export default function AutomationsPage() {
   return (
     <div className="p-6 max-w-[1100px] mx-auto">
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Automations</h1>
-        <p className="text-sm text-stone-500 mt-1">Your email templates and reminder programme</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Automations</h1>
+        <p className="text-sm text-stone-400 mt-1">Your email templates and reminder programme</p>
       </div>
       <div className="mb-5">
         <CronStatusBanner />
       </div>
 
-      <div className="flex items-center gap-1 mb-5 border-b border-stone-200">
+      <div className="flex items-center gap-1 mb-5 border-b border-stone-800">
         {(["templates", "programme"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"
+              tab === t ? "border-emerald-500 text-white" : "border-transparent text-stone-500 hover:text-stone-300"
             }`}>
             {t === "templates" ? "Email Templates" : "Reminder Programme"}
           </button>
