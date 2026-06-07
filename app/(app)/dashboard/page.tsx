@@ -179,12 +179,12 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
         <Card>
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-stone-50 rounded-lg p-3 text-center">
-              <div className="text-xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR, ccy)}</div>
+            <div className="bg-stone-800/40 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold text-white tabular-nums">{fmt.money(totalAR, ccy)}</div>
               <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
             </div>
-            <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-50" : overdueRate > 25 ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <div className={`text-xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-700" : overdueRate > 25 ? "text-amber-700" : "text-emerald-700"}`}>
+            <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-500/10" : overdueRate > 25 ? "bg-amber-500/10" : "bg-emerald-500/10"}`}>
+              <div className={`text-xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-400" : overdueRate > 25 ? "text-amber-400" : "text-emerald-400"}`}>
                 {overdueRate.toFixed(0)}%
               </div>
               <div className="text-[10px] text-stone-500 mt-0.5">Overdue Rate</div>
@@ -199,9 +199,9 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
             ].map(({ label, value, pct, color }) => (
               <div key={label} className="flex items-center gap-2 text-[11px]">
                 <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
-                <div className="flex-1 text-stone-600">{label}</div>
-                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value, ccy)}</div>
-                <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
+                <div className="flex-1 text-stone-400">{label}</div>
+                <div className="font-semibold text-stone-200 tabular-nums">{fmt.money(value, ccy)}</div>
+                <div className="w-9 text-right text-stone-500">{pct.toFixed(0)}%</div>
               </div>
             ))}
           </div>
@@ -218,11 +218,11 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
               { label: "90+ days", value: b90plus, color: "bg-rose-800",    pct: totalAR > 0 ? (b90plus / totalAR) * 100 : 0 },
             ].map(({ label, value, color, pct }) => (
               <div key={label} className="flex items-center gap-2">
-                <div className="w-14 text-[11px] text-stone-500 font-medium">{label}</div>
-                <div className="flex-1 h-5 bg-stone-100 rounded overflow-hidden">
+                <div className="w-14 text-[11px] text-stone-400 font-medium">{label}</div>
+                <div className="flex-1 h-5 bg-stone-800 rounded overflow-hidden">
                   <div className={`h-full ${color}`} style={{ width: `${(value / maxBucket) * 100}%` }} />
                 </div>
-                <div className="w-10 text-right text-[11px] font-semibold text-stone-600 tabular-nums">{pct.toFixed(0)}%</div>
+                <div className="w-10 text-right text-[11px] font-semibold text-stone-300 tabular-nums">{pct.toFixed(0)}%</div>
               </div>
             ))}
           </div>
@@ -241,10 +241,10 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
             ].map(({ label, value, sub, good, warn }) => (
               <div key={label} className="flex items-center justify-between">
                 <div>
-                  <div className="text-[12px] font-medium text-stone-800">{label}</div>
-                  <div className="text-[10px] text-stone-400">{sub}</div>
+                  <div className="text-[12px] font-medium text-stone-300">{label}</div>
+                  <div className="text-[10px] text-stone-500">{sub}</div>
                 </div>
-                <div className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${good ? "text-emerald-700 bg-emerald-50" : warn ? "text-rose-700 bg-rose-50" : "text-amber-700 bg-amber-50"}`}>
+                <div className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${good ? "text-emerald-400 bg-emerald-500/15" : warn ? "text-rose-400 bg-rose-500/15" : "text-amber-400 bg-amber-500/15"}`}>
                   {value}
                 </div>
               </div>
@@ -265,14 +265,14 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
                 <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[12px] font-medium text-stone-800 truncate">{customer.name}</span>
+                    <span className="text-[12px] font-medium text-stone-300 truncate">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount, ccy)}</span>
-                      <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
+                      <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, ccy)}</span>
+                      <span className="text-[11px] text-stone-500 w-9 text-right">{pct.toFixed(0)}%</span>
                     </div>
                   </div>
-                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(pct, 100)}%` }} />
+                  <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-stone-500" style={{ width: `${Math.min(pct, 100)}%` }} />
                   </div>
                 </div>
               </div>
@@ -285,7 +285,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
             <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR by Rep</div>
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="border-b border-stone-100">
+                <tr className="border-b border-stone-800">
                   <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
                   <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
                   <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
@@ -296,11 +296,11 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
                 {repPortfolio.map(({ rep, openAR, overdueAR }: any) => {
                   const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
                   return (
-                    <tr key={rep.id} className="border-b border-stone-50 last:border-0">
-                      <td className="py-2 font-medium text-stone-800 pr-3">{rep.name}</td>
-                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR, ccy)}</td>
-                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR, ccy)}</td>
-                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-600" : overdPct > 25 ? "text-amber-600" : "text-stone-500"}`}>
+                    <tr key={rep.id} className="border-b border-stone-800 last:border-0">
+                      <td className="py-2 font-medium text-stone-200 pr-3">{rep.name}</td>
+                      <td className="py-2 text-right tabular-nums text-stone-300 pr-3">{fmt.money(openAR, ccy)}</td>
+                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, ccy)}</td>
+                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-500"}`}>
                         {overdPct.toFixed(0)}%
                       </td>
                     </tr>
@@ -574,8 +574,8 @@ export default function DashboardPage() {
     <div className="p-6 max-w-[1400px] mx-auto">
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-stone-500 mt-1">Overview of receivables, aging and collection activity</p>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Dashboard</h1>
+          <p className="text-sm text-stone-400 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-xs text-stone-500 flex items-center gap-1.5">
@@ -629,9 +629,9 @@ export default function DashboardPage() {
       {/* KPI skeleton helper — shown while AR snapshot is loading */}
       {(() => {
         const S = ({ w = "w-28" }: { w?: string }) => (
-          <div className={`h-7 ${w} bg-stone-100 animate-pulse rounded mt-1`} />
+          <div className={`h-7 ${w} bg-stone-800 animate-pulse rounded mt-1`} />
         );
-        const Sub = () => <div className="h-3 w-20 bg-stone-100 animate-pulse rounded mt-2" />;
+        const Sub = () => <div className="h-3 w-20 bg-stone-800 animate-pulse rounded mt-2" />;
 
         return (
           <>
@@ -642,7 +642,7 @@ export default function DashboardPage() {
                   <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
+                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
                 </>}
               </Card>
@@ -663,7 +663,7 @@ export default function DashboardPage() {
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-stone-900 tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
+                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
                 </>}
               </Card>
@@ -687,8 +687,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-3 gap-3">
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-semibold text-stone-900">Aging buckets</h3>
-            <Link href="/reports" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
+            <h3 className="text-sm font-semibold text-white">Aging buckets</h3>
+            <Link href="/reports" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
           </div>
           <div className="space-y-3">
             {["Current", "1-30", "31-60", "61-90", "90+"].map((bucket, i) => {
@@ -697,11 +697,11 @@ export default function DashboardPage() {
               const pct = (stats.buckets[bucket] / maxBucket) * 100;
               return (
                 <div key={bucket} className="flex items-center gap-3">
-                  <div className="w-32 text-xs text-stone-600 font-medium">{labels[i]}</div>
-                  <div className="flex-1 h-7 bg-stone-100 rounded relative overflow-hidden">
+                  <div className="w-32 text-xs text-stone-400 font-medium">{labels[i]}</div>
+                  <div className="flex-1 h-7 bg-stone-800 rounded relative overflow-hidden">
                     <div className={`h-full ${colors[i]}`} style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="w-28 text-right text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(stats.buckets[bucket], ccy)}</div>
+                  <div className="w-28 text-right text-sm font-semibold text-white tabular-nums">{fmt.money(stats.buckets[bucket], ccy)}</div>
                 </div>
               );
             })}
@@ -709,45 +709,45 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <h3 className="text-sm font-semibold text-stone-900 mb-4">Activity (7 days)</h3>
+          <h3 className="text-sm font-semibold text-white mb-4">Activity (7 days)</h3>
           <div className="space-y-4">
             <div>
-              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-500">Emails sent</span><span className="text-lg font-semibold">{stats.emailsSent}</span></div>
-              <div className="h-1.5 bg-stone-100 rounded"><div className="h-full bg-stone-900 rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
+              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Emails sent</span><span className="text-lg font-semibold text-white">{stats.emailsSent}</span></div>
+              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-600 rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
             </div>
             <div>
-              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-500">Replies received</span><span className="text-lg font-semibold">{stats.replies}</span></div>
-              <div className="h-1.5 bg-stone-100 rounded"><div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(stats.replies * 20, 100)}%` }} /></div>
+              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Replies received</span><span className="text-lg font-semibold text-white">{stats.replies}</span></div>
+              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(stats.replies * 20, 100)}%` }} /></div>
             </div>
-            <div className="pt-3 border-t border-stone-100">
-              <div className="text-xs text-stone-500 mb-1">Reply rate</div>
-              <div className="text-lg font-semibold">{stats.emailsSent ? Math.round(stats.replies / stats.emailsSent * 100) : 0}%</div>
+            <div className="pt-3 border-t border-stone-800">
+              <div className="text-xs text-stone-400 mb-1">Reply rate</div>
+              <div className="text-lg font-semibold text-white">{stats.emailsSent ? Math.round(stats.replies / stats.emailsSent * 100) : 0}%</div>
             </div>
           </div>
         </Card>
 
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-stone-900">Top overdue customers</h3>
-            <Link href="/customers" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
+            <h3 className="text-sm font-semibold text-white">Top overdue customers</h3>
+            <Link href="/customers" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
           </div>
           {topOverdue.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No overdue customers</div> : (
             <div className="space-y-1">
               {topOverdue.map(({ customer, amount }, i) => (
-                <Link key={customer.id} href={`/customers/${customer.id}`} className="w-full flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-stone-50 group">
-                  <div className="w-6 text-xs text-stone-400 font-mono">{i + 1}</div>
-                  <div className="w-9 h-9 rounded-md bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center text-stone-600 text-xs font-semibold flex-shrink-0">
+                <Link key={customer.id} href={`/customers/${customer.id}`} className="w-full flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-stone-800/60 group">
+                  <div className="w-6 text-xs text-stone-500 font-mono">{i + 1}</div>
+                  <div className="w-9 h-9 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-xs font-semibold flex-shrink-0">
                     {customer.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
                   </div>
                   <div className="flex-1 text-left min-w-0">
-                    <div className="text-sm font-medium text-stone-900 truncate">{customer.name}</div>
+                    <div className="text-sm font-medium text-white truncate">{customer.name}</div>
                     <div className="text-[11px] text-stone-500">
                       {customer.code && !customer.code.startsWith("QBO-") ? `${customer.code} · ` : ""}{customer.country}
                     </div>
                   </div>
                   {customer.riskRating === "High" && <Badge variant="red" size="sm">High risk</Badge>}
-                  <div className="text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(amount, customer.currency)}</div>
-                  <ChevronRight size={14} className="text-stone-300 group-hover:text-stone-500" />
+                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, customer.currency)}</div>
+                  <ChevronRight size={14} className="text-stone-600 group-hover:text-stone-400" />
                 </Link>
               ))}
             </div>
@@ -756,8 +756,8 @@ export default function DashboardPage() {
 
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-stone-900">My tasks today</h3>
-            <Link href="/tasks" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
+            <h3 className="text-sm font-semibold text-white">My tasks today</h3>
+            <Link href="/tasks" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
           </div>
           {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">All caught up</div> : (
             <div className="space-y-2">
@@ -765,10 +765,10 @@ export default function DashboardPage() {
                 const overdue = new Date(t.dueDate) < new Date(today());
                 const href = t.invoiceId ? `/invoices/${t.invoiceId}` : "/tasks";
                 return (
-                  <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-50">
-                    <Circle size={14} className="text-stone-300 mt-0.5 flex-shrink-0" />
+                  <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-800/60">
+                    <Circle size={14} className="text-stone-600 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-stone-900 truncate">{t.title}</div>
+                      <div className="text-sm text-white truncate">{t.title}</div>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`text-[11px] ${overdue ? "text-rose-600 font-medium" : "text-stone-500"}`}>{fmt.relative(t.dueDate)}</span>
                         {t.priority === "Urgent" && <Badge variant="red" size="sm">Urgent</Badge>}
@@ -787,23 +787,23 @@ export default function DashboardPage() {
           <Card className="col-span-2">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
-              <h3 className="text-sm font-semibold text-stone-900">Needs attention</h3>
+              <h3 className="text-sm font-semibold text-white">Needs attention</h3>
             </div>
             <div className="space-y-2">
               {alerts.map((alert, i) => (
                 <Link
                   key={i}
                   href={alert.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-r-lg border-l-2 ${alert.color === "rose" ? "border-rose-500 bg-rose-50 hover:bg-rose-100" : "border-amber-400 bg-amber-50 hover:bg-amber-100"}`}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-r-lg border-l-2 ${alert.color === "rose" ? "border-rose-500 bg-rose-500/10 hover:bg-rose-500/15" : "border-amber-400 bg-amber-500/10 hover:bg-amber-500/15"}`}
                 >
-                  <div className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-500" : "text-amber-500"}`}>
+                  <div className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>
                     {alert.icon === "AlertTriangle" ? <AlertTriangle size={16} /> : <Mail size={16} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={`text-[13px] font-semibold ${alert.color === "rose" ? "text-rose-900" : "text-amber-900"}`}>{alert.label}</div>
-                    <div className={`text-[11px] mt-0.5 ${alert.color === "rose" ? "text-rose-600" : "text-amber-700"}`}>{alert.sub}</div>
+                    <div className={`text-[13px] font-semibold ${alert.color === "rose" ? "text-rose-200" : "text-amber-200"}`}>{alert.label}</div>
+                    <div className={`text-[11px] mt-0.5 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>{alert.sub}</div>
                   </div>
-                  <ChevronRight size={14} className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`} />
+                  <ChevronRight size={14} className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-500" : "text-amber-500"}`} />
                 </Link>
               ))}
             </div>
@@ -812,7 +812,7 @@ export default function DashboardPage() {
 
         <Card className="col-span-3">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-stone-900">Invoices due this week</h3>
+            <h3 className="text-sm font-semibold text-white">Invoices due this week</h3>
             <span className="text-xs text-stone-500">{stats.dueThisWeek.length} invoices</span>
           </div>
           {stats.dueThisWeek.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No invoices due this week</div> : (
@@ -820,13 +820,13 @@ export default function DashboardPage() {
               {stats.dueThisWeek.slice(0, 6).map(inv => {
                 const customer = customers.find(c => c.id === inv.customerId);
                 return (
-                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md ring-1 ring-stone-200 hover:ring-stone-300 hover:bg-stone-50">
+                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md border border-stone-800 hover:border-stone-700 hover:bg-stone-800/50">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-stone-900 truncate">{customer?.name}</div>
+                      <div className="text-sm font-medium text-white truncate">{customer?.name}</div>
                       <div className="text-[11px] text-stone-500 mt-0.5 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-semibold text-stone-900 tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
+                      <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
                       <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
                     </div>
                   </Link>
@@ -840,11 +840,11 @@ export default function DashboardPage() {
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-stone-900">Concentration risk</h3>
+              <h3 className="text-sm font-semibold text-white">Concentration risk</h3>
               <p className="text-[11px] text-stone-500 mt-0.5">Top 5 customers as % of total AR</p>
             </div>
             {concentrationRisk.top5Pct > 50 && (
-              <div className="flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2 py-1 rounded-md">
+              <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-md">
                 <AlertTriangle size={11} /> High concentration
               </div>
             )}
@@ -856,20 +856,20 @@ export default function DashboardPage() {
               {concentrationRisk.rows.map(({ customer, amount, pct }) => (
                 <Link key={customer.id} href={`/customers/${customer.id}`} className="block group">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-medium text-stone-800 truncate group-hover:text-stone-900">{customer.name}</span>
+                    <span className="text-[12px] font-medium text-stone-300 truncate group-hover:text-white">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] font-semibold text-stone-700 tabular-nums">{fmt.money(amount, ccy)}</span>
-                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-600" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
+                      <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, ccy)}</span>
+                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
                     </div>
                   </div>
-                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${pct > 20 ? "bg-amber-400" : "bg-stone-400"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${pct > 20 ? "bg-amber-400" : "bg-stone-500"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                   </div>
                 </Link>
               ))}
-              <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
+              <div className="pt-2 border-t border-stone-800 flex items-center justify-between">
                 <span className="text-[11px] text-stone-500">Top 5 total concentration</span>
-                <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-600" : "text-emerald-600"}`}>
+                <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-400" : "text-emerald-400"}`}>
                   {concentrationRisk.top5Pct.toFixed(1)}%
                 </span>
               </div>
@@ -881,39 +881,39 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-stone-900">Proactive pipeline</h3>
+              <h3 className="text-sm font-semibold text-white">Proactive pipeline</h3>
               <p className="text-[11px] text-stone-500 mt-0.5">Due in 7–14 days, not yet contacted</p>
             </div>
             <Link href="/smart-views" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">Smart Views <ArrowUpRight size={12} /></Link>
           </div>
           {stats.proactivePipeline.length === 0 ? (
             <div className="py-6 text-center">
-              <div className="text-2xl font-semibold text-emerald-600 mb-1">✓</div>
+              <div className="text-2xl font-semibold text-emerald-400 mb-1">✓</div>
               <div className="text-sm text-stone-500">All upcoming invoices contacted</div>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <div className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-md px-3 py-2 mb-3">
+              <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md px-3 py-2 mb-3">
                 <strong>{stats.proactivePipeline.length}</strong> invoice{stats.proactivePipeline.length !== 1 ? "s" : ""} due soon with no contact logged — reach out now
               </div>
               {stats.proactivePipeline.slice(0, 4).map(inv => {
                 const customer = customers.find(c => c.id === inv.customerId);
                 const d = Math.abs(daysOverdue(inv.dueDate));
                 return (
-                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50">
+                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-800/60">
                     <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-medium text-stone-800 truncate">{customer?.name}</div>
+                      <div className="text-[12px] font-medium text-stone-200 truncate">{customer?.name}</div>
                       <div className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[12px] font-semibold tabular-nums">{fmt.money(inv.total - (inv.paid || 0), inv.currency ?? ccy)}</div>
-                      <div className="text-[10px] text-amber-600">in {d}d</div>
+                      <div className="text-[12px] font-semibold tabular-nums text-white">{fmt.money(inv.total - (inv.paid || 0), inv.currency ?? ccy)}</div>
+                      <div className="text-[10px] text-amber-400">in {d}d</div>
                     </div>
                   </Link>
                 );
               })}
               {stats.proactivePipeline.length > 4 && (
-                <div className="text-center text-[11px] text-stone-400 pt-1">+{stats.proactivePipeline.length - 4} more</div>
+                <div className="text-center text-[11px] text-stone-500 pt-1">+{stats.proactivePipeline.length - 4} more</div>
               )}
             </div>
           )}
@@ -925,7 +925,7 @@ export default function DashboardPage() {
         <div className="mt-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-base font-semibold text-stone-900">AR by Region</h2>
+              <h2 className="text-base font-semibold text-white">AR by Region</h2>
               <p className="text-[11px] text-stone-500 mt-0.5">Open receivables broken down by region</p>
             </div>
           </div>
@@ -936,17 +936,17 @@ export default function DashboardPage() {
               return (
                 <Card key={id} padding="md">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="text-[12px] font-semibold text-stone-700 uppercase tracking-wide">{name}</div>
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${overduePct > 50 ? "bg-rose-50 text-rose-600" : overduePct > 25 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+                    <div className="text-[12px] font-semibold text-stone-400 uppercase tracking-wide">{name}</div>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${overduePct > 50 ? "bg-rose-500/15 text-rose-400" : overduePct > 25 ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400"}`}>
                       {overduePct.toFixed(0)}% overdue
                     </span>
                   </div>
-                  <div className="text-2xl font-semibold text-stone-900 tracking-tight tabular-nums mb-1">
+                  <div className="text-2xl font-semibold text-white tracking-tight tabular-nums mb-1">
                     {fmt.money(total, ccy)}
                   </div>
                   <div className="text-[11px] text-stone-500 mb-3">{count} open invoice{count !== 1 ? "s" : ""}</div>
                   {/* Stacked bar: current vs overdue */}
-                  <div className="h-2 rounded-full overflow-hidden bg-stone-100 mb-2">
+                  <div className="h-2 rounded-full overflow-hidden bg-stone-800 mb-2">
                     <div className="h-full flex">
                       {currentAmt > 0 && (
                         <div
@@ -980,12 +980,12 @@ export default function DashboardPage() {
 
       {/* ── Multi-currency warning ───────────────────────────────────── */}
       {hasMixedCurrencies && (
-        <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
-          <p className="text-[12px] text-amber-800 leading-relaxed">
+        <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <span className="text-amber-400 mt-0.5 shrink-0">⚠</span>
+          <p className="text-[12px] text-amber-200 leading-relaxed">
             <span className="font-semibold">Multi-currency data detected.</span>
             {" "}All totals shown use the org&apos;s home currency ({ccy}) symbol but are the arithmetic sum of mixed currencies without FX conversion.
-            {" "}For precise home-currency values use the <a href="/reports" className="underline font-medium">AR Reports page</a> with a single-currency filter, or QBO&apos;s native Aged Receivables report.
+            {" "}For precise home-currency values use the <a href="/reports" className="underline font-medium text-amber-300">AR Reports page</a> with a single-currency filter, or QBO&apos;s native Aged Receivables report.
           </p>
         </div>
       )}
@@ -994,7 +994,7 @@ export default function DashboardPage() {
       <div className="mt-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h2 className="text-base font-semibold text-stone-900">AR Health</h2>
+            <h2 className="text-base font-semibold text-white">AR Health</h2>
             <p className="text-[11px] text-stone-500 mt-0.5">5-dimension quality score — reconciled with AR Reports</p>
           </div>
           {snapshotLoading && (

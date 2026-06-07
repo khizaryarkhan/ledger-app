@@ -27,17 +27,17 @@ export default function InboxPage() {
     <div className="p-6 max-w-[1200px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Inbox</h1>
-          <p className="text-sm text-stone-500 mt-1">All emails and notes across customers</p>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Inbox</h1>
+          <p className="text-sm text-stone-400 mt-1">All emails and notes across customers</p>
         </div>
       </div>
 
       <div className="flex items-center gap-2 mb-4">
         <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search..." icon={Search} className="flex-1 max-w-md" />
-        <div className="flex bg-stone-100 rounded-md p-0.5 text-xs font-medium">
+        <div className="flex bg-stone-800 rounded-md p-0.5 text-xs font-medium">
           {[["all", "All"], ["inbound", "Inbound"], ["outbound", "Outbound"]].map(([v, l]) => (
             <button key={v} onClick={() => setFilter(v as any)}
-              className={`px-3 py-1.5 rounded ${filter === v ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>{l}</button>
+              className={`px-3 py-1.5 rounded ${filter === v ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>{l}</button>
           ))}
         </div>
       </div>
@@ -53,18 +53,18 @@ export default function InboxPage() {
             const isInbound = c.direction === "Inbound";
             const isNote = c.channel === "Note";
             return (
-              <Link key={c.id} href={customer ? `/customers/${customer.id}` : "#"} className="flex items-start gap-3 px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-stone-50">
+              <Link key={c.id} href={customer ? `/customers/${customer.id}` : "#"} className="flex items-start gap-3 px-4 py-3 border-b border-stone-800 last:border-0 hover:bg-stone-800/50">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  isNote ? "bg-amber-50 text-amber-700" : isInbound ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
+                  isNote ? "bg-amber-500/20 text-amber-400" : isInbound ? "bg-emerald-500/20 text-emerald-400" : "bg-blue-500/20 text-blue-400"
                 }`}>
                   {isNote ? <FileEdit size={12} /> : isInbound ? <ArrowDownRight size={12} /> : <ArrowUpRight size={12} />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <div className="text-sm font-medium text-stone-900 truncate">{customer?.name}{contact ? ` · ${contact.name}` : ""}</div>
+                    <div className="text-sm font-medium text-white truncate">{customer?.name}{contact ? ` · ${contact.name}` : ""}</div>
                     <div className="text-[11px] text-stone-500 flex-shrink-0 ml-2">{fmt.relative(c.sentAt)}</div>
                   </div>
-                  {c.subject && <div className="text-sm text-stone-700 truncate">{c.subject}</div>}
+                  {c.subject && <div className="text-sm text-stone-300 truncate">{c.subject}</div>}
                   <div className="text-[12px] text-stone-500 truncate mt-0.5">{c.body}</div>
                   {invoice && <div className="text-[10px] font-mono text-stone-500 mt-1">{invoice.invoiceNumber}</div>}
                 </div>
