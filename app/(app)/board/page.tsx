@@ -58,7 +58,7 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
           return (
             <div key={key} className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full ${color}`} />
-              <span className="text-[10px] text-stone-500">{label} <span className="font-medium text-stone-700">{pct.toFixed(0)}%</span></span>
+              <span className="text-[10px] text-stone-500">{label} <span className="font-medium text-stone-300">{pct.toFixed(0)}%</span></span>
             </div>
           );
         })}
@@ -94,29 +94,29 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       draggable
       onDragStart={() => setDraggingId(entity.id)}
       onDragEnd={() => setDraggingId(null)}
-      className={`block bg-white rounded-lg ring-1 ring-stone-200 p-3.5 hover:ring-stone-300 hover:shadow-sm cursor-pointer transition-all ${draggingId === entity.id ? "opacity-40" : ""}`}>
+      className={`block bg-stone-900 rounded-lg border border-stone-700 p-3.5 hover:border-stone-500 hover:bg-stone-800/80 cursor-pointer transition-all ${draggingId === entity.id ? "opacity-40" : ""}`}>
 
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
           {entity.code && !entity.code.startsWith("QBO-") && (
-            <div className="text-[10px] text-stone-400 font-mono mb-0.5">{entity.code}</div>
+            <div className="text-[10px] text-stone-500 font-mono mb-0.5">{entity.code}</div>
           )}
-          <div className="text-sm font-semibold text-stone-900 leading-tight truncate">{entity.name}</div>
+          <div className="text-sm font-semibold text-white leading-tight truncate">{entity.name}</div>
         </div>
         {hasOverdue && <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1 flex-shrink-0 ml-2" />}
       </div>
 
       <div className="flex items-center justify-between mt-2">
-        <div className="text-base font-semibold tabular-nums text-stone-900">{fmt.money(outstanding, entity.currency)}</div>
+        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, entity.currency)}</div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
       </div>
 
-      <div className="flex items-center gap-2 mt-2 text-[11px] text-stone-500">
+      <div className="flex items-center gap-2 mt-2 text-[11px] text-stone-400">
         <span>{open.length} open invoice{open.length !== 1 ? "s" : ""}</span>
         {invoices.length > open.length && <span>· {invoices.length - open.length} closed</span>}
       </div>
       {repName && (
-        <div className="flex items-center gap-1 mt-1.5 text-[11px] text-stone-400">
+        <div className="flex items-center gap-1 mt-1.5 text-[11px] text-stone-500">
           <Users size={11} /> {repName}
         </div>
       )}
@@ -124,10 +124,10 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       {(disputedCount > 0 || promisedCount > 0) && (
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
           {disputedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">⚠ {disputedCount} disputed</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-semibold">⚠ {disputedCount} disputed</span>
           )}
           {promisedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">📅 {promisedCount} promised</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20 font-semibold">📅 {promisedCount} promised</span>
           )}
         </div>
       )}
@@ -290,10 +290,10 @@ export default function BoardPage() {
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between bg-white flex-shrink-0">
+      <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between bg-stone-950 flex-shrink-0">
         <div>
-          <h1 className="text-xl font-semibold text-stone-900 tracking-tight">Collections Board</h1>
-          <p className="text-sm text-stone-500 mt-0.5">
+          <h1 className="text-xl font-semibold text-white tracking-tight">Collections Board</h1>
+          <p className="text-sm text-stone-400 mt-0.5">
             {fmt.money(totalAR, ccy)} total AR · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
           </p>
         </div>
@@ -305,14 +305,14 @@ export default function BoardPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`Search ${groupBy === "customer" ? "customer" : "project"}…`}
-              className="h-8 w-48 pl-7 pr-2 text-xs rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none"
+              className="h-8 w-48 pl-7 pr-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 placeholder-stone-500 focus:border-emerald-500 focus:outline-none"
             />
           </div>
           {/* Rep filter */}
           {(reps ?? []).length > 0 && (
             <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
-              className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-              style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+              className="h-8 px-2 pr-6 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 appearance-none"
+              style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
               <option value="">All reps</option>
               {(reps ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
@@ -334,26 +334,26 @@ export default function BoardPage() {
 
           {/* Group by toggle — only meaningful in card view */}
           {viewMode === "cards" && (
-            <div className="flex bg-stone-100 rounded-md p-0.5">
+            <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
               <button onClick={() => setGroupBy("customer")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "customer" ? "bg-stone-600 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
                 <Users size={12} /> Customers
               </button>
               <button onClick={() => setGroupBy("project")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${groupBy === "project" ? "bg-stone-600 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
                 <Briefcase size={12} /> Projects
               </button>
             </div>
           )}
 
           {/* Cards / List view toggle */}
-          <div className="flex bg-stone-100 rounded-md p-0.5">
+          <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
             <button onClick={() => setViewMode("cards")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               <LayoutGrid size={12} /> Cards
             </button>
             <button onClick={() => setViewMode("list")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "list" ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               <ListIcon size={12} /> List
             </button>
           </div>
@@ -371,21 +371,21 @@ export default function BoardPage() {
 
             return (
               <div key={stage}
-                className={`w-68 flex-shrink-0 flex flex-col rounded-xl transition-colors ${isDragOver ? "bg-stone-200" : "bg-stone-50"} ring-1 ring-stone-200`}
+                className={`w-68 flex-shrink-0 flex flex-col rounded-xl transition-colors ${isDragOver ? "bg-stone-700" : "bg-stone-900/60"} border border-stone-800`}
                 style={{ width: "272px" }}
                 onDragOver={(e) => { e.preventDefault(); setDraggingOverStage(stage); }}
                 onDragLeave={() => setDraggingOverStage(null)}
                 onDrop={() => handleDrop(stage)}>
 
                 {/* Column header */}
-                <div className="p-3 border-b border-stone-200 flex-shrink-0">
+                <div className="p-3 border-b border-stone-800 flex-shrink-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLOR_CLASSES[stages.find(s => s.label === stage)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700"}`}>{stage}</span>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLOR_CLASSES[stages.find(s => s.label === stage)?.color ?? "stone"]?.badge ?? "bg-stone-800 text-stone-300"}`}>{stage}</span>
                     <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
                   </div>
-                  <div className="text-sm font-semibold text-stone-700 tabular-nums">{fmt.money(stageTotal, ccy)}</div>
+                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(stageTotal, ccy)}</div>
                   {totalAR > 0 && stageTotal > 0 && (
-                    <div className="text-[10px] text-stone-400 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
                   )}
                 </div>
 
@@ -405,7 +405,7 @@ export default function BoardPage() {
                     />
                   ))}
                   {items.length === 0 && (
-                    <div className={`text-xs text-stone-400 text-center py-6 rounded-lg border-2 border-dashed transition-colors ${isDragOver ? "border-stone-400 text-stone-500" : "border-stone-200"}`}>
+                    <div className={`text-xs text-stone-600 text-center py-6 rounded-lg border-2 border-dashed transition-colors ${isDragOver ? "border-stone-500 text-stone-400" : "border-stone-800"}`}>
                       {isDragOver ? "Drop here" : "No items"}
                     </div>
                   )}
@@ -431,15 +431,15 @@ export default function BoardPage() {
       )}
 
       {/* Legend */}
-      <div className="px-6 py-2 border-t border-stone-200 bg-white flex-shrink-0 flex items-center gap-6">
-        <span className="text-[11px] text-stone-400 font-medium uppercase tracking-wider">Aging</span>
+      <div className="px-6 py-2 border-t border-stone-800 bg-stone-950 flex-shrink-0 flex items-center gap-6">
+        <span className="text-[11px] text-stone-500 font-medium uppercase tracking-wider">Aging</span>
         {AGING_COLORS.map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5">
             <div className={`w-2.5 h-2.5 rounded ${color}`} />
-            <span className="text-[11px] text-stone-500">{label}</span>
+            <span className="text-[11px] text-stone-400">{label}</span>
           </div>
         ))}
-        <span className="text-[11px] text-stone-400 ml-4">Drag a card to move all its open invoices to a new stage</span>
+        <span className="text-[11px] text-stone-600 ml-4">Drag a card to move all its open invoices to a new stage</span>
       </div>
     </div>
   );
