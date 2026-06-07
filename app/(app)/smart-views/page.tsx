@@ -49,8 +49,8 @@ export default function SmartViewsPage() {
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Smart Views</h1>
-        <p className="text-sm text-stone-500 mt-1">Pre-built filters for common collections workflows</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Smart Views</h1>
+        <p className="text-sm text-stone-400 mt-1">Pre-built filters for common collections workflows</p>
       </div>
 
       <div className="grid grid-cols-12 gap-4">
@@ -67,7 +67,7 @@ export default function SmartViewsPage() {
               return (
                 <div key={group} className="mb-3">
                   <div className={`px-2 mb-1 text-[10px] font-semibold tracking-widest ${
-                    group === "Proactive" ? "text-emerald-600" : "text-stone-400"
+                    group === "Proactive" ? "text-emerald-400" : "text-stone-400"
                   }`}>
                     {groupLabel[group]}
                   </div>
@@ -76,10 +76,10 @@ export default function SmartViewsPage() {
                     const active = selected === v.id;
                     return (
                       <button key={v.id} onClick={() => setSelected(v.id)}
-                        className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${active ? "bg-white ring-1 ring-stone-200 shadow-sm" : "hover:bg-stone-50"}`}>
+                        className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${active ? "bg-stone-800 border border-stone-700" : "hover:bg-stone-800/50"}`}>
                         <div className="flex items-center justify-between mb-0.5">
-                          <div className="text-sm font-medium text-stone-900">{v.name}</div>
-                          <span className={`text-[11px] font-semibold tabular-nums ${count > 0 && group === "Proactive" ? "text-emerald-600" : "text-stone-500"}`}>{count}</span>
+                          <div className="text-sm font-medium text-white">{v.name}</div>
+                          <span className={`text-[11px] font-semibold tabular-nums ${count > 0 && group === "Proactive" ? "text-emerald-400" : "text-stone-400"}`}>{count}</span>
                         </div>
                         <div className="text-[11px] text-stone-500">{v.description}</div>
                       </button>
@@ -93,8 +93,8 @@ export default function SmartViewsPage() {
 
         <div className="col-span-8">
           <Card padding="none">
-            <div className="px-4 py-3 border-b border-stone-200">
-              <div className="text-sm font-semibold text-stone-900">{view.name}</div>
+            <div className="px-4 py-3 border-b border-stone-800">
+              <div className="text-sm font-semibold text-white">{view.name}</div>
               <div className="text-[11px] text-stone-500 mt-0.5">{results.length} invoices</div>
             </div>
             {results.length === 0 ? (
@@ -106,13 +106,13 @@ export default function SmartViewsPage() {
                   const project = projects.find(p => p.id === inv.projectId);
                   const out = inv.total - (inv.paid || 0);
                   return (
-                    <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 px-4 py-2.5 border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                    <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 px-4 py-2.5 border-b border-stone-800 last:border-0 hover:bg-stone-800/50">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[12px] font-mono text-stone-500">{inv.invoiceNumber}</span>
                           <Badge variant={stageBadge(inv.collectionStage)} size="sm">{inv.collectionStage}</Badge>
                         </div>
-                        <div className="text-sm font-medium text-stone-900 truncate mt-0.5">{customer?.name}</div>
+                        <div className="text-sm font-medium text-white truncate mt-0.5">{customer?.name}</div>
                         {project && (
                           <div className="text-[11px] text-stone-400 truncate mt-0.5">{project.name}</div>
                         )}
@@ -125,7 +125,7 @@ export default function SmartViewsPage() {
                     </Link>
                   );
                 })}
-                {results.length > 50 && <div className="px-4 py-3 text-center text-xs text-stone-500 bg-stone-50">Showing first 50 of {results.length}</div>}
+                {results.length > 50 && <div className="px-4 py-3 text-center text-xs text-stone-400 bg-stone-800/40">Showing first 50 of {results.length}</div>}
               </div>
             )}
           </Card>

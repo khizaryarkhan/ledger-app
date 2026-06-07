@@ -34,24 +34,24 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-        <h2 className="text-base font-semibold text-stone-900 mb-1">Reclassify customers</h2>
-        <p className="text-sm text-stone-500 mb-4">Make changes to all <strong>{ids.length}</strong> selected customer{ids.length > 1 ? "s" : ""}.</p>
+      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-xl w-full max-w-sm p-6">
+        <h2 className="text-base font-semibold text-white mb-1">Reclassify customers</h2>
+        <p className="text-sm text-stone-400 mb-4">Make changes to all <strong>{ids.length}</strong> selected customer{ids.length > 1 ? "s" : ""}.</p>
 
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Rep to</label>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Rep to</label>
             <select value={repId} onChange={e => setRepId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
+              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
               <option value="">— No change —</option>
               <option value="null">Unassign rep</option>
               {freshReps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Change Region to</label>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Region to</label>
             <select value={regionId} onChange={e => setRegionId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none">
+              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
               <option value="">— No change —</option>
               <option value="null">Unassign region</option>
               {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -72,26 +72,26 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
 
 const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c: any; isSelected: boolean; onToggle: (id: string) => void }) {
   return (
-    <div className={`relative rounded-lg ring-1 transition-colors ${isSelected ? "ring-stone-900 ring-2" : "ring-stone-200 hover:ring-stone-300"}`}>
+    <div className={`relative rounded-lg ring-1 transition-colors ${isSelected ? "ring-emerald-500 ring-2" : "ring-stone-700 hover:ring-stone-600"}`}>
       <div className="absolute top-3 left-3 z-10">
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(c.id)}
-          className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+          className="rounded border-stone-600 cursor-pointer" onClick={(e) => e.stopPropagation()} />
       </div>
       <Link href={`/customers/${c.id}`}>
         <Card className="cursor-pointer h-full ring-0 hover:ring-0">
           <div className="flex items-start gap-3 mb-3 pl-5">
-            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center text-stone-700 text-sm font-semibold flex-shrink-0">
+            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
               {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
+              <div className="text-sm font-semibold text-white truncate">{c.name}</div>
               <div className="text-[11px] text-stone-500 mt-0.5">
                 {c.code && !c.code.startsWith("QBO-") ? `${c.code} · ` : ""}{c.country || "—"}
               </div>
               {(c.repName || c.regionName) && (
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  {c.repName && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
-                  {c.regionName && <span className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-medium">{c.regionName}</span>}
+                  {c.repName && <span className="text-[10px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-medium">{c.repName}</span>}
+                  {c.regionName && <span className="text-[10px] bg-stone-800 text-stone-400 px-1.5 py-0.5 rounded font-medium">{c.regionName}</span>}
                 </div>
               )}
             </div>
@@ -101,18 +101,18 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c
               {c.status !== "Active" && <Badge variant="orange" size="sm">{c.status}</Badge>}
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-100">
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-800">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
-              <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{fmt.money(c.outstanding, c.currency)}</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{fmt.money(c.outstanding, c.currency)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
-              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(c.overdue, c.currency)}</div>
+              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-400" : "text-white"}`}>{fmt.money(c.overdue, c.currency)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open inv.</div>
-              <div className="text-sm font-semibold text-stone-900 tabular-nums mt-0.5">{c.openCount}</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{c.openCount}</div>
             </div>
           </div>
         </Card>
@@ -208,7 +208,7 @@ export default function CustomersPage() {
     <div className="p-6 max-w-[1500px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Customers</h1>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Customers</h1>
           <p className="text-sm text-stone-500 mt-1">{filtered.length} customers</p>
         </div>
         <Button icon={Plus} onClick={() => setShowCreate(true)}>New customer</Button>
@@ -237,14 +237,14 @@ export default function CustomersPage() {
         <Select value={riskFilter} onChange={(e: any) => setRiskFilter(e.target.value)} placeholder="All risk levels" options={["Low", "Medium", "High"]} />
         <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Active", "On Hold", "Inactive"]} />
         <select value={repFilter} onChange={(e: any) => setRepFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
+          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
+          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
           <option value="">All reps</option>
           {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
+          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
+          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
           <option value="">All regions</option>
           {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
@@ -256,13 +256,13 @@ export default function CustomersPage() {
           </label>
         )}
         {/* View toggle */}
-        <div className="ml-auto flex items-center gap-1 bg-stone-100 rounded-lg p-1">
+        <div className="ml-auto flex items-center gap-1 bg-stone-800 rounded-lg p-1">
           <button onClick={() => setViewMode("list")} title="List view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-700"}`}>
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
             <List size={14} />
           </button>
           <button onClick={() => setViewMode("grid")} title="Card view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-700"}`}>
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
             <LayoutGrid size={14} />
           </button>
         </div>
@@ -276,14 +276,14 @@ export default function CustomersPage() {
         </Card>
       ) : viewMode === "list" ? (
         /* ── LIST VIEW ── */
-        <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
+        <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
           <ActiveFiltersBar dt={dt} cols={CUST_COLS} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-stone-200 bg-stone-50/50">
+                <tr className="border-b border-stone-800 bg-stone-900/60">
                   <th className="px-3 py-2.5 w-10">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-600 cursor-pointer" />
                   </th>
                   {CUST_COLS.map((col) => (
                     <ColHeader key={col.key} col={col} dt={dt} className={col.align === "right" ? "text-right" : "text-left"} />
@@ -292,20 +292,20 @@ export default function CustomersPage() {
               </thead>
               <tbody>
                 {dt.rows.map((c: any) => (
-                  <tr key={c.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selected.has(c.id) ? "bg-blue-50/50" : ""}`}>
+                  <tr key={c.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${selected.has(c.id) ? "bg-emerald-500/10" : ""}`}>
                     <td className="px-3 py-2.5 w-10">
                       <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)}
-                        className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+                        className="rounded border-stone-600 cursor-pointer" onClick={(e) => e.stopPropagation()} />
                     </td>
-                    <td className="px-3 py-2.5 font-medium text-stone-900">
+                    <td className="px-3 py-2.5 font-medium text-white">
                       <Link href={`/customers/${c.id}`} className="hover:underline">{c.name}</Link>
                     </td>
-                    <td className="px-3 py-2.5 text-stone-500 font-mono text-[12px]">
+                    <td className="px-3 py-2.5 text-stone-400 font-mono text-[12px]">
                       {c.code?.startsWith("QBO-") ? "—" : c.code}
                     </td>
-                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.country || "—"}</td>
-                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.repName || <span className="text-stone-300">—</span>}</td>
-                    <td className="px-3 py-2.5 text-stone-600 text-[12px]">{c.regionName || <span className="text-stone-300">—</span>}</td>
+                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.country || "—"}</td>
+                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.repName || <span className="text-stone-600">—</span>}</td>
+                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.regionName || <span className="text-stone-600">—</span>}</td>
                     <td className="px-3 py-2.5">
                       {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
                       {c.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
@@ -314,9 +314,9 @@ export default function CustomersPage() {
                     <td className="px-3 py-2.5">
                       <Badge variant={c.effectiveStatus === "Active" ? "green" : c.effectiveStatus === "On Hold" ? "orange" : "neutral"} size="sm">{c.effectiveStatus}</Badge>
                     </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(c.outstanding, c.currency)}</td>
-                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-600" : "text-stone-400"}`}>{fmt.money(c.overdue, c.currency)}</td>
-                    <td className="px-3 py-2.5 text-right text-stone-600 tabular-nums">{c.openCount}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(c.outstanding, c.currency)}</td>
+                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-400" : "text-stone-500"}`}>{fmt.money(c.overdue, c.currency)}</td>
+                    <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums">{c.openCount}</td>
                   </tr>
                 ))}
               </tbody>
@@ -336,13 +336,13 @@ export default function CustomersPage() {
             <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
             <div className="flex items-center gap-1">
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Prev</button>
+                className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
               {Array.from({ length: totalPages }, (_, i) => (
                 <button key={i} onClick={() => setPage(i)}
-                  className={`px-3 py-1.5 text-xs rounded-md ring-1 ${page === i ? "bg-stone-900 text-white ring-stone-900" : "ring-stone-200 hover:bg-stone-50"}`}>{i + 1}</button>
+                  className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
               ))}
               <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                className="px-3 py-1.5 text-xs rounded-md ring-1 ring-stone-200 disabled:opacity-40 hover:bg-stone-50">Next</button>
+                className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
             </div>
           </div>
         )}

@@ -128,8 +128,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.inv.id)), [rows, selected]);
   const anyFilter = Object.values(cf).some(Boolean);
 
-  const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider whitespace-nowrap";
-  const inputCls = "w-full text-[11px] border border-stone-200 rounded px-1.5 py-1 bg-white outline-none focus:ring-1 focus:ring-stone-400";
+  const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-400 uppercase tracking-wider whitespace-nowrap";
+  const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500";
   const selectedCustomers = useMemo(() => new Set(selectedRows.map(r => r.custId)), [selectedRows]);
   const selectedTotal = selectedRows.reduce((s, r) => s + r.bal, 0);
 
@@ -223,17 +223,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-100 bg-white shrink-0">
-        <span className="text-[12px] text-stone-500">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-800 bg-stone-900 shrink-0">
+        <span className="text-[12px] text-stone-400">
           {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
           <button onClick={() => setOverdueOnly(v => !v)}
-            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-600 border-stone-200 hover:bg-stone-50"}`}>
+            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
             <AlertTriangle size={13} /> Overdue only
           </button>
           <button onClick={exportExcel}
-            className="flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 border border-stone-200 rounded-md px-2.5 py-1.5 hover:bg-stone-50">
+            className="flex items-center gap-1.5 text-xs font-medium text-stone-400 hover:text-white border border-stone-700 rounded-md px-2.5 py-1.5 hover:bg-stone-800">
             <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
           </button>
         </div>
@@ -244,8 +244,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
           <div className="text-center text-sm text-stone-400 py-16">No open invoices match the current filters.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-stone-50 z-10">
-              <tr className="border-b border-stone-200 text-left">
+            <thead className="sticky top-0 bg-stone-900 z-10">
+              <tr className="border-b border-stone-800 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
                 {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due"].map(h => (
                   <th key={h} className={thCls}>{h}</th>
@@ -254,7 +254,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                 <th className={`${thCls} text-center`}>Notes</th>
               </tr>
               {/* Per-column filter row */}
-              <tr className="border-b border-stone-200 bg-white">
+              <tr className="border-b border-stone-800 bg-stone-900/60">
                 <th className="px-2 py-1.5 align-top">
                   {anyFilter && <button onClick={() => setCf({})} title="Clear filters" className="text-stone-400 hover:text-rose-600"><X size={13} /></button>}
                 </th>
@@ -302,13 +302,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
                 return (
-                  <tr key={inv.id} className={`border-b border-stone-100 hover:bg-stone-50 ${isSel ? "bg-blue-50/40" : ""}`}>
+                  <tr key={inv.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${isSel ? "bg-emerald-500/10" : ""}`}>
                     <td className="px-3 py-2"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-300 cursor-pointer" /></td>
-                    <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-900 hover:underline">#{inv.invoiceNumber}</Link></td>
-                    <td className="px-3 py-2 text-stone-800 max-w-[180px] truncate" title={custName}>{custName}</td>
-                    <td className="px-3 py-2 text-stone-500 text-[12px] max-w-[160px] truncate" title={projName ?? ""}>{projName ?? "—"}</td>
-                    <td className="px-3 py-2 text-stone-500 text-[12px]">{regionName ?? "—"}</td>
-                    <td className="px-3 py-2 text-stone-500 text-[12px]">{repName ?? "—"}</td>
+                    <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-300 hover:text-white hover:underline">#{inv.invoiceNumber}</Link></td>
+                    <td className="px-3 py-2 text-white max-w-[180px] truncate" title={custName}>{custName}</td>
+                    <td className="px-3 py-2 text-stone-400 text-[12px] max-w-[160px] truncate" title={projName ?? ""}>{projName ?? "—"}</td>
+                    <td className="px-3 py-2 text-stone-400 text-[12px]">{regionName ?? "—"}</td>
+                    <td className="px-3 py-2 text-stone-400 text-[12px]">{repName ?? "—"}</td>
 
                     {/* Stage dropdown */}
                     <td className="px-3 py-2">
@@ -330,19 +330,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                         const effReason  = o.disputeReason ?? inv.disputeReason;
 
                         if (editingResp) return (
-                          <div className="flex flex-col gap-1.5 bg-white ring-1 ring-stone-200 rounded-lg p-2">
+                          <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg p-2">
                             <div className="flex gap-1">
-                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-100 text-stone-600"}`}>📅 Promise</button>
-                              <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-100 text-stone-600"}`}>⚠️ Dispute</button>
+                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-700 text-stone-400"}`}>📅 Promise</button>
+                              <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-700 text-stone-400"}`}>⚠️ Dispute</button>
                             </div>
                             {respEdit!.mode === "promise" ? (
-                              <input type="date" min={todayStr()} value={rDate} onChange={e => setRDate(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
+                              <input type="date" min={todayStr()} value={rDate} onChange={e => setRDate(e.target.value)} className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300" />
                             ) : (
                               <>
-                                <select value={rCat} onChange={e => setRCat(e.target.value)} className="text-[12px] border border-stone-200 rounded px-1.5 py-1 bg-white">
+                                <select value={rCat} onChange={e => setRCat(e.target.value)} className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300">
                                   {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
-                                <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-200 rounded px-1.5 py-1" />
+                                <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 placeholder-stone-600" />
                               </>
                             )}
                             <div className="flex items-center justify-between gap-1">
@@ -369,14 +369,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                               <>
                                 <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
                                   title={effReason || "Click to resolve"}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold inline-flex items-center gap-1 hover:bg-rose-200 disabled:opacity-50">
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 font-semibold inline-flex items-center gap-1 hover:bg-rose-500/25 disabled:opacity-50">
                                   <AlertOctagon size={10} /> Disputed
                                 </button>
                                 <span className="text-[10px] text-emerald-600 opacity-0 group-hover:opacity-100 font-medium">click to resolve</span>
                               </>
                             ) : effPromise ? (
                               <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(effPromise || ""); setRReason(""); }}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold inline-flex items-center gap-1 hover:bg-blue-200">
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-semibold inline-flex items-center gap-1 hover:bg-blue-500/25">
                                 <CalendarClock size={10} /> Promised {effPromise}
                               </button>
                             ) : (
@@ -396,60 +396,60 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                           autoFocus value={emailVal} onChange={e => setEmailVal(e.target.value)}
                           onBlur={() => { if (emailVal !== (email ?? "")) save(inv.id, { billingEmail: emailVal }); setEmailEdit(null); }}
                           onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEmailEdit(null); }}
-                          className="w-full text-[12px] border border-stone-300 rounded px-1.5 py-1"
+                          className="w-full text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300"
                         />
                       ) : (
                         <button onClick={() => { setEmailEdit(inv.id); setEmailVal(email ?? ""); }}
                           className="group inline-flex items-center gap-1 text-left max-w-full">
-                          <span className={`text-[12px] truncate ${email ? "text-stone-600" : "text-stone-300 italic"}`}>{email || "no email"}</span>
+                          <span className={`text-[12px] truncate ${email ? "text-stone-300" : "text-stone-600 italic"}`}>{email || "no email"}</span>
                           <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100 shrink-0" />
                         </button>
                       )}
                     </td>
 
                     <td className="px-3 py-2 whitespace-nowrap text-[12px]">
-                      {lastSent ? <span className="text-stone-600">{fmtSent(lastSent)}</span> : <span className="text-stone-300">Never</span>}
+                      {lastSent ? <span className="text-stone-400">{fmtSent(lastSent)}</span> : <span className="text-stone-600">Never</span>}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-[12px] font-mono">
-                      {lastRef ? <span className="text-stone-500">{lastRef}</span> : <span className="text-stone-300">—</span>}
+                      {lastRef ? <span className="text-stone-400">{lastRef}</span> : <span className="text-stone-600">—</span>}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-stone-600 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-600 font-medium">+{days}d</span>}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-stone-900 tabular-nums">{fmt.money(bal, inv.currency)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-stone-400 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-400 font-medium">+{days}d</span>}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-white tabular-nums">{fmt.money(bal, inv.currency)}</td>
 
                     {/* Notes / comments */}
                     <td className="px-3 py-2 text-center relative">
                       <button onClick={() => { setNotesOpenId(notesOpenId === inv.id ? null : inv.id); setNoteText(""); }}
-                        className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700" title="Notes">
+                        className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200" title="Notes">
                         <MessageSquare size={15} />
                         {(notesByInv[inv.id]?.length ?? 0) > 0 && (
                           <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold">{notesByInv[inv.id].length}</span>
                         )}
                       </button>
                       {notesOpenId === inv.id && (
-                        <div className="absolute right-2 top-9 z-30 w-72 bg-white rounded-xl shadow-2xl ring-1 ring-stone-200 text-left" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-between px-3 py-2 border-b border-stone-100">
-                            <span className="text-[12px] font-semibold text-stone-700">Notes · #{inv.invoiceNumber}</span>
-                            <button onClick={() => setNotesOpenId(null)} className="text-stone-400 hover:text-stone-700"><X size={14} /></button>
+                        <div className="absolute right-2 top-9 z-30 w-72 bg-stone-900 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-stone-800">
+                            <span className="text-[12px] font-semibold text-stone-300">Notes · #{inv.invoiceNumber}</span>
+                            <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
                           </div>
                           <div className="max-h-52 overflow-auto p-3 space-y-2.5">
                             {(notesByInv[inv.id] ?? []).length === 0 ? (
-                              <div className="text-[12px] text-stone-400 text-center py-2">No notes yet</div>
+                              <div className="text-[12px] text-stone-500 text-center py-2">No notes yet</div>
                             ) : (notesByInv[inv.id] ?? []).map((n: any) => (
                               <div key={n.id} className="text-[12px]">
-                                <div className="flex items-center justify-between text-[10px] text-stone-400">
-                                  <span className="font-medium text-stone-500">{n.sender || "User"}</span>
+                                <div className="flex items-center justify-between text-[10px] text-stone-500">
+                                  <span className="font-medium text-stone-400">{n.sender || "User"}</span>
                                   <span>{new Date(n.sentAt ?? n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })}{n.refNumber ? ` · ${n.refNumber}` : ""}</span>
                                 </div>
-                                <div className="text-stone-700 mt-0.5 whitespace-pre-wrap">{n.body}</div>
+                                <div className="text-stone-200 mt-0.5 whitespace-pre-wrap">{n.body}</div>
                               </div>
                             ))}
                           </div>
-                          <div className="p-2 border-t border-stone-100 flex items-center gap-1.5">
+                          <div className="p-2 border-t border-stone-800 flex items-center gap-1.5">
                             <input value={noteText} onChange={e => setNoteText(e.target.value)}
                               onKeyDown={e => { if (e.key === "Enter") { const r = filteredRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
-                              placeholder="Add a note…" className="flex-1 text-[12px] border border-stone-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-stone-400" />
+                              placeholder="Add a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-800 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
                             <button onClick={() => addNote(filteredRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
-                              className="text-[11px] font-semibold text-white bg-stone-900 rounded-md px-2 py-1.5 disabled:opacity-40">Add</button>
+                              className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-2 py-1.5 disabled:opacity-40">Add</button>
                           </div>
                         </div>
                       )}
@@ -459,11 +459,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-stone-200 bg-stone-50 font-semibold">
-                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-600 text-right">
+              <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
+                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
                   Subtotal · {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}
                 </td>
-                <td className="px-3 py-2.5 text-right text-stone-900 tabular-nums">{fmt.money(filteredRows.reduce((s, r) => s + r.bal, 0), ccy)}</td>
+                <td className="px-3 py-2.5 text-right text-white tabular-nums">{fmt.money(filteredRows.reduce((s, r) => s + r.bal, 0), ccy)}</td>
                 <td />
               </tr>
             </tfoot>
@@ -545,43 +545,43 @@ function SendModal({ rows, ccy, multiCustomer, onClose, onSent, toast }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-stone-900">Send {rows.length} invoice(s)</h3>
-            <div className="text-[11px] text-stone-400 mt-0.5">Email reference: <span className="font-mono text-stone-600">{emailRef}</span></div>
+            <h3 className="font-semibold text-white">Send {rows.length} invoice(s)</h3>
+            <div className="text-[11px] text-stone-400 mt-0.5">Email reference: <span className="font-mono text-emerald-400">{emailRef}</span></div>
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-700"><X size={18} /></button>
+          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-3">
           {multiCustomer && (
-            <div className="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-[12px] text-amber-800">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[12px] text-amber-200">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
               You've selected invoices from <strong>different customers</strong> — they'll all go to the recipients below in one email. Send separately per customer to avoid sharing one customer's invoices with another.
             </div>
           )}
           <div>
-            <label className="text-[11px] font-medium text-stone-500">To (unique emails from selection — editable)</label>
-            <input value={to} onChange={e => setTo(e.target.value)} className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
+            <label className="text-[11px] font-medium text-stone-400">To (unique emails from selection — editable)</label>
+            <input value={to} onChange={e => setTo(e.target.value)} className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
           <div>
-            <label className="text-[11px] font-medium text-stone-500">CC</label>
-            <input value={cc} onChange={e => setCc(e.target.value)} placeholder="optional" className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
+            <label className="text-[11px] font-medium text-stone-400">CC</label>
+            <input value={cc} onChange={e => setCc(e.target.value)} placeholder="optional" className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
           <div>
-            <label className="text-[11px] font-medium text-stone-500">Subject</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)} className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300" />
+            <label className="text-[11px] font-medium text-stone-400">Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
           <div>
-            <label className="text-[11px] font-medium text-stone-500">Message</label>
-            <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} className="w-full mt-1 text-sm border border-stone-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-300 resize-none" />
+            <label className="text-[11px] font-medium text-stone-400">Message</label>
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 resize-none" />
           </div>
-          <p className="text-[11px] text-stone-400">Sent in the standard branded format with an invoice table, the "View &amp; Respond" portal link, and invoice PDFs attached automatically. The text above is the intro message.</p>
+          <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table, the "View &amp; Respond" portal link, and invoice PDFs attached automatically. The text above is the intro message.</p>
         </div>
-        <div className="px-5 py-3 border-t border-stone-200 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-600">Cancel</button>
-          <button onClick={send} disabled={sending} className="flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm font-semibold rounded-lg hover:bg-stone-800 disabled:opacity-50">
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
+          <button onClick={send} disabled={sending} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
             {sending && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
             <Send size={14} /> {sending ? "Sending…" : "Send email"}
           </button>

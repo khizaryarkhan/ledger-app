@@ -234,7 +234,7 @@ export default function InvoicesPage() {
     <div className="p-6 max-w-[1600px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Invoices</h1>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Invoices</h1>
           <p className="text-sm text-stone-500 mt-1">
             {dt.rows.length} invoice{dt.rows.length !== 1 ? "s" : ""}
             <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
@@ -298,18 +298,18 @@ export default function InvoicesPage() {
 
       <Card padding="none">
         {/* ── Date period picker ── */}
-        <div className="px-3 py-2.5 border-b border-stone-200 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 text-[11px] text-stone-500 font-medium shrink-0">
+        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[11px] text-stone-400 font-medium shrink-0">
             <CalendarDays size={13} />
             Invoice date
           </div>
-          <div className="flex items-center gap-0.5 bg-stone-100 p-0.5 rounded-lg">
+          <div className="flex items-center gap-0.5 bg-stone-800 p-0.5 rounded-lg">
             {PERIODS.map(p => (
               <button
                 key={p.id}
                 onClick={() => setPeriod(p.id)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  period === p.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800"
+                  period === p.id ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"
                 }`}
               >
                 {p.label}
@@ -317,21 +317,21 @@ export default function InvoicesPage() {
             ))}
           </div>
           {period === "custom" && (
-            <div className="flex items-center gap-1.5 bg-white ring-1 ring-stone-200 rounded-lg px-3 py-1.5">
+            <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-3 py-1.5">
               <span className="text-[11px] text-stone-400 font-medium">From</span>
               <input type="date" value={customFrom} max={customTo}
                 onChange={e => setCustomFrom(e.target.value)}
-                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
               <span className="text-[11px] text-stone-400 font-medium ml-1">To</span>
               <input type="date" value={customTo} min={customFrom} max={todayStr}
                 onChange={e => setCustomTo(e.target.value)}
-                className="text-xs text-stone-700 border-none outline-none bg-transparent cursor-pointer" />
+                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
             </div>
           )}
         </div>
 
         {/* ── Search + column filters ── */}
-        <div className="p-3 border-b border-stone-200 flex items-center gap-2 flex-wrap">
+        <div className="p-3 border-b border-stone-800 flex items-center gap-2 flex-wrap">
           <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, email, PO..." icon={Search} className="w-72" />
           <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
           <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages"
@@ -340,8 +340,8 @@ export default function InvoicesPage() {
             )} />
           <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
           <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
-            className="h-9 px-3 pr-8 text-sm rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
+            className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
@@ -355,7 +355,7 @@ export default function InvoicesPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-200 bg-stone-50/50">
+              <tr className="border-b border-stone-800 bg-stone-900/60">
                 <th className="px-3 py-2.5 w-10">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
                 </th>
@@ -367,7 +367,7 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {dt.rows.map((inv: any) => (
-                <tr key={inv.id} className={`border-b border-stone-100 hover:bg-stone-50 ${selected.has(inv.id) ? "bg-blue-50/50" : ""}`}>
+                <tr key={inv.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${selected.has(inv.id) ? "bg-emerald-500/10" : ""}`}>
                   <td className="px-3 py-2.5 w-10">
                     <input type="checkbox" checked={selected.has(inv.id)} onChange={() => toggleOne(inv.id)}
                       className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
@@ -375,16 +375,16 @@ export default function InvoicesPage() {
                   <td className="px-3 py-2.5 font-mono text-[12px]">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{inv.invoiceNumber}</Link>
                   </td>
-                  <td className="px-3 py-2.5 font-medium text-stone-900">
+                  <td className="px-3 py-2.5 font-medium text-white">
                     <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[160px]">{inv.customer?.name}</Link>
                   </td>
-                  <td className="px-3 py-2.5 text-stone-500 text-[12px]">
+                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
                     <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[140px]">{inv.project?.name || "—"}</Link>
                   </td>
-                  <td className="px-3 py-2.5 text-stone-600 text-[12px] whitespace-nowrap">
+                  <td className="px-3 py-2.5 text-stone-400 text-[12px] whitespace-nowrap">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{formatDate(inv.invoiceDate, df)}</Link>
                   </td>
-                  <td className="px-3 py-2.5 text-stone-700 whitespace-nowrap">
+                  <td className="px-3 py-2.5 text-stone-300 whitespace-nowrap">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">
                       {formatDate(inv.dueDate, df)}
                       {inv.daysOverdue > 0 && <span className="ml-1 text-[11px] text-rose-600 font-medium">+{inv.daysOverdue}d</span>}
@@ -405,7 +405,7 @@ export default function InvoicesPage() {
                       {inv.resolvedEmail ? (() => {
                         const addrs = inv.resolvedEmail.split(",").map((e: string) => e.trim()).filter(Boolean);
                         return (
-                          <span className="text-stone-600 truncate block">
+                          <span className="text-stone-300 truncate block">
                             {addrs[0]}
                             {addrs.length > 1 && (
                               <span className="ml-1 text-[10px] text-blue-500 font-medium">+{addrs.length - 1}</span>
@@ -415,16 +415,16 @@ export default function InvoicesPage() {
                       })() : <span className="text-stone-300 italic">No email</span>}
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 text-right text-stone-500 tabular-nums text-[13px]">
+                  <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums text-[13px]">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{fmt.money(inv.total, inv.currency)}</Link>
                   </td>
-                  <td className="px-3 py-2.5 text-right font-semibold text-stone-900 tabular-nums">
+                  <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{fmt.money(inv.outstanding, inv.currency)}</Link>
                   </td>
                   <td className="px-2 py-2.5 w-10">
                     {inv.qboId && !inv.qboId.startsWith("CM-") && (
                       <button onClick={(e) => handleDownloadPdf(e, inv)}
-                        className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
+                        className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
                         title="Download PDF">
                         {downloadingId === inv.id
                           ? <span className="animate-spin inline-block w-3.5 h-3.5 border border-stone-400 border-t-transparent rounded-full" />
