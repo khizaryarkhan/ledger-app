@@ -47,8 +47,9 @@ export default auth((req) => {
 
   if (isPublic) {
     if (isAuth) {
-      // Logged-in users skip the landing/login pages and go straight to the app
-      if (path === "/login" || path === "/register" || path === "/") {
+      // Logged-in users skip the login page and go straight to the app.
+      // ("/" is the public marketing site — everyone can view it.)
+      if (path === "/login" || path === "/register") {
         const dest = role === "rep" ? "/rep-portal" : "/dashboard";
         return NextResponse.redirect(new URL(dest, req.nextUrl));
       }
@@ -79,5 +80,7 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Skip Next internals AND any path with a file extension (the static marketing
+  // site: *.html, /css, /img, /js, /fonts) so it serves freely without auth.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 };
