@@ -75,7 +75,8 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
-  if (path === "/") return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  // "/" is the public landing page — let it render even for logged-in users.
+  // They can click "Open dashboard" from there.
   return NextResponse.next();
 });
 
