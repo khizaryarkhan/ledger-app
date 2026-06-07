@@ -80,7 +80,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Skip Next internals AND any path with a file extension (the static marketing
-  // site: *.html, /css, /img, /js, /fonts) so it serves freely without auth.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
