@@ -15,18 +15,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!loaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-stone-400 text-sm">Loading…</div>
+      <div className="min-h-screen flex items-center justify-center bg-stone-950">
+        <div className="text-stone-500 text-sm">Loading…</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex bg-white text-stone-900">
+    <div className="min-h-screen flex bg-stone-950 text-stone-100">
       {/* Mobile backdrop — tap to close sidebar */}
       {mobileNavOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
           onClick={() => setMobileNavOpen(false)}
           aria-hidden="true"
         />
@@ -36,10 +36,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar */}
-        <header className="h-11 shrink-0 border-b border-stone-200 bg-white flex items-center justify-between px-4 md:justify-end md:px-5">
-          {/* Hamburger — mobile only */}
+        <header className="h-11 shrink-0 border-b border-stone-800 bg-stone-950 flex items-center justify-between px-4 md:justify-end md:px-5">
           <button
-            className="md:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500 hover:text-stone-800 transition-colors"
+            className="md:hidden p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open menu"
           >

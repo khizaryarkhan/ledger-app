@@ -24,14 +24,13 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const role = (session?.user as any)?.role;
   const isAdmin = role === "super_admin" || role === "company_admin";
 
-  // Customer-response "needs attention" count (open disputes + broken promises)
   const [responsesCount, setResponsesCount] = useState(0);
   useEffect(() => {
     fetch("/api/responses")
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.counts) setResponsesCount(d.counts.needsAttention || 0); })
       .catch(() => {});
-  }, [pathname]); // refresh count on navigation
+  }, [pathname]);
 
   const counts = {
     inbox: communications.filter(c => c.direction === "Inbound").length,
@@ -88,17 +87,14 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   return (
     <aside
       className={[
-        // Base styles
-        "w-60 bg-stone-50/50 border-r border-stone-200 flex flex-col h-screen",
-        // Mobile: fixed overlay, slides in/out
+        "w-60 bg-stone-950 border-r border-stone-800 flex flex-col h-screen",
         "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out",
-        isOpen ? "translate-x-0 shadow-xl" : "-translate-x-full",
-        // Desktop: back in normal flow, always visible
+        isOpen ? "translate-x-0 shadow-2xl shadow-black/60" : "-translate-x-full",
         "md:sticky md:top-0 md:translate-x-0 md:shadow-none",
       ].join(" ")}
     >
-      {/* Logo + mobile close button */}
-      <div className="px-4 py-4 border-b border-stone-200 flex items-center justify-between">
+      {/* Logo */}
+      <div className="px-4 py-4 border-b border-stone-800 flex items-center justify-between">
         <div className="flex items-center gap-2.5 h-8 min-w-0">
           {orgSettings?.logoUrl ? (
             <img
@@ -107,15 +103,21 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               className="h-8 w-auto object-contain"
             />
           ) : (
-            <span className="text-sm font-semibold text-stone-800 tracking-tight truncate">
-              {orgSettings?.displayName || orgSettings?.name || ""}
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center shrink-0">
+                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </div>
+              <span className="text-sm font-semibold text-white tracking-tight truncate">
+                {orgSettings?.displayName || orgSettings?.name || "Prime Accountax"}
+              </span>
+            </div>
           )}
         </div>
-        {/* Close button — only shown on mobile */}
         <button
           onClick={onClose}
-          className="md:hidden p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700 shrink-0"
+          className="md:hidden p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-300 shrink-0"
           aria-label="Close menu"
         >
           <X size={16} />
@@ -126,7 +128,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         {sections.map((sec, si) => (
           <div key={si} className="mb-4">
             {sec.label && (
-              <div className="px-2.5 mb-1.5 text-[10px] font-semibold text-stone-400 tracking-widest">
+              <div className="px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest">
                 {sec.label}
               </div>
             )}
@@ -137,17 +139,17 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={onClose}  // auto-close on mobile when navigating
+                  onClick={onClose}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     isActive
-                      ? "bg-brand-navy text-white"
-                      : "text-stone-600 hover:bg-stone-100/70 hover:text-stone-900"
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
                   }`}
                 >
                   <Icon
                     size={15}
                     strokeWidth={isActive ? 2.25 : 2}
-                    className={isActive ? "text-white" : "text-stone-500"}
+                    className={isActive ? "text-emerald-400" : "text-stone-500"}
                   />
                   <span className="flex-1">{item.label}</span>
                   {item.count != null && item.count > 0 && (
@@ -155,7 +157,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                         (item as any).urgent
                           ? "bg-rose-500 text-white"
-                          : isActive ? "bg-white/20 text-white" : "bg-stone-200/60 text-stone-600"
+                          : isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-stone-800 text-stone-400"
                       }`}
                     >
                       {item.count}
@@ -168,18 +170,18 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-stone-200">
+      <div className="p-3 border-t border-stone-800">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-900 flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-stone-900 truncate">{userName}</div>
+            <div className="text-[12px] font-medium text-white truncate">{userName}</div>
             <div className="text-[10px] text-stone-500 truncate">{(session?.user as any)?.role || "User"}</div>
           </div>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700"
+            className="p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-300"
             title="Sign out"
           >
             <LogOut size={14} />
