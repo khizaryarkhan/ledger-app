@@ -201,67 +201,67 @@ function FilterDropdown({
   return (
     <div
       ref={ref}
-      className="absolute z-[100] top-full left-0 mt-1 w-60 bg-white rounded-lg shadow-2xl ring-1 ring-stone-200 overflow-hidden"
+      className="absolute z-[100] top-full left-0 mt-1 w-60 bg-stone-900 rounded-lg shadow-2xl ring-1 ring-stone-700 overflow-hidden"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Search within values */}
-      <div className="p-2 border-b border-stone-100">
+      <div className="p-2 border-b border-stone-800">
         <div className="relative">
-          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
           <input
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search values…"
-            className="w-full h-7 pl-6 pr-2 text-xs rounded border border-stone-200 focus:outline-none focus:border-stone-400"
+            className="w-full h-7 pl-6 pr-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
 
       {/* Select All */}
-      <div className="px-3 py-2 border-b border-stone-100">
+      <div className="px-3 py-2 border-b border-stone-800">
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={allChecked}
             ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
             onChange={toggleAll}
-            className="rounded border-stone-300 text-stone-900 focus:ring-stone-500"
+            className="rounded border-stone-600 text-emerald-500 focus:ring-emerald-500"
           />
-          <span className="text-[12px] font-semibold text-stone-700">(Select All)</span>
-          <span className="ml-auto text-[10px] text-stone-400">{visible.length}</span>
+          <span className="text-[12px] font-semibold text-stone-300">(Select All)</span>
+          <span className="ml-auto text-[10px] text-stone-500">{visible.length}</span>
         </label>
       </div>
 
       {/* Value list */}
       <div className="max-h-52 overflow-y-auto py-1">
         {visible.length === 0 && (
-          <div className="px-3 py-4 text-center text-xs text-stone-400">No values found</div>
+          <div className="px-3 py-4 text-center text-xs text-stone-500">No values found</div>
         )}
         {visible.map((v) => (
-          <label key={v} className="flex items-center gap-2 px-3 py-1 hover:bg-stone-50 cursor-pointer select-none">
+          <label key={v} className="flex items-center gap-2 px-3 py-1 hover:bg-stone-800 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={local.has(v)}
               onChange={() => toggle(v)}
-              className="rounded border-stone-300 text-stone-900 focus:ring-stone-500"
+              className="rounded border-stone-600 text-emerald-500 focus:ring-emerald-500"
             />
-            <span className="text-[12px] text-stone-700 truncate">{v || "(blank)"}</span>
+            <span className="text-[12px] text-stone-300 truncate">{v || "(blank)"}</span>
           </label>
         ))}
       </div>
 
       {/* Actions */}
-      <div className="p-2 border-t border-stone-100 flex gap-2">
+      <div className="p-2 border-t border-stone-800 flex gap-2">
         <button
           onClick={apply}
-          className="flex-1 h-7 bg-stone-900 hover:bg-stone-700 text-white text-xs rounded font-medium transition-colors"
+          className="flex-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded font-medium transition-colors"
         >
           OK
         </button>
         <button
           onClick={onClose}
-          className="flex-1 h-7 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs rounded transition-colors"
+          className="flex-1 h-7 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs rounded transition-colors"
         >
           Cancel
         </button>
@@ -298,15 +298,15 @@ export function ColHeader({
         {!col.noSort ? (
           <button
             onClick={() => dt.handleSort(col.key)}
-            className={`flex items-center gap-1 hover:text-stone-900 transition-colors ${isActive ? "text-stone-900" : ""}`}
+            className={`flex items-center gap-1 hover:text-white transition-colors ${isActive ? "text-white" : ""}`}
           >
             <span>{col.label}</span>
             {isActive ? (
               dt.sortDir === "asc"
-                ? <ChevronUp size={12} className="text-stone-700" />
-                : <ChevronDown size={12} className="text-stone-700" />
+                ? <ChevronUp size={12} className="text-emerald-400" />
+                : <ChevronDown size={12} className="text-emerald-400" />
             ) : (
-              <ChevronsUpDown size={11} className="text-stone-300 group-hover:text-stone-500" />
+              <ChevronsUpDown size={11} className="text-stone-500 group-hover:text-stone-400" />
             )}
           </button>
         ) : (
@@ -319,8 +319,8 @@ export function ColHeader({
             onClick={(e) => { e.stopPropagation(); setShowFilter((v) => !v); }}
             className={`rounded p-0.5 transition-colors ${
               hasFilter
-                ? "text-blue-600 bg-blue-50"
-                : "text-stone-300 hover:text-stone-600 hover:bg-stone-100"
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-stone-500 hover:text-stone-300 hover:bg-stone-800"
             }`}
             title={hasFilter ? "Filter active — click to change" : "Filter"}
           >
@@ -356,23 +356,23 @@ export function ActiveFiltersBar({
 }) {
   if (dt.activeFilterCount === 0) return null;
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border-b border-blue-100 flex-wrap">
-      <ListFilter size={12} className="text-blue-500 shrink-0" />
-      <span className="text-[11px] text-blue-700 font-medium">Column filters active:</span>
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-stone-800/50 border-b border-stone-700 flex-wrap">
+      <ListFilter size={12} className="text-emerald-400 shrink-0" />
+      <span className="text-[11px] text-stone-300 font-medium">Column filters active:</span>
       {Object.entries(dt.colFilters).map(([key, vals]) => {
         if (!vals?.length) return null;
         const col = cols.find((c) => c.key === key);
         return (
-          <span key={key} className="inline-flex items-center gap-1 bg-white ring-1 ring-blue-200 rounded px-2 py-0.5 text-[11px] text-blue-800">
+          <span key={key} className="inline-flex items-center gap-1 bg-stone-700 border border-stone-600 rounded px-2 py-0.5 text-[11px] text-stone-200">
             <strong>{col?.label ?? key}</strong>: {vals.length === 1 ? vals[0] : `${vals.length} values`}
             <button
               onClick={() => dt.setColFilter(key, [])}
-              className="ml-0.5 text-blue-400 hover:text-blue-700 font-bold"
+              className="ml-0.5 text-stone-400 hover:text-white font-bold"
             >×</button>
           </span>
         );
       })}
-      <button onClick={dt.clearAllFilters} className="ml-auto text-[11px] text-blue-600 hover:text-blue-900 font-medium underline">
+      <button onClick={dt.clearAllFilters} className="ml-auto text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline">
         Clear all
       </button>
     </div>

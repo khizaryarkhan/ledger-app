@@ -11,10 +11,10 @@ import {
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-function ScoreBar({ value, max, color = "bg-stone-700" }: { value: number; max: number; color?: string }) {
+function ScoreBar({ value, max, color = "bg-stone-600" }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
-    <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
+    <div className="w-full h-1.5 bg-stone-800 rounded-full overflow-hidden">
       <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -24,9 +24,9 @@ function Chip({
   value, good, warn, className = "",
 }: { value: number; good: number; warn: number; className?: string }) {
   const color =
-    value <= good ? "bg-emerald-100 text-emerald-700" :
-    value <= warn  ? "bg-amber-100 text-amber-700"    :
-                     "bg-rose-100 text-rose-700";
+    value <= good ? "bg-emerald-500/15 text-emerald-400" :
+    value <= warn  ? "bg-amber-500/15 text-amber-400"    :
+                     "bg-rose-500/15 text-rose-400";
   return (
     <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${color} ${className}`}>
       {value.toFixed(0)}%
@@ -176,8 +176,8 @@ export default function PerformancePage() {
   if ((reps ?? []).length === 0) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight mb-2">Performance</h1>
-        <p className="text-sm text-stone-500 mb-6">Rep activity scorecard and portfolio health</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight mb-2">Performance</h1>
+        <p className="text-sm text-stone-400 mb-6">Rep activity scorecard and portfolio health</p>
         <Card>
           <div className="py-12 text-center">
             <Users size={32} className="text-stone-300 mx-auto mb-3" />
@@ -196,13 +196,13 @@ export default function PerformancePage() {
       {/* Header */}
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Performance</h1>
-          <p className="text-sm text-stone-500 mt-1">Rep activity scorecard and portfolio health</p>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Performance</h1>
+          <p className="text-sm text-stone-400 mt-1">Rep activity scorecard and portfolio health</p>
         </div>
-        <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
+        <div className="flex items-center gap-1 bg-stone-800 p-1 rounded-xl">
           {(["week", "month"] as const).map(p => (
             <button key={p} onClick={() => setPeriod(p)}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${period === p ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}>
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${period === p ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
               {p === "week" ? "This Week" : "This Month"}
             </button>
           ))}
@@ -212,10 +212,10 @@ export default function PerformancePage() {
       {/* Org-level KPIs */}
       <div className="grid grid-cols-5 gap-3 mb-5">
         {[
-          { label: "Total Open AR", value: fmt.money(totals.openAR, ccy), sub: `across ${repData.length} reps`, icon: BarChart3, color: "text-stone-900" },
-          { label: "Total Overdue", value: fmt.money(totals.overdueAR, ccy), sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-600" },
-          { label: "Cash Collected", value: fmt.money(totals.cashCollected, ccy), sub: periodLabel, icon: TrendingUp, color: "text-emerald-600" },
-          { label: "Emails Sent", value: String(totals.emailsSent), sub: periodLabel, icon: Mail, color: "text-stone-900" },
+          { label: "Total Open AR", value: fmt.money(totals.openAR, ccy), sub: `across ${repData.length} reps`, icon: BarChart3, color: "text-white" },
+          { label: "Total Overdue", value: fmt.money(totals.overdueAR, ccy), sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-400" },
+          { label: "Cash Collected", value: fmt.money(totals.cashCollected, ccy), sub: periodLabel, icon: TrendingUp, color: "text-emerald-400" },
+          { label: "Emails Sent", value: String(totals.emailsSent), sub: periodLabel, icon: Mail, color: "text-white" },
           { label: "Open Tasks", value: String(totals.openTasks), sub: "assigned to reps", icon: CheckSquare, color: "text-amber-600" },
         ].map(({ label, value, sub, icon: Icon, color }) => (
           <Card key={label} padding="md">
@@ -230,17 +230,17 @@ export default function PerformancePage() {
       </div>
 
       {/* Rep Scorecard Table */}
-      <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden mb-5">
-        <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
+      <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden mb-5">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-stone-900">Rep Scorecard</div>
+            <div className="text-sm font-semibold text-white">Rep Scorecard</div>
             <div className="text-[11px] text-stone-400 mt-0.5">Portfolio health and {periodLabel.toLowerCase()} activity</div>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-100 bg-stone-50">
+              <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-800 bg-stone-900/60">
                 <th className="text-left font-semibold px-5 py-3">Rep</th>
                 <th className="text-right font-semibold px-3 py-3">Customers</th>
                 <th className="text-right font-semibold px-3 py-3">Open AR</th>
@@ -256,49 +256,49 @@ export default function PerformancePage() {
             </thead>
             <tbody>
               {repData.map((r: any) => (
-                <tr key={r.rep.id} className="border-b border-stone-50 hover:bg-stone-50">
+                <tr key={r.rep.id} className="border-b border-stone-800 hover:bg-stone-800/50">
                   <td className="px-5 py-3">
-                    <div className="font-semibold text-stone-900">{r.rep.name}</div>
+                    <div className="font-semibold text-white">{r.rep.name}</div>
                     {r.rep.email && <div className="text-[11px] text-stone-400">{r.rep.email}</div>}
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-600">{r.custCount}</td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums text-stone-900">{fmt.money(r.openAR, ccy)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-rose-600 font-medium">{fmt.money(r.overdueAR, ccy)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-stone-400">{r.custCount}</td>
+                  <td className="px-3 py-3 text-right font-bold tabular-nums text-white">{fmt.money(r.openAR, ccy)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-rose-400 font-medium">{fmt.money(r.overdueAR, ccy)}</td>
                   <td className="px-3 py-3 text-right">
                     <Chip value={r.overduePct} good={20} warn={50} />
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-500 text-xs">
-                    {r.at90plus > 0 ? <span className="text-rose-600 font-medium">{fmt.money(r.at90plus, ccy)}</span> : <span className="text-stone-300">—</span>}
+                  <td className="px-3 py-3 text-right tabular-nums text-stone-400 text-xs">
+                    {r.at90plus > 0 ? <span className="text-rose-400 font-medium">{fmt.money(r.at90plus, ccy)}</span> : <span className="text-stone-600">—</span>}
                   </td>
                   <td className="px-3 py-3 text-right">
                     {r.avgDPD > 0 ? (
-                      <span className={`text-xs font-semibold ${r.avgDPD > 60 ? "text-rose-600" : r.avgDPD > 30 ? "text-amber-600" : "text-stone-700"}`}>
+                      <span className={`text-xs font-semibold ${r.avgDPD > 60 ? "text-rose-400" : r.avgDPD > 30 ? "text-amber-400" : "text-stone-300"}`}>
                         {r.avgDPD}d
                       </span>
-                    ) : <span className="text-stone-300 text-xs">—</span>}
+                    ) : <span className="text-stone-600 text-xs">—</span>}
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-16">
                         <ScoreBar value={r.cashCollected} max={maxCash} color="bg-emerald-500" />
                       </div>
-                      <span className="text-xs font-semibold text-emerald-700 tabular-nums">{fmt.money(r.cashCollected, ccy)}</span>
+                      <span className="text-xs font-semibold text-emerald-400 tabular-nums">{fmt.money(r.cashCollected, ccy)}</span>
                     </div>
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-12">
-                        <ScoreBar value={r.emailsSent} max={maxEmails} color="bg-stone-700" />
+                        <ScoreBar value={r.emailsSent} max={maxEmails} color="bg-stone-500" />
                       </div>
-                      <span className="text-xs tabular-nums text-stone-600">{r.emailsSent}</span>
+                      <span className="text-xs tabular-nums text-stone-400">{r.emailsSent}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-500 text-xs">{r.repliesReceived}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-stone-400 text-xs">{r.repliesReceived}</td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center gap-1 justify-end">
-                      <span className="text-xs tabular-nums text-stone-600">{r.openTasks} open</span>
+                      <span className="text-xs tabular-nums text-stone-400">{r.openTasks} open</span>
                       {r.overdueTasks > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">{r.overdueTasks} late</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 font-semibold">{r.overdueTasks} late</span>
                       )}
                     </div>
                   </td>
@@ -330,35 +330,35 @@ export default function PerformancePage() {
       <div className="grid grid-cols-3 gap-4">
         {/* Activity trend chart */}
         <Card className="col-span-1">
-          <h3 className="text-sm font-semibold text-stone-900 mb-4">Team Email Activity (4 Weeks)</h3>
+          <h3 className="text-sm font-semibold text-white mb-4">Team Email Activity (4 Weeks)</h3>
           <div className="flex items-end gap-2 h-32 mb-3">
             {weeks.map((w, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
-                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-900 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap">
+                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap border border-stone-700">
                   <div>Sent: {w.sent}</div>
                   <div>Rcvd: {w.received}</div>
                 </div>
                 <div className="flex-1 flex items-end gap-0.5 w-full justify-center">
-                  <div className="bg-stone-200 rounded-t w-3" style={{ height: w.received > 0 ? `${(w.received / maxWeek) * 100}%` : "2px" }} />
-                  <div className="bg-stone-800 rounded-t w-3" style={{ height: w.sent > 0 ? `${(w.sent / maxWeek) * 100}%` : "2px" }} />
+                  <div className="bg-stone-600 rounded-t w-3" style={{ height: w.received > 0 ? `${(w.received / maxWeek) * 100}%` : "2px" }} />
+                  <div className="bg-emerald-500 rounded-t w-3" style={{ height: w.sent > 0 ? `${(w.sent / maxWeek) * 100}%` : "2px" }} />
                 </div>
                 <div className="text-[9px] text-stone-400">{w.label}</div>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-4 text-[11px] text-stone-500 pt-3 border-t border-stone-100">
-            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded bg-stone-800" /> Sent</div>
-            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded bg-stone-200" /> Received</div>
+          <div className="flex items-center gap-4 text-[11px] text-stone-400 pt-3 border-t border-stone-800">
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded bg-emerald-500" /> Sent</div>
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded bg-stone-600" /> Received</div>
           </div>
         </Card>
 
         {/* Per-rep mini cards */}
         <div className="col-span-2 grid grid-cols-2 gap-3 content-start">
           {repData.map((r: any) => (
-            <div key={r.rep.id} className="bg-white rounded-xl ring-1 ring-stone-200 p-4">
+            <div key={r.rep.id} className="bg-stone-900 rounded-xl ring-1 ring-stone-800 p-4">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <div className="text-sm font-semibold text-stone-900">{r.rep.name}</div>
+                  <div className="text-sm font-semibold text-white">{r.rep.name}</div>
                   <div className="text-[11px] text-stone-400 mt-0.5">{r.custCount} customers · {r.invoiceCount} invoices</div>
                 </div>
                 <Chip value={r.overduePct} good={20} warn={50} />
@@ -367,11 +367,11 @@ export default function PerformancePage() {
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Open AR</div>
-                  <div className="text-base font-bold text-stone-900 tabular-nums">{fmt.money(r.openAR, ccy)}</div>
+                  <div className="text-base font-bold text-white tabular-nums">{fmt.money(r.openAR, ccy)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Cash {period === "month" ? "MTD" : "WTD"}</div>
-                  <div className="text-base font-bold text-emerald-600 tabular-nums">{fmt.money(r.cashCollected, ccy)}</div>
+                  <div className="text-base font-bold text-emerald-400 tabular-nums">{fmt.money(r.cashCollected, ccy)}</div>
                 </div>
               </div>
 
