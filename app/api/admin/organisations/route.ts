@@ -113,3 +113,25 @@ export async function PATCH(req: Request) {
   const [updated] = await db.select().from(organisations).where(eq(organisations.id, orgId)).limit(1);
   return ok(updated);
 }
+
+export async function DELETE(req: Request) {
+  const { error, session } = await requireAuth();
+  if (error) return error;
+  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+
+  const url = new URL(req.url);
+  const orgId = url.searchParams.get("orgId");
+  if (!orgId) return bad("orgId required");
+
+  // Verify org exists
+  const [org] = await db.select({ id: organisations.id, name: organisations.name })
+    .from(organisations)
+    .where(eq(organisations.id, orgId))
+    .limit(1);
+  if (!org) return bad("Organisation not found", 404);
+
+  // Hard delete — cascade rules in schema handle all related data
+  await db.delete(organisations).where(eq(organisations.id, orgId));
+
+  return ok({ deleted: true, orgId, name: org.name });
+}

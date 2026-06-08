@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Card, Button, Badge, Input } from "@/components/ui";
-import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2 } from "lucide-react";
+import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function StatusBadge({ status }: { status: string }) {
@@ -471,6 +471,73 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
 }
 
 // ============================================================
+// DELETE ORG MODAL (Super Admin only)
+// ============================================================
+function DeleteOrgModal({ org, onClose, onDeleted }: { org: any; onClose: () => void; onDeleted: () => void }) {
+  const [confirm, setConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  const canDelete = confirm.trim().toLowerCase() === org.name.trim().toLowerCase();
+
+  const handleDelete = async () => {
+    if (!canDelete) return;
+    setDeleting(true); setError("");
+    try {
+      const res = await fetch(`/api/admin/organisations?orgId=${org.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Failed to delete"); return; }
+      onDeleted();
+      onClose();
+    } finally { setDeleting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-rose-500/30">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-rose-500/15 flex items-center justify-center">
+              <AlertTriangle size={15} className="text-rose-400" />
+            </div>
+            <h2 className="font-semibold text-white">Delete organisation</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-rose-500/10 ring-1 ring-rose-500/30 rounded-lg px-4 py-3 text-sm text-rose-300 space-y-1">
+            <p className="font-semibold">This action is permanent and cannot be undone.</p>
+            <p className="text-rose-400/80 text-xs">All data will be deleted — customers, invoices, contacts, collections, users, email history, integrations, and settings.</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+              Type <span className="text-white font-mono">{org.name}</span> to confirm
+            </label>
+            <input
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              placeholder={org.name}
+              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-rose-500 focus:outline-none"
+            />
+          </div>
+          {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
+        </div>
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <button
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            className="h-9 px-4 text-sm font-semibold rounded-lg transition-colors bg-rose-600 hover:bg-rose-500 disabled:bg-stone-700 disabled:text-stone-500 text-white"
+          >
+            {deleting ? "Deleting…" : "Delete permanently"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN ADMIN PAGE
 // ============================================================
 export default function AdminPage() {
@@ -487,6 +554,8 @@ export default function AdminPage() {
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [editingOrg, setEditingOrg] = useState<any | null>(null);
+  const [deletingOrg, setDeletingOrg] = useState<any | null>(null);
+  const [orgSearch, setOrgSearch] = useState("");
   const [tab, setTab] = useState<"orgs" | "users">(isSuperAdmin ? "orgs" : "users");
 
   // Inline role editing for users tab
@@ -586,32 +655,63 @@ export default function AdminPage() {
       {/* ORGANISATIONS tab — super admin only */}
       {tab === "orgs" && isSuperAdmin && (
         <div>
-          <div className="flex justify-end mb-3">
-            <Button icon={Plus} onClick={() => setShowCreateOrg(true)}>New organisation</Button>
+          <div className="flex items-center gap-3 mb-3">
+            {/* Search */}
+            <div className="relative flex-1 max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
+              <input
+                value={orgSearch}
+                onChange={e => setOrgSearch(e.target.value)}
+                placeholder="Search organisations…"
+                className="w-full h-9 pl-8 pr-3 text-sm rounded-lg ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div className="ml-auto">
+              <Button icon={Plus} onClick={() => setShowCreateOrg(true)}>New organisation</Button>
+            </div>
           </div>
           <div className="space-y-2">
-            {orgs.map(org => (
-              <Card key={org.id} className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
-                  {org.name.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-white">{org.name}</div>
-                  <div className="text-xs text-stone-500 font-mono mt-0.5">/{org.slug}</div>
-                </div>
-                <div className="flex items-center gap-3 text-sm text-stone-500">
-                  <span>{org.userCount} users</span>
-                  <StatusBadge status={org.status} />
-                  <button onClick={() => setEditingOrg(org)}
-                    className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
-                    title="Edit organisation">
-                    <Pencil size={14} />
-                  </button>
+            {orgs
+              .filter(org =>
+                !orgSearch ||
+                org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
+                org.slug.toLowerCase().includes(orgSearch.toLowerCase())
+              )
+              .map(org => (
+                <Card key={org.id} className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
+                    {org.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-white">{org.name}</div>
+                    <div className="text-xs text-stone-500 font-mono mt-0.5">/{org.slug}</div>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-stone-500">
+                    <span>{org.userCount} users</span>
+                    <StatusBadge status={org.status} />
+                    <button onClick={() => setEditingOrg(org)}
+                      className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
+                      title="Edit organisation">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => setDeletingOrg(org)}
+                      className="p-1.5 hover:bg-rose-500/15 rounded text-stone-500 hover:text-rose-400 transition-colors"
+                      title="Delete organisation">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </Card>
+              ))}
+            {orgs.filter(org =>
+              !orgSearch ||
+              org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
+              org.slug.toLowerCase().includes(orgSearch.toLowerCase())
+            ).length === 0 && !loading && (
+              <Card>
+                <div className="text-sm text-stone-500 text-center py-4">
+                  {orgSearch ? `No organisations matching "${orgSearch}"` : "No organisations yet. Create the first one."}
                 </div>
               </Card>
-            ))}
-            {orgs.length === 0 && !loading && (
-              <Card><div className="text-sm text-stone-500 text-center py-4">No organisations yet. Create the first one.</div></Card>
             )}
           </div>
         </div>
@@ -739,6 +839,13 @@ export default function AdminPage() {
           org={editingOrg}
           onClose={() => setEditingOrg(null)}
           onSaved={() => { loadData(); setEditingOrg(null); }}
+        />
+      )}
+      {deletingOrg && (
+        <DeleteOrgModal
+          org={deletingOrg}
+          onClose={() => setDeletingOrg(null)}
+          onDeleted={loadData}
         />
       )}
     </div>
