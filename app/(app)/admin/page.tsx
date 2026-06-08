@@ -71,13 +71,13 @@ function CreateOrgModal({ onClose, onCreated }: any) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="font-semibold text-stone-900">Create new organisation</h2>
-          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded"><X size={16} /></button>
+      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-stone-800">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <h2 className="font-semibold text-white">Create new organisation</h2>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-3">
-          {error && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{error}</div>}
+          {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
           <div>
             <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Organisation name</label>
             <Input value={form.name} onChange={(e: any) => { set("name", e.target.value); if (!form.slug) set("slug", autoSlug(e.target.value)); }} placeholder="Acme Ltd" />
@@ -86,7 +86,7 @@ function CreateOrgModal({ onClose, onCreated }: any) {
             <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Slug (URL-safe, unique)</label>
             <Input value={form.slug} onChange={(e: any) => set("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="acme-ltd" />
           </div>
-          <div className="pt-2 border-t border-stone-100">
+          <div className="pt-2 border-t border-stone-800">
             <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">First Company Admin account</div>
             <div className="space-y-2">
               <Input value={form.adminName} onChange={(e: any) => set("adminName", e.target.value)} placeholder="Admin full name" />
@@ -97,7 +97,7 @@ function CreateOrgModal({ onClose, onCreated }: any) {
 
               {/* Existing user notice */}
               {emailExists && (
-                <div className="flex items-start gap-2 text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded ring-1 ring-blue-200">
+                <div className="flex items-start gap-2 text-xs bg-blue-500/10 text-blue-300 px-3 py-2 rounded ring-1 ring-blue-500/30">
                   <Check size={13} className="mt-0.5 shrink-0" />
                   <span>This user already exists and will be linked to the new organisation. No new password needed.</span>
                 </div>
@@ -107,7 +107,7 @@ function CreateOrgModal({ onClose, onCreated }: any) {
               {!emailExists && (
                 <div className="relative">
                   <Input type={showPw ? "text" : "password"} value={form.adminPassword} onChange={(e: any) => set("adminPassword", e.target.value)} placeholder="Temporary password (min 8 chars)" />
-                  <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
+                  <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-300">
                     {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
@@ -115,7 +115,7 @@ function CreateOrgModal({ onClose, onCreated }: any) {
             </div>
           </div>
         </div>
-        <div className="px-5 py-3 border-t border-stone-200 flex justify-end gap-2">
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={!canSubmit}>
             {saving ? "Creating…" : "Create organisation"}
@@ -152,31 +152,31 @@ function CreateUserModal({ onClose, onCreated }: any) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="font-semibold text-stone-900">Add team member</h2>
-          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded"><X size={16} /></button>
+      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-stone-800">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <h2 className="font-semibold text-white">Add team member</h2>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-3">
-          {error && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{error}</div>}
+          {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
           <Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Full name" />
           <Input type="email" value={form.email} onChange={(e: any) => set("email", e.target.value)} placeholder="email@company.com" />
           <div className="relative">
             <Input type={showPw ? "text" : "password"} value={form.password} onChange={(e: any) => set("password", e.target.value)} placeholder="Temporary password (min 8 chars)" />
-            <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
+            <button onClick={() => setShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-300">
               {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
           </div>
           <div>
             <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
             <select value={form.role} onChange={(e: any) => set("role", e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+              className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
               <option value="company_user">User — can use the app</option>
               <option value="company_admin">Company Admin — can manage users</option>
             </select>
           </div>
         </div>
-        <div className="px-5 py-3 border-t border-stone-200 flex justify-end gap-2">
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={saving || !form.name || !form.email || !form.password}>
             {saving ? "Adding…" : "Add team member"}
@@ -307,20 +307,20 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl w-full max-w-xl shadow-xl flex flex-col max-h-[90vh]">
+      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between shrink-0">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-semibold text-stone-900">Edit organisation</h2>
+            <h2 className="font-semibold text-white">Edit organisation</h2>
             <p className="text-xs text-stone-500 mt-0.5 font-mono">/{org.slug}</p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded"><X size={16} /></button>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
         </div>
 
         <div className="overflow-y-auto flex-1">
           {/* Org settings */}
           <div className="p-5 space-y-3">
-            {error && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{error}</div>}
+            {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
             <div>
               <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Organisation name</label>
               <Input value={orgName} onChange={(e: any) => setOrgName(e.target.value)} placeholder="Organisation name" />
@@ -328,7 +328,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
             <div>
               <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Status</label>
               <select value={orgStatus} onChange={(e: any) => setOrgStatus(e.target.value)}
-                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
               </select>
@@ -341,7 +341,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
           </div>
 
           {/* Users section */}
-          <div className="border-t border-stone-100 px-5 pb-5">
+          <div className="border-t border-stone-800 px-5 pb-5">
             <div className="flex items-center justify-between mt-4 mb-3">
               <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
                 Users in this organisation
@@ -354,9 +354,9 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
 
             {/* Add user form */}
             {showAddUser && (
-              <div className="mb-3 p-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 space-y-2">
-                <div className="text-xs font-semibold text-stone-600 mb-1">Add / link a user to this organisation</div>
-                {addError && <div className="text-xs text-rose-600 bg-rose-50 px-2 py-1.5 rounded">{addError}</div>}
+              <div className="mb-3 p-3 rounded-lg bg-stone-800/50 ring-1 ring-stone-700 space-y-2">
+                <div className="text-xs font-semibold text-stone-400 mb-1">Add / link a user to this organisation</div>
+                {addError && <div className="text-xs text-rose-400 bg-rose-500/10 px-2 py-1.5 rounded ring-1 ring-rose-500/30">{addError}</div>}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="relative">
                     <Input type="email" value={addForm.email} onChange={(e: any) => setAdd("email", e.target.value)} placeholder="email@company.com" />
@@ -365,7 +365,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                   <Input value={addForm.name} onChange={(e: any) => setAdd("name", e.target.value)} placeholder="Full name" disabled={addEmailExists} />
                 </div>
                 {addEmailExists && (
-                  <div className="flex items-start gap-2 text-xs bg-blue-50 text-blue-700 px-2 py-1.5 rounded ring-1 ring-blue-200">
+                  <div className="flex items-start gap-2 text-xs bg-blue-500/10 text-blue-300 px-2 py-1.5 rounded ring-1 ring-blue-500/30">
                     <Check size={12} className="mt-0.5 shrink-0" />
                     <span>User already exists — they will be linked to this organisation.</span>
                   </div>
@@ -373,14 +373,14 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                 {!addEmailExists && (
                   <div className="relative">
                     <Input type={addShowPw ? "text" : "password"} value={addForm.password} onChange={(e: any) => setAdd("password", e.target.value)} placeholder="Temporary password (min 8 chars)" />
-                    <button onClick={() => setAddShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700">
+                    <button onClick={() => setAddShowPw(p => !p)} className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-300">
                       {addShowPw ? <EyeOff size={13} /> : <Eye size={13} />}
                     </button>
                   </div>
                 )}
                 <div className="flex items-center gap-2">
                   <select value={addForm.role} onChange={(e: any) => setAdd("role", e.target.value)}
-                    className="flex-1 h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                    className="flex-1 h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
                     <option value="company_admin">Company Admin</option>
                     <option value="company_user">User</option>
                   </select>
@@ -401,11 +401,11 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
               <div className="text-sm text-stone-400 py-3">No users yet. Use "Add user" above to get started.</div>
             ) : (
               <div className="space-y-2">
-                {userError && <div className="text-sm text-rose-600 bg-rose-50 px-3 py-2 rounded">{userError}</div>}
+                {userError && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{userError}</div>}
                 {users.map(u => (
-                  <div key={u.id} className="rounded-lg ring-1 ring-stone-200 overflow-hidden">
+                  <div key={u.id} className="rounded-lg ring-1 ring-stone-700 overflow-hidden">
                     {editingUser === u.id ? (
-                      <div className="p-3 space-y-2 bg-stone-50">
+                      <div className="p-3 space-y-2 bg-stone-800/60">
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Name</label>
@@ -419,7 +419,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                         <div>
                           <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
                           <select value={editForm.role} onChange={(e: any) => setEditForm(p => ({ ...p, role: e.target.value }))}
-                            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
                             <option value="company_user">User</option>
                             <option value="company_admin">Company Admin</option>
                           </select>
@@ -433,22 +433,22 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                       </div>
                     ) : (
                       <div className="flex items-center gap-3 px-3 py-2.5">
-                        <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center text-stone-700 text-xs font-semibold shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-stone-700 flex items-center justify-center text-stone-300 text-xs font-semibold shrink-0">
                           {u.name.slice(0, 2).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-stone-900 truncate">{u.name}</div>
-                          <div className="text-[11px] text-stone-500 truncate">{u.email}</div>
+                          <div className="text-sm font-medium text-white truncate">{u.name}</div>
+                          <div className="text-[11px] text-stone-400 truncate">{u.email}</div>
                         </div>
                         <RoleBadge role={u.role} />
                         <StatusBadge status={u.status} />
                         <button onClick={() => startEditUser(u)}
-                          className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors shrink-0"
+                          className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors shrink-0"
                           title="Edit user">
                           <Pencil size={13} />
                         </button>
                         <button onClick={() => removeUser(u.id, u.name)}
-                          className="p-1.5 hover:bg-rose-50 rounded text-stone-400 hover:text-rose-600 transition-colors shrink-0"
+                          className="p-1.5 hover:bg-rose-500/15 rounded text-stone-400 hover:text-rose-400 transition-colors shrink-0"
                           title="Remove from this organisation">
                           <Trash2 size={13} />
                         </button>
@@ -462,7 +462,7 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-stone-200 flex justify-end shrink-0">
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end shrink-0">
           <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
@@ -558,7 +558,7 @@ export default function AdminPage() {
             <Shield size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-stone-900">
+            <h1 className="text-xl font-semibold text-white">
               {isSuperAdmin ? "Super Admin Portal" : "Team Management"}
             </h1>
             <p className="text-xs text-stone-500 mt-0.5">
@@ -570,15 +570,15 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-stone-200 mb-5">
+      <div className="flex items-center gap-1 border-b border-stone-800 mb-5">
         {isSuperAdmin && (
           <button onClick={() => setTab("orgs")}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "orgs" ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "orgs" ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
             <Building2 size={13} /> Organisations ({orgs.length})
           </button>
         )}
         <button onClick={() => setTab("users")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "users" ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "users" ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
           <Users size={13} /> {isSuperAdmin ? "This org's users" : "Team members"} ({orgUsers.length})
         </button>
       </div>
@@ -592,18 +592,18 @@ export default function AdminPage() {
           <div className="space-y-2">
             {orgs.map(org => (
               <Card key={org.id} className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center text-stone-700 text-sm font-semibold flex-shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
                   {org.name.slice(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-stone-900">{org.name}</div>
+                  <div className="font-semibold text-white">{org.name}</div>
                   <div className="text-xs text-stone-500 font-mono mt-0.5">/{org.slug}</div>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-stone-500">
                   <span>{org.userCount} users</span>
                   <StatusBadge status={org.status} />
                   <button onClick={() => setEditingOrg(org)}
-                    className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors"
+                    className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
                     title="Edit organisation">
                     <Pencil size={14} />
                   </button>
@@ -626,7 +626,7 @@ export default function AdminPage() {
           <Card padding="none">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+                <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
                   <th className="text-left font-semibold px-4 py-3">Name</th>
                   <th className="text-left font-semibold px-4 py-3">Email</th>
                   <th className="text-left font-semibold px-4 py-3">Role</th>
@@ -644,7 +644,7 @@ export default function AdminPage() {
                   const isEditingThis = editingUserId === user.id;
                   const isSelf = user.id === (session?.user as any)?.id;
                   return (
-                    <tr key={user.id} className="border-b border-stone-100">
+                    <tr key={user.id} className="border-b border-stone-800">
                       {isEditingThis ? (
                         <td colSpan={7} className="px-4 py-3">
                           <div className="flex flex-wrap items-end gap-3">
@@ -653,7 +653,7 @@ export default function AdminPage() {
                               <select
                                 value={editUserForm.role}
                                 onChange={e => setEditUserForm(p => ({ ...p, role: e.target.value, managerId: "" }))}
-                                className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white">
+                                className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
                                 <option value="company_user">User</option>
                                 <option value="company_admin">Company Admin</option>
                                 <option value="rep">Rep / PM</option>
@@ -667,7 +667,7 @@ export default function AdminPage() {
                                 <select
                                   value={editUserForm.managerId}
                                   onChange={e => setEditUserForm(p => ({ ...p, managerId: e.target.value }))}
-                                  className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-900 focus:outline-none bg-white min-w-[180px]">
+                                  className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300 min-w-[180px]">
                                   <option value="">— No manager —</option>
                                   {orgReps
                                     .filter((r: any) => r.tier === "ed" || r.tier === "rd")
@@ -679,7 +679,7 @@ export default function AdminPage() {
                               </div>
                             )}
                             {userEditError && (
-                              <div className="text-xs text-rose-600 bg-rose-50 px-2 py-1.5 rounded self-center">{userEditError}</div>
+                              <div className="text-xs text-rose-400 bg-rose-500/10 px-2 py-1.5 rounded ring-1 ring-rose-500/30 self-center">{userEditError}</div>
                             )}
                             <div className="flex gap-2 ml-auto self-end">
                               <Button variant="secondary" size="sm" onClick={() => { setEditingUserId(null); setUserEditError(""); }}>Cancel</Button>
@@ -691,8 +691,8 @@ export default function AdminPage() {
                         </td>
                       ) : (
                         <>
-                          <td className="px-4 py-3 font-medium text-stone-900">{user.name}</td>
-                          <td className="px-4 py-3 text-stone-600 text-[12px]">{user.email}</td>
+                          <td className="px-4 py-3 font-medium text-white">{user.name}</td>
+                          <td className="px-4 py-3 text-stone-400 text-[12px]">{user.email}</td>
                           <td className="px-4 py-3"><RoleBadge role={user.role} repTier={user.repTier} /></td>
                           <td className="px-4 py-3 text-[12px] text-stone-500">
                             {managerRep ? managerRep.name : <span className="text-stone-300">—</span>}
@@ -705,14 +705,14 @@ export default function AdminPage() {
                             <div className="flex items-center gap-1 justify-end">
                               {!isSelf && (
                                 <button onClick={() => startEditUser(user)}
-                                  className="p-1.5 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-700 transition-colors"
+                                  className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
                                   title="Edit role / rep assignment">
                                   <Pencil size={13} />
                                 </button>
                               )}
                               {!isSelf && (
                                 <button onClick={() => toggleUserStatus(user.id, user.status)}
-                                  className={`text-[11px] px-2 py-1 rounded font-medium transition-colors ${user.status === "Active" ? "bg-rose-50 text-rose-700 hover:bg-rose-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+                                  className={`text-[11px] px-2 py-1 rounded font-medium transition-colors ${user.status === "Active" ? "bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"}`}>
                                   {user.status === "Active" ? "Deactivate" : "Activate"}
                                 </button>
                               )}

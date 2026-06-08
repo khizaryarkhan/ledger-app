@@ -83,23 +83,23 @@ export default function SettingsPage() {
     <div className="p-6 max-w-[860px] mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Settings</h1>
-        <p className="text-sm text-stone-500 mt-1">
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Settings</h1>
+        <p className="text-sm text-stone-400 mt-1">
           Manage your company, team, integrations and email preferences.
         </p>
       </div>
 
       {/* Profile summary */}
-      <div className="flex items-center gap-3 mb-8 p-4 bg-stone-50 rounded-xl ring-1 ring-stone-200">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-sm font-semibold shrink-0">
+      <div className="flex items-center gap-3 mb-8 p-4 bg-stone-900 rounded-xl ring-1 ring-stone-800">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-stone-600 to-stone-800 flex items-center justify-center text-white text-sm font-semibold shrink-0">
           {userName.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase()}
         </div>
         <div>
-          <div className="text-sm font-semibold text-stone-900">{userName}</div>
-          <div className="text-[12px] text-stone-500">{userEmail}</div>
+          <div className="text-sm font-semibold text-white">{userName}</div>
+          <div className="text-[12px] text-stone-400">{userEmail}</div>
         </div>
         <div className="ml-auto">
-          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-200 text-stone-600">
+          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-700 text-stone-300">
             {(session?.user as any)?.role || "User"}
           </span>
         </div>
@@ -111,15 +111,15 @@ export default function SettingsPage() {
           const Icon = group.icon;
           return (
             <Link key={group.href} href={group.href} className="block">
-              <Card className="h-full hover:shadow-md hover:ring-stone-300 transition-all cursor-pointer group p-5">
+              <Card className="h-full hover:shadow-md hover:ring-stone-700 transition-all cursor-pointer group p-5">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center shrink-0 group-hover:bg-stone-200 transition-colors">
-                    <Icon size={18} className="text-stone-600" />
+                  <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center shrink-0 group-hover:bg-stone-700 transition-colors">
+                    <Icon size={18} className="text-stone-400" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="text-sm font-semibold text-stone-900">{group.title}</h3>
-                      <ChevronRight size={15} className="text-stone-400 group-hover:text-stone-700 transition-colors shrink-0" />
+                      <h3 className="text-sm font-semibold text-white">{group.title}</h3>
+                      <ChevronRight size={15} className="text-stone-500 group-hover:text-stone-200 transition-colors shrink-0" />
                     </div>
                     <p className="text-[12px] text-stone-500 leading-relaxed mb-3">{group.description}</p>
 
@@ -132,8 +132,8 @@ export default function SettingsPage() {
                       ) : (
                         <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium ${
                           group.badge.state === "ok"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-stone-100 text-stone-500"
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : "bg-stone-800 text-stone-400"
                         }`}>
                           {group.badge.state === "ok"
                             ? <CheckCircle size={11} />

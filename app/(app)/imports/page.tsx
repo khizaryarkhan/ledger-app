@@ -51,48 +51,48 @@ export default function ImportsPage() {
   return (
     <div className="p-6 max-w-[1100px] mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Imports</h1>
-        <p className="text-sm text-stone-500 mt-1">Bulk-import invoices from a CSV file</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Imports</h1>
+        <p className="text-sm text-stone-400 mt-1">Bulk-import invoices from a CSV file</p>
       </div>
 
       <Card className="mb-4">
-        <h3 className="text-sm font-semibold text-stone-900 mb-3">CSV format</h3>
-        <p className="text-sm text-stone-600 mb-3">Required columns: <code className="font-mono text-xs bg-stone-100 px-1.5 py-0.5 rounded">invoiceNumber, customerCode, invoiceDate, dueDate, amount</code></p>
-        <p className="text-sm text-stone-600 mb-3">Optional: <code className="font-mono text-xs bg-stone-100 px-1.5 py-0.5 rounded">projectCode, taxAmount, currency, poNumber</code></p>
+        <h3 className="text-sm font-semibold text-white mb-3">CSV format</h3>
+        <p className="text-sm text-stone-400 mb-3">Required columns: <code className="font-mono text-xs bg-stone-800 text-stone-300 px-1.5 py-0.5 rounded">invoiceNumber, customerCode, invoiceDate, dueDate, amount</code></p>
+        <p className="text-sm text-stone-400 mb-3">Optional: <code className="font-mono text-xs bg-stone-800 text-stone-300 px-1.5 py-0.5 rounded">projectCode, taxAmount, currency, poNumber</code></p>
         <Button variant="secondary" size="sm" onClick={() => setCsv(SAMPLE_CSV)}>Load sample data</Button>
       </Card>
 
       <Card>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-stone-900">Paste CSV</h3>
+          <h3 className="text-sm font-semibold text-white">Paste CSV</h3>
           <span className="text-[11px] text-stone-500">{csv ? `${csv.split(/\r?\n/).length - 1} rows` : "Empty"}</span>
         </div>
         <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={10}
-          className="w-full text-xs rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-3 font-mono"
+          className="w-full text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none p-3 font-mono"
           placeholder="invoiceNumber,customerCode,..." />
         <div className="flex justify-end mt-3">
           <Button icon={Upload} onClick={handleImport} disabled={!csv.trim() || submitting}>{submitting ? "Importing…" : "Import"}</Button>
         </div>
 
         {result && (
-          <div className="mt-4 pt-4 border-t border-stone-100">
+          <div className="mt-4 pt-4 border-t border-stone-800">
             {result.error ? (
-              <div className="flex items-start gap-2 bg-rose-50 ring-1 ring-rose-200 rounded-md p-3">
-                <AlertTriangle size={16} className="text-rose-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-rose-800">{result.error}</div>
+              <div className="flex items-start gap-2 bg-rose-500/10 ring-1 ring-rose-500/30 rounded-md p-3">
+                <AlertTriangle size={16} className="text-rose-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-rose-400">{result.error}</div>
               </div>
             ) : (
               <>
                 {result.imported > 0 && (
-                  <div className="flex items-center gap-2 bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 mb-2">
-                    <Check size={16} className="text-emerald-600" />
-                    <div className="text-sm text-emerald-800">Imported {result.imported} invoices</div>
+                  <div className="flex items-center gap-2 bg-emerald-500/10 ring-1 ring-emerald-500/30 rounded-md p-3 mb-2">
+                    <Check size={16} className="text-emerald-400" />
+                    <div className="text-sm text-emerald-400">Imported {result.imported} invoices</div>
                   </div>
                 )}
                 {result.errors && result.errors.length > 0 && (
-                  <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3">
-                    <div className="text-sm font-medium text-amber-800 mb-2">{result.errors.length} rows skipped:</div>
-                    <ul className="text-xs text-amber-700 space-y-1">
+                  <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-md p-3">
+                    <div className="text-sm font-medium text-amber-300 mb-2">{result.errors.length} rows skipped:</div>
+                    <ul className="text-xs text-amber-400 space-y-1">
                       {result.errors.slice(0, 10).map((e: any, i: number) => <li key={i}>Row {e.row}: {e.message}</li>)}
                       {result.errors.length > 10 && <li>...and {result.errors.length - 10} more</li>}
                     </ul>
