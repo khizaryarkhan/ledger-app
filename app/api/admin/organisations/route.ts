@@ -4,6 +4,7 @@ import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, desc, sql, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { sendSystemEmail, renderWelcomeEmail, getAppUrl } from "@/lib/system-mailer";
 
 const OrgSchema = z.object({
   name: z.string().min(1).max(255),
@@ -69,6 +70,19 @@ export async function POST(req: Request) {
     await db.insert(userOrganisations)
       .values({ userId: admin.id, orgId: org.id, role: "company_admin" })
       .onConflictDoNothing();
+
+    // Send welcome email (fire-and-forget — don't fail the request if email fails)
+    sendSystemEmail({
+      to:      admin.email,
+      subject: `Welcome to ${org.name} — your account is ready`,
+      html:    renderWelcomeEmail({
+        name:     admin.name,
+        orgName:  org.name,
+        email:    admin.email,
+        password: !existingUser ? data.adminPassword : undefined,
+        loginUrl: `${getAppUrl()}/login`,
+      }),
+    }).catch(err => console.error("[welcome-email]", err));
 
     return ok({
       org: { ...org, userCount: 1 },

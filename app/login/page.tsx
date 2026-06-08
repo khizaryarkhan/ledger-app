@@ -57,7 +57,12 @@ export default function LoginPage() {
                 className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
             </div>
             <div>
-              <label className="text-xs font-medium text-stone-400 block mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-stone-400">Password</label>
+                <Link href="/forgot-password" className="text-xs text-stone-500 hover:text-emerald-400 transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
               <input ref={passwordRef} type="password" required autoComplete="current-password"
                 className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
             </div>

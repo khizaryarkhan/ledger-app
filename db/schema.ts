@@ -73,6 +73,8 @@ export const users = pgTable("users", {
   orgId: uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
