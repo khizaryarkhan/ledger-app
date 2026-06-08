@@ -319,15 +319,15 @@ export default function BoardPage() {
           )}
           {/* Region filter */}
           <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
-            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           {/* Stage filter */}
           <select value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}
-            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-200 bg-white appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
             <option value="">All stages</option>
             {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
           </select>
