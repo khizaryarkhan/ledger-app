@@ -38,11 +38,11 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const ROLE_COLOR: Record<string, string> = {
-  company_admin: "bg-violet-50 text-violet-700 ring-violet-200",
-  company_user:  "bg-blue-50 text-blue-700 ring-blue-200",
-  rep:           "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  ed:            "bg-orange-50 text-orange-700 ring-orange-200",
-  super_admin:   "bg-rose-50 text-rose-700 ring-rose-200",
+  company_admin: "bg-violet-500/15 text-violet-400 ring-violet-500/30",
+  company_user:  "bg-blue-500/15 text-blue-400 ring-blue-500/30",
+  rep:           "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30",
+  ed:            "bg-orange-500/15 text-orange-400 ring-orange-500/30",
+  super_admin:   "bg-rose-500/15 text-rose-400 ring-rose-500/30",
 };
 
 // ── Dropdown that closes on outside click ──────────────────────────────────────
@@ -64,7 +64,7 @@ function PopoverMenu({ trigger, children }: { trigger: React.ReactNode; children
       <div onClick={() => setOpen(p => !p)}>{trigger}</div>
       {open && (
         <div
-          className="absolute left-0 top-full mt-1 z-[200] bg-white rounded-lg shadow-xl ring-1 ring-stone-200 py-1 min-w-[150px]"
+          className="absolute left-0 top-full mt-1 z-[200] bg-stone-900 rounded-lg shadow-xl ring-1 ring-stone-700 py-1 min-w-[150px]"
           onClick={() => setOpen(false)}>
           {children}
         </div>
@@ -202,11 +202,11 @@ export default function TeamSettingsPage() {
       {/* Header */}
       <div className="mb-6">
         <Link href="/settings"
-          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-900 mb-3 transition-colors">
+          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-200 mb-3 transition-colors">
           <ChevronLeft size={14} /> Settings
         </Link>
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Team</h1>
-        <p className="text-sm text-stone-500 mt-1">Manage users, access levels and regions.</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Team</h1>
+        <p className="text-sm text-stone-400 mt-1">Manage users, access levels and regions.</p>
       </div>
 
       {/* ── Role overview ──────────────────────────────────────────────────────── */}
@@ -217,10 +217,10 @@ export default function TeamSettingsPage() {
           { icon: Briefcase, color: "text-emerald-500", label: "Rep / PM",    desc: "Portal login — sees only projects assigned to them." },
           { icon: Shield,    color: "text-orange-500",  label: "ED / RM",     desc: "Portal login — sees all projects for Reps reporting to them." },
         ].map(({ icon: Icon, color, label, desc }) => (
-          <div key={label} className="flex items-start gap-3 p-3 rounded-lg bg-stone-50 ring-1 ring-stone-100">
+          <div key={label} className="flex items-start gap-3 p-3 rounded-lg bg-stone-800/40 ring-1 ring-stone-700">
             <Icon size={15} className={`${color} shrink-0 mt-0.5`} />
             <div>
-              <div className="text-sm font-semibold text-stone-800">{label}</div>
+              <div className="text-sm font-semibold text-white">{label}</div>
               <div className="text-[11px] text-stone-500 mt-0.5 leading-relaxed">{desc}</div>
             </div>
           </div>
@@ -230,8 +230,8 @@ export default function TeamSettingsPage() {
       {/* ── Users list ─────────────────────────────────────────────────────────── */}
       <Card className="mb-4">
         <div className="flex items-center gap-2 mb-1">
-          <UserPlus size={15} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Users</h3>
+          <UserPlus size={15} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Users</h3>
           <span className="ml-auto text-[11px] text-stone-400">{visible.length}</span>
         </div>
         <p className="text-[12px] text-stone-500 mb-4">
@@ -261,17 +261,17 @@ export default function TeamSettingsPage() {
 
             return (
               <div key={m.id}
-                className={`rounded-lg ring-1 px-3 py-2.5 space-y-2 ${isActive ? "bg-white ring-stone-200" : "bg-stone-50 ring-stone-100 opacity-60"}`}>
+                className={`rounded-lg ring-1 px-3 py-2.5 space-y-2 ${isActive ? "bg-stone-900 ring-stone-700" : "bg-stone-800/40 ring-stone-700 opacity-60"}`}>
 
                 {/* Main row */}
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-[11px] font-semibold text-stone-600 shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-stone-700 flex items-center justify-center text-[11px] font-semibold text-stone-300 shrink-0">
                     {m.name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase()}
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-stone-900 truncate">{m.name}</span>
+                      <span className="text-sm font-medium text-white truncate">{m.name}</span>
 
                       {/* Role badge — click dropdown for admins */}
                       {canEdit ? (
@@ -290,7 +290,7 @@ export default function TeamSettingsPage() {
                             { v: "ed",  label: "ED / RM" },
                           ].map(({ v, label }) => (
                             <button key={v} onClick={() => changeRole(m, v)}
-                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-50 transition-colors ${vRole === v ? "font-semibold text-stone-900" : "text-stone-600"}`}>
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-stone-800 transition-colors ${vRole === v ? "font-semibold text-white" : "text-stone-400"}`}>
                               {label}
                             </button>
                           ))}
@@ -309,16 +309,16 @@ export default function TeamSettingsPage() {
                   {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => toggleStatus(m)}
-                        className="text-[11px] px-2 py-1 rounded ring-1 ring-stone-200 text-stone-600 hover:bg-stone-100 transition-colors">
+                        className="text-[11px] px-2 py-1 rounded ring-1 ring-stone-700 text-stone-400 hover:bg-stone-800 transition-colors">
                         {isActive ? "Deactivate" : "Activate"}
                       </button>
                       {confirmDelete === m.id ? (
                         <div className="flex items-center gap-1">
-                          <span className="text-[11px] text-rose-600 font-medium">Sure?</span>
+                          <span className="text-[11px] text-rose-400 font-medium">Sure?</span>
                           <button onClick={() => deleteUser(m.id)}
                             className="text-[11px] px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700">Yes</button>
                           <button onClick={() => setConfirmDelete(null)}
-                            className="text-[11px] px-2 py-1 rounded ring-1 ring-stone-200 text-stone-600 hover:bg-stone-100">No</button>
+                            className="text-[11px] px-2 py-1 rounded ring-1 ring-stone-700 text-stone-500 hover:bg-stone-800">No</button>
                         </div>
                       ) : (
                         <button onClick={() => setConfirmDelete(m.id)}
@@ -337,7 +337,7 @@ export default function TeamSettingsPage() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       {reporteeUsers.map(r => (
                         <span key={r.id}
-                          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
                           <Briefcase size={9} />
                           {r.name}
                           <button
@@ -353,7 +353,7 @@ export default function TeamSettingsPage() {
                       {addableReps.length > 0 && (
                         <PopoverMenu
                           trigger={
-                            <button className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full ring-1 ring-dashed ring-stone-300 text-stone-500 hover:ring-stone-500 hover:text-stone-700 transition-colors cursor-pointer">
+                            <button className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full ring-1 ring-dashed ring-stone-600 text-stone-500 hover:ring-stone-400 hover:text-stone-300 transition-colors cursor-pointer">
                               <Plus size={9} /> Add
                             </button>
                           }>
@@ -361,7 +361,7 @@ export default function TeamSettingsPage() {
                             <button key={r.id}
                               disabled={managerSaving === r.id}
                               onClick={() => m.repId && addReportee(r, m.repId)}
-                              className="w-full text-left px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-40">
+                              className="w-full text-left px-3 py-1.5 text-xs text-stone-300 hover:bg-stone-800 transition-colors disabled:opacity-40">
                               {r.name}
                             </button>
                           ))}
@@ -381,20 +381,20 @@ export default function TeamSettingsPage() {
 
         {/* Add User form */}
         {isAdmin && (
-          <div className="pt-4 border-t border-stone-100">
+          <div className="pt-4 border-t border-stone-800">
             <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Add user</div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })}
                 placeholder="Full name *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
               <input value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
                 placeholder="Email *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
               <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })}
                 placeholder="Password (8+ chars) *"
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
               <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}
-                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white">
+                className="h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                 <option value="company_user">Full Access</option>
                 <option value="company_admin">Admin</option>
                 <option value="rep">Rep / PM</option>
@@ -402,7 +402,7 @@ export default function TeamSettingsPage() {
               </select>
             </div>
             {createError && (
-              <div className="text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded px-2 py-1.5 mb-2">{createError}</div>
+              <div className="text-xs text-rose-400 bg-rose-500/10 ring-1 ring-rose-500/30 rounded px-2 py-1.5 mb-2">{createError}</div>
             )}
             <Button size="sm" icon={Plus} disabled={addingUser} onClick={createUser}>
               {addingUser ? "Adding…" : "Add user"}
@@ -417,8 +417,8 @@ export default function TeamSettingsPage() {
       {/* ── Regions ────────────────────────────────────────────────────────────── */}
       <Card>
         <div className="flex items-center gap-2 mb-1">
-          <MapPin size={15} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Regions</h3>
+          <MapPin size={15} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Regions</h3>
           <span className="ml-auto text-[11px] text-stone-400">{(regions ?? []).length}</span>
         </div>
         <p className="text-[12px] text-stone-500 mb-4">
@@ -430,10 +430,10 @@ export default function TeamSettingsPage() {
             <div className="text-sm text-stone-400 py-1">No regions defined yet.</div>
           )}
           {(regions ?? []).map((r: any) => (
-            <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-stone-50 ring-1 ring-stone-100">
+            <div key={r.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-stone-800/40 ring-1 ring-stone-700">
               <div className="flex items-center gap-2">
                 <MapPin size={12} className="text-stone-400" />
-                <span className="text-sm text-stone-800">{r.name}</span>
+                <span className="text-sm text-stone-200">{r.name}</span>
               </div>
               {isAdmin && (
                 <button onClick={() => deleteRegion(r.id)}
@@ -446,11 +446,11 @@ export default function TeamSettingsPage() {
         </div>
 
         {isAdmin && (
-          <div className="flex gap-2 pt-3 border-t border-stone-100">
+          <div className="flex gap-2 pt-3 border-t border-stone-800">
             <input value={newRegion} onChange={e => setNewRegion(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleAddRegion()}
               placeholder="Region name"
-              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             <Button size="sm" icon={Plus} disabled={addingRegion || !newRegion.trim()} onClick={handleAddRegion}>
               {addingRegion ? "Adding…" : "Add"}
             </Button>

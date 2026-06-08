@@ -206,19 +206,19 @@ export default function IntegrationsSettingsPage() {
       <div className="mb-6">
         <Link
           href="/settings"
-          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-900 mb-3 transition-colors"
+          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-200 mb-3 transition-colors"
         >
           <ChevronLeft size={14} /> Settings
         </Link>
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Integrations</h1>
-        <p className="text-sm text-stone-500 mt-1">Connect external services and manage data sync.</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Integrations</h1>
+        <p className="text-sm text-stone-400 mt-1">Connect external services and manage data sync.</p>
       </div>
 
       {/* QuickBooks Online */}
       <Card className="mb-4">
         <div className="flex items-center gap-2 mb-4">
-          <Link2 size={16} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">QuickBooks Online</h3>
+          <Link2 size={16} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">QuickBooks Online</h3>
           {qboStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
         </div>
 
@@ -229,17 +229,17 @@ export default function IntegrationsSettingsPage() {
         ) : qboStatus.connected ? (
           <div className="space-y-4">
             {/* Connected banner */}
-            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md p-3 flex items-center gap-2">
-              <Check size={15} className="text-emerald-600" />
+            <div className="bg-emerald-500/10 ring-1 ring-emerald-500/30 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-emerald-400" />
               <div>
-                <div className="text-sm font-medium text-emerald-900">
+                <div className="text-sm font-medium text-emerald-400">
                   Connected to {qboStatus.companyName}
                 </div>
-                <div className="text-[11px] text-emerald-700 mt-0.5">Realm ID: {qboStatus.realmId}</div>
+                <div className="text-[11px] text-emerald-500/80 mt-0.5">Realm ID: {qboStatus.realmId}</div>
               </div>
             </div>
 
-            <div className="text-sm text-stone-600">
+            <div className="text-sm text-stone-400">
               Sync pulls all open invoices (Balance &gt; 0) and unapplied credits from QBO. Invoices paid in
               QBO auto-close in Ledger. Your collection notes, stages and tasks are never overwritten.
             </div>
@@ -305,9 +305,9 @@ export default function IntegrationsSettingsPage() {
 
             {/* Verify result — side-by-side counts */}
             {verifyResult && (
-              <div className="rounded-md ring-1 ring-stone-200 overflow-hidden">
-                <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
-                  <div className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
+              <div className="rounded-md ring-1 ring-stone-700 overflow-hidden">
+                <div className="px-3 py-2 bg-stone-800/60 border-b border-stone-800 flex items-center justify-between">
+                  <div className="text-xs font-semibold text-stone-300 uppercase tracking-wider">
                     QBO vs Ledger
                   </div>
                   <div className="text-[10px] text-stone-500">
@@ -316,7 +316,7 @@ export default function IntegrationsSettingsPage() {
                 </div>
                 <table className="w-full text-sm">
                   <thead className="text-[11px] text-stone-500 uppercase">
-                    <tr className="border-b border-stone-100">
+                    <tr className="border-b border-stone-800">
                       <th className="text-left px-3 py-2 font-medium">Entity</th>
                       <th className="text-right px-3 py-2 font-medium">In QBO</th>
                       <th className="text-right px-3 py-2 font-medium">In Ledger</th>
@@ -329,12 +329,12 @@ export default function IntegrationsSettingsPage() {
                       const inSync = diff === 0;
                       const ledgerLow = diff < 0;
                       return (
-                        <tr key={row.entity} className="border-b border-stone-50 last:border-0">
-                          <td className="px-3 py-2 text-stone-800">{row.entity}</td>
-                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                        <tr key={row.entity} className="border-b border-stone-800/50 last:border-0">
+                          <td className="px-3 py-2 text-stone-200">{row.entity}</td>
+                          <td className="px-3 py-2 text-right text-stone-400 tabular-nums">
                             {row.qbo === -1 ? "—" : row.qbo.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                          <td className="px-3 py-2 text-right text-stone-400 tabular-nums">
                             {row.ledger.toLocaleString()}
                           </td>
                           <td className={`px-3 py-2 text-right tabular-nums font-medium ${
@@ -347,12 +347,12 @@ export default function IntegrationsSettingsPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="px-3 py-2 bg-stone-50 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
-                  <span>Payment applications stored: <span className="font-medium text-stone-700">{verifyResult.paymentApplications?.toLocaleString() ?? 0}</span></span>
+                <div className="px-3 py-2 bg-stone-800/40 border-t border-stone-800 text-[11px] text-stone-500 flex items-center justify-between">
+                  <span>Payment applications stored: <span className="font-medium text-stone-300">{verifyResult.paymentApplications?.toLocaleString() ?? 0}</span></span>
                   <span>
                     {verifyResult.rows.every((r: any) => r.qbo === r.ledger)
-                      ? <span className="text-emerald-700 font-medium">✓ Ledger matches QBO</span>
-                      : <span className="text-amber-700">Run Sync to pull missing data</span>}
+                      ? <span className="text-emerald-400 font-medium">✓ Ledger matches QBO</span>
+                      : <span className="text-amber-400">Run Sync to pull missing data</span>}
                   </span>
                 </div>
               </div>
@@ -360,14 +360,14 @@ export default function IntegrationsSettingsPage() {
 
             {/* AR verification result */}
             {arVerifyResult && (
-              <div className="rounded-md ring-1 ring-stone-200 overflow-hidden">
-                <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
-                  <div className="text-xs font-semibold text-stone-700 uppercase tracking-wider">AR Total — QBO vs Ledger</div>
+              <div className="rounded-md ring-1 ring-stone-700 overflow-hidden">
+                <div className="px-3 py-2 bg-stone-800/60 border-b border-stone-800 flex items-center justify-between">
+                  <div className="text-xs font-semibold text-stone-300 uppercase tracking-wider">AR Total — QBO vs Ledger</div>
                   <div className="text-[10px] text-stone-500">Checked {new Date(arVerifyResult.checkedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
                 </div>
                 <table className="w-full text-[12px]">
                   <thead className="text-[10px] text-stone-500 uppercase">
-                    <tr className="border-b border-stone-100">
+                    <tr className="border-b border-stone-800">
                       <th className="text-left px-2 py-2 font-medium">Cur</th>
                       <th className="text-right px-2 py-2 font-medium">QBO Invoices</th>
                       <th className="text-right px-2 py-2 font-medium">QBO Credits</th>
@@ -383,14 +383,14 @@ export default function IntegrationsSettingsPage() {
                       const diff = row.ledger.net - row.qbo.net;
                       const inSync = Math.abs(diff) < 0.50;
                       return (
-                        <tr key={row.currency} className="border-b border-stone-50 last:border-0">
-                          <td className="px-2 py-2 font-mono text-stone-700">{row.currency}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.invoices, row.currency)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.qbo.credits, row.currency)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-stone-900">{fmt.money(row.qbo.net, row.currency)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.ledger.invoices, row.currency)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">{fmt.money(row.ledger.credits, row.currency)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-stone-900">{fmt.money(row.ledger.net, row.currency)}</td>
+                        <tr key={row.currency} className="border-b border-stone-800/50 last:border-0">
+                          <td className="px-2 py-2 font-mono text-stone-300">{row.currency}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-400">{fmt.money(row.qbo.invoices, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-400">{fmt.money(row.qbo.credits, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-white">{fmt.money(row.qbo.net, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-400">{fmt.money(row.ledger.invoices, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-stone-400">{fmt.money(row.ledger.credits, row.currency)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums font-semibold text-white">{fmt.money(row.ledger.net, row.currency)}</td>
                           <td className={`px-2 py-2 text-right tabular-nums font-semibold ${inSync ? "text-emerald-600" : "text-rose-600"}`}>
                             {inSync ? "✓" : fmt.money(diff, row.currency)}
                           </td>
@@ -399,12 +399,12 @@ export default function IntegrationsSettingsPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="px-3 py-2 bg-stone-50 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
+                <div className="px-3 py-2 bg-stone-800/40 border-t border-stone-800 text-[11px] text-stone-500 flex items-center justify-between">
                   <span>QBO open: {arVerifyResult.qbo.openInvoiceCount} invoices, {arVerifyResult.qbo.openCmCount} credit memos</span>
                   <span>
                     {Math.abs(arVerifyResult.difference) < 0.50
-                      ? <span className="text-emerald-700 font-medium">✓ AR totals match QBO</span>
-                      : <span className="text-amber-700">Ledger AR differs by {fmt.money(Math.abs(arVerifyResult.difference), "EUR")}</span>}
+                      ? <span className="text-emerald-400 font-medium">✓ AR totals match QBO</span>
+                      : <span className="text-amber-400">Ledger AR differs by {fmt.money(Math.abs(arVerifyResult.difference), "EUR")}</span>}
                   </span>
                 </div>
               </div>
@@ -412,8 +412,8 @@ export default function IntegrationsSettingsPage() {
 
             {/* Backfill result */}
             {backfillResult && (
-              <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded-md px-3 py-2 text-sm text-emerald-800 flex items-center gap-2">
-                <Check size={14} className="text-emerald-600 shrink-0" />
+              <div className="bg-emerald-500/10 ring-1 ring-emerald-500/30 rounded-md px-3 py-2 text-sm text-emerald-400 flex items-center gap-2">
+                <Check size={14} className="text-emerald-400 shrink-0" />
                 <span>
                   Backfilled <strong>{backfillResult.backfilled}</strong> invoice
                   {backfillResult.backfilled !== 1 ? "s" : ""} with payment dates
@@ -429,14 +429,14 @@ export default function IntegrationsSettingsPage() {
               <div className="space-y-3">
                 <div
                   className={`rounded-lg p-4 ring-1 ${
-                    isReconciled ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"
+                    isReconciled ? "bg-emerald-500/10 ring-emerald-500/30" : "bg-amber-500/10 ring-amber-500/30"
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-3">
                     {isReconciled ? (
-                      <CheckCircle size={16} className="text-emerald-600" />
+                      <CheckCircle size={16} className="text-emerald-400" />
                     ) : (
-                      <AlertTriangle size={16} className="text-amber-600" />
+                      <AlertTriangle size={16} className="text-amber-400" />
                     )}
                     <span className="text-sm font-semibold">
                       {isReconciled ? "AR Reconciled ✓" : "AR Variance — investigation needed"}
@@ -453,15 +453,15 @@ export default function IntegrationsSettingsPage() {
                         colored: true,
                       },
                     ].map(({ label, value, note, colored }) => (
-                      <div key={label} className="bg-white/60 rounded-md p-3">
+                      <div key={label} className="bg-stone-900/60 rounded-md p-3">
                         <div className="text-[11px] text-stone-500 mb-1">{label}</div>
                         <div
                           className={`text-lg font-semibold tabular-nums ${
                             colored
                               ? isReconciled
-                                ? "text-emerald-700"
-                                : "text-amber-700"
-                              : ""
+                                ? "text-emerald-400"
+                                : "text-amber-400"
+                              : "text-white"
                           }`}
                         >
                           {fmt.money(value, ccy)}
@@ -471,7 +471,7 @@ export default function IntegrationsSettingsPage() {
                     ))}
                   </div>
                   {!isReconciled && (
-                    <div className="mt-3 text-xs text-amber-800 bg-amber-100 rounded p-2">
+                    <div className="mt-3 text-xs text-amber-300 bg-amber-500/10 rounded p-2">
                       A variance may be caused by: Journal Entries hitting AR, retainer deposits, write-offs,
                       or invoices in a currency not yet synced. Check QBO AR Aging report.
                     </div>
@@ -479,7 +479,7 @@ export default function IntegrationsSettingsPage() {
                 </div>
 
                 {/* Sync stats */}
-                <div className="bg-stone-50 ring-1 ring-stone-200 rounded-md p-3">
+                <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
                   <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
                     This sync
                   </div>
@@ -495,7 +495,7 @@ export default function IntegrationsSettingsPage() {
                       { label: "Refunds", value: (syncResult.refundsCreated || 0) + (syncResult.refundsUpdated || 0) },
                     ].map(({ label, value }) => (
                       <div key={label}>
-                        <div className="text-xl font-semibold text-stone-900">{value}</div>
+                        <div className="text-xl font-semibold text-white">{value}</div>
                         <div className="text-[10px] text-stone-500">{label}</div>
                       </div>
                     ))}
@@ -512,7 +512,7 @@ export default function IntegrationsSettingsPage() {
                     Real-time webhook health
                   </div>
                   <button onClick={loadWebhookHealth}
-                    className="text-[11px] text-stone-400 hover:text-stone-700 flex items-center gap-1">
+                    className="text-[11px] text-stone-400 hover:text-stone-200 flex items-center gap-1">
                     <RefreshCw size={10} /> Refresh
                   </button>
                 </div>
@@ -554,18 +554,18 @@ export default function IntegrationsSettingsPage() {
 
                   return (
                     <div className={`rounded-lg p-3 ring-1 ${
-                      healthColor === "emerald" ? "bg-emerald-50 ring-emerald-200" :
-                      healthColor === "amber" ? "bg-amber-50 ring-amber-200" :
-                      "bg-stone-50 ring-stone-200"
+                      healthColor === "emerald" ? "bg-emerald-500/10 ring-emerald-500/30" :
+                      healthColor === "amber" ? "bg-amber-500/10 ring-amber-500/30" :
+                      "bg-stone-800/40 ring-stone-700"
                     }`}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          {healthColor === "emerald" ? <CheckCircle size={14} className="text-emerald-600" /> :
-                           healthColor === "amber" ? <AlertTriangle size={14} className="text-amber-600" /> :
+                          {healthColor === "emerald" ? <CheckCircle size={14} className="text-emerald-400" /> :
+                           healthColor === "amber" ? <AlertTriangle size={14} className="text-amber-400" /> :
                            <Clock size={14} className="text-stone-400" />}
                           <span className={`text-sm font-medium ${
-                            healthColor === "emerald" ? "text-emerald-800" :
-                            healthColor === "amber" ? "text-amber-800" : "text-stone-700"
+                            healthColor === "emerald" ? "text-emerald-400" :
+                            healthColor === "amber" ? "text-amber-300" : "text-stone-300"
                           }`}>{healthLabel}</span>
                         </div>
                         <span className="text-[11px] text-stone-500">
@@ -575,22 +575,22 @@ export default function IntegrationsSettingsPage() {
                       <div className="grid grid-cols-3 gap-3 text-[11px]">
                         <div>
                           <div className="text-stone-400 uppercase tracking-wider mb-0.5">Last event</div>
-                          <div className="text-stone-700">{fmtRelative(minutesSinceLast)}</div>
+                          <div className="text-stone-300">{fmtRelative(minutesSinceLast)}</div>
                         </div>
                         <div>
                           <div className="text-stone-400 uppercase tracking-wider mb-0.5">Last success</div>
-                          <div className="text-stone-700">{fmtRelative(minutesSinceSuccess)}</div>
+                          <div className="text-stone-300">{fmtRelative(minutesSinceSuccess)}</div>
                         </div>
                         <div>
                           <div className="text-stone-400 uppercase tracking-wider mb-0.5">Cron safety net</div>
-                          <div className="text-stone-700">{
+                          <div className="text-stone-300">{
                             webhookHealth.lastCronSyncAt
                               ? fmtRelative(Math.floor((Date.now() - new Date(webhookHealth.lastCronSyncAt).getTime()) / 60000))
                               : "never"
                           }</div>
                         </div>
                       </div>
-                      <div className="mt-2 pt-2 border-t border-stone-200/60 text-[10px] text-stone-500">
+                      <div className="mt-2 pt-2 border-t border-stone-700/60 text-[10px] text-stone-500">
                         Webhooks deliver QBO changes in seconds. If we miss one, the cron sync (every 30 min) reconciles all data — nothing is permanently lost.
                       </div>
                     </div>
@@ -601,7 +601,7 @@ export default function IntegrationsSettingsPage() {
                 {webhookHealth.recentEvents?.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {webhookHealth.recentEvents.slice(0, 5).map((ev: any) => (
-                      <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-50">
+                      <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-800/50">
                         {ev.status === "received" ? <CheckCircle size={11} className="text-emerald-500" /> :
                          ev.status === "error" ? <XCircle size={11} className="text-rose-500" /> :
                          <AlertTriangle size={11} className="text-amber-500" />}
@@ -610,11 +610,11 @@ export default function IntegrationsSettingsPage() {
                             day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
                           })}
                         </span>
-                        <span className="text-stone-700">{ev.entityCount} change(s)</span>
+                        <span className="text-stone-300">{ev.entityCount} change(s)</span>
                         <span className="text-stone-400 truncate">
                           {ev.entities?.map((e: any) => `${e.name}#${e.id}(${e.operation})`).join(", ")}
                         </span>
-                        {ev.errorMessage && <span className="ml-auto text-rose-600">{ev.errorMessage}</span>}
+                        {ev.errorMessage && <span className="ml-auto text-rose-400">{ev.errorMessage}</span>}
                         {ev.processingMs && !ev.errorMessage && (
                           <span className="ml-auto text-stone-400">{ev.processingMs}ms</span>
                         )}
@@ -637,7 +637,7 @@ export default function IntegrationsSettingsPage() {
                     return (
                       <div
                         key={log.id}
-                        className="flex items-center gap-3 text-sm py-1.5 border-b border-stone-100 last:border-0"
+                        className="flex items-center gap-3 text-sm py-1.5 border-b border-stone-800 last:border-0"
                       >
                         {log.status === "success" ? (
                           <CheckCircle size={14} className={reconciled ? "text-emerald-500" : "text-amber-500"} />
@@ -654,12 +654,12 @@ export default function IntegrationsSettingsPage() {
                         </span>
                         {log.status === "success" ? (
                           <>
-                            <span className="text-stone-600 text-[12px]">
+                            <span className="text-stone-400 text-[12px]">
                               {log.invoicesCreated} new · {log.invoicesUpdated} updated · {log.invoicesClosed} closed
                             </span>
                             <span
                               className={`ml-auto text-[12px] font-medium tabular-nums ${
-                                reconciled ? "text-emerald-700" : "text-amber-700"
+                                reconciled ? "text-emerald-400" : "text-amber-400"
                               }`}
                             >
                               {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0, ccy)}`}
@@ -681,10 +681,10 @@ export default function IntegrationsSettingsPage() {
         ) : (
           /* Not connected */
           <div className="space-y-3">
-            <div className="text-sm text-stone-600">
+            <div className="text-sm text-stone-400">
               Connect QuickBooks Online to sync customers and outstanding invoices automatically.
             </div>
-            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-3 text-sm text-amber-800">
+            <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-md p-3 text-sm text-amber-300">
               <div className="font-medium mb-1">Required Vercel env vars:</div>
               <div className="font-mono text-[12px] space-y-0.5">
                 <div>QBO_CLIENT_ID</div>
@@ -702,19 +702,19 @@ export default function IntegrationsSettingsPage() {
       {/* Data Tools */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <Database size={16} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Data tools</h3>
+          <Database size={16} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Data tools</h3>
         </div>
 
         <div className="space-y-4">
           {/* Demo data */}
-          <div className="pb-4 border-b border-stone-100">
-            <div className="text-sm font-medium text-stone-800 mb-1">Demo data</div>
+          <div className="pb-4 border-b border-stone-800">
+            <div className="text-sm font-medium text-white mb-1">Demo data</div>
             <div className="text-[12px] text-stone-500 mb-3">
               Currently <strong>{customers.length}</strong> customers and{" "}
               <strong>{invoices.length}</strong> invoices in the system.
             </div>
-            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-md p-2.5 text-xs text-amber-800 mb-3 flex items-start gap-2">
+            <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-md p-2.5 text-xs text-amber-300 mb-3 flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
               Only click once — calling twice creates duplicates.
             </div>
@@ -724,8 +724,8 @@ export default function IntegrationsSettingsPage() {
           </div>
 
           {/* Backfill inactive */}
-          <div className="pb-4 border-b border-stone-100">
-            <div className="text-sm font-medium text-stone-800 mb-1">Mark inactive — no open AR</div>
+          <div className="pb-4 border-b border-stone-800">
+            <div className="text-sm font-medium text-white mb-1">Mark inactive — no open AR</div>
             <div className="text-[12px] text-stone-500 mb-3">
               Marks customers and projects as <strong>Inactive</strong> if they have no open invoices or unapplied credit memos.
               This runs automatically on every QBO sync. Use this to backfill existing records.
@@ -738,8 +738,8 @@ export default function IntegrationsSettingsPage() {
               )}
             </Button>
             {backfillInactiveResult && (
-              <div className="mt-2 bg-emerald-50 ring-1 ring-emerald-200 rounded-md px-3 py-2 text-sm text-emerald-800 flex items-center gap-2">
-                <Check size={14} className="text-emerald-600 shrink-0" />
+              <div className="mt-2 bg-emerald-500/10 ring-1 ring-emerald-500/30 rounded-md px-3 py-2 text-sm text-emerald-400 flex items-center gap-2">
+                <Check size={14} className="text-emerald-400 shrink-0" />
                 <span>
                   Marked <strong>{backfillInactiveResult.customersDeactivated}</strong> customer{backfillInactiveResult.customersDeactivated !== 1 ? "s" : ""} and{" "}
                   <strong>{backfillInactiveResult.projectsDeactivated}</strong> project{backfillInactiveResult.projectsDeactivated !== 1 ? "s" : ""} inactive

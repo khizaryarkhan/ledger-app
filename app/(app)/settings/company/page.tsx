@@ -44,27 +44,27 @@ export default function CompanySettingsPage() {
       <div className="mb-6">
         <Link
           href="/settings"
-          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-900 mb-3 transition-colors"
+          className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-200 mb-3 transition-colors"
         >
           <ChevronLeft size={14} /> Settings
         </Link>
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Company</h1>
-        <p className="text-sm text-stone-500 mt-1">Profile, branding and date preferences.</p>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">Company</h1>
+        <p className="text-sm text-stone-400 mt-1">Profile, branding and date preferences.</p>
       </div>
 
       {/* Profile — read-only */}
       <Card className="mb-4">
         <div className="flex items-center gap-2 mb-4">
-          <User size={16} className="text-stone-600" />
-          <h3 className="text-sm font-semibold text-stone-900">Your profile</h3>
+          <User size={16} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Your profile</h3>
         </div>
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center text-white text-lg font-semibold">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-stone-600 to-stone-800 flex items-center justify-center text-white text-lg font-semibold">
             {initials}
           </div>
           <div className="flex-1">
-            <div className="text-base font-medium text-stone-900">{userName}</div>
-            <div className="text-sm text-stone-500">{userEmail}</div>
+            <div className="text-base font-medium text-white">{userName}</div>
+            <div className="text-sm text-stone-400">{userEmail}</div>
             <div className="mt-1">
               <Badge variant={isAdmin ? "purple" : "neutral"} size="sm">
                 {(session?.user as any)?.role || "User"}
@@ -78,8 +78,8 @@ export default function CompanySettingsPage() {
       {isAdmin && (
         <Card className="mb-4">
           <div className="flex items-center gap-2 mb-4">
-            <Palette size={16} className="text-stone-600" />
-            <h3 className="text-sm font-semibold text-stone-900">Organisation branding</h3>
+            <Palette size={16} className="text-stone-400" />
+            <h3 className="text-sm font-semibold text-white">Organisation branding</h3>
           </div>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -91,7 +91,7 @@ export default function CompanySettingsPage() {
                   value={brandingForm.displayName}
                   onChange={e => setBrandingForm(p => ({ ...p, displayName: e.target.value }))}
                   placeholder={orgSettings?.name || "Company name shown in sidebar"}
-                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">Override the sidebar company name.</p>
               </div>
@@ -103,14 +103,14 @@ export default function CompanySettingsPage() {
                   value={brandingForm.logoUrl}
                   onChange={e => setBrandingForm(p => ({ ...p, logoUrl: e.target.value }))}
                   placeholder="https://example.com/logo.png"
-                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">Paste a URL to your company logo (PNG/SVG).</p>
               </div>
             </div>
 
             {brandingForm.logoUrl && (
-              <div className="flex items-center gap-3 p-3 bg-stone-50 rounded-md ring-1 ring-stone-100">
+              <div className="flex items-center gap-3 p-3 bg-stone-800 rounded-md ring-1 ring-stone-700">
                 <img
                   src={brandingForm.logoUrl}
                   alt="Logo preview"
@@ -118,7 +118,7 @@ export default function CompanySettingsPage() {
                   onError={e => (e.currentTarget.style.display = "none")}
                 />
                 <div>
-                  <div className="text-sm font-semibold text-stone-900">
+                  <div className="text-sm font-semibold text-white">
                     {brandingForm.displayName || orgSettings?.name || "Company name"}
                   </div>
                   <div className="text-[10px] text-stone-500 tracking-wide">COLLECTIONS CRM</div>
@@ -152,8 +152,8 @@ export default function CompanySettingsPage() {
       {isAdmin && (
         <Card className="mb-4">
           <div className="flex items-center gap-2 mb-4">
-            <Calendar size={16} className="text-stone-600" />
-            <h3 className="text-sm font-semibold text-stone-900">Date format</h3>
+            <Calendar size={16} className="text-stone-400" />
+            <h3 className="text-sm font-semibold text-white">Date format</h3>
           </div>
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
@@ -169,8 +169,8 @@ export default function CompanySettingsPage() {
                   onClick={() => setDateFormat(opt.value)}
                   className={`px-3 py-2 rounded-md text-left text-sm border transition-colors ${
                     dateFormat === opt.value
-                      ? "bg-stone-900 text-white border-stone-900"
-                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-400"
+                      ? "bg-emerald-600/20 text-white border-emerald-500"
+                      : "bg-stone-800 text-stone-300 border-stone-700 hover:border-stone-500"
                   }`}
                 >
                   <div className="font-medium font-mono">{opt.label}</div>
@@ -202,8 +202,8 @@ export default function CompanySettingsPage() {
       {isAdmin && (
         <Card className="mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <DollarSign size={16} className="text-stone-600" />
-            <h3 className="text-sm font-semibold text-stone-900">Home currency</h3>
+            <DollarSign size={16} className="text-stone-400" />
+            <h3 className="text-sm font-semibold text-white">Home currency</h3>
           </div>
           <p className="text-[12px] text-stone-400 mb-4">All reports, invoices and dashboards will display amounts in this currency.</p>
           <div className="space-y-3">
@@ -228,8 +228,8 @@ export default function CompanySettingsPage() {
                   onClick={() => setCurrency(opt.value)}
                   className={`px-3 py-2 rounded-md text-left text-sm border transition-colors ${
                     currency === opt.value
-                      ? "bg-stone-900 text-white border-stone-900"
-                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-400"
+                      ? "bg-emerald-600/20 text-white border-emerald-500"
+                      : "bg-stone-800 text-stone-300 border-stone-700 hover:border-stone-500"
                   }`}
                 >
                   <div className="font-semibold font-mono">{opt.label}</div>

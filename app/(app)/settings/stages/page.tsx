@@ -106,21 +106,21 @@ export default function StagesSettingsPage() {
 
   return (
     <div className="p-6 max-w-[800px] mx-auto">
-      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 mb-5">
+      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-200 mb-5">
         <ArrowLeft size={14} /> Back to Settings
       </Link>
 
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Collection Stages</h1>
-          <p className="text-sm text-stone-500 mt-1">
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Collection Stages</h1>
+          <p className="text-sm text-stone-400 mt-1">
             Add, rename, recolour and manage which stages appear on the board.
           </p>
         </div>
         <button
           onClick={handleSave}
           disabled={saving || !canSave}
-          className="flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm font-medium rounded-lg hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <Save size={14} />
           {saving ? "Saving…" : "Save changes"}
@@ -128,8 +128,8 @@ export default function StagesSettingsPage() {
       </div>
 
       {/* Info banner */}
-      <div className="flex items-start gap-2.5 px-4 py-3 bg-blue-50 ring-1 ring-blue-200 rounded-lg mb-4 text-[12px] text-blue-800">
-        <Info size={13} className="mt-0.5 shrink-0 text-blue-600" />
+      <div className="flex items-start gap-2.5 px-4 py-3 bg-blue-500/10 ring-1 ring-blue-500/30 rounded-lg mb-4 text-[12px] text-blue-300">
+        <Info size={13} className="mt-0.5 shrink-0 text-blue-400" />
         <span>
           Renaming a stage automatically updates all invoices using that stage.
           One stage must be set as <strong>Default</strong> (where new invoices land) and one as <strong>Closed</strong> (end of lifecycle).
@@ -140,8 +140,8 @@ export default function StagesSettingsPage() {
 
       {/* Blocked warning banner */}
       {blockedStages.length > 0 && (
-        <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 ring-1 ring-amber-300 rounded-lg mb-4 text-[12px] text-amber-800">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600" />
+        <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-500/10 ring-1 ring-amber-500/30 rounded-lg mb-4 text-[12px] text-amber-300">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-400" />
           <span>
             <strong>Cannot save — </strong>
             {blockedStages.map((s, i) => (
@@ -157,7 +157,7 @@ export default function StagesSettingsPage() {
 
       <Card padding="none">
         {/* Header */}
-        <div className="grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 px-4 py-2.5 border-b border-stone-200 bg-stone-50">
+        <div className="grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 px-4 py-2.5 border-b border-stone-800 bg-stone-800/40">
           <div />
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Stage Label</div>
           <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Colour</div>
@@ -186,8 +186,8 @@ export default function StagesSettingsPage() {
           return (
             <div
               key={stage.key}
-              className={`grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 items-center px-4 py-3 border-b border-stone-100 last:border-0 transition-colors ${
-                isBlocked ? "bg-amber-50/60" : !stage.visible ? "opacity-50" : ""
+              className={`grid grid-cols-[28px_1fr_170px_80px_70px_70px_40px] gap-3 items-center px-4 py-3 border-b border-stone-800 last:border-0 transition-colors ${
+                isBlocked ? "bg-amber-500/5" : !stage.visible ? "opacity-50" : ""
               }`}
             >
               {/* Row number */}
@@ -205,7 +205,7 @@ export default function StagesSettingsPage() {
                       readOnly={locked}
                       onChange={(e) => !locked && update(stage.key, "label", e.target.value)}
                       title={locked ? "Mandatory stage — name is fixed" : undefined}
-                      className={`w-full h-8 px-2.5 ${locked ? "pr-7" : ""} text-sm rounded-md ring-1 ring-stone-200 focus:outline-none ${locked ? "bg-stone-50 text-stone-500 cursor-not-allowed" : "focus:ring-2 focus:ring-stone-900 bg-white"}`}
+                      className={`w-full h-8 px-2.5 ${locked ? "pr-7" : ""} text-sm rounded-md ring-1 ring-stone-700 focus:outline-none ${locked ? "bg-stone-800/60 text-stone-500 cursor-not-allowed" : "focus:ring-2 focus:ring-emerald-500 bg-stone-800 text-stone-300"}`}
                     />
                     {locked && <Lock size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400" />}
                   </div>
@@ -226,7 +226,7 @@ export default function StagesSettingsPage() {
                       key={c}
                       onClick={() => update(stage.key, "color", c)}
                       title={c}
-                      className={`w-5 h-5 rounded-full transition-all ${cc.dot} ${stage.color === c ? "ring-2 ring-offset-1 ring-stone-700 scale-110" : "hover:scale-110"}`}
+                      className={`w-5 h-5 rounded-full transition-all ${cc.dot} ${stage.color === c ? "ring-2 ring-offset-1 ring-offset-stone-900 ring-emerald-400 scale-110" : "hover:scale-110"}`}
                     />
                   );
                 })}
@@ -236,7 +236,7 @@ export default function StagesSettingsPage() {
               <div className="flex items-center justify-center">
                 <button
                   onClick={() => update(stage.key, "isDefault", true)}
-                  className={`w-4 h-4 rounded-full border-2 transition-colors ${stage.isDefault ? "border-stone-900 bg-stone-900" : "border-stone-300 hover:border-stone-500"}`}
+                  className={`w-4 h-4 rounded-full border-2 transition-colors ${stage.isDefault ? "border-emerald-500 bg-emerald-500" : "border-stone-600 hover:border-stone-400"}`}
                 >
                   {stage.isDefault && <span className="block w-1.5 h-1.5 bg-white rounded-full mx-auto" />}
                 </button>
@@ -246,7 +246,7 @@ export default function StagesSettingsPage() {
               <div className="flex items-center justify-center">
                 <button
                   onClick={() => update(stage.key, "isClosed", !stage.isClosed)}
-                  className={`w-4 h-4 rounded border-2 transition-colors flex items-center justify-center ${stage.isClosed ? "border-stone-900 bg-stone-900" : "border-stone-300 hover:border-stone-500"}`}
+                  className={`w-4 h-4 rounded border-2 transition-colors flex items-center justify-center ${stage.isClosed ? "border-emerald-500 bg-emerald-500" : "border-stone-600 hover:border-stone-400"}`}
                 >
                   {stage.isClosed && (
                     <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
@@ -274,8 +274,8 @@ export default function StagesSettingsPage() {
                       : isBlocked
                       ? "text-amber-500 cursor-not-allowed"
                       : stage.visible
-                      ? "text-stone-400 hover:text-stone-700"
-                      : "text-stone-300 hover:text-stone-600"
+                      ? "text-stone-400 hover:text-stone-200"
+                      : "text-stone-600 hover:text-stone-400"
                   }`}
                 >
                   {stage.visible
@@ -295,8 +295,8 @@ export default function StagesSettingsPage() {
                   disabled={!canDelete}
                   className={`p-1 rounded transition-colors ${
                     canDelete
-                      ? "text-stone-300 hover:text-rose-600"
-                      : "text-stone-200 cursor-not-allowed"
+                      ? "text-stone-500 hover:text-rose-400"
+                      : "text-stone-700 cursor-not-allowed"
                   }`}
                 >
                   <Trash2 size={13} />
@@ -307,7 +307,7 @@ export default function StagesSettingsPage() {
         })}
 
         {/* Add stage row */}
-        <div className="px-4 py-3 border-t border-stone-200 bg-stone-50/50 flex items-center gap-3">
+        <div className="px-4 py-3 border-t border-stone-800 bg-stone-800/30 flex items-center gap-3">
           <div className="w-[28px] shrink-0" />
           <input
             type="text"
@@ -316,7 +316,7 @@ export default function StagesSettingsPage() {
             onKeyDown={e => e.key === "Enter" && handleAddStage()}
             placeholder="New stage name…"
             maxLength={40}
-            className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+            className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
           />
           <button
             onClick={handleAddStage}
@@ -332,13 +332,13 @@ export default function StagesSettingsPage() {
       {/* Legend */}
       <div className="flex items-center gap-6 mt-4 text-[11px] text-stone-400 px-1">
         <div className="flex items-center gap-1.5">
-          <div className="w-3.5 h-3.5 rounded-full border-2 border-stone-900 bg-stone-900 flex items-center justify-center">
+          <div className="w-3.5 h-3.5 rounded-full border-2 border-emerald-500 bg-emerald-500 flex items-center justify-center">
             <span className="block w-1 h-1 bg-white rounded-full" />
           </div>
           Default — new invoices start here
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3.5 h-3.5 rounded border-2 border-stone-900 bg-stone-900 flex items-center justify-center">
+          <div className="w-3.5 h-3.5 rounded border-2 border-emerald-500 bg-emerald-500 flex items-center justify-center">
             <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
           Closed — end of lifecycle
