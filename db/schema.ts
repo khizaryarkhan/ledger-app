@@ -87,6 +87,39 @@ export const sessions = pgTable("sessions", {
 });
 
 // =========================================================================
+// PENDING REGISTRATIONS — self-service signup before payment
+// =========================================================================
+export const pendingRegistrations = pgTable("pending_registrations", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  companyName:      varchar("company_name",  { length: 255 }).notNull(),
+  adminName:        varchar("admin_name",    { length: 255 }).notNull(),
+  adminEmail:       varchar("admin_email",   { length: 255 }).notNull(),
+  otp:              varchar("otp",           { length: 6 }).notNull(),
+  otpExpiry:        timestamp("otp_expiry").notNull(),
+  emailVerified:    boolean("email_verified").notNull().default(false),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSessionId:  text("stripe_session_id"),
+  // 'pending' | 'email_verified' | 'paid' | 'completed'
+  status:           varchar("status", { length: 32 }).notNull().default("pending"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+});
+export type PendingRegistration = typeof pendingRegistrations.$inferSelect;
+
+// =========================================================================
+// SUBSCRIPTIONS — Stripe billing per org
+// =========================================================================
+export const subscriptions = pgTable("subscriptions", {
+  id:                     uuid("id").defaultRandom().primaryKey(),
+  orgId:                  uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  stripeCustomerId:       text("stripe_customer_id").notNull(),
+  stripeSubscriptionId:   text("stripe_subscription_id"),
+  stripePriceId:          text("stripe_price_id"),
+  status:                 varchar("status", { length: 32 }).notNull().default("active"),
+  currentPeriodEnd:       timestamp("current_period_end"),
+  createdAt:              timestamp("created_at").notNull().defaultNow(),
+});
+
+// =========================================================================
 // CUSTOMERS
 // =========================================================================
 export const customers = pgTable("customers", {

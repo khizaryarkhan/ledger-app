@@ -120,7 +120,7 @@ export default function LandingPage() {
             <Link href="/login" className="text-sm text-stone-400 hover:text-white px-4 py-2 rounded-lg transition-colors">
               Sign in
             </Link>
-            <Link href="/login" className="text-sm font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2 rounded-lg transition-colors">
+            <Link href="/register" className="text-sm font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2 rounded-lg transition-colors">
               Get started →
             </Link>
           </div>
@@ -144,7 +144,7 @@ export default function LandingPage() {
             ))}
             <div className="pt-3 flex flex-col gap-2">
               <Link href="/login" className="text-sm text-center text-stone-400 border border-stone-700 hover:border-stone-500 px-4 py-2.5 rounded-lg transition-colors">Sign in</Link>
-              <Link href="/login" className="text-sm text-center font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-lg transition-colors">Get started →</Link>
+              <Link href="/register" className="text-sm text-center font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2.5 rounded-lg transition-colors">Get started →</Link>
             </div>
           </div>
         )}
@@ -173,17 +173,17 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/login"
+            <Link href="/register"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm px-7 py-3.5 rounded-xl transition-all hover:shadow-lg hover:shadow-emerald-500/25 active:scale-[0.98]">
-              Open the dashboard
+              Get started
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
             </Link>
-            <a href="#features"
+            <Link href="/login"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 text-stone-300 hover:text-white border border-stone-700 hover:border-stone-500 text-sm px-7 py-3.5 rounded-xl transition-colors">
-              See features
-            </a>
+              Sign in
+            </Link>
           </div>
         </div>
 
