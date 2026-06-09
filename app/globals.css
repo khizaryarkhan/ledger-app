@@ -30,3 +30,128 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(40%);
   cursor: pointer;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE — premium animation toolkit (pure CSS, no JS deps)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Floating panels — gentle vertical drift with subtle rotation */
+@keyframes lp-float {
+  0%, 100% { transform: translateY(0) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); }
+  50%      { transform: translateY(-14px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); }
+}
+.lp-float { animation: lp-float 6s ease-in-out infinite; }
+.lp-float-slow { animation: lp-float 9s ease-in-out infinite; }
+.lp-float-delay { animation: lp-float 7s ease-in-out infinite; animation-delay: -2s; }
+
+/* Soft pulsing green glow */
+@keyframes lp-glow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 0.7;  transform: scale(1.08); }
+}
+.lp-glow { animation: lp-glow 4s ease-in-out infinite; }
+
+/* Moving background gradient */
+@keyframes lp-gradient {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.lp-gradient {
+  background-size: 300% 300%;
+  animation: lp-gradient 18s ease infinite;
+}
+
+/* Scroll-reveal — fade + slide + scale up into view */
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(28px) scale(0.97);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.lp-reveal.lp-in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Animated SVG line draw */
+@keyframes lp-dash {
+  to { stroke-dashoffset: 0; }
+}
+.lp-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: lp-dash 2s ease-out forwards;
+}
+
+/* Pulse traveling along connection lines */
+@keyframes lp-flow {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Animated chart line drawing in */
+@keyframes lp-chart-draw {
+  to { stroke-dashoffset: 0; }
+}
+.lp-chart-line {
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  animation: lp-chart-draw 2.4s ease-out 0.4s forwards;
+}
+
+/* Invoice cards moving through workflow */
+@keyframes lp-travel {
+  0%   { transform: translateX(0) scale(0.9); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateX(220px) scale(1); opacity: 0; }
+}
+.lp-travel { animation: lp-travel 5s ease-in-out infinite; }
+
+/* Shimmer sweep across glass cards */
+@keyframes lp-shimmer {
+  0%   { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(250%) skewX(-20deg); }
+}
+.lp-shimmer-parent { position: relative; overflow: hidden; }
+.lp-shimmer-parent::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(16,185,129,0.12), transparent);
+  transform: translateX(-150%) skewX(-20deg);
+}
+.lp-shimmer-parent:hover::after { animation: lp-shimmer 0.9s ease-out; }
+
+/* Slow particle rise */
+@keyframes lp-rise {
+  0%   { transform: translateY(0); opacity: 0; }
+  10%  { opacity: 0.6; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(-120px); opacity: 0; }
+}
+
+/* Counter / arrow bob */
+@keyframes lp-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+.lp-bob { animation: lp-bob 3s ease-in-out infinite; }
+
+/* Spin for orbit rings */
+@keyframes lp-spin { to { transform: rotate(360deg); } }
+.lp-spin-slow { animation: lp-spin 24s linear infinite; }
+.lp-spin-rev  { animation: lp-spin 32s linear infinite reverse; }
+
+/* 3D tilt container helpers */
+.lp-3d { perspective: 1400px; }
+.lp-preserve { transform-style: preserve-3d; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-float, .lp-float-slow, .lp-float-delay, .lp-glow, .lp-gradient,
+  .lp-travel, .lp-bob, .lp-spin-slow, .lp-spin-rev,
+  .lp-chart-line, .lp-draw { animation: none !important; }
+  .lp-reveal { opacity: 1; transform: none; }
+}
