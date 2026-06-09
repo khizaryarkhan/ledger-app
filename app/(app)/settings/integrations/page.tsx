@@ -983,7 +983,7 @@ export default function IntegrationsSettingsPage() {
                 </div>
               ))}
             </div>
-            <Button onClick={() => (window.location.href = "/api/xero")}>
+            <Button onClick={() => (window.location.href = `/api/xero?t=${Date.now()}`)}>
               <XeroLogo size={14} />
               <span className="ml-1.5">Connect Xero</span>
             </Button>
