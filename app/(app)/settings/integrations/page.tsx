@@ -11,6 +11,17 @@ import {
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
+// ─── Xero logo (inline SVG) ────────────────────────────────────────────────
+function XeroLogo({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="4" fill="#13B5EA"/>
+      <path d="M7.2 8.4L9.6 12L7.2 15.6H9L10.8 12.96L12.6 15.6H14.4L12 12L14.4 8.4H12.6L10.8 11.04L9 8.4H7.2Z" fill="white"/>
+      <path d="M15.6 12C15.6 13.326 16.674 14.4 18 14.4V12.96C17.472 12.96 17.04 12.528 17.04 12C17.04 11.472 17.472 11.04 18 11.04V9.6C16.674 9.6 15.6 10.674 15.6 12Z" fill="white"/>
+    </svg>
+  );
+}
+
 export default function IntegrationsSettingsPage() {
   const { customers, invoices, refresh, toast, orgSettings } = useData() as any;
   const ccy: string = orgSettings?.currency ?? "EUR";
@@ -23,7 +34,55 @@ export default function IntegrationsSettingsPage() {
   const [syncHistory, setSyncHistory] = useState<any[]>([]);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  // Backfill paid-at dates
+  // ── Xero ─────────────────────────────────────────────────────────────────
+  const [xeroStatus, setXeroStatus] = useState<any>(null);
+  const [xeroSyncing, setXeroSyncing] = useState(false);
+  const [xeroSyncResult, setXeroSyncResult] = useState<any>(null);
+  const [xeroHistory, setXeroHistory] = useState<any[]>([]);
+  const [xeroDisconnecting, setXeroDisconnecting] = useState(false);
+  const [xeroWebhookHealth, setXeroWebhookHealth] = useState<any>(null);
+
+  const loadXeroWebhookHealth = () => {
+    fetch("/api/xero/webhook-health")
+      .then(r => r.ok ? r.json() : null)
+      .then(setXeroWebhookHealth)
+      .catch(() => {});
+  };
+
+  const handleXeroSync = async () => {
+    setXeroSyncing(true);
+    setXeroSyncResult(null);
+    try {
+      const res = await fetch("/api/xero/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "Xero sync failed", "error");
+      } else {
+        setXeroSyncResult(data.synced);
+        toast("Xero sync complete ✓");
+        await refresh();
+        fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+      }
+    } catch {
+      toast("Xero sync failed", "error");
+    } finally {
+      setXeroSyncing(false);
+    }
+  };
+
+  const handleXeroDisconnect = async () => {
+    setXeroDisconnecting(true);
+    try {
+      await fetch("/api/xero/disconnect", { method: "POST" });
+      setXeroStatus({ connected: false });
+      setXeroSyncResult(null);
+      toast("Xero disconnected");
+    } finally {
+      setXeroDisconnecting(false);
+    }
+  };
+
+  // ── Backfill paid-at dates ─────────────────────────────────────────────────
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ backfilled: number; skipped: number } | null>(null);
 
@@ -89,6 +148,9 @@ export default function IntegrationsSettingsPage() {
     fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus).catch(() => setQboStatus({ connected: false }));
     fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
     loadWebhookHealth();
+    fetch("/api/xero/sync").then(r => r.json()).then(setXeroStatus).catch(() => setXeroStatus({ connected: false }));
+    fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+    loadXeroWebhookHealth();
   }, []);
 
   useEffect(() => {
@@ -98,6 +160,25 @@ export default function IntegrationsSettingsPage() {
       fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus);
     } else if (qbo === "error") {
       toast(`QBO error: ${searchParams.get("reason")}`, "error");
+    }
+    const xero = searchParams.get("xero");
+    if (xero === "connected") {
+      toast("Xero connected! Starting initial sync…");
+      fetch("/api/xero/sync").then(r => r.json()).then(setXeroStatus);
+      // Kick off initial full sync automatically
+      fetch("/api/xero/sync", { method: "POST" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.synced) {
+            setXeroSyncResult(d.synced);
+            toast("Initial Xero sync complete ✓");
+            refresh();
+            fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    } else if (xero === "error") {
+      toast(`Xero error: ${searchParams.get("reason")}`, "error");
     }
   }, [searchParams]);
 
@@ -684,6 +765,227 @@ export default function IntegrationsSettingsPage() {
 
             <Button icon={Link2} onClick={() => (window.location.href = "/api/qbo")}>
               Connect QuickBooks Online
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Xero ── */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <XeroLogo size={16} />
+          <h3 className="text-sm font-semibold text-white">Xero</h3>
+          {xeroStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+        </div>
+
+        {xeroStatus === null ? (
+          <div className="flex items-center gap-2 text-sm text-stone-500">
+            <Loader size={14} className="animate-spin" /> Checking…
+          </div>
+        ) : xeroStatus.connected ? (
+          <div className="space-y-4">
+            {/* Connected banner */}
+            <div className="bg-sky-500/10 ring-1 ring-sky-500/30 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-sky-400" />
+              <div>
+                <div className="text-sm font-medium text-sky-400">
+                  Connected to {xeroStatus.tenantName || "Xero"}
+                </div>
+                <div className="text-[11px] text-sky-500/80 mt-0.5">Tenant ID: {xeroStatus.tenantId}</div>
+              </div>
+            </div>
+
+            <div className="text-sm text-stone-400">
+              Sync pulls all Xero Contacts (as customers), open Invoices, Credit Notes and
+              Payments. Invoices marked Paid in Xero auto-close in Ledger. Collection notes,
+              stages and tasks are never overwritten.
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button onClick={handleXeroSync} disabled={xeroSyncing}>
+                {xeroSyncing ? (
+                  <span className="flex items-center gap-2">
+                    <Loader size={14} className="animate-spin" />Syncing from Xero…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <RefreshCw size={14} />Sync from Xero
+                  </span>
+                )}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleXeroDisconnect} disabled={xeroDisconnecting}>
+                <Unlink size={14} className="mr-1.5" />
+                {xeroDisconnecting ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </div>
+
+            {/* Sync stats after manual sync */}
+            {xeroSyncResult && (
+              <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
+                <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                  This sync
+                </div>
+                <div className="grid grid-cols-4 gap-x-2 gap-y-3 text-center">
+                  {[
+                    { label: "Customers", value: xeroSyncResult.customers },
+                    { label: "Contacts", value: xeroSyncResult.contacts },
+                    { label: "New invoices", value: xeroSyncResult.invoicesCreated },
+                    { label: "Updated", value: xeroSyncResult.invoicesUpdated },
+                    { label: "Auto-closed", value: xeroSyncResult.invoicesClosed },
+                    { label: "Credits", value: xeroSyncResult.creditsCreated },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <div className="text-xl font-semibold text-white">{value ?? 0}</div>
+                      <div className="text-[10px] text-stone-500">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Webhook health */}
+            {xeroWebhookHealth && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                    Real-time webhook health
+                  </div>
+                  <button
+                    onClick={loadXeroWebhookHealth}
+                    className="text-[11px] text-stone-400 hover:text-stone-200 flex items-center gap-1"
+                  >
+                    <RefreshCw size={10} /> Refresh
+                  </button>
+                </div>
+                {(() => {
+                  const lastAt = xeroWebhookHealth.lastWebhookAt ? new Date(xeroWebhookHealth.lastWebhookAt) : null;
+                  const lastSuccessAt = xeroWebhookHealth.lastSuccessAt ? new Date(xeroWebhookHealth.lastSuccessAt) : null;
+                  const minsLast = lastAt ? Math.floor((Date.now() - lastAt.getTime()) / 60000) : null;
+                  const minsSuccess = lastSuccessAt ? Math.floor((Date.now() - lastSuccessAt.getTime()) / 60000) : null;
+                  let healthLabel = "Not yet received";
+                  let healthColor = "neutral";
+                  if (lastSuccessAt) {
+                    if (xeroWebhookHealth.errorsLast24h > 0) { healthLabel = `${xeroWebhookHealth.errorsLast24h} error(s) in 24h`; healthColor = "amber"; }
+                    else if (minsSuccess! < 60 * 24) { healthLabel = "Healthy"; healthColor = "emerald"; }
+                    else { healthLabel = "No events in 24h"; healthColor = "amber"; }
+                  }
+                  const fmtRel = (m: number | null) => {
+                    if (m === null) return "never";
+                    if (m < 1) return "just now";
+                    if (m < 60) return `${m} min ago`;
+                    const h = Math.floor(m / 60);
+                    if (h < 48) return `${h} h ago`;
+                    return `${Math.floor(h / 24)} d ago`;
+                  };
+                  return (
+                    <div className={`rounded-lg p-3 ring-1 ${
+                      healthColor === "emerald" ? "bg-emerald-500/10 ring-emerald-500/30" :
+                      healthColor === "amber" ? "bg-amber-500/10 ring-amber-500/30" :
+                      "bg-stone-800/40 ring-stone-700"
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {healthColor === "emerald" ? <CheckCircle size={14} className="text-emerald-400" /> :
+                           healthColor === "amber" ? <AlertTriangle size={14} className="text-amber-400" /> :
+                           <Clock size={14} className="text-stone-400" />}
+                          <span className={`text-sm font-medium ${
+                            healthColor === "emerald" ? "text-emerald-400" :
+                            healthColor === "amber" ? "text-amber-300" : "text-stone-300"
+                          }`}>{healthLabel}</span>
+                        </div>
+                        <span className="text-[11px] text-stone-500">
+                          {xeroWebhookHealth.last24hCount} event(s) in last 24h
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-[11px]">
+                        <div><div className="text-stone-400 uppercase tracking-wider mb-0.5">Last event</div><div className="text-stone-300">{fmtRel(minsLast)}</div></div>
+                        <div><div className="text-stone-400 uppercase tracking-wider mb-0.5">Last success</div><div className="text-stone-300">{fmtRel(minsSuccess)}</div></div>
+                        <div><div className="text-stone-400 uppercase tracking-wider mb-0.5">Cron safety net</div><div className="text-stone-300">{xeroWebhookHealth.lastCronSyncAt ? fmtRel(Math.floor((Date.now() - new Date(xeroWebhookHealth.lastCronSyncAt).getTime()) / 60000)) : "never"}</div></div>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-stone-700/60 text-[10px] text-stone-500">
+                        Webhooks deliver Xero changes in seconds. The cron safety net runs every 4 hours to reconcile anything missed.
+                      </div>
+                    </div>
+                  );
+                })()}
+                {xeroWebhookHealth.recentEvents?.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {xeroWebhookHealth.recentEvents.slice(0, 5).map((ev: any) => (
+                      <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-800/50">
+                        {ev.status === "received" ? <CheckCircle size={11} className="text-emerald-500" /> :
+                         ev.status === "error" ? <XCircle size={11} className="text-rose-500" /> :
+                         <AlertTriangle size={11} className="text-amber-500" />}
+                        <span className="text-stone-500 w-28">
+                          {new Date(ev.receivedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span className="text-stone-300">{ev.entityCount} change(s)</span>
+                        {ev.errorMessage && <span className="ml-auto text-rose-400">{ev.errorMessage}</span>}
+                        {ev.processingMs && !ev.errorMessage && <span className="ml-auto text-stone-400">{ev.processingMs}ms</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sync history */}
+            {xeroHistory.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                  Sync history
+                </div>
+                <div className="space-y-1.5">
+                  {xeroHistory.slice(0, 8).map((log: any) => (
+                    <div key={log.id} className="flex items-center gap-3 text-sm py-1.5 border-b border-stone-800 last:border-0">
+                      {log.status === "success"
+                        ? <CheckCircle size={14} className="text-emerald-500" />
+                        : <XCircle size={14} className="text-rose-500" />}
+                      <span className="text-stone-500 text-[12px] w-36">
+                        {new Date(log.syncedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      {log.status === "success" ? (
+                        <>
+                          <span className="text-stone-400 text-[12px]">
+                            {log.invoicesCreated} new · {log.invoicesUpdated} updated · {log.invoicesClosed} closed
+                          </span>
+                          <span className="text-stone-400 text-[11px] ml-auto">
+                            {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : ""}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-rose-600 text-[12px] truncate">{log.errorMessage}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Not connected */
+          <div className="space-y-5">
+            <p className="text-sm text-stone-400 leading-relaxed">
+              Connect Xero to automatically sync your customers (Contacts) and outstanding
+              invoices. Payments and credit notes flow into Ledger in real time via webhooks,
+              with a scheduled cron safety net every 4 hours.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                { icon: <RefreshCw size={13} />, text: "Contacts synced as customers" },
+                { icon: <Check size={13} />,     text: "Invoices close when paid in Xero" },
+                { icon: <Database size={13} />,  text: "Credit notes tracked as credits" },
+                { icon: <Clock size={13} />,     text: "Real-time webhooks + cron backup" },
+              ].map(({ icon, text }) => (
+                <div key={text} className="flex items-center gap-2 text-[13px] text-stone-400">
+                  <span className="text-sky-400 shrink-0">{icon}</span>
+                  {text}
+                </div>
+              ))}
+            </div>
+            <Button onClick={() => (window.location.href = "/api/xero")}>
+              <XeroLogo size={14} />
+              <span className="ml-1.5">Connect Xero</span>
             </Button>
           </div>
         )}

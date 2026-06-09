@@ -38,7 +38,7 @@ export default auth((req) => {
   const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/");
   const isLegal = path === "/privacy" || path === "/terms";
   const isHome = path === "/"; // public marketing landing (Google verification needs this)
-  const isPublic = isHome || path === "/login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
+  const isPublic = isHome || path === "/login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");

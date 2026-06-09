@@ -146,6 +146,7 @@ export const customers = pgTable("customers", {
   addressCity: varchar("address_city", { length: 128 }),
   addressPostcode: varchar("address_postcode", { length: 32 }),
   qboId: varchar("qbo_id", { length: 64 }),
+  xeroId: varchar("xero_id", { length: 64 }),   // Xero ContactID
   chaseByProject: boolean("chase_by_project").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -190,6 +191,7 @@ export const projects = pgTable("projects", {
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   qboId: varchar("qbo_id", { length: 64 }), // QBO sub-customer Id
+  xeroId: varchar("xero_id", { length: 64 }), // Xero tracking category / job Id (future)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -225,6 +227,11 @@ export const invoices = pgTable("invoices", {
   qboBalance: real("qbo_balance"),
   qboCustomerId: varchar("qbo_customer_id", { length: 64 }),
   qboSyncedAt: timestamp("qbo_synced_at"),
+  xeroId: varchar("xero_id", { length: 64 }), // Xero InvoiceID / CreditNoteID
+  xeroBalance: real("xero_balance"),            // AmountDue from Xero
+  xeroCustomerId: varchar("xero_customer_id", { length: 64 }), // Xero ContactID
+  xeroSyncedAt: timestamp("xero_synced_at"),
+  xeroTenantId: varchar("xero_tenant_id", { length: 64 }), // which Xero org this came from
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   paidAt: varchar("paid_at", { length: 16 }), // Date payment was received (YYYY-MM-DD) — NULL if unpaid
   // ── Customer Response Portal derived/cached state ──────────────────────
@@ -675,6 +682,59 @@ export const qboTokens = pgTable("qbo_tokens", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type QboToken = typeof qboTokens.$inferSelect;
+
+// =========================================================================
+// XERO SYNC LOG
+// =========================================================================
+export const xeroSyncLog = pgTable("xero_sync_log", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  orgId:            uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  userId:           uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  syncedAt:         timestamp("synced_at").notNull().defaultNow(),
+  status:           varchar("status", { length: 16 }).notNull().default("success"),
+  customersCreated: integer("customers_created").default(0),
+  invoicesCreated:  integer("invoices_created").default(0),
+  invoicesUpdated:  integer("invoices_updated").default(0),
+  invoicesClosed:   integer("invoices_closed").default(0),
+  creditsCreated:   integer("credits_created").default(0),
+  errorMessage:     text("error_message"),
+  durationMs:       integer("duration_ms"),
+});
+export type XeroSyncLog = typeof xeroSyncLog.$inferSelect;
+
+// =========================================================================
+// XERO WEBHOOK EVENTS
+// =========================================================================
+export const xeroWebhookEvents = pgTable("xero_webhook_events", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  receivedAt:   timestamp("received_at").notNull().defaultNow(),
+  tenantId:     varchar("tenant_id", { length: 64 }).notNull(),
+  orgId:        uuid("org_id").references(() => organisations.id, { onDelete: "set null" }),
+  status:       varchar("status", { length: 32 }).notNull().default("received"),
+  entityCount:  integer("entity_count").notNull().default(0),
+  entities:     jsonb("entities"),
+  errorMessage: text("error_message"),
+  processingMs: integer("processing_ms"),
+});
+export type XeroWebhookEvent = typeof xeroWebhookEvents.$inferSelect;
+
+// =========================================================================
+// XERO TOKENS
+// =========================================================================
+export const xeroTokens = pgTable("xero_tokens", {
+  id:                    uuid("id").defaultRandom().primaryKey(),
+  userId:                uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  orgId:                 uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  tenantId:              varchar("tenant_id", { length: 64 }).notNull(), // Xero organisation tenant ID
+  tenantName:            varchar("tenant_name", { length: 255 }),
+  accessToken:           text("access_token").notNull(),
+  refreshToken:          text("refresh_token").notNull(),
+  accessTokenExpiresAt:  timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(), // 60-day rolling window
+  createdAt:             timestamp("created_at").notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at").notNull().defaultNow(),
+});
+export type XeroToken = typeof xeroTokens.$inferSelect;
 
 // =========================================================================
 // GMAIL TOKENS
