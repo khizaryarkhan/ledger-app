@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
