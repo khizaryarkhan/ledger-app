@@ -24,15 +24,21 @@ export async function GET() {
   const userId = (session!.user as any).id;
   const state = `${orgId}:${userId}`;
 
-  const params = new URLSearchParams({
-    response_type: "code",
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: "offline_access accounting.transactions accounting.contacts",
-    state,
-  });
+  const scope = "offline_access accounting.transactions accounting.contacts";
+
+  // Build the query string manually with encodeURIComponent so that the spaces
+  // between scopes become %20. URLSearchParams encodes spaces as "+", which
+  // Xero's identity server does NOT decode back to spaces in the scope field —
+  // that produces an "invalid_scope" error. %20 is decoded correctly.
+  const query = [
+    `response_type=code`,
+    `client_id=${encodeURIComponent(clientId)}`,
+    `redirect_uri=${encodeURIComponent(redirectUri)}`,
+    `scope=${encodeURIComponent(scope)}`,
+    `state=${encodeURIComponent(state)}`,
+  ].join("&");
 
   return NextResponse.redirect(
-    `https://login.xero.com/identity/connect/authorize?${params.toString()}`
+    `https://login.xero.com/identity/connect/authorize?${query}`
   );
 }
