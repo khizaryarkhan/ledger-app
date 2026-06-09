@@ -479,7 +479,29 @@ export default function DashboardPage() {
     open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
     activeCMs.forEach((i: any) => { buckets["Current"] += openBal(i); });
     const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
-    const promised = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay").reduce((s: number, i: any) => s + openBal(i), 0);
+    const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
+    const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);
+
+    // Broken promises — promise date has already passed
+    const promisedBrokenItems = promisedAll.filter((i: any) => i.promiseDate && daysOverdue(i.promiseDate) > 0);
+    const promisedBroken = promisedBrokenItems.reduce((s: number, i: any) => s + openBal(i), 0);
+
+    // Promises due within the next 7 days
+    const promisedWeekItems = promisedAll.filter((i: any) => {
+      if (!i.promiseDate) return false;
+      const d = daysOverdue(i.promiseDate);
+      return d <= 0 && d >= -7;
+    });
+    const promisedWeek = promisedWeekItems.reduce((s: number, i: any) => s + openBal(i), 0);
+
+    // Promises due in 8–30 days
+    const promisedMonthItems = promisedAll.filter((i: any) => {
+      if (!i.promiseDate) return false;
+      const d = daysOverdue(i.promiseDate);
+      return d < -7 && d >= -30;
+    });
+    const promisedMonth = promisedMonthItems.reduce((s: number, i: any) => s + openBal(i), 0);
+
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
     const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
@@ -496,7 +518,14 @@ export default function DashboardPage() {
       return d < -6 && d >= -14 && !i.lastFollowupDate;
     });
 
-    return { totalReceivable, totalOverdue, buckets, disputed, promised, dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline };
+    return {
+      totalReceivable, totalOverdue, buckets, disputed,
+      promised, promisedBroken, promisedBrokenCount: promisedBrokenItems.length,
+      promisedWeek, promisedWeekCount: promisedWeekItems.length,
+      promisedMonth, promisedMonthCount: promisedMonthItems.length,
+      promisedTotalCount: promisedAll.length,
+      dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
+    };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
 
   const topOverdue = useMemo(() => {
@@ -668,15 +697,85 @@ export default function DashboardPage() {
                 </>}
               </Card>
             </div>
-            <div className="grid grid-cols-1 gap-3 mb-3">
-              <Card padding="md">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Promised</div>
-                {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-amber-600 tracking-tight">{fmt.money(stats.promised, ccy)}</div>
-                  <div className="mt-2 text-[11px] text-stone-500">Promise to pay</div>
-                </>}
-              </Card>
-            </div>
+            {/* Promised — breakdown row */}
+            <Card padding="md" className="mb-3">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Promised to Pay</div>
+                {!snapshotLoading && stats.promisedBroken > 0 && (
+                  <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
+                    <AlertTriangle size={10} /> {stats.promisedBrokenCount} broken
+                  </div>
+                )}
+              </div>
+              {snapshotLoading ? (
+                <div className="grid grid-cols-4 gap-4">
+                  {[0,1,2,3].map(i => <div key={i}><S /><Sub /></div>)}
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-4 divide-x divide-stone-800">
+                  {/* Broken */}
+                  <div className="pr-4">
+                    <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken</div>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-600"}`}>
+                      {fmt.money(stats.promisedBroken, ccy)}
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-stone-500">
+                      {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} promise${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
+                    </div>
+                    {stats.promisedBroken > 0 && (
+                      <div className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block">Follow up now</div>
+                    )}
+                  </div>
+                  {/* This Week */}
+                  <div className="px-4">
+                    <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedWeek > 0 ? "text-amber-400" : "text-stone-600"}`}>
+                      {fmt.money(stats.promisedWeek, ccy)}
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-stone-500">
+                      {stats.promisedWeekCount === 0 ? "Nothing due" : `${stats.promisedWeekCount} invoice${stats.promisedWeekCount !== 1 ? "s" : ""} · due ≤7 days`}
+                    </div>
+                    {stats.promisedWeek > 0 && (
+                      <div className="mt-2 text-[10px] text-amber-500 bg-amber-500/10 rounded px-1.5 py-0.5 inline-block">Confirm payment</div>
+                    )}
+                  </div>
+                  {/* This Month */}
+                  <div className="px-4">
+                    <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
+                    <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedMonth > 0 ? "text-sky-400" : "text-stone-600"}`}>
+                      {fmt.money(stats.promisedMonth, ccy)}
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-stone-500">
+                      {stats.promisedMonthCount === 0 ? "Nothing due" : `${stats.promisedMonthCount} invoice${stats.promisedMonthCount !== 1 ? "s" : ""} · due 8–30 days`}
+                    </div>
+                  </div>
+                  {/* Total */}
+                  <div className="pl-4">
+                    <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total Pipeline</div>
+                    <div className="text-2xl font-semibold text-white tabular-nums tracking-tight">
+                      {fmt.money(stats.promised, ccy)}
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-stone-500">
+                      {stats.promisedTotalCount} active promise{stats.promisedTotalCount !== 1 ? "s" : ""}
+                    </div>
+                    {/* Mini progress bar: broken vs healthy */}
+                    {stats.promisedTotalCount > 0 && (
+                      <div className="mt-2 h-1 bg-stone-800 rounded-full overflow-hidden w-full">
+                        <div
+                          className="h-full bg-rose-500"
+                          style={{ width: `${stats.promised > 0 ? (stats.promisedBroken / stats.promised) * 100 : 0}%` }}
+                        />
+                      </div>
+                    )}
+                    {stats.promisedTotalCount > 0 && (
+                      <div className="mt-1 text-[10px] text-stone-600">
+                        {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </Card>
           </>
         );
       })()}
