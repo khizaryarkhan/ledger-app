@@ -31,9 +31,6 @@ export default function IntegrationsSettingsPage() {
   const [backfillingInactive, setBackfillingInactive] = useState(false);
   const [backfillInactiveResult, setBackfillInactiveResult] = useState<{ customersDeactivated: number; projectsDeactivated: number } | null>(null);
 
-  // Demo data
-  const [seeding, setSeeding] = useState(false);
-
   // Webhook health
   const [webhookHealth, setWebhookHealth] = useState<any>(null);
 
@@ -178,23 +175,6 @@ export default function IntegrationsSettingsPage() {
       toast("Backfill failed", "error");
     } finally {
       setBackfillingInactive(false);
-    }
-  };
-
-  const handleSeed = async () => {
-    setSeeding(true);
-    try {
-      const res = await fetch("/api/seed", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) toast(data.error || "Seed failed", "error");
-      else {
-        toast(`Loaded ${data.customers} customers, ${data.invoices} invoices`);
-        await refresh();
-      }
-    } catch {
-      toast("Seed failed", "error");
-    } finally {
-      setSeeding(false);
     }
   };
 
@@ -717,22 +697,6 @@ export default function IntegrationsSettingsPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Demo data */}
-          <div className="pb-4 border-b border-stone-800">
-            <div className="text-sm font-medium text-white mb-1">Demo data</div>
-            <div className="text-[12px] text-stone-500 mb-3">
-              Currently <strong>{customers.length}</strong> customers and{" "}
-              <strong>{invoices.length}</strong> invoices in the system.
-            </div>
-            <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-md p-2.5 text-xs text-amber-300 mb-3 flex items-start gap-2">
-              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-              Only click once — calling twice creates duplicates.
-            </div>
-            <Button size="sm" onClick={handleSeed} disabled={seeding}>
-              {seeding ? "Loading…" : "Load demo data"}
-            </Button>
-          </div>
-
           {/* Backfill inactive */}
           <div className="pb-4 border-b border-stone-800">
             <div className="text-sm font-medium text-white mb-1">Mark inactive — no open AR</div>
