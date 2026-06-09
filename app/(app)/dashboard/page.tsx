@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail, X } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
@@ -331,6 +331,14 @@ export default function DashboardPage() {
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
+  // ── Drill-down panel — shows the exact invoices behind a Promised bucket ──
+  const [drillDown, setDrillDown] = useState<{
+    title: string;
+    subtitle: string;
+    color: "rose" | "amber" | "sky" | "stone";
+    items: any[];
+  } | null>(null);
+
   const fetchSnapshot = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     setSnapshotLoading(true);
@@ -536,6 +544,11 @@ export default function DashboardPage() {
       promisedWeek, promisedWeekCount: promisedWeekItems.length,
       promisedMonth, promisedMonthCount: promisedMonthItems.length,
       promisedTotalCount: promisedAll.length,
+      // Item arrays — used by drill-down panel to list exact invoices per bucket
+      promisedBrokenItems,
+      promisedWeekItems,
+      promisedMonthItems,
+      promisedAllItems: promisedAll,
       dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
     };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
@@ -726,7 +739,10 @@ export default function DashboardPage() {
               ) : (
                 <div className="grid grid-cols-4 gap-4 divide-x divide-stone-800">
                   {/* Broken */}
-                  <div className="pr-4">
+                  <button
+                    onClick={() => stats.promisedBrokenCount > 0 && setDrillDown({ title: "Broken Promises", subtitle: "Promise date passed — follow up now", color: "rose", items: stats.promisedBrokenItems })}
+                    className={`pr-4 text-left group ${stats.promisedBrokenCount > 0 ? "cursor-pointer" : "cursor-default"}`}
+                  >
                     <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-600"}`}>
                       {fmt.money(stats.promisedBroken, ccy)}
@@ -735,11 +751,14 @@ export default function DashboardPage() {
                       {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} promise${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
                     </div>
                     {stats.promisedBroken > 0 && (
-                      <Link href="/smart-views" className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block hover:bg-rose-500/20">Chase now →</Link>
+                      <span className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block group-hover:bg-rose-500/20">View invoices →</span>
                     )}
-                  </div>
+                  </button>
                   {/* This Week */}
-                  <div className="px-4">
+                  <button
+                    onClick={() => stats.promisedWeekCount > 0 && setDrillDown({ title: "Promises Due This Week", subtitle: "Promise date within the next 7 days", color: "amber", items: stats.promisedWeekItems })}
+                    className={`px-4 text-left group ${stats.promisedWeekCount > 0 ? "cursor-pointer" : "cursor-default"}`}
+                  >
                     <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedWeek > 0 ? "text-amber-400" : "text-stone-600"}`}>
                       {fmt.money(stats.promisedWeek, ccy)}
@@ -748,11 +767,14 @@ export default function DashboardPage() {
                       {stats.promisedWeekCount === 0 ? "Nothing due" : `${stats.promisedWeekCount} invoice${stats.promisedWeekCount !== 1 ? "s" : ""} · due ≤7 days`}
                     </div>
                     {stats.promisedWeek > 0 && (
-                      <Link href="/smart-views" className="mt-2 text-[10px] text-amber-500 bg-amber-500/10 rounded px-1.5 py-0.5 inline-block hover:bg-amber-500/20">Follow up →</Link>
+                      <span className="mt-2 text-[10px] text-amber-500 bg-amber-500/10 rounded px-1.5 py-0.5 inline-block group-hover:bg-amber-500/20">View invoices →</span>
                     )}
-                  </div>
+                  </button>
                   {/* This Month */}
-                  <div className="px-4">
+                  <button
+                    onClick={() => stats.promisedMonthCount > 0 && setDrillDown({ title: "Promises Due This Month", subtitle: "Promise date 8–30 days from today", color: "sky", items: stats.promisedMonthItems })}
+                    className={`px-4 text-left group ${stats.promisedMonthCount > 0 ? "cursor-pointer" : "cursor-default"}`}
+                  >
                     <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedMonth > 0 ? "text-sky-400" : "text-stone-600"}`}>
                       {fmt.money(stats.promisedMonth, ccy)}
@@ -760,9 +782,15 @@ export default function DashboardPage() {
                     <div className="mt-1.5 text-[11px] text-stone-500">
                       {stats.promisedMonthCount === 0 ? "Nothing due" : `${stats.promisedMonthCount} invoice${stats.promisedMonthCount !== 1 ? "s" : ""} · due 8–30 days`}
                     </div>
-                  </div>
+                    {stats.promisedMonth > 0 && (
+                      <span className="mt-2 text-[10px] text-sky-500 bg-sky-500/10 rounded px-1.5 py-0.5 inline-block group-hover:bg-sky-500/20">View invoices →</span>
+                    )}
+                  </button>
                   {/* Total */}
-                  <div className="pl-4">
+                  <button
+                    onClick={() => stats.promisedTotalCount > 0 && setDrillDown({ title: "All Active Promises", subtitle: "All invoices with a promise to pay", color: "stone", items: stats.promisedAllItems })}
+                    className={`pl-4 text-left group ${stats.promisedTotalCount > 0 ? "cursor-pointer" : "cursor-default"}`}
+                  >
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total Pipeline</div>
                     <div className="text-2xl font-semibold text-white tabular-nums tracking-tight">
                       {fmt.money(stats.promised, ccy)}
@@ -780,11 +808,11 @@ export default function DashboardPage() {
                       </div>
                     )}
                     {stats.promisedTotalCount > 0 && (
-                      <div className="mt-1 text-[10px] text-stone-600">
-                        {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken
+                      <div className="mt-1 text-[10px] text-stone-600 group-hover:text-stone-500">
+                        {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken · view all →
                       </div>
                     )}
-                  </div>
+                  </button>
                 </div>
               )}
             </Card>
@@ -1124,6 +1152,121 @@ export default function DashboardPage() {
           ccy={ccy}
         />
       </div>
+
+      {/* ── Promised-bucket drill-down slide-over ──────────────────────── */}
+      {drillDown && (
+        <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
+          {/* Backdrop */}
+          <div className="flex-1 bg-black/60" onClick={() => setDrillDown(null)} />
+          {/* Panel */}
+          <div className="w-[500px] bg-stone-950 border-l border-stone-800 flex flex-col h-full shadow-2xl">
+            {/* Header */}
+            <div className={`px-5 py-4 border-b border-stone-800 ${
+              drillDown.color === "rose" ? "bg-rose-500/5" :
+              drillDown.color === "amber" ? "bg-amber-500/5" :
+              drillDown.color === "sky" ? "bg-sky-500/5" : ""
+            }`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">{drillDown.title}</h2>
+                  <p className="text-[11px] text-stone-400 mt-0.5">{drillDown.subtitle}</p>
+                </div>
+                <button
+                  onClick={() => setDrillDown(null)}
+                  className="text-stone-500 hover:text-white mt-0.5 flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <span className={`text-lg font-semibold tabular-nums ${
+                  drillDown.color === "rose" ? "text-rose-400" :
+                  drillDown.color === "amber" ? "text-amber-400" :
+                  drillDown.color === "sky" ? "text-sky-400" : "text-white"
+                }`}>
+                  {fmt.money(drillDown.items.reduce((s, i) => s + openBal(i), 0), ccy)}
+                </span>
+                <span className="text-[11px] text-stone-500">
+                  across {drillDown.items.length} invoice{drillDown.items.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+            {/* Invoice list */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {drillDown.items.length === 0 ? (
+                <div className="py-12 text-center text-sm text-stone-500">No invoices in this bucket</div>
+              ) : (
+                drillDown.items
+                  .slice()
+                  .sort((a, b) => openBal(b) - openBal(a))
+                  .map(inv => {
+                    const customer = customers.find((c: any) => c.id === inv.customerId);
+                    const daysToPromise = inv.promiseDate ? -daysOverdue(inv.promiseDate) : null;
+                    const isOverduePromise = daysToPromise !== null && daysToPromise < 0;
+                    return (
+                      <Link
+                        key={inv.id}
+                        href={`/invoices/${inv.id}`}
+                        onClick={() => setDrillDown(null)}
+                        className="flex items-start gap-3 p-3 rounded-lg border border-stone-800 hover:border-stone-700 hover:bg-stone-800/50 group"
+                      >
+                        {/* Avatar */}
+                        <div className="w-8 h-8 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-[10px] font-semibold flex-shrink-0 mt-0.5">
+                          {(customer?.name ?? "?").split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase()}
+                        </div>
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium text-white truncate">{customer?.name ?? "Unknown customer"}</div>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</span>
+                            {inv.promiseDate && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                isOverduePromise
+                                  ? "bg-rose-500/15 text-rose-400"
+                                  : daysToPromise === 0
+                                  ? "bg-amber-500/15 text-amber-300"
+                                  : "bg-emerald-500/10 text-emerald-400"
+                              }`}>
+                                {isOverduePromise
+                                  ? `${Math.abs(daysToPromise!)}d overdue`
+                                  : daysToPromise === 0
+                                  ? "Due today"
+                                  : `in ${daysToPromise}d`}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-600">
+                            {inv.promiseDate && <span>Promised {fmt.shortDate(inv.promiseDate)}</span>}
+                            <span>Invoice due {fmt.shortDate(inv.dueDate)}</span>
+                          </div>
+                        </div>
+                        {/* Amount */}
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-[13px] font-semibold text-white tabular-nums">
+                            {fmt.money(openBal(inv), inv.currency ?? ccy)}
+                          </div>
+                          <div className="text-[10px] text-stone-500 mt-0.5">open balance</div>
+                          <ChevronRight size={12} className="text-stone-700 group-hover:text-stone-400 mt-1 ml-auto" />
+                        </div>
+                      </Link>
+                    );
+                  })
+              )}
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-between">
+              <span className="text-[11px] text-stone-500">Sorted by open balance (largest first)</span>
+              <button
+                onClick={() => setDrillDown(null)}
+                className="text-[11px] text-stone-500 hover:text-stone-300"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
