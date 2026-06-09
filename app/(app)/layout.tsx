@@ -7,7 +7,6 @@ import { DataProvider, useData } from "@/components/data-provider";
 import { Sidebar } from "@/components/sidebar";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { Toast } from "@/components/ui";
-import { ChatWidget } from "@/components/chat-widget";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { loaded, toastState, clearToast } = useData();
@@ -51,7 +50,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <Toast toast={toastState} onClose={clearToast} />
-      <ChatWidget />
     </div>
   );
 }
