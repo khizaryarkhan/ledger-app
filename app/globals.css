@@ -20,6 +20,12 @@ body {
 }
 .animate-toast { animation: slide-in-bottom 200ms ease-out; }
 
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.animate-bounce-slow { animation: bounce-slow 2.5s ease-in-out infinite; }
+
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(40%);
   cursor: pointer;

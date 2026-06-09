@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const FEATURES = [
   {
@@ -66,6 +66,191 @@ const STEPS = [
   { n: "03", title: "Chase Automatically", desc: "Overdue invoices get chased on schedule. You get notified of every response." },
   { n: "04", title: "Close Faster", desc: "Track promises, resolve disputes, and watch your DSO drop." },
 ];
+
+// ── Chat Widget ──────────────────────────────────────────────────────────────
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+const QUICK_STARTERS = [
+  "How does QBO sync work?",
+  "Who is this built for?",
+  "How is this different from QuickBooks?",
+];
+
+function ChatWidget() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [hasNewMsg, setHasNewMsg] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const WELCOME: ChatMessage = {
+    role: "assistant",
+    content: "Hi! I'm Aria 👋 I can answer any questions about Prime Accountax — how it works, what it does, pricing, integrations, anything. What would you like to know?",
+  };
+
+  useEffect(() => {
+    if (open) {
+      if (messages.length === 0) setMessages([WELCOME]);
+      setHasNewMsg(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  const send = useCallback(async (text: string) => {
+    const msg = text.trim();
+    if (!msg || loading) return;
+    setInput("");
+    const next: ChatMessage[] = [...messages, { role: "user", content: msg }];
+    setMessages(next);
+    setLoading(true);
+    try {
+      const history = next.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+      const res = await fetch("/api/public/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg, history }),
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, { role: "assistant", content: data.reply ?? "Sorry, something went wrong." }]);
+      if (!open) setHasNewMsg(true);
+    } catch {
+      setMessages(prev => [...prev, { role: "assistant", content: "Sorry, I couldn't connect. Please try again." }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [messages, loading, open]);
+
+  return (
+    <>
+      {/* Floating button */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+        {/* Nudge bubble — shown before first open */}
+        {!open && messages.length === 0 && (
+          <div className="bg-white text-stone-800 text-sm font-medium px-4 py-2.5 rounded-2xl rounded-br-sm shadow-xl max-w-[200px] text-right animate-bounce-slow">
+            Got questions? Ask Aria ✨
+          </div>
+        )}
+
+        {hasNewMsg && !open && (
+          <div className="absolute -top-1 -left-1 w-3 h-3 bg-rose-500 rounded-full animate-pulse" />
+        )}
+
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 shadow-xl shadow-emerald-500/30 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          aria-label="Open chat"
+        >
+          {open ? (
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Chat panel */}
+      {open && (
+        <div className="fixed bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-24px)] rounded-2xl border border-stone-700/60 bg-stone-950 shadow-2xl shadow-black/60 flex flex-col overflow-hidden"
+          style={{ maxHeight: "520px" }}>
+
+          {/* Header */}
+          <div className="flex items-center gap-3 px-4 py-3.5 bg-stone-900 border-b border-stone-800 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-white">Aria</div>
+              <div className="flex items-center gap-1.5 text-[11px] text-stone-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Prime Accountax · Always online
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} className="text-stone-500 hover:text-stone-200 p-1">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                {m.role === "assistant" && (
+                  <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 mr-2 text-[10px] font-bold">A</div>
+                )}
+                <div className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                  m.role === "user"
+                    ? "bg-emerald-600 text-white rounded-br-sm"
+                    : "bg-stone-800 text-stone-200 rounded-bl-sm"
+                }`}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex justify-start">
+                <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 mr-2 text-[10px] font-bold">A</div>
+                <div className="bg-stone-800 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Quick starters — only show when just the welcome message is showing */}
+          {messages.length === 1 && !loading && (
+            <div className="px-4 pb-3 flex flex-wrap gap-2 shrink-0">
+              {QUICK_STARTERS.map(q => (
+                <button key={q} onClick={() => send(q)}
+                  className="text-[11px] text-emerald-400 border border-emerald-800 bg-emerald-500/5 hover:bg-emerald-500/15 rounded-full px-3 py-1.5 transition-colors text-left">
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="px-3 pb-3 pt-2 border-t border-stone-800 shrink-0">
+            <form onSubmit={e => { e.preventDefault(); send(input); }} className="flex items-center gap-2 bg-stone-800 border border-stone-700 rounded-xl px-3 py-2">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder="Ask anything about Prime Accountax…"
+                className="flex-1 bg-transparent text-sm text-stone-200 placeholder-stone-500 outline-none"
+                disabled={loading}
+              />
+              <button type="submit" disabled={loading || !input.trim()}
+                className="text-emerald-400 hover:text-emerald-300 disabled:opacity-30 transition-colors shrink-0">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
+              </button>
+            </form>
+            <p className="text-center text-[10px] text-stone-600 mt-1.5">Powered by Prime Accountax AI</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function Counter({ end, suffix = "" }: { end: number; suffix?: string }) {
   const [count, setCount] = useState(0);
@@ -385,6 +570,9 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* ── AI CHAT WIDGET ── */}
+      <ChatWidget />
 
     </div>
   );
