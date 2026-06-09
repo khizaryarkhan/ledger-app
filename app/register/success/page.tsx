@@ -28,11 +28,14 @@ function SuccessPageInner() {
           setAdminEmail(data.admin?.email || "");
           setStatus(data.alreadyProvisioned ? "already_done" : "done");
         } else {
-          setErrorMsg(data.error || "Something went wrong.");
+          setErrorMsg(data.error || "Something went wrong. Please contact support.");
           setStatus("error");
         }
       })
-      .catch(() => { setErrorMsg("Network error — please contact support."); setStatus("error"); });
+      .catch(() => {
+        setErrorMsg("A network error occurred. If you were charged, please contact support and we will refund you immediately.");
+        setStatus("error");
+      });
   }, [sessionId]);
 
   return (
@@ -142,13 +145,31 @@ function SuccessPageInner() {
                 </svg>
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-white">Something went wrong</h1>
-                <p className="text-sm text-stone-400 mt-2">{errorMsg}</p>
+                <h1 className="text-xl font-semibold text-white">Account setup failed</h1>
+                <p className="text-sm text-stone-400 mt-2">We couldn't create your account due to a technical issue.</p>
               </div>
-              <div className="bg-amber-500/10 ring-1 ring-amber-500/20 rounded-lg p-3 text-xs text-amber-300 text-left">
-                <p className="font-semibold mb-1">Your payment was successful.</p>
-                <p>Please email <a href="mailto:support@primeaccountax.com" className="underline">support@primeaccountax.com</a> and we'll set up your account manually within the hour.</p>
+
+              {/* Refund notice */}
+              <div className="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-lg p-4 text-sm text-left space-y-1">
+                <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Your payment has been refunded automatically
+                </p>
+                <p className="text-stone-400 text-xs">The full amount will appear back on your card within 5–10 business days depending on your bank.</p>
               </div>
+
+              {/* Support CTA */}
+              <div className="bg-stone-800/60 ring-1 ring-stone-700 rounded-lg p-4 text-xs text-stone-400 text-left space-y-1">
+                <p className="font-semibold text-stone-300">Need help? Contact us</p>
+                <p>Email us at <a href="mailto:support@primeaccountax.com" className="text-emerald-400 hover:text-emerald-300 transition-colors">support@primeaccountax.com</a> and we'll get your account set up manually.</p>
+              </div>
+
+              <Link href="/register"
+                className="block w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center">
+                Try again
+              </Link>
               <Link href="/login"
                 className="block w-full h-10 bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm font-medium rounded-lg transition-colors flex items-center justify-center">
                 Go to sign in
