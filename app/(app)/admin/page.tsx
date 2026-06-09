@@ -538,6 +538,91 @@ function DeleteOrgModal({ org, onClose, onDeleted }: { org: any; onClose: () => 
 }
 
 // ============================================================
+// PROVISION PENDING MODAL (Super Admin only)
+// ============================================================
+function ProvisionModal({ onClose, onProvisioned }: { onClose: () => void; onProvisioned: () => void }) {
+  const [pendingId, setPendingId] = useState("cc603282-fa00-440e-9544-b1dd3a6ca86f");
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
+  const [result, setResult]       = useState<any>(null);
+
+  const handleProvision = async () => {
+    setError(""); setLoading(true);
+    try {
+      const res  = await fetch("/api/admin/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pendingId: pendingId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Failed to provision"); return; }
+      setResult(data);
+      onProvisioned();
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-stone-700">
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+              <Shield size={15} className="text-emerald-400" />
+            </div>
+            <h2 className="font-semibold text-white">Provision pending registration</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {result ? (
+            <div className="space-y-3">
+              <div className="bg-emerald-500/10 ring-1 ring-emerald-500/30 rounded-lg px-4 py-3 text-sm text-emerald-300 space-y-1">
+                <p className="font-semibold">✅ Organisation provisioned!</p>
+                <p className="text-xs text-emerald-400/80">A set-password email has been sent to the admin.</p>
+              </div>
+              <div className="bg-stone-800/60 rounded-lg p-3 text-xs font-mono text-stone-300 space-y-1">
+                <p><span className="text-stone-500">Org:</span> {result.org?.name} <span className="text-stone-600">/{result.org?.slug}</span></p>
+                <p><span className="text-stone-500">Admin:</span> {result.admin?.name} — {result.admin?.email}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-lg px-4 py-3 text-xs text-amber-300">
+                Use this to manually create an organisation for a customer whose payment succeeded but account was not auto-created.
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+                  Pending Registration ID
+                </label>
+                <input
+                  value={pendingId}
+                  onChange={e => setPendingId(e.target.value)}
+                  placeholder="UUID from pending_registrations table"
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none font-mono"
+                />
+              </div>
+              {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
+            </>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>{result ? "Close" : "Cancel"}</Button>
+          {!result && (
+            <button
+              onClick={handleProvision}
+              disabled={loading || !pendingId.trim()}
+              className="h-9 px-4 text-sm font-semibold rounded-lg transition-colors bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white"
+            >
+              {loading ? "Provisioning…" : "Create organisation →"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN ADMIN PAGE
 // ============================================================
 export default function AdminPage() {
@@ -555,6 +640,7 @@ export default function AdminPage() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [editingOrg, setEditingOrg] = useState<any | null>(null);
   const [deletingOrg, setDeletingOrg] = useState<any | null>(null);
+  const [showProvision, setShowProvision] = useState(false);
   const [orgSearch, setOrgSearch] = useState("");
   const [tab, setTab] = useState<"orgs" | "users">(isSuperAdmin ? "orgs" : "users");
 
@@ -666,7 +752,11 @@ export default function AdminPage() {
                 className="w-full h-9 pl-8 pr-3 text-sm rounded-lg ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setShowProvision(true)}
+                className="h-9 px-3 text-xs font-medium rounded-lg ring-1 ring-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors flex items-center gap-1.5">
+                <Shield size={13} /> Provision pending
+              </button>
               <Button icon={Plus} onClick={() => setShowCreateOrg(true)}>New organisation</Button>
             </div>
           </div>
@@ -839,6 +929,12 @@ export default function AdminPage() {
           org={editingOrg}
           onClose={() => setEditingOrg(null)}
           onSaved={() => { loadData(); setEditingOrg(null); }}
+        />
+      )}
+      {showProvision && (
+        <ProvisionModal
+          onClose={() => setShowProvision(false)}
+          onProvisioned={loadData}
         />
       )}
       {deletingOrg && (
