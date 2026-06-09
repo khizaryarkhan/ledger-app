@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
  * Redirects the user to Xero's OAuth2 authorization page.
  * After the user grants access, Xero redirects to /api/xero/callback.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
+
+  const debug = new URL(req.url).searchParams.get("debug") === "1";
 
   // .trim() guards against a stray newline/space pasted into the Vercel env var.
   const clientId = process.env.XERO_CLIENT_ID?.trim();
@@ -45,8 +47,25 @@ export async function GET() {
     `state=${encodeURIComponent(state)}`,
   ].join("&");
 
-  return NextResponse.redirect(
-    `https://login.xero.com/identity/connect/authorize?${query}`,
-    { headers: { "Cache-Control": "no-store, max-age=0" } }
-  );
+  const authorizeUrl = `https://login.xero.com/identity/connect/authorize?${query}`;
+
+  // ── Temporary debug: /api/xero?debug=1 returns the exact values instead of
+  //    redirecting, so we can see precisely what Xero will receive.
+  if (debug) {
+    return NextResponse.json(
+      {
+        authorizeUrl,
+        scope,
+        scopeEncoded: encodeURIComponent(scope),
+        clientIdLength: clientId.length,
+        clientIdPreview: `${clientId.slice(0, 6)}…${clientId.slice(-4)}`,
+        redirectUri,
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
+  }
+
+  return NextResponse.redirect(authorizeUrl, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
