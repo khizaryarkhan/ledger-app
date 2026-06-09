@@ -680,18 +680,28 @@ export default function IntegrationsSettingsPage() {
           </div>
         ) : (
           /* Not connected */
-          <div className="space-y-3">
-            <div className="text-sm text-stone-400">
-              Connect QuickBooks Online to sync customers and outstanding invoices automatically.
+          <div className="space-y-5">
+            <p className="text-sm text-stone-400 leading-relaxed">
+              Connect QuickBooks Online to automatically sync your customers and outstanding
+              invoices. Changes in QBO — new invoices, payments, credits — flow into Ledger
+              in real time via webhooks, with a 30-minute cron safety net.
+            </p>
+
+            {/* Feature bullets */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                { icon: <RefreshCw size={13} />, text: "Automatic two-way sync" },
+                { icon: <Check size={13} />,      text: "Invoices close when paid in QBO" },
+                { icon: <Database size={13} />,   text: "Customers & contacts imported" },
+                { icon: <Clock size={13} />,      text: "Real-time webhooks + cron backup" },
+              ].map(({ icon, text }) => (
+                <div key={text} className="flex items-center gap-2 text-[13px] text-stone-400">
+                  <span className="text-emerald-500 shrink-0">{icon}</span>
+                  {text}
+                </div>
+              ))}
             </div>
-            <div className="bg-amber-500/10 ring-1 ring-amber-500/30 rounded-md p-3 text-sm text-amber-300">
-              <div className="font-medium mb-1">Required Vercel env vars:</div>
-              <div className="font-mono text-[12px] space-y-0.5">
-                <div>QBO_CLIENT_ID</div>
-                <div>QBO_CLIENT_SECRET</div>
-                <div>QBO_REDIRECT_URI = https://ledger-app-alpha-roan.vercel.app/api/qbo/callback</div>
-              </div>
-            </div>
+
             <Button icon={Link2} onClick={() => (window.location.href = "/api/qbo")}>
               Connect QuickBooks Online
             </Button>
