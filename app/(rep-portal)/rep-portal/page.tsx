@@ -6,9 +6,11 @@ import { fmt, formatDate, daysOverdue } from "@/lib/format";
 import {
   LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
   Download, Loader, ChevronDown, ChevronUp, FileText, Search, X,
-  Users, Briefcase, MessageSquare,
+  Users, Briefcase, MessageSquare, LayoutGrid, List as ListIcon,
 } from "lucide-react";
 import { ResponsesInbox } from "@/components/responses-inbox";
+import { BoardList, type BoardRow } from "@/components/board-list";
+import { resolveStageLabel, DEFAULT_STAGES } from "@/lib/stages";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Invoice = {
@@ -455,17 +457,21 @@ type View = { type: "home" } | { type: "entity"; id: string; kind: "customer" | 
 
 export default function RepPortalPage() {
   const { data: session } = useSession();
-  const [invoices,    setInvoices]    = useState<Invoice[]>([]);
-  const [customers,   setCustomers]   = useState<Customer[]>([]);
-  const [projects,    setProjects]    = useState<Project[]>([]);
-  const [reps,        setReps]        = useState<Rep[]>([]);
-  const [myRep,       setMyRep]       = useState<MyRep>(undefined as any); // undefined = not yet loaded
-  const [orgSettings, setOrgSettings] = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR" });
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState("");
-  const [view,        setView]        = useState<View>({ type: "home" });
+  const [invoices,      setInvoices]      = useState<Invoice[]>([]);
+  const [customers,     setCustomers]     = useState<Customer[]>([]);
+  const [projects,      setProjects]      = useState<Project[]>([]);
+  const [reps,          setReps]          = useState<Rep[]>([]);
+  const [regions,       setRegions]       = useState<{ id: string; name: string }[]>([]);
+  const [communications, setCommunications] = useState<any[]>([]);
+  const [myRep,         setMyRep]         = useState<MyRep>(undefined as any);
+  const [orgSettings,   setOrgSettings]   = useState<OrgSettings>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR" });
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState("");
+  const [view,          setView]          = useState<View>({ type: "home" });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [homeSearch, setHomeSearch]   = useState("");
+  const [homeSearch,    setHomeSearch]    = useState("");
+  // Cards / List layout toggle
+  const [layoutMode, setLayoutMode] = useState<"cards" | "list">("cards");
   // Customer / Project toggle — user can override the org-level default
   const [viewMode, setViewMode] = useState<"customer" | "project">("customer");
 
@@ -483,21 +489,25 @@ export default function RepPortalPage() {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const [invRes, custRes, projRes, repsRes, settingsRes, myRepRes] = await Promise.all([
+      const [invRes, custRes, projRes, repsRes, regionsRes, settingsRes, myRepRes, commsRes] = await Promise.all([
         fetch("/api/invoices"),
         fetch("/api/customers"),
         fetch("/api/projects"),
         fetch("/api/reps"),
+        fetch("/api/regions"),
         fetch("/api/org/settings"),
-        fetch("/api/me/rep"),   // server-side rep identification — avoids client email matching
+        fetch("/api/me/rep"),
+        fetch("/api/communications"),
       ]);
       if (invRes.ok)      setInvoices(await invRes.json());
       else                setError("Failed to load data");
       if (custRes.ok)     setCustomers(await custRes.json());
       if (projRes.ok)     setProjects(await projRes.json());
       if (repsRes.ok)     setReps(await repsRes.json());
+      if (regionsRes.ok)  setRegions(await regionsRes.json());
       if (settingsRes.ok) setOrgSettings(await settingsRes.json());
-      if (myRepRes.ok)    setMyRep(await myRepRes.json()); // null = admin; Rep object = scoped user
+      if (myRepRes.ok)    setMyRep(await myRepRes.json());
+      if (commsRes.ok)    setCommunications(await commsRes.json());
     } catch { setError("Network error — please refresh"); }
     finally  { setLoading(false); }
   };
@@ -621,6 +631,48 @@ export default function RepPortalPage() {
       .sort((a, b) => byOutstanding(b.invoices) - byOutstanding(a.invoices));
   }, [customers, projects, visibleInvoices, reps, viewMode]);
 
+  // ── Last-sent map for list view ─────────────────────────────────────────────
+  const lastSentByInv = useMemo(() => {
+    const m: Record<string, { at: string; ref: string | null }> = {};
+    communications.forEach((c: any) => {
+      if (!c.invoiceId || c.direction !== "Outbound") return;
+      const t = c.sentAt ?? c.createdAt;
+      if (!t) return;
+      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId].at)) m[c.invoiceId] = { at: t, ref: c.refNumber ?? null };
+    });
+    return m;
+  }, [communications]);
+
+  // ── List rows for flat list view (all visible invoices) ──────────────────────
+  const listRows = useMemo((): BoardRow[] => {
+    const stages = orgSettings?.stages?.length ? (orgSettings as any).stages : DEFAULT_STAGES;
+    return visibleInvoices
+      .filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo")
+      .map(inv => {
+        const cust    = customers.find(c => c.id === inv.customerId);
+        const proj    = inv.projectId ? projects.find(p => p.id === inv.projectId) : null;
+        const regionId = cust?.regionId ?? (proj as any)?.regionId ?? null;
+        const region   = regionId ? regions.find(r => r.id === regionId) : null;
+        const repId    = proj?.repId ?? cust?.repId ?? null;
+        const rep      = repId ? reps.find(r => r.id === repId) : null;
+        const ls       = lastSentByInv[inv.id] ?? null;
+        return {
+          inv,
+          custId:     inv.customerId,
+          custName:   cust?.name ?? "Unknown",
+          projName:   proj?.name ?? null,
+          regionName: region?.name ?? null,
+          repName:    rep?.name ?? null,
+          stageLabel: resolveStageLabel(inv.collectionStage, stages),
+          bal:        openBal(inv),
+          days:       daysOverdue(inv.dueDate),
+          email:      inv.billingEmail ?? null,
+          lastSent:   ls?.at ?? null,
+          lastRef:    ls?.ref ?? null,
+        };
+      });
+  }, [visibleInvoices, customers, projects, regions, reps, lastSentByInv, orgSettings]);
+
   // ── Detail view data ─────────────────────────────────────────────────────────
   const detailData = useMemo(() => {
     if (view.type !== "entity") return null;
@@ -695,6 +747,21 @@ export default function RepPortalPage() {
         </div>
 
         <div className="flex items-center gap-0.5">
+          {/* Cards / List toggle — only on home view */}
+          {view.type === "home" && !loading && (
+            <div className="flex items-center gap-0.5 bg-stone-100 rounded-lg p-0.5 mr-1">
+              <button onClick={() => setLayoutMode("cards")}
+                className={`p-1.5 rounded-md transition-colors ${layoutMode === "cards" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600"}`}
+                title="Card view">
+                <LayoutGrid size={14} />
+              </button>
+              <button onClick={() => setLayoutMode("list")}
+                className={`p-1.5 rounded-md transition-colors ${layoutMode === "list" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600"}`}
+                title="List view">
+                <ListIcon size={14} />
+              </button>
+            </div>
+          )}
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-100 text-stone-400">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
@@ -704,7 +771,7 @@ export default function RepPortalPage() {
         </div>
       </div>
 
-      <div className="px-4 pt-4 max-w-lg mx-auto">
+      <div className={layoutMode === "list" && view.type === "home" ? "pt-0 h-[calc(100vh-57px)] flex flex-col" : "px-4 pt-4 max-w-lg mx-auto"}>
 
         {/* Error */}
         {error && (
@@ -713,8 +780,25 @@ export default function RepPortalPage() {
           </div>
         )}
 
-        {/* ══════════ HOME ══════════ */}
-        {view.type === "home" && (
+        {/* ══════════ LIST VIEW ══════════ */}
+        {view.type === "home" && layoutMode === "list" && (
+          <div className="flex-1 overflow-hidden flex flex-col bg-stone-950 dark-list-view">
+            <BoardList
+              rows={listRows}
+              stages={orgSettings?.stages?.length ? (orgSettings as any).stages : DEFAULT_STAGES}
+              updateInvoice={async (id, patch) => {
+                await fetch(`/api/invoices/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+                await load();
+              }}
+              refresh={load}
+              ccy={ccy}
+              comments={communications}
+            />
+          </div>
+        )}
+
+        {/* ══════════ HOME (CARDS) ══════════ */}
+        {view.type === "home" && layoutMode === "cards" && (
           <>
             {/* Summary banner */}
             {!loading && (

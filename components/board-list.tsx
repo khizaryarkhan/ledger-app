@@ -75,6 +75,33 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
       setNoteText(""); await refresh();
     } finally { setSavingNote(false); }
   }
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  async function downloadPdfs() {
+    if (selected.size === 0) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch("/api/invoices/download-pdfs", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceIds: [...selected] }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast?.(d.error || "Failed to download PDFs", "error");
+        return;
+      }
+      const skipped = Number(res.headers.get("X-Skipped-Count") ?? 0);
+      const blob = await res.blob();
+      const cd   = res.headers.get("Content-Disposition") ?? "";
+      const match = cd.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? "invoices.zip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+      if (skipped > 0) toast?.(`${skipped} invoice(s) skipped — not found in QuickBooks`, "error");
+    } finally { setDownloadingPdf(false); }
+  }
+
   const [busyId, setBusyId] = useState<string | null>(null);
   const [respEdit, setRespEdit] = useState<{ id: string; mode: "promise" | "dispute" } | null>(null);
   // Optimistic response overrides per invoice (instant UI feedback until refetch)
@@ -228,6 +255,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
           {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
+          {selected.size > 0 && (
+            <button onClick={downloadPdfs} disabled={downloadingPdf}
+              className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-white border border-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md px-2.5 py-1.5 transition-colors disabled:opacity-50">
+              {downloadingPdf
+                ? <><span className="inline-block w-3 h-3 border-2 border-emerald-400/40 border-t-emerald-400 rounded-full animate-spin" /> Downloading…</>
+                : <><FileText size={13} /> Download PDFs ({selected.size})</>
+              }
+            </button>
+          )}
           <button onClick={() => setOverdueOnly(v => !v)}
             className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
             <AlertTriangle size={13} /> Overdue only
