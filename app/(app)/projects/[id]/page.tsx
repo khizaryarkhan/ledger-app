@@ -96,19 +96,19 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
-      <Link href={`/customers/${customer.id}`} className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 mb-4">
+      <Link href={`/customers/${customer.id}`} className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-200 mb-4">
         <ArrowLeft size={14} /> Back to {customer.name}
       </Link>
 
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{project.name}</h1>
+            <h1 className="text-2xl font-semibold text-stone-100 tracking-tight">{project.name}</h1>
             <Badge variant={effectiveStatus === "Active" ? "green" : effectiveStatus === "On Hold" ? "orange" : "neutral"}>
               {effectiveStatus}
             </Badge>
             {outstanding > 0 && (
-              <span className="text-sm font-semibold tabular-nums text-stone-700">
+              <span className="text-sm font-semibold tabular-nums text-stone-300">
                 {fmt.money(outstanding, customer.currency)} outstanding
               </span>
             )}
@@ -116,7 +116,7 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-2 text-sm text-stone-500 flex-wrap">
             <span className="font-mono text-xs">{project.code}</span>
             <span>·</span>
-            <Link href={`/customers/${customer.id}`} className="hover:text-stone-900">{customer.name}</Link>
+            <Link href={`/customers/${customer.id}`} className="hover:text-stone-200">{customer.name}</Link>
             {region && <><span>·</span><span>{region}</span></>}
             <span>·</span>
             {/* Rep / ED/RM inline assignment */}
@@ -124,7 +124,7 @@ export default function ProjectDetailPage() {
               {assignedRep && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                   assignedRep.tier === "ed" || assignedRep.tier === "rd"
-                    ? "bg-orange-50 text-orange-700" : "bg-emerald-50 text-emerald-700"
+                    ? "bg-orange-900/30 text-orange-400" : "bg-emerald-900/30 text-emerald-400"
                 }`}>
                   {assignedRep.tier === "ed" || assignedRep.tier === "rd" ? "ED/RM" : "PM"}
                 </span>
@@ -133,7 +133,7 @@ export default function ProjectDetailPage() {
                 value={project.repId ?? ""}
                 onChange={e => handleRepChange(e.target.value)}
                 disabled={repSaving}
-                className="h-7 px-2 text-xs rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white disabled:opacity-50"
+                className="h-7 px-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
               >
                 <option value="">— Assign Rep / ED/RM —</option>
                 {regularReps.length > 0 && (
@@ -158,20 +158,20 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Outstanding</div>
-          <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(outstanding, customer.currency)}</div>
+          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(outstanding, customer.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdue, customer.currency)}</div>
+          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdue, customer.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open invoices</div>
-          <div className="text-xl font-semibold text-stone-900">{open.length}</div>
+          <div className="text-xl font-semibold text-stone-100">{open.length}</div>
         </Card>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-stone-200 mb-5 flex items-center gap-1">
+      <div className="border-b border-stone-800 mb-5 flex items-center gap-1">
         {[
           { id: "transactions", label: "Transactions" },
           { id: "timeline", label: `Communications (${projComms.length})` },
@@ -179,7 +179,7 @@ export default function ProjectDetailPage() {
           { id: "contacts", label: `Contacts (${totalContacts})` },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.id ? "border-emerald-500 text-stone-100" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
             {t.label}
           </button>
         ))}
@@ -195,7 +195,7 @@ export default function ProjectDetailPage() {
         <Card padding="none">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
                 <th className="text-left font-semibold px-4 py-2.5">Invoice</th>
                 <th className="text-left font-semibold px-4 py-2.5">Due date</th>
                 <th className="text-left font-semibold px-4 py-2.5">Status</th>
@@ -210,23 +210,23 @@ export default function ProjectDetailPage() {
                 const dueStatus = getDueStatus(inv);
                 const isPaid = inv.paymentStatus === "Paid" || inv.collectionStage === "Closed";
                 return (
-                  <tr key={inv.id} className="border-b border-stone-100 hover:bg-stone-50">
+                  <tr key={inv.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
                     <td className="px-4 py-3">
-                      <Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-blue-600 hover:underline">{inv.invoiceNumber}</Link>
+                      <Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-emerald-400 hover:underline">{inv.invoiceNumber}</Link>
                     </td>
-                    <td className="px-4 py-3 text-stone-600 text-[12px]">
+                    <td className="px-4 py-3 text-stone-400 text-[12px]">
                       {fmt.shortDate(inv.dueDate)}
                       {daysOverdue(inv.dueDate) > 0 && !isPaid && (
-                        <span className="ml-1.5 text-[11px] text-rose-600 font-medium">+{daysOverdue(inv.dueDate)}d</span>
+                        <span className="ml-1.5 text-[11px] text-rose-400 font-medium">+{daysOverdue(inv.dueDate)}d</span>
                       )}
                     </td>
                     <td className="px-4 py-3"><Badge variant={dueStatusBadge(dueStatus)}>{dueStatus}</Badge></td>
                     <td className="px-4 py-3"><Badge variant={stageBadge(inv.collectionStage)}>{inv.collectionStage}</Badge></td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">{fmt.money(out, customer.currency)}</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-stone-100">{fmt.money(out, customer.currency)}</td>
                     <td className="px-2 py-3 w-10">
                       {inv.qboId && !inv.qboId.startsWith("CM-") && (
                         <button onClick={(e) => handleDownloadPdf(e, inv)}
-                          className="p-1.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-700"
+                          className="p-1.5 rounded hover:bg-stone-700 text-stone-500 hover:text-stone-200"
                           title="Download PDF">
                           {downloadingId === inv.id
                             ? <span className="animate-spin inline-block w-3.5 h-3.5 border border-stone-400 border-t-transparent rounded-full" />
@@ -259,24 +259,24 @@ export default function ProjectDetailPage() {
               const isNote = c.channel === "Note";
               const inv = c.invoiceId ? projInvoices.find((i: any) => i.id === c.invoiceId) : null;
               return (
-                <div key={c.id} className="bg-white ring-1 ring-stone-200 rounded-lg px-4 py-3.5 flex items-start gap-3">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isNote ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
+                <div key={c.id} className="bg-stone-900 ring-1 ring-stone-800 rounded-lg px-4 py-3.5 flex items-start gap-3">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isNote ? "bg-amber-900/30 text-amber-400" : "bg-sky-900/30 text-sky-400"}`}>
                     {isNote ? <FileEdit size={13} /> : <ArrowUpRight size={13} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {!isNote && c.refNumber && (
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <span className="font-mono text-[11px] font-semibold bg-stone-900 text-white px-2 py-0.5 rounded">
+                        <span className="font-mono text-[11px] font-semibold bg-stone-700 text-stone-200 px-2 py-0.5 rounded">
                           {c.refNumber}
                         </span>
                         {c.stageAtSend && (
-                          <span className="text-[11px] text-stone-400">
-                            stage: <span className="font-medium text-stone-600">{c.stageAtSend}</span>
+                          <span className="text-[11px] text-stone-500">
+                            stage: <span className="font-medium text-stone-300">{c.stageAtSend}</span>
                           </span>
                         )}
                       </div>
                     )}
-                    <div className="text-sm font-medium text-stone-900 truncate">
+                    <div className="text-sm font-medium text-stone-200 truncate">
                       {isNote ? "Internal note" : (c.subject || "Email")}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -286,13 +286,13 @@ export default function ProjectDetailPage() {
                       {inv && (
                         <span className="flex items-center gap-1 text-[11px] text-stone-500">
                           <Link2 size={10} />
-                          <Link href={`/invoices/${inv.id}`} className="font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link>
+                          <Link href={`/invoices/${inv.id}`} className="font-mono text-emerald-400 hover:underline">{inv.invoiceNumber}</Link>
                         </span>
                       )}
-                      {isNote && c.body && <span className="text-[12px] text-stone-600">{c.body}</span>}
+                      {isNote && c.body && <span className="text-[12px] text-stone-400">{c.body}</span>}
                     </div>
                   </div>
-                  <div className="text-[11px] text-stone-400 whitespace-nowrap flex-shrink-0 mt-0.5">
+                  <div className="text-[11px] text-stone-500 whitespace-nowrap flex-shrink-0 mt-0.5">
                     {fmt.relative(c.sentAt)}
                   </div>
                 </div>
@@ -372,20 +372,20 @@ function ContactCard({ c }: { c: any }) {
   return (
     <Card>
       <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-full bg-stone-100 flex items-center justify-center text-stone-600 text-xs font-semibold flex-shrink-0">
+        <div className="w-9 h-9 rounded-full bg-stone-800 flex items-center justify-center text-stone-300 text-xs font-semibold flex-shrink-0">
           {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-sm font-semibold text-stone-900 truncate">{c.name}</div>
+            <div className="text-sm font-semibold text-stone-100 truncate">{c.name}</div>
             {c.isPrimary && <Badge variant="blue" size="sm">Primary</Badge>}
             {c.isEscalation && <Badge variant="red" size="sm">Escalation</Badge>}
           </div>
           {c.title && <div className="text-[11px] text-stone-500 truncate">{c.title}</div>}
-          <div className="flex items-center gap-1 text-xs text-stone-600 mt-1.5">
-            <Mail size={11} /> <a href={`mailto:${c.email}`} className="hover:underline truncate">{c.email}</a>
+          <div className="flex items-center gap-1 text-xs text-stone-400 mt-1.5">
+            <Mail size={11} /> <a href={`mailto:${c.email}`} className="hover:underline hover:text-stone-200 truncate">{c.email}</a>
           </div>
-          {c.phone && <div className="flex items-center gap-1 text-xs text-stone-600 mt-1"><Phone size={11} /> {c.phone}</div>}
+          {c.phone && <div className="flex items-center gap-1 text-xs text-stone-400 mt-1"><Phone size={11} /> {c.phone}</div>}
         </div>
       </div>
     </Card>

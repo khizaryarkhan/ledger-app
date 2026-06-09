@@ -41,14 +41,14 @@ const DATE_FILTERS: Array<{ id: string; label: string }> = [
 
 function typeIcon(type: string) {
   switch (type) {
-    case "Invoice":         return <Receipt size={13} className="text-stone-600" />;
-    case "Credit Memo":     return <FileMinus size={13} className="text-amber-600" />;
-    case "Payment":         return <ArrowDownLeft size={13} className="text-emerald-600" />;
-    case "Refund Receipt":  return <ArrowUpRight size={13} className="text-rose-600" />;
-    case "Journal Entry":   return <BookOpen size={13} className="text-stone-500" />;
-    case "Deposit":         return <Landmark size={13} className="text-sky-600" />;
-    case "Cheque Expense":  return <WalletCards size={13} className="text-violet-600" />;
-    default:                return <FileX size={13} className="text-stone-400" />;
+    case "Invoice":         return <Receipt size={13} className="text-stone-400" />;
+    case "Credit Memo":     return <FileMinus size={13} className="text-amber-400" />;
+    case "Payment":         return <ArrowDownLeft size={13} className="text-emerald-400" />;
+    case "Refund Receipt":  return <ArrowUpRight size={13} className="text-rose-400" />;
+    case "Journal Entry":   return <BookOpen size={13} className="text-stone-400" />;
+    case "Deposit":         return <Landmark size={13} className="text-sky-400" />;
+    case "Cheque Expense":  return <WalletCards size={13} className="text-violet-400" />;
+    default:                return <FileX size={13} className="text-stone-500" />;
   }
 }
 
@@ -134,7 +134,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Type</label>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white">
+              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
               {TYPE_FILTERS.map(f => {
                 const n = f.id === "all" ? (counts.total ?? 0) : (counts[f.id] ?? 0);
                 if (scope === "project" && f.id === "Refund Receipt") return null;
@@ -145,7 +145,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Date</label>
             <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white">
+              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
               {DATE_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
@@ -154,20 +154,20 @@ export function TransactionsTab({
           {filtered.length > 0 && (
             <div className="ml-auto flex items-center gap-4 text-[11px]">
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Billed</div>
-                <div className="text-stone-700 tabular-nums">{fmt.money(totals.arIncrease, filtered[0]?.currency || "EUR")}</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Billed</div>
+                <div className="text-stone-300 tabular-nums">{fmt.money(totals.arIncrease, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Received</div>
-                <div className="text-stone-700 tabular-nums">{fmt.money(totals.arDecrease, filtered[0]?.currency || "EUR")}</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Received</div>
+                <div className="text-stone-300 tabular-nums">{fmt.money(totals.arDecrease, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Open AR</div>
-                <div className="font-semibold tabular-nums text-rose-700">{fmt.money(totals.openBalance, filtered[0]?.currency || "EUR")}</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Open AR</div>
+                <div className="font-semibold tabular-nums text-rose-400">{fmt.money(totals.openBalance, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-400 uppercase tracking-wider mb-0.5">Net</div>
-                <div className="font-semibold tabular-nums text-stone-900">{fmt.money(totals.net, filtered[0]?.currency || "EUR")}</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Net</div>
+                <div className="font-semibold tabular-nums text-stone-100">{fmt.money(totals.net, filtered[0]?.currency || "EUR")}</div>
               </div>
             </div>
           )}
@@ -178,7 +178,7 @@ export function TransactionsTab({
       <Card padding="none">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
               <th className="text-left font-semibold px-4 py-3 w-28">Date</th>
               <th className="text-left font-semibold px-4 py-3 w-40">Type</th>
               <th className="text-left font-semibold px-4 py-3 w-28">Number</th>
@@ -191,40 +191,40 @@ export function TransactionsTab({
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400 text-sm">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm">Loading…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400 text-sm">No transactions found for this filter.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm">No transactions found for this filter.</td></tr>
             )}
             {filtered.map(r => {
               const showBalance = r.balance > 0.005;
               return (
-                <tr key={r.id} className="border-b border-stone-100 hover:bg-stone-50">
-                  <td className="px-4 py-3 text-stone-700 tabular-nums text-[12px]">
+                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
+                  <td className="px-4 py-3 text-stone-300 tabular-nums text-[12px]">
                     {new Date(r.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       {typeIcon(r.type)}
-                      <span className="text-stone-800">{r.type}</span>
+                      <span className="text-stone-200">{r.type}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-stone-600 tabular-nums text-[12px]">{r.number || "—"}</td>
+                  <td className="px-4 py-3 text-stone-400 tabular-nums text-[12px]">{r.number || "—"}</td>
                   <td className="px-4 py-3 text-stone-500 text-[12px] truncate max-w-[300px]">{r.memo || ""}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-amber-700" : "text-stone-900"}`}>
+                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-amber-400" : "text-stone-100"}`}>
                     {fmt.money(r.amount, r.currency)}
                   </td>
                   <td className={`px-4 py-3 text-right tabular-nums font-semibold ${
                     showBalance
-                      ? (r.type === "Invoice" ? "text-rose-700" : "text-amber-700")
-                      : "text-stone-300"
+                      ? (r.type === "Invoice" ? "text-rose-400" : "text-amber-400")
+                      : "text-stone-600"
                   }`}>
                     {showBalance ? fmt.money(r.balance, r.currency) : "—"}
                   </td>
                   <td className="px-4 py-3">{statusBadge(r.status)}</td>
                   <td className="px-4 py-3 text-right">
                     {(r.type === "Invoice" || r.type === "Credit Memo") && (
-                      <Link href={`/invoices/${r.refId}`} className="text-[12px] text-brand-orange hover:text-brand-orange-dark font-medium">
+                      <Link href={`/invoices/${r.refId}`} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">
                         View
                       </Link>
                     )}
@@ -235,9 +235,9 @@ export function TransactionsTab({
           </tbody>
         </table>
         {!loading && filtered.length > 0 && (
-          <div className="px-4 py-2 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between">
+          <div className="px-4 py-2 border-t border-stone-800 text-[11px] text-stone-500 flex items-center justify-between">
             <span>Showing {filtered.length} of {rows.length} transactions</span>
-            <span className="text-stone-400">Balance shown for unpaid invoices and partially-applied credits/payments only</span>
+            <span className="text-stone-600">Balance shown for unpaid invoices and partially-applied credits/payments only</span>
           </div>
         )}
       </Card>
