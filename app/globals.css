@@ -44,23 +44,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .lp-float-slow { animation: lp-float 9s ease-in-out infinite; }
 .lp-float-delay { animation: lp-float 7s ease-in-out infinite; animation-delay: -2s; }
 
-/* Soft pulsing green glow */
+/* Soft pulsing green glow — opacity-only so the GPU composites it without
+   re-rasterizing the (expensive) blur each frame */
 @keyframes lp-glow {
-  0%, 100% { opacity: 0.35; transform: scale(1); }
-  50%      { opacity: 0.7;  transform: scale(1.08); }
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.65; }
 }
 .lp-glow { animation: lp-glow 4s ease-in-out infinite; }
-
-/* Moving background gradient */
-@keyframes lp-gradient {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-.lp-gradient {
-  background-size: 300% 300%;
-  animation: lp-gradient 18s ease infinite;
-}
 
 /* Scroll-reveal — fade + slide + scale up into view */
 .lp-reveal {

@@ -343,19 +343,35 @@ function Reveal({ children, className = "", delay = 0 }: { children: React.React
 }
 
 // ── 3D mouse-tilt hook ─────────────────────────────────────────────────────────
-function useTilt(max = 7) {
-  const [rot, setRot] = useState({ x: 0, y: 0 });
+// Writes the transform directly to the DOM via requestAnimationFrame so the
+// dashboard never triggers a React re-render on mouse move (keeps it buttery).
+function useTilt(max = 6) {
   const ref = useRef<HTMLDivElement>(null);
+  const frame = useRef<number>(0);
   const onMove = (e: React.MouseEvent) => {
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const px = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
     const py = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
-    setRot({ x: Math.max(-1, Math.min(1, px)) * max, y: Math.max(-1, Math.min(1, py)) * max });
+    const rx = Math.max(-1, Math.min(1, px)) * max;
+    const ry = Math.max(-1, Math.min(1, py)) * max;
+    if (frame.current) cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      // Instant follow (no CSS transition) — rAF already caps to 60fps
+      el.style.transition = "none";
+      el.style.transform = `perspective(1400px) rotateY(${rx}deg) rotateX(${-ry}deg)`;
+    });
   };
-  const reset = () => setRot({ x: 0, y: 0 });
-  return { ref, onMove, reset, rot };
+  const reset = () => {
+    if (frame.current) cancelAnimationFrame(frame.current);
+    const el = ref.current;
+    if (!el) return;
+    // Smooth ease back to flat only when the pointer leaves
+    el.style.transition = "transform 450ms cubic-bezier(0.16,1,0.3,1)";
+    el.style.transform = "perspective(1400px) rotateY(0deg) rotateX(0deg)";
+  };
+  return { ref, onMove, reset };
 }
 
 // ── Particle field — deterministic positions (no hydration mismatch) ───────────
@@ -474,9 +490,9 @@ export default function LandingPage() {
   return (
     <div className="relative bg-stone-950 text-stone-100 min-h-screen font-sans antialiased overflow-x-hidden">
 
-      {/* ── Global animated background ── */}
+      {/* ── Global background (static — no per-frame repaint) ── */}
       <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden>
-        <div className="absolute inset-0 lp-gradient" style={{
+        <div className="absolute inset-0" style={{
           background: "radial-gradient(60% 50% at 20% 0%, rgba(16,185,129,0.10), transparent), radial-gradient(50% 50% at 85% 20%, rgba(45,212,191,0.08), transparent), radial-gradient(60% 60% at 50% 100%, rgba(16,185,129,0.06), transparent)",
         }} />
         <div className="absolute inset-0 opacity-[0.04]" style={{
@@ -588,13 +604,13 @@ export default function LandingPage() {
         <div className="relative max-w-5xl mx-auto mt-20 lp-3d" onMouseMove={tilt.onMove} onMouseLeave={tilt.reset}>
           {/* floating mini cards */}
           <div className="hidden lg:block absolute -left-10 top-16 z-20 lp-float">
-            <div className="rounded-xl border border-emerald-500/30 bg-stone-900/90 backdrop-blur px-4 py-3 shadow-xl shadow-emerald-500/10">
+            <div className="rounded-xl border border-emerald-500/30 bg-stone-900/95 px-4 py-3 shadow-xl shadow-emerald-500/10">
               <div className="text-[10px] text-stone-500">Payment promised</div>
               <div className="text-sm font-semibold text-emerald-400">€28,000 · Fri</div>
             </div>
           </div>
           <div className="hidden lg:block absolute -right-8 top-40 z-20 lp-float-delay">
-            <div className="rounded-xl border border-teal-500/30 bg-stone-900/90 backdrop-blur px-4 py-3 shadow-xl shadow-teal-500/10">
+            <div className="rounded-xl border border-teal-500/30 bg-stone-900/95 px-4 py-3 shadow-xl shadow-teal-500/10">
               <div className="text-[10px] text-stone-500">Reminder sent</div>
               <div className="text-sm font-semibold text-white">INV-1042 ✓</div>
             </div>
@@ -602,8 +618,8 @@ export default function LandingPage() {
 
           <div
             ref={tilt.ref}
-            className="lp-preserve rounded-2xl border border-emerald-500/20 bg-stone-900/70 overflow-hidden shadow-2xl shadow-emerald-900/30 backdrop-blur-xl transition-transform duration-200 ease-out"
-            style={{ transform: `perspective(1400px) rotateY(${tilt.rot.x}deg) rotateX(${-tilt.rot.y}deg)` }}
+            className="lp-preserve rounded-2xl border border-emerald-500/20 bg-stone-900 overflow-hidden shadow-2xl shadow-emerald-900/30 will-change-transform"
+            style={{ transform: "perspective(1400px) rotateY(0deg) rotateX(0deg)" }}
           >
             {/* glowing top edge */}
             <div className="h-px w-full bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent" />
@@ -841,7 +857,7 @@ export default function LandingPage() {
                   { label: "Team", pos: "top-1/2 left-0 -translate-y-1/2", c: "text-amber-400 border-amber-500/30" },
                 ].map((sat, i) => (
                   <div key={sat.label} className={`absolute ${sat.pos} ${i % 2 === 0 ? "lp-float" : "lp-float-delay"}`}>
-                    <div className={`rounded-xl bg-stone-900/90 backdrop-blur border ${sat.c} px-3 py-2 text-[11px] font-semibold shadow-lg`}>
+                    <div className={`rounded-xl bg-stone-900/95 border ${sat.c} px-3 py-2 text-[11px] font-semibold shadow-lg`}>
                       {sat.label}
                     </div>
                   </div>
