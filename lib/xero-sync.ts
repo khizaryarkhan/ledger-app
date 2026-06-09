@@ -198,10 +198,19 @@ export async function runXeroSync(orgId: string, userId: string) {
   await sleep(300);
 
   // Credit Notes (ACCREC type = customer-facing credits)
-  const creditNotes = await xeroFetchAll(
-    accessToken, tenantId, "CreditNotes",
-    `Type="ACCREC"`
-  );
+  // Non-fatal: the granular "accounting.invoices" scope may not grant access to
+  // the CreditNotes endpoint (which traditionally needed accounting.transactions).
+  // If the call is forbidden, skip credit notes rather than failing the whole sync.
+  let creditNotes: any[] = [];
+  try {
+    creditNotes = await xeroFetchAll(
+      accessToken, tenantId, "CreditNotes",
+      `Type="ACCREC"`
+    );
+  } catch (e: any) {
+    console.warn("Xero CreditNotes fetch skipped (scope/permission?):", e?.message || e);
+    creditNotes = [];
+  }
   await sleep(300);
 
   // STEP 2: Load current ledger state
