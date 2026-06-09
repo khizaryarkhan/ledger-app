@@ -202,7 +202,7 @@ export default function LandingPage() {
               {/* Stats row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 {[
-                  { label: "Total Outstanding", value: "PKR 4.2M", up: true },
+                  { label: "Total Outstanding", value: "$4.2M", up: true },
                   { label: "Overdue Invoices", value: "28", up: false },
                   { label: "Promises This Week", value: "12", up: true },
                   { label: "Emails Sent Today", value: "34", up: true },
@@ -216,27 +216,63 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              {/* Fake table rows */}
-              <div className="rounded-xl border border-stone-700/40 overflow-hidden">
-                <div className="grid grid-cols-5 gap-3 px-4 py-2.5 bg-stone-800/40 text-xs text-stone-500 font-medium">
-                  <span>Customer</span><span>Invoice</span><span>Amount</span><span>Stage</span><span>Response</span>
-                </div>
-                {[
-                  { cust: "Al Baraka Group", inv: "INV-1042", amt: "PKR 280,000", stage: "2nd Chase", resp: "Promise", color: "text-amber-400", dot: "bg-amber-400" },
-                  { cust: "Fatima Industries", inv: "INV-0987", amt: "PKR 145,000", stage: "1st Chase", resp: "Sent", color: "text-blue-400", dot: "bg-blue-400" },
-                  { cust: "Metro Logistics", inv: "INV-1101", amt: "PKR 520,000", stage: "Overdue", resp: "Disputed", color: "text-rose-400", dot: "bg-rose-400" },
-                  { cust: "Pak Agri Ltd", inv: "INV-0912", amt: "PKR 95,000", stage: "3rd Chase", resp: "No Reply", color: "text-stone-500", dot: "bg-stone-600" },
-                ].map(row => (
-                  <div key={row.inv} className="grid grid-cols-5 gap-3 px-4 py-3 border-t border-stone-700/30 text-sm items-center hover:bg-stone-800/20 transition-colors">
-                    <span className="text-stone-200 font-medium truncate">{row.cust}</span>
-                    <span className="text-stone-400 font-mono text-xs">{row.inv}</span>
-                    <span className="text-stone-300">{row.amt}</span>
-                    <span className="text-stone-400 text-xs">{row.stage}</span>
-                    <span className={`flex items-center gap-1.5 text-xs font-medium ${row.color}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${row.dot}`} />{row.resp}
-                    </span>
+
+              {/* Table + Chatbox side by side */}
+              <div className="flex gap-4">
+                {/* Fake invoice table */}
+                <div className="flex-1 rounded-xl border border-stone-700/40 overflow-hidden min-w-0">
+                  <div className="grid grid-cols-5 gap-3 px-4 py-2.5 bg-stone-800/40 text-xs text-stone-500 font-medium">
+                    <span>Customer</span><span>Invoice</span><span>Amount</span><span>Stage</span><span>Response</span>
                   </div>
-                ))}
+                  {[
+                    { cust: "Al Baraka Group",  inv: "INV-1042", amt: "$28,000", stage: "2nd Chase", resp: "Promise",  color: "text-amber-400", dot: "bg-amber-400",  active: true },
+                    { cust: "Fatima Industries", inv: "INV-0987", amt: "$14,500", stage: "1st Chase", resp: "Sent",     color: "text-blue-400",  dot: "bg-blue-400",   active: false },
+                    { cust: "Metro Logistics",   inv: "INV-1101", amt: "$52,000", stage: "Overdue",   resp: "Disputed", color: "text-rose-400",  dot: "bg-rose-400",   active: false },
+                    { cust: "Pak Agri Ltd",       inv: "INV-0912", amt: "$9,500",  stage: "3rd Chase", resp: "No Reply", color: "text-stone-500", dot: "bg-stone-600",  active: false },
+                  ].map(row => (
+                    <div key={row.inv} className={`grid grid-cols-5 gap-3 px-4 py-3 border-t border-stone-700/30 text-sm items-center transition-colors ${row.active ? "bg-emerald-500/5" : "hover:bg-stone-800/20"}`}>
+                      <span className="text-stone-200 font-medium truncate">{row.cust}</span>
+                      <span className="text-stone-400 font-mono text-xs">{row.inv}</span>
+                      <span className="text-stone-300">{row.amt}</span>
+                      <span className="text-stone-400 text-xs">{row.stage}</span>
+                      <span className={`flex items-center gap-1.5 text-xs font-medium ${row.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${row.dot}`} />{row.resp}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Chatbox panel */}
+                <div className="w-64 shrink-0 rounded-xl border border-stone-700/40 overflow-hidden flex flex-col bg-stone-900/60 hidden lg:flex">
+                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-stone-700/40 bg-stone-800/50">
+                    <div className="flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                      </svg>
+                      <span className="text-[11px] font-semibold text-stone-300">Notes · INV-1042</span>
+                    </div>
+                    <span className="text-[10px] bg-blue-600 text-white rounded-full px-1.5 py-0.5 font-semibold">3</span>
+                  </div>
+                  <div className="flex-1 p-3 space-y-2.5 overflow-auto">
+                    {[
+                      { user: "Sarah (Admin)",  time: "Today 9:14am",  note: "Called — promised EFT by Friday. Following up Thursday." },
+                      { user: "Ali (Rep)",      time: "Yesterday",      note: "Customer queried INV-1038. Clarified it was already reconciled." },
+                      { user: "Sarah (Admin)",  time: "3 Jun",          note: "2nd reminder sent. No response yet." },
+                    ].map((n, i) => (
+                      <div key={i} className="text-[11px]">
+                        <div className="flex items-center justify-between text-[10px] text-stone-500 mb-0.5">
+                          <span className="font-medium text-stone-400">{n.user}</span>
+                          <span>{n.time}</span>
+                        </div>
+                        <div className="text-stone-300 leading-relaxed">{n.note}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-2.5 py-2 border-t border-stone-700/40 flex items-center gap-1.5">
+                    <div className="flex-1 text-[11px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-800 text-stone-500">Add a note…</div>
+                    <div className="text-[10px] font-semibold text-white bg-emerald-600 rounded-md px-2 py-1.5">Add</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -268,8 +304,10 @@ export default function LandingPage() {
       <section id="features" className="py-20 px-5">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Everything your AR team needs</h2>
-            <p className="text-stone-400 text-lg max-w-xl mx-auto">Built specifically for accounting firms managing collections on behalf of clients.</p>
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Everything your AR team needs</h2>
+            <p className="text-stone-400 text-base max-w-2xl mx-auto leading-relaxed">
+              Bring your accountants, sales reps, project managers, and customers into one shared AR workspace. Track every follow-up, coordinate internal ownership, and give customers a self-service portal to promise payment dates or raise disputes — so receivables keep moving without losing context across inboxes, spreadsheets, and manual handoffs.
+            </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {FEATURES.map(f => (
