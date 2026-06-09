@@ -331,14 +331,26 @@ export default function DashboardPage() {
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchSnapshot = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     setSnapshotLoading(true);
     fetch(`/api/reports/ar-snapshot?asOf=${todayStr}`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => setSnapshotInvoices(Array.isArray(data) ? data : null))
+      .then(data => {
+        setSnapshotInvoices(Array.isArray(data) ? data : null);
+        // Also refresh local invoice data so collectionStage / promiseDate stay in sync
+        refresh();
+      })
       .catch(() => setSnapshotInvoices(null))
       .finally(() => setSnapshotLoading(false));
+  };
+
+  useEffect(() => {
+    fetchSnapshot();
+    // Auto-refresh every 5 minutes so payments that come in while the page
+    // is open are reflected without requiring a manual page reload.
+    const interval = setInterval(fetchSnapshot, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Merge snapshot (authoritative open balances) with local invoice metadata
@@ -723,7 +735,7 @@ export default function DashboardPage() {
                       {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} promise${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
                     </div>
                     {stats.promisedBroken > 0 && (
-                      <div className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block">Follow up now</div>
+                      <Link href="/smart-views" className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block hover:bg-rose-500/20">Chase now →</Link>
                     )}
                   </div>
                   {/* This Week */}
@@ -736,7 +748,7 @@ export default function DashboardPage() {
                       {stats.promisedWeekCount === 0 ? "Nothing due" : `${stats.promisedWeekCount} invoice${stats.promisedWeekCount !== 1 ? "s" : ""} · due ≤7 days`}
                     </div>
                     {stats.promisedWeek > 0 && (
-                      <div className="mt-2 text-[10px] text-amber-500 bg-amber-500/10 rounded px-1.5 py-0.5 inline-block">Confirm payment</div>
+                      <Link href="/smart-views" className="mt-2 text-[10px] text-amber-500 bg-amber-500/10 rounded px-1.5 py-0.5 inline-block hover:bg-amber-500/20">Follow up →</Link>
                     )}
                   </div>
                   {/* This Month */}
