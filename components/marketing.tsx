@@ -55,6 +55,7 @@ export function MarketingFooter() {
           <div className="text-[12px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Resources</div>
           <ul className="space-y-2 text-[13px] text-stone-400">
             <li><Link href="/blog" className="hover:text-emerald-400 transition-colors">Blog</Link></li>
+            <li><Link href="/alternatives" className="hover:text-emerald-400 transition-colors">Comparisons</Link></li>
             <li><Link href="/#how-it-works" className="hover:text-emerald-400 transition-colors">How it works</Link></li>
             <li><Link href="/#faq" className="hover:text-emerald-400 transition-colors">FAQ</Link></li>
           </ul>

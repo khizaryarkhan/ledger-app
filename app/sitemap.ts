@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SOLUTIONS } from "@/lib/marketing-data";
 import { POSTS } from "@/lib/blog-data";
+import { COMPETITORS } from "@/lib/competitors-data";
 
 const SITE_URL = "https://primeaccountax.com";
 
@@ -33,5 +34,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...core, ...solutions, ...posts];
+  const alternatives: MetadataRoute.Sitemap = [
+    { url: `${SITE_URL}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    ...COMPETITORS.map((c) => ({
+      url: `${SITE_URL}/${c.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
+  ];
+
+  return [...core, ...solutions, ...posts, ...alternatives];
 }

@@ -46,7 +46,12 @@ export default auth((req) => {
     "/automated-invoice-reminders",
     "/customer-payment-portal",
   ]);
-  const isMarketing = path === "/blog" || path.startsWith("/blog/") || MARKETING_PATHS.has(path);
+  const isMarketing =
+    path === "/blog" ||
+    path.startsWith("/blog/") ||
+    path === "/alternatives" ||
+    path.endsWith("-alternative") ||
+    MARKETING_PATHS.has(path);
   const isPublic = isHome || isMarketing || path === "/login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
