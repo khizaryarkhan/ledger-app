@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { pendingRegistrations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ok, bad } from "@/lib/api";
-import { stripe } from "@/lib/stripe";
+import { stripe, resolveActivePriceId } from "@/lib/stripe";
 import { getAppUrl } from "@/lib/system-mailer";
 import { z } from "zod";
 
@@ -25,8 +25,15 @@ export async function POST(req: NextRequest) {
     if (!reg.emailVerified) return bad("Email not verified", 400);
     if (reg.status === "completed") return bad("Already completed");
 
-    const priceId = process.env.STRIPE_PRICE_ID;
-    if (!priceId) return bad("Stripe price not configured", 500);
+    // Resolve the current active price from Stripe (no redeploy needed when the
+    // price changes — just update the product's default price in Stripe).
+    let priceId: string;
+    try {
+      priceId = await resolveActivePriceId();
+    } catch (e: any) {
+      console.error("[register/checkout] price resolution failed:", e?.message || e);
+      return bad("Stripe price not configured", 500);
+    }
 
     const appUrl = getAppUrl();
 
