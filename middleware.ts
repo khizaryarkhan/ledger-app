@@ -81,7 +81,10 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Exclude the kill-switch service worker scripts so middleware never
-  // redirects them — they must be served as real static JavaScript.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw.js|service-worker.js).*)"],
+  // Exclude assets that must be served raw (never auth-redirected):
+  //  - kill-switch service worker scripts (real JavaScript)
+  //  - SEO files: robots.txt, sitemap.xml, and the generated OG image
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|service-worker.js|robots.txt|sitemap.xml|opengraph-image).*)",
+  ],
 };
