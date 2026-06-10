@@ -81,5 +81,7 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Exclude the kill-switch service worker scripts so middleware never
+  // redirects them — they must be served as real static JavaScript.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw.js|service-worker.js).*)"],
 };
