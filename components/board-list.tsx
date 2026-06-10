@@ -49,11 +49,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
-  // Notes (channel="Note") grouped by invoice, newest first
+  // Notes grouped by invoice, newest first.
+  // Includes internal notes (channel="Note") AND inbound customer responses
+  // from the portal (channel="Portal") so the team sees what customers said
+  // — promise notes and queries — right in the board Notes column.
   const notesByInv = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
-      if (c.channel !== "Note" || !c.invoiceId) return;
+      if ((c.channel !== "Note" && c.channel !== "Portal") || !c.invoiceId) return;
       (m[c.invoiceId] ??= []).push(c);
     });
     Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
@@ -470,15 +473,22 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                           <div className="max-h-52 overflow-auto p-3 space-y-2.5">
                             {(notesByInv[inv.id] ?? []).length === 0 ? (
                               <div className="text-[12px] text-stone-500 text-center py-2">No notes yet</div>
-                            ) : (notesByInv[inv.id] ?? []).map((n: any) => (
-                              <div key={n.id} className="text-[12px]">
+                            ) : (notesByInv[inv.id] ?? []).map((n: any) => {
+                              const fromCustomer = n.channel === "Portal";
+                              return (
+                              <div key={n.id} className={`text-[12px] ${fromCustomer ? "border-l-2 border-emerald-500/60 pl-2" : ""}`}>
                                 <div className="flex items-center justify-between text-[10px] text-stone-500">
-                                  <span className="font-medium text-stone-400">{n.sender || "User"}</span>
+                                  <span className="font-medium text-stone-400 flex items-center gap-1">
+                                    {fromCustomer
+                                      ? <span className="text-emerald-400">Customer · via portal</span>
+                                      : (n.sender || "User")}
+                                  </span>
                                   <span>{new Date(n.sentAt ?? n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })}{n.refNumber ? ` · ${n.refNumber}` : ""}</span>
                                 </div>
                                 <div className="text-stone-200 mt-0.5 whitespace-pre-wrap">{n.body}</div>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                           <div className="p-2 border-t border-stone-800 flex items-center gap-1.5">
                             <input value={noteText} onChange={e => setNoteText(e.target.value)}
