@@ -33,6 +33,11 @@ export function renderInvoiceEmail(opts: {
 }): string {
   const introHtml = (opts.intro ?? DEFAULT_INTRO).replace(/\n/g, "<br>");
 
+  // Currency for the total: use the explicit option, else fall back to the
+  // currency of the invoices themselves (NOT a hard-coded EUR default) so the
+  // total symbol always matches the line items (e.g. PKR, GBP, USD).
+  const totalCurrency = opts.currency || opts.rows[0]?.currency || "EUR";
+
   const portalButton = opts.portalUrl
     ? `<div style="margin:24px 0;text-align:center;">
          <a href="${opts.portalUrl}" style="display:inline-block;background:#1c1917;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">
@@ -80,7 +85,7 @@ export function renderInvoiceEmail(opts: {
           <tfoot>
             <tr style="background:#f9fafb;">
               <td colspan="4" style="padding:12px;font-size:13px;font-weight:700;color:#111827;">Total Outstanding</td>
-              <td style="padding:12px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${money(opts.total, opts.currency)}</td>
+              <td style="padding:12px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${money(opts.total, totalCurrency)}</td>
             </tr>
           </tfoot>
         </table>

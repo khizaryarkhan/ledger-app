@@ -83,11 +83,16 @@ export async function sendMicrosoft(
   const parseRecipients = (addr: string) =>
     addr.split(",").map(e => ({ emailAddress: { address: e.trim() } })).filter(r => r.emailAddress.address);
 
+  // Bodies are HTML (branded templates). Convert plain-text newlines if a
+  // caller passes plain text, and send as HTML so it's never shown raw.
+  const looksHtml = /<[a-z!/][\s\S]*>/i.test(opts.body);
+  const htmlBody = looksHtml ? opts.body : opts.body.replace(/\n/g, "<br>");
+
   const message: Record<string, any> = {
     subject: opts.subject,
     body: {
-      contentType: "Text",
-      content: opts.body,
+      contentType: "HTML",
+      content: htmlBody,
     },
     toRecipients: parseRecipients(opts.to),
     ...(opts.cc  ? { ccRecipients:  parseRecipients(opts.cc)  } : {}),

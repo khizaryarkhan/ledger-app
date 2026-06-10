@@ -112,6 +112,11 @@ export async function sendGmail(
   const boundary = `boundary_${Date.now()}`;
   const hasAttachments = opts.attachments && opts.attachments.length > 0;
 
+  // Bodies are HTML (branded templates). If a caller passes plain text, convert
+  // its newlines so it still renders. Sent as text/html so it's never shown raw.
+  const looksHtml = /<[a-z!/][\s\S]*>/i.test(opts.body);
+  const htmlBody = looksHtml ? opts.body : opts.body.replace(/\n/g, "<br>");
+
   let rawMessage: string;
 
   if (hasAttachments) {
@@ -119,9 +124,9 @@ export async function sendGmail(
     const parts: string[] = [];
     parts.push(
       `--${boundary}`,
-      `Content-Type: text/plain; charset=utf-8`,
+      `Content-Type: text/html; charset=utf-8`,
       ``,
-      opts.body,
+      htmlBody,
     );
     for (const att of opts.attachments!) {
       parts.push(
@@ -153,9 +158,9 @@ export async function sendGmail(
       ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
       ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
       `Subject: ${encodeHeader(opts.subject)}`,
-      `Content-Type: text/plain; charset=utf-8`,
+      `Content-Type: text/html; charset=utf-8`,
       ``,
-      opts.body,
+      htmlBody,
     ].join("\r\n");
   }
 
