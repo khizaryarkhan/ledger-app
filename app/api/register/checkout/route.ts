@@ -59,6 +59,10 @@ export async function POST(req: NextRequest) {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${appUrl}/register/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${appUrl}/register?step=payment&cancelled=1`,
+      // Show the "Add promotion code" field so users can enter a promo code
+      // (e.g. for the First Purchase Discount). The code they enter must be a
+      // Stripe *promotion code* linked to a coupon — not the coupon id itself.
+      allow_promotion_codes: true,
       metadata: { pendingId },
       subscription_data: {
         metadata: { pendingId, companyName: reg.companyName, adminEmail: reg.adminEmail },
