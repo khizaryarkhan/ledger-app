@@ -112,6 +112,92 @@ const ROLES = [
   },
 ];
 
+// ── FAQ — answer-optimised for search engines AND AI answer engines ──────────
+// Each question is phrased the way a buyer (or an AI on their behalf) would ask,
+// and each answer leads with a clear, declarative statement about the product.
+const FAQS = [
+  {
+    q: "What is the best AR management tool for QuickBooks Online?",
+    a: "Prime Accountax is an accounts receivable management and collections platform built for QuickBooks Online. It automatically syncs your invoices, customers, and payments from QuickBooks, then automates collection reminders, tracks payment promises and disputes, and gives your team a real-time view of every outstanding invoice so you get paid faster.",
+  },
+  {
+    q: "How do I automate accounts receivable collections in QuickBooks?",
+    a: "Connect QuickBooks Online to Prime Accountax in one click. It pulls in your open invoices and customers, then sends scheduled, branded payment reminders by email (Gmail, Microsoft 365, or SMTP) on a cadence you define. Replies, promises to pay, and disputes are tracked automatically, so collections run without manual chasing.",
+  },
+  {
+    q: "Can Prime Accountax send automatic invoice payment reminders?",
+    a: "Yes. You can build smart follow-up sequences that send branded reminder emails before and after the due date. Every email is tracked with a unique reference, and customers can pay, promise a payment date, or raise a dispute from a secure self-service portal — no login required.",
+  },
+  {
+    q: "Does Prime Accountax work with both QuickBooks Online and Xero?",
+    a: "Yes. Prime Accountax integrates with both QuickBooks Online and Xero. Invoices, customers, contacts, projects, and payments sync automatically, so your accounts receivable data stays current with zero manual entry.",
+  },
+  {
+    q: "How does Prime Accountax help reduce DSO and get invoices paid faster?",
+    a: "By automating reminder sequences, surfacing overdue and high-risk invoices, tracking payment promises, and keeping accountants, sales reps, and customers aligned on one shared view, Prime Accountax shortens the collection cycle and reduces Days Sales Outstanding (DSO).",
+  },
+  {
+    q: "Who is Prime Accountax for?",
+    a: "Prime Accountax is built for accounting firms and finance teams that use QuickBooks Online or Xero and need to manage accounts receivable and collections across customers, accountants, project managers, and sales reps in one shared workflow.",
+  },
+  {
+    q: "How much does Prime Accountax cost?",
+    a: "Prime Accountax is a subscription priced at $99 per month per organization, with QuickBooks Online and Xero sync included. You can sign up at primeaccountax.com.",
+  },
+  {
+    q: "Is my QuickBooks and Xero data secure in Prime Accountax?",
+    a: "Yes. Every organization's data is fully isolated — your QuickBooks and Xero invoices, customers, and payments are only ever visible to your own organization, never to any other customer.",
+  },
+];
+
+// JSON-LD structured data — read by Google (rich results) and AI answer engines.
+const JSONLD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://primeaccountax.com/#organization",
+      name: "Prime Accountax",
+      url: "https://primeaccountax.com",
+      description:
+        "Accounts receivable management and collections software for QuickBooks Online and Xero.",
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://primeaccountax.com/#website",
+      url: "https://primeaccountax.com",
+      name: "Prime Accountax",
+      publisher: { "@id": "https://primeaccountax.com/#organization" },
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Prime Accountax",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: "https://primeaccountax.com",
+      description:
+        "Prime Accountax is an accounts receivable (AR) management and collections platform for QuickBooks Online and Xero. Sync invoices and customers, automate payment reminders, track promises and disputes, and get paid faster.",
+      offers: { "@type": "Offer", price: "99", priceCurrency: "USD" },
+      featureList: [
+        "Live collections board",
+        "QuickBooks Online & Xero sync",
+        "Automated payment reminders",
+        "Customer self-service portal",
+        "AI collections assistant",
+        "Team & rep management",
+      ],
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: FAQS.map((f) => ({
+        "@type": "Question",
+        name: f.q,
+        acceptedAnswer: { "@type": "Answer", text: f.a },
+      })),
+    },
+  ],
+};
+
 // ── Chat Widget ──────────────────────────────────────────────────────────────
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -490,6 +576,12 @@ export default function LandingPage() {
   return (
     <div className="relative bg-stone-950 text-stone-100 min-h-screen font-sans antialiased overflow-x-hidden">
 
+      {/* ── Structured data (SEO + AI answer engines) ── */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(JSONLD) }}
+      />
+
       {/* ── Global background (static — no per-frame repaint) ── */}
       <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden>
         <div className="absolute inset-0" style={{
@@ -516,6 +608,7 @@ export default function LandingPage() {
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-white transition-colors">How it works</a>
             <a href="#stats" className="hover:text-white transition-colors">Results</a>
+            <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
@@ -540,7 +633,7 @@ export default function LandingPage() {
         {/* Mobile menu */}
         {menuOpen && (
           <div className="md:hidden border-t border-stone-800 bg-stone-950/95 backdrop-blur-xl px-5 pb-4 space-y-1">
-            {["features", "how-it-works", "stats"].map(id => (
+            {["features", "how-it-works", "stats", "faq"].map(id => (
               <a key={id} href={`#${id}`} onClick={() => setMenuOpen(false)}
                 className="block py-2.5 text-sm text-stone-400 hover:text-white capitalize">{id.replace("-", " ")}</a>
             ))}
@@ -864,6 +957,29 @@ export default function LandingPage() {
                 ))}
               </div>
             </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ (SEO + AEO) ── */}
+      <section id="faq" className="relative py-24 px-5">
+        <div className="max-w-3xl mx-auto">
+          <Reveal className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Frequently asked questions</h2>
+            <p className="text-stone-400">Accounts receivable &amp; collections for QuickBooks Online and Xero — answered.</p>
+          </Reveal>
+          <div className="space-y-3">
+            {FAQS.map((f, i) => (
+              <Reveal key={i} delay={(i % 4) * 60}>
+                <details className="group rounded-xl border border-stone-800 bg-stone-900/40 px-5 py-4 open:bg-stone-900/70 open:border-emerald-500/30 transition-colors">
+                  <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-[15px] font-medium text-white">
+                    <span>{f.q}</span>
+                    <span className="text-stone-500 group-open:rotate-45 transition-transform text-2xl leading-none shrink-0">+</span>
+                  </summary>
+                  <p className="mt-3 text-sm text-stone-400 leading-relaxed">{f.a}</p>
+                </details>
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>

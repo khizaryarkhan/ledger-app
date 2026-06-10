@@ -16,7 +16,7 @@ export default auth((req) => {
     host.endsWith(".vercel.app") &&
     !path.startsWith("/api/")
   ) {
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Foodready — Coming soon</title><style>
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Foodready — Coming soon</title><style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0c0a09;color:#fafaf9;padding:24px}
       .card{max-width:520px;text-align:center}
