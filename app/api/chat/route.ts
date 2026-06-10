@@ -3,6 +3,7 @@ import { invoices, customers, projects, users, reps as repsTable, communications
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken } from "@/lib/qbo-token";
+import { getOrgXeroToken } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
@@ -276,6 +277,7 @@ async function fetchOpenInvoices(
       paid:          invoices.paid,
       qboBalance:    invoices.qboBalance,
       qboId:         invoices.qboId,
+      xeroId:        invoices.xeroId,
       paymentStatus: invoices.paymentStatus,
       txnType:       invoices.txnType,
       currency:      invoices.currency,
@@ -319,6 +321,27 @@ async function fetchQboPdf(token: { accessToken: string; realmId: string }, qboI
         signal: AbortSignal.timeout(15_000),
       }
     );
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    return buf.byteLength > 0 ? Buffer.from(buf) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Xero individual invoice PDF fetcher ──────────────────────────────────────
+const XERO_API = "https://api.xero.com/api.xro/2.0";
+
+async function fetchXeroPdf(token: { accessToken: string; tenantId: string }, xeroId: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(`${XERO_API}/Invoices/${xeroId}`, {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        "Xero-Tenant-Id": token.tenantId,
+        Accept: "application/pdf",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     return buf.byteLength > 0 ? Buffer.from(buf) : null;
@@ -627,22 +650,32 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     portalUrl,
   });
 
-  // Build attachments — prefer individual QBO invoice PDFs, fall back to statement
+  // Build attachments — prefer the real invoice PDFs (Xero from Xero, the rest
+  // from QBO), fall back to a generated statement.
   let attachments: MailAttachment[] = [];
   const qboToken = await getOrgQboToken(orgId);
-  if (qboToken) {
+  const needsXero = rows.some(r => (r as any).xeroId && !(r as any).xeroId.startsWith("CN-"));
+  let xeroToken: Awaited<ReturnType<typeof getOrgXeroToken>> | null = null;
+  if (needsXero) {
+    try { xeroToken = await getOrgXeroToken(orgId); } catch { xeroToken = null; }
+  }
+  if (qboToken || xeroToken) {
     const pdfs = await Promise.all(
-      rows
-        .filter(r => r.qboId && !r.qboId.startsWith("CM-"))
-        .map(async r => {
-          const buf = await fetchQboPdf(qboToken, r.qboId!);
-          if (!buf) return null;
-          return { filename: `Invoice-${r.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" } as MailAttachment;
-        })
+      rows.map(async r => {
+        const xeroId = (r as any).xeroId as string | null | undefined;
+        let buf: Buffer | null = null;
+        if (xeroId && !xeroId.startsWith("CN-")) {
+          if (xeroToken) buf = await fetchXeroPdf(xeroToken, xeroId);
+        } else if (qboToken && r.qboId && !r.qboId.startsWith("CM-")) {
+          buf = await fetchQboPdf(qboToken, r.qboId);
+        }
+        if (!buf) return null;
+        return { filename: `Invoice-${r.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" } as MailAttachment;
+      })
     );
     attachments = pdfs.filter(Boolean) as MailAttachment[];
   }
-  // Fall back to a single statement PDF if QBO not connected or all fetches failed
+  // Fall back to a single statement PDF if not connected or all fetches failed
   if (attachments.length === 0) {
     const statementBuf = await generateStatementPDF(rows, subject);
     attachments = [{ filename: `${label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`, content: statementBuf, contentType: "application/pdf" }];

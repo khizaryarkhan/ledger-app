@@ -91,3 +91,47 @@ export async function getOrgXeroToken(orgId: string): Promise<OrgXeroToken | nul
     userId: token.userId,
   };
 }
+
+const XERO_API = "https://api.xero.com/api.xro/2.0";
+const XERO_PDF_TIMEOUT_MS = 15_000;
+
+/**
+ * Fetch a Xero invoice as a PDF. Returns null on any failure (caller treats a
+ * missing PDF as "send without attachment"). Mirrors fetchQboInvoicePdf.
+ */
+export async function fetchXeroInvoicePdf(
+  orgId: string,
+  invoice: { xeroId?: string | null; invoiceNumber: string }
+): Promise<Buffer | null> {
+  if (!invoice.xeroId || invoice.xeroId.startsWith("CN-")) return null;
+
+  const token = await getOrgXeroToken(orgId).catch(() => null);
+  if (!token) return null;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), XERO_PDF_TIMEOUT_MS);
+
+    const res = await fetch(`${XERO_API}/Invoices/${invoice.xeroId}`, {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        "Xero-Tenant-Id": token.tenantId,
+        Accept: "application/pdf",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn(`fetchXeroInvoicePdf: Xero returned ${res.status} for invoice ${invoice.invoiceNumber}`);
+      return null;
+    }
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.byteLength > 0 ? buf : null;
+  } catch (e: any) {
+    console.warn(`fetchXeroInvoicePdf: error for invoice ${invoice.invoiceNumber}: ${e?.message || e}`);
+    return null;
+  }
+}

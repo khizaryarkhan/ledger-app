@@ -4,6 +4,7 @@ import { invoices, contacts, customers, projects, emailTemplates, communications
 import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
 import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
@@ -171,10 +172,13 @@ export async function GET(req: Request) {
             })),
           });
 
-          // PDF attachments (silent failures — email still sends without them)
+          // PDF attachments (silent failures — email still sends without them).
+          // Xero invoices pull the PDF from Xero; everything else from QuickBooks.
           const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
           for (const inv of relatedInvoices) {
-            const pdf = await fetchQboInvoicePdf(orgId, inv).catch(() => null);
+            const pdf = (inv as any).xeroId
+              ? await fetchXeroInvoicePdf(orgId, inv as any).catch(() => null)
+              : await fetchQboInvoicePdf(orgId, inv).catch(() => null);
             if (pdf) attachments.push({ filename: `Invoice-${inv.invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" });
           }
 

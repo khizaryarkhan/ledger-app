@@ -30,6 +30,7 @@ function addDays(date: Date, days: number): Date {
 import { requireOrg } from "@/lib/api";
 import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -206,12 +207,14 @@ export async function POST(req: Request) {
       })),
     });
 
-    // Fetch PDF attachments from QBO for each triggered invoice
-    // Failures are silent — the email still sends without the attachment
+    // Fetch PDF attachments for each triggered invoice (Xero from Xero, rest
+    // from QBO). Failures are silent — the email still sends without them.
     const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
     if (!dryRun) {
       for (const inv of triggeredInvoices) {
-        const pdf = await fetchQboInvoicePdf(orgId!, inv).catch(() => null);
+        const pdf = (inv as any).xeroId
+          ? await fetchXeroInvoicePdf(orgId!, inv as any).catch(() => null)
+          : await fetchQboInvoicePdf(orgId!, inv).catch(() => null);
         if (pdf) {
           attachments.push({
             filename:    `Invoice-${inv.invoiceNumber}.pdf`,
