@@ -37,8 +37,12 @@ export default function InvoiceDetailPage() {
     );
   }
 
+  const canDownloadPdf =
+    (inv.qboId && !inv.qboId.startsWith("CM-")) ||
+    (inv.xeroId && !inv.xeroId.startsWith("CN-"));
+
   const handleDownloadPdf = async () => {
-    if (!inv.qboId || inv.qboId.startsWith("CM-")) return;
+    if (!canDownloadPdf) return;
     setDownloadingPdf(true);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
@@ -177,7 +181,7 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {inv.qboId && !inv.qboId.startsWith("CM-") && (
+          {canDownloadPdf && (
             <Button variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
               {downloadingPdf
                 ? <span className="flex items-center gap-1.5"><Loader size={14} className="animate-spin" />Downloading…</span>

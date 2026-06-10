@@ -73,7 +73,7 @@ export default function InvoicesPage() {
   const handleDownloadPdf = async (e: React.MouseEvent, inv: any) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!inv.qboId || inv.qboId.startsWith("CM-")) return;
+    if (!((inv.qboId && !inv.qboId.startsWith("CM-")) || (inv.xeroId && !inv.xeroId.startsWith("CN-")))) return;
     setDownloadingId(inv.id);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
@@ -422,7 +422,7 @@ export default function InvoicesPage() {
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{fmt.money(inv.outstanding, inv.currency)}</Link>
                   </td>
                   <td className="px-2 py-2.5 w-10">
-                    {inv.qboId && !inv.qboId.startsWith("CM-") && (
+                    {((inv.qboId && !inv.qboId.startsWith("CM-")) || (inv.xeroId && !inv.xeroId.startsWith("CN-"))) && (
                       <button onClick={(e) => handleDownloadPdf(e, inv)}
                         className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
                         title="Download PDF">
