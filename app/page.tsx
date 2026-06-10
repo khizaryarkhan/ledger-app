@@ -1035,9 +1035,15 @@ export default function LandingPage() {
             </div>
             <span>© {new Date().getFullYear()} Prime Accountax (Pvt) Ltd</span>
           </div>
-          <div className="flex items-center gap-5">
-            <Link href="/privacy" className="hover:text-stone-300 transition-colors">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-stone-300 transition-colors">Terms of Service</Link>
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <Link href="/accounts-receivable-software-for-quickbooks" className="hover:text-emerald-400 transition-colors">AR for QuickBooks</Link>
+            <Link href="/accounts-receivable-software-for-xero" className="hover:text-emerald-400 transition-colors">AR for Xero</Link>
+            <Link href="/credit-control-software" className="hover:text-emerald-400 transition-colors">Credit control</Link>
+            <Link href="/automated-invoice-reminders" className="hover:text-emerald-400 transition-colors">Reminders</Link>
+            <Link href="/customer-payment-portal" className="hover:text-emerald-400 transition-colors">Payment portal</Link>
+            <Link href="/blog" className="hover:text-emerald-400 transition-colors">Blog</Link>
+            <Link href="/privacy" className="hover:text-stone-300 transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-stone-300 transition-colors">Terms</Link>
             <Link href="/login" className="hover:text-stone-300 transition-colors">Sign in</Link>
           </div>
         </div>
