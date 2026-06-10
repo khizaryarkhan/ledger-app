@@ -7,13 +7,14 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
 import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
+import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown } from "lucide-react";
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh } = useData() as any;
+  const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh, toast } = useData() as any;
   const [tab, setTab] = useState<"overview" | "comms" | "tasks">("overview");
   const [showCompose, setShowCompose] = useState(false);
   const [showPay, setShowPay] = useState(false);
@@ -335,7 +336,23 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
-      {showCompose && <EmailComposer context={{ customerId: inv.customerId, invoiceId: inv.id }} onClose={() => setShowCompose(false)} />}
+      {showCompose && (
+        <SendInvoicesModal
+          rows={[{
+            inv,
+            custId: inv.customerId,
+            custName: customers.find((c: any) => c.id === inv.customerId)?.name ?? "Customer",
+            projName: projects.find((p: any) => p.id === inv.projectId)?.name ?? null,
+            bal: Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0))),
+            days: daysOverdue(inv.dueDate),
+            email: inv.billingEmail ?? null,
+          }]}
+          ccy={orgSettings?.currency ?? inv.currency ?? "EUR"}
+          onClose={() => setShowCompose(false)}
+          onSent={() => { setShowCompose(false); refresh(); }}
+          toast={toast}
+        />
+      )}
       {showPay && <PaymentModal invoice={inv} onClose={() => setShowPay(false)} />}
       {showDispute && <DisputeModal invoice={inv} onClose={() => setShowDispute(false)} />}
       {showPromise && <PromiseModal invoice={inv} onClose={() => setShowPromise(false)} />}
