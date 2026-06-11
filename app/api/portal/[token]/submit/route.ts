@@ -5,6 +5,7 @@ import {
 } from "@/db/schema";
 import { validatePortalToken, recomputeInvoiceState, DISPUTE_CATEGORIES } from "@/lib/portal";
 import { sendEmail } from "@/lib/mailer";
+import { rateLimit } from "@/lib/rate-limit";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -17,6 +18,10 @@ import { NextResponse } from "next/server";
  * inbound communication per invoice, and notifies staff.
  */
 export async function POST(req: Request, { params }: { params: { token: string } }) {
+  // Throttle submissions per token to blunt token-guessing / replay abuse.
+  const rl = await rateLimit(`portal:submit:${params.token}`, 10, 3600);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+
   const v = await validatePortalToken(params.token);
   if (!v.ok) {
     const reason = "reason" in v ? v.reason : "error";
@@ -138,9 +143,20 @@ export async function POST(req: Request, { params }: { params: { token: string }
   return NextResponse.json({ ok: true });
 }
 
+/** Escape user-supplied text before embedding in notification email HTML. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 /** Email a summary to the relevant collection owners + org admins. */
 async function notifyStaff(orgId: string, customerId: string, summary: string[], hasDispute: boolean) {
   const [cust] = await db.select({ name: customers.name }).from(customers).where(eq(customers.id, customerId)).limit(1);
+  const custName = escapeHtml(cust?.name ?? "Customer");
 
   // Recipients: all company admins of the org (+ could add collection owners)
   const admins = await db
@@ -152,18 +168,19 @@ async function notifyStaff(orgId: string, customerId: string, summary: string[],
   const to = [...new Set(admins.map(a => a.email).filter(Boolean))].join(", ");
   if (!to) return;
 
+  // Subject is plain text (not HTML); body interpolates user input, so escape it.
   const subject = hasDispute
     ? `⚠️ ${cust?.name ?? "Customer"} raised a dispute via portal`
     : `${cust?.name ?? "Customer"} submitted a payment response`;
 
   const body = `
     <div style="font-family:Arial,sans-serif;max-width:600px;">
-      <h2 style="font-size:18px;color:#111827;">${cust?.name ?? "Customer"} responded via the customer portal</h2>
+      <h2 style="font-size:18px;color:#111827;">${custName} responded via the customer portal</h2>
       <ul style="font-size:14px;color:#374151;line-height:1.7;">
-        ${summary.map(s => `<li>${s}</li>`).join("")}
+        ${summary.map(s => `<li>${escapeHtml(s)}</li>`).join("")}
       </ul>
       ${hasDispute ? `<p style="color:#dc2626;font-size:13px;"><strong>A dispute was raised — collection automations have been paused for the affected invoice(s).</strong></p>` : ""}
-      <p style="font-size:12px;color:#9ca3af;">Log in to Ledger AR to review the full timeline.</p>
+      <p style="font-size:12px;color:#9ca3af;">Log in to Primeaccountax to review the full timeline.</p>
     </div>`;
 
   await sendEmail(orgId, { to, subject, body });

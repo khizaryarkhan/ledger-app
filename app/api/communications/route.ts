@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { communications, invoices } from "@/db/schema";
-import { requireOrg, ok, bad } from "@/lib/api";
+import { communications, invoices, customers, projects, contacts } from "@/db/schema";
+import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { z } from "zod";
 import { desc, eq, and } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
@@ -50,6 +50,12 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
+
+    // Ensure every client-supplied reference belongs to this org.
+    if (!(await ownsInOrg(customers, data.customerId, orgId!))) return bad("Customer not found in this organisation", 404);
+    if (!(await ownsInOrg(invoices, data.invoiceId, orgId!)))   return bad("Invoice not found in this organisation", 404);
+    if (!(await ownsInOrg(projects, data.projectId, orgId!)))   return bad("Project not found in this organisation", 404);
+    if (!(await ownsInOrg(contacts, data.contactId, orgId!)))   return bad("Contact not found in this organisation", 404);
 
     // If this is an outbound email for an invoice, count previous emails to determine auto-stage
     let autoStage: string | null = null;

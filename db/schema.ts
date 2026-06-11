@@ -821,6 +821,15 @@ export const tasksRelations = relations(tasks, ({ one }) => ({
   assignee: one(users, { fields: [tasks.assigneeId], references: [users.id] }),
 }));
 
+// =========================================================================
+// RATE LIMITS — fixed-window limiter backed by Postgres (see lib/rate-limit.ts)
+// =========================================================================
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type Customer = typeof customers.$inferSelect;

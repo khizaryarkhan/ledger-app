@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { tasks } from "@/db/schema";
-import { requireOrg, ok, bad } from "@/lib/api";
+import { tasks, customers, invoices } from "@/db/schema";
+import { requireOrg, ok, bad, ownsInOrg, userInOrg } from "@/lib/api";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -37,6 +37,9 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
+    if (!(await ownsInOrg(customers, data.customerId, orgId!))) return bad("Customer not found in this organisation", 404);
+    if (!(await ownsInOrg(invoices, data.invoiceId, orgId!)))   return bad("Invoice not found in this organisation", 404);
+    if (!(await userInOrg(data.assigneeId, orgId!)))            return bad("Assignee is not a member of this organisation", 404);
     const [created] = await db.insert(tasks).values({
       orgId: orgId!,
       customerId: data.customerId ?? null,

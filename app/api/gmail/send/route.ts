@@ -1,7 +1,5 @@
-import { db } from "@/db";
-import { gmailTokens } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { eq } from "drizzle-orm";
+import { getValidGmailToken } from "@/lib/gmail";
 import { z } from "zod";
 
 const Schema = z.object({
@@ -10,41 +8,6 @@ const Schema = z.object({
   body: z.string(),
   replyTo: z.string().optional(),
 });
-
-// Resolve the ORG's shared Gmail connection. Any user in the org can send
-// through it — the OAuth was authorised once by an admin and the token is
-// the org's, not an individual user's.
-async function getValidGmailToken(orgId: string) {
-  const [token] = await db.select().from(gmailTokens).where(eq(gmailTokens.orgId, orgId)).limit(1);
-  if (!token) return null;
-
-  const now = Date.now();
-  const expiresAt = new Date(token.accessTokenExpiresAt).getTime();
-
-  if (expiresAt - now < 5 * 60 * 1000) {
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.GMAIL_CLIENT_ID!,
-        client_secret: process.env.GMAIL_CLIENT_SECRET!,
-        refresh_token: token.refreshToken,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!res.ok) return token;
-    const data = await res.json();
-    await db.update(gmailTokens).set({
-      accessToken: data.access_token,
-      accessTokenExpiresAt: new Date(now + (data.expires_in || 3600) * 1000),
-      updatedAt: new Date(),
-    }).where(eq(gmailTokens.id, token.id));
-    return { ...token, accessToken: data.access_token };
-  }
-
-  return token;
-}
 
 export async function POST(req: Request) {
   const { error, orgId } = await requireOrg();

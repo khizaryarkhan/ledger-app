@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { gmailTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
+import { signOAuthState } from "@/lib/oauth-state";
 
 export async function GET(req: Request) {
   // requireOrg validates membership against the active org and gives us the
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "GMAIL_CLIENT_ID and GMAIL_REDIRECT_URI must be set in Vercel environment variables" }, { status: 500 });
   }
   const userId = (session!.user as any).id;
-  const state  = `${orgId}:${userId}`;
+  const state  = signOAuthState(orgId!, userId);
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent("https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email")}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
   return NextResponse.redirect(url);
 }

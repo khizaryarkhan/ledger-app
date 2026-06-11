@@ -13,6 +13,7 @@ import {
   deposits,
 } from "@/db/schema";
 import { eq, inArray, and, isNull } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -44,6 +45,8 @@ function buildBillingEmails(qi: any): string | null {
 export async function getValidToken(orgId: string) {
   const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
   if (!token) return null;
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshTokenPlain = decryptSecret(token.refreshToken)!;
   const now = Date.now();
   if (new Date(token.accessTokenExpiresAt).getTime() - now < 10 * 60 * 1000) {
     const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
@@ -56,7 +59,7 @@ export async function getValidToken(orgId: string) {
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
+        refresh_token: refreshTokenPlain,
       }),
     });
     if (!res.ok) {
@@ -71,16 +74,16 @@ export async function getValidToken(orgId: string) {
     const d = await res.json();
     const updated = {
       ...token,
-      accessToken: d.access_token,
-      refreshToken: d.refresh_token || token.refreshToken,
+      accessToken: d.access_token,                       // plaintext, for immediate use
+      refreshToken: d.refresh_token || refreshTokenPlain, // plaintext, for immediate use
       accessTokenExpiresAt: new Date(now + d.expires_in * 1000),
       refreshTokenExpiresAt: new Date(now + (d.x_refresh_token_expires_in || 8726400) * 1000),
     };
     await db
       .update(qboTokens)
       .set({
-        accessToken: updated.accessToken,
-        refreshToken: updated.refreshToken,
+        accessToken: encryptSecret(updated.accessToken)!,
+        refreshToken: encryptSecret(updated.refreshToken)!,
         accessTokenExpiresAt: updated.accessTokenExpiresAt,
         refreshTokenExpiresAt: updated.refreshTokenExpiresAt,
         updatedAt: new Date(),
@@ -88,7 +91,7 @@ export async function getValidToken(orgId: string) {
       .where(eq(qboTokens.orgId, orgId));
     return updated;
   }
-  return token;
+  return { ...token, accessToken: decryptSecret(token.accessToken)!, refreshToken: refreshTokenPlain };
 }
 
 // ============================================================

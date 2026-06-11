@@ -4,7 +4,9 @@ import { pendingRegistrations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ok, bad } from "@/lib/api";
 import { sendSystemEmail, getAppUrl } from "@/lib/system-mailer";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { z } from "zod";
+import { randomInt } from "crypto";
 
 const Schema = z.object({
   companyName: z.string().min(1).max(255),
@@ -12,14 +14,21 @@ const Schema = z.object({
   adminEmail:  z.string().email(),
 });
 
+// Cryptographically secure 6-digit OTP (Math.random is not suitable for secrets).
 function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = Schema.parse(await req.json());
     const email = body.adminEmail.toLowerCase().trim();
+
+    // Throttle signups per IP and per email (OTP/email-bomb abuse).
+    const ipLimit = await rateLimit(`register:ip:${clientIp(req)}`, 5, 3600);
+    if (!ipLimit.ok) return bad("Too many attempts. Please try again later.", 429);
+    const emailLimit = await rateLimit(`register:email:${email}`, 3, 3600);
+    if (!emailLimit.ok) return bad("Too many attempts for this email. Please try again later.", 429);
 
     // Check no existing pending reg for this email in last 10 min (rate-limit)
     const otp    = generateOtp();

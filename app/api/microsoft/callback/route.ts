@@ -11,20 +11,24 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { microsoftTokens, users } from "@/db/schema";
+import { microsoftTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { verifyOAuthState } from "@/lib/oauth-state";
+import { encryptSecret } from "@/lib/crypto";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const code       = searchParams.get("code");
-  const stateParam = searchParams.get("state") || "";
-  // state is "orgId:userId" (new format). Older/legacy: just userId.
-  let [orgIdFromState, userId] = stateParam.includes(":")
-    ? stateParam.split(":")
-    : [null as string | null, stateParam];
   const base = process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
 
-  if (!code || !userId) {
+  // Validate the HMAC-signed state before trusting orgId/userId.
+  const verified = verifyOAuthState(searchParams.get("state"));
+  if (!verified) {
+    return NextResponse.redirect(new URL("/settings/email?microsoft=error&reason=invalid_state", base));
+  }
+  const { orgId, userId } = verified;
+
+  if (!code) {
     return NextResponse.redirect(new URL("/settings/email?microsoft=error&reason=missing_params", base));
   }
 
@@ -65,33 +69,24 @@ export async function GET(req: Request) {
     const now                 = Date.now();
     const accessTokenExpiresAt = new Date(now + (expires_in || 3600) * 1000);
 
-    // Resolve orgId from state (or fall back to user's primary org)
-    let orgId = orgIdFromState;
-    if (!orgId) {
-      const [u] = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, userId)).limit(1);
-      orgId = u?.orgId ?? null;
-    }
-
-    // Upsert by ORG — connection belongs to the organisation, not a single user
-    const [existing] = orgId
-      ? await db.select().from(microsoftTokens).where(eq(microsoftTokens.orgId, orgId)).limit(1)
-      : await db.select().from(microsoftTokens).where(eq(microsoftTokens.userId, userId)).limit(1);
+    // orgId comes from the verified state — upsert by ORG.
+    const [existing] = await db.select().from(microsoftTokens).where(eq(microsoftTokens.orgId, orgId)).limit(1);
 
     if (existing) {
       await db.update(microsoftTokens).set({
-        orgId:                orgId ?? existing.orgId,
+        orgId,
         userId,
         email,
-        accessToken:          access_token,
-        refreshToken:         refresh_token || existing.refreshToken,
+        accessToken:          encryptSecret(access_token)!,
+        refreshToken:         refresh_token ? encryptSecret(refresh_token)! : existing.refreshToken,
         accessTokenExpiresAt,
         updatedAt:            new Date(),
       }).where(eq(microsoftTokens.id, existing.id));
     } else {
       await db.insert(microsoftTokens).values({
         orgId, userId, email,
-        accessToken:          access_token,
-        refreshToken:         refresh_token,
+        accessToken:          encryptSecret(access_token)!,
+        refreshToken:         encryptSecret(refresh_token)!,
         accessTokenExpiresAt,
       });
     }

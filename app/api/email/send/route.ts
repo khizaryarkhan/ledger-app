@@ -11,10 +11,11 @@
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { db } from "@/db";
-import { invoices, qboTokens } from "@/db/schema";
+import { invoices } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
+import { getOrgQboToken } from "@/lib/qbo-token";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -32,32 +33,6 @@ const Schema = z.object({
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 
-async function getOrgToken(orgId: string) {
-  const [token] = await db.select().from(qboTokens).where(eq(qboTokens.orgId, orgId)).limit(1);
-  if (!token) return null;
-  const now = Date.now();
-  if (new Date(token.accessTokenExpiresAt).getTime() - now < 5 * 60 * 1000) {
-    const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
-      method: "POST",
-      headers: {
-        "Content-Type":  "application/x-www-form-urlencoded",
-        "Authorization": `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
-    });
-    if (!res.ok) return token;
-    const d = await res.json();
-    await db.update(qboTokens).set({
-      accessToken:          d.access_token,
-      refreshToken:         d.refresh_token || token.refreshToken,
-      accessTokenExpiresAt: new Date(now + (d.expires_in || 3600) * 1000),
-      updatedAt:            new Date(),
-    }).where(eq(qboTokens.orgId, orgId));
-    return { ...token, accessToken: d.access_token };
-  }
-  return token;
-}
-
 export async function POST(req: Request) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
@@ -73,7 +48,7 @@ export async function POST(req: Request) {
       // Tokens are fetched lazily — only QBO invoices touch the QBO token,
       // only Xero invoices touch the Xero token. This keeps the QBO path
       // unchanged while adding Xero invoice-PDF support.
-      let qboToken: Awaited<ReturnType<typeof getOrgToken>> | undefined;
+      let qboToken: Awaited<ReturnType<typeof getOrgQboToken>> | undefined;
       let qboChecked = false;
       let xeroToken: Awaited<ReturnType<typeof getOrgXeroToken>> | undefined;
       let xeroChecked = false;
@@ -132,7 +107,7 @@ export async function POST(req: Request) {
         // ── QuickBooks invoice (unchanged) ────────────────────────────
         if (!inv.qboId || inv.qboId.startsWith("CM-")) continue; // credit memos have no PDF
         if (isClosedOrPaid) continue;
-        if (!qboChecked) { qboToken = await getOrgToken(orgId!); qboChecked = true; }
+        if (!qboChecked) { qboToken = (await getOrgQboToken(orgId!)) ?? undefined; qboChecked = true; }
         if (!qboToken) { attachmentErrors.push("QuickBooks not connected — could not fetch PDFs"); continue; }
         try {
           const pdfRes = await fetch(

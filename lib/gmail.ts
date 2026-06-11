@@ -6,10 +6,15 @@
 import { db } from "@/db";
 import { gmailTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export async function getValidGmailToken(orgId: string) {
   const [token] = await db.select().from(gmailTokens).where(eq(gmailTokens.orgId, orgId)).limit(1);
   if (!token) return null;
+
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshToken = decryptSecret(token.refreshToken)!;
+  const accessToken  = decryptSecret(token.accessToken)!;
 
   const now      = Date.now();
   const expiresAt = new Date(token.accessTokenExpiresAt).getTime();
@@ -21,21 +26,21 @@ export async function getValidGmailToken(orgId: string) {
       body: new URLSearchParams({
         client_id:     process.env.GMAIL_CLIENT_ID!,
         client_secret: process.env.GMAIL_CLIENT_SECRET!,
-        refresh_token: token.refreshToken,
+        refresh_token: refreshToken,
         grant_type:    "refresh_token",
       }),
     });
-    if (!res.ok) return token;
+    if (!res.ok) return { ...token, accessToken, refreshToken };
     const data = await res.json();
     await db.update(gmailTokens).set({
-      accessToken:           data.access_token,
+      accessToken:           encryptSecret(data.access_token)!,
       accessTokenExpiresAt:  new Date(now + (data.expires_in || 3600) * 1000),
       updatedAt:             new Date(),
     }).where(eq(gmailTokens.id, token.id));
-    return { ...token, accessToken: data.access_token };
+    return { ...token, accessToken: data.access_token, refreshToken };
   }
 
-  return token;
+  return { ...token, accessToken, refreshToken };
 }
 
 /**

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/db";
 import { users, userOrganisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
@@ -19,6 +20,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         const email = String(credentials.email).toLowerCase().trim();
+
+        // Throttle password attempts per email to blunt online brute-forcing.
+        const rl = await rateLimit(`login:${email}`, 10, 900);
+        if (!rl.ok) return null;
+
         const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
         if (!user || user.status !== "Active") return null;
         const valid = await bcrypt.compare(String(credentials.password), user.passwordHash);

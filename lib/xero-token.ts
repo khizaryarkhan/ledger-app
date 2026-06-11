@@ -9,6 +9,7 @@
 import { db } from "@/db";
 import { xeroTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 
@@ -33,6 +34,10 @@ export async function getOrgXeroToken(orgId: string): Promise<OrgXeroToken | nul
 
   if (!token) return null;
 
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshTokenPlain = decryptSecret(token.refreshToken)!;
+  const accessTokenPlain  = decryptSecret(token.accessToken)!;
+
   const now = Date.now();
 
   // Refresh if less than 5 minutes remaining on the access token
@@ -52,7 +57,7 @@ export async function getOrgXeroToken(orgId: string): Promise<OrgXeroToken | nul
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
+        refresh_token: refreshTokenPlain,
       }),
     });
 
@@ -67,8 +72,8 @@ export async function getOrgXeroToken(orgId: string): Promise<OrgXeroToken | nul
     await db
       .update(xeroTokens)
       .set({
-        accessToken: d.access_token,
-        refreshToken: d.refresh_token || token.refreshToken,
+        accessToken: encryptSecret(d.access_token)!,
+        refreshToken: d.refresh_token ? encryptSecret(d.refresh_token)! : token.refreshToken,
         accessTokenExpiresAt: new Date(now + (d.expires_in || 1800) * 1000),
         // Xero rolling 60-day refresh token window
         refreshTokenExpiresAt: new Date(now + 60 * 24 * 60 * 60 * 1000),
@@ -85,7 +90,7 @@ export async function getOrgXeroToken(orgId: string): Promise<OrgXeroToken | nul
   }
 
   return {
-    accessToken: token.accessToken,
+    accessToken: accessTokenPlain,
     tenantId: token.tenantId,
     orgId: token.orgId!,
     userId: token.userId,

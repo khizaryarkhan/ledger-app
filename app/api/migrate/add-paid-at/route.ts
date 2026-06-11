@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, qboTokens } from "@/db/schema";
 import { eq, isNull, and } from "drizzle-orm";
+import { decryptSecret } from "@/lib/crypto";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 
@@ -48,9 +49,9 @@ async function refreshToken(token: any) {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: decryptSecret(token.refreshToken)! }),
   });
-  if (!res.ok) return token.accessToken;
+  if (!res.ok) return decryptSecret(token.accessToken)!;
   const d = await res.json();
   return d.access_token as string;
 }
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
     try {
       const now = Date.now();
       const tokenExpired = new Date(token.accessTokenExpiresAt).getTime() - now < 60_000;
-      const accessToken = tokenExpired ? await refreshToken(token) : token.accessToken;
+      const accessToken = tokenExpired ? await refreshToken(token) : decryptSecret(token.accessToken)!;
 
       // 1. Fetch all QBO payments — these have accurate TxnDate
       const allPayments = await fetchAllPayments(accessToken, token.realmId);

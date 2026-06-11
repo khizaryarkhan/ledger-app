@@ -4,6 +4,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ok, bad } from "@/lib/api";
 import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 import crypto from "crypto";
 
 export async function POST(req: NextRequest) {
@@ -12,6 +13,15 @@ export async function POST(req: NextRequest) {
     if (!email || typeof email !== "string") return bad("Email is required");
 
     const normalised = email.toLowerCase().trim();
+
+    // Throttle reset requests per IP and per target email (token-generation abuse).
+    const ipLimit = await rateLimit(`forgot:ip:${clientIp(req)}`, 5, 3600);
+    if (!ipLimit.ok) return bad("Too many requests. Please try again later.", 429);
+    const emailLimit = await rateLimit(`forgot:email:${normalised}`, 3, 3600);
+    if (!emailLimit.ok) {
+      // Don't reveal whether the email exists — return the same generic success.
+      return ok({ message: "If that email exists, a reset link has been sent." });
+    }
 
     const [user] = await db
       .select({ id: users.id, name: users.name, email: users.email, status: users.status })

@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { xeroTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { verifyOAuthState } from "@/lib/oauth-state";
+import { encryptSecret } from "@/lib/crypto";
 
 export async function GET(req: Request) {
   const base =
@@ -23,12 +25,17 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
-  const stateParam = searchParams.get("state") || "";
-  const [orgId, userId] = stateParam.includes(":")
-    ? stateParam.split(":")
-    : [stateParam, stateParam];
 
-  if (!code || !orgId || !userId) {
+  // Validate the HMAC-signed state before trusting orgId/userId.
+  const verified = verifyOAuthState(searchParams.get("state"));
+  if (!verified) {
+    return NextResponse.redirect(
+      new URL("/settings?xero=error&reason=invalid_state", base)
+    );
+  }
+  const { orgId, userId } = verified;
+
+  if (!code) {
     return NextResponse.redirect(
       new URL("/settings?xero=error&reason=missing_params", base)
     );
@@ -106,8 +113,8 @@ export async function GET(req: Request) {
           userId,
           tenantId,
           tenantName,
-          accessToken: access_token,
-          refreshToken: refresh_token,
+          accessToken: encryptSecret(access_token)!,
+          refreshToken: encryptSecret(refresh_token)!,
           accessTokenExpiresAt,
           refreshTokenExpiresAt,
           updatedAt: new Date(),
@@ -119,8 +126,8 @@ export async function GET(req: Request) {
         userId,
         tenantId,
         tenantName,
-        accessToken: access_token,
-        refreshToken: refresh_token,
+        accessToken: encryptSecret(access_token)!,
+        refreshToken: encryptSecret(refresh_token)!,
         accessTokenExpiresAt,
         refreshTokenExpiresAt,
       });

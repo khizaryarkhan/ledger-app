@@ -18,6 +18,7 @@
 import { db } from "@/db";
 import { xeroTokens, xeroSyncLog, customers, projects, invoices, contacts } from "@/db/schema";
 import { eq, and, inArray, isNull } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -28,6 +29,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function getValidToken(orgId: string) {
   const [token] = await db.select().from(xeroTokens).where(eq(xeroTokens.orgId, orgId)).limit(1);
   if (!token) return null;
+
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshTokenPlain = decryptSecret(token.refreshToken)!;
 
   const now = Date.now();
   // Refresh if less than 10 minutes remaining
@@ -43,7 +47,7 @@ async function getValidToken(orgId: string) {
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
+        refresh_token: refreshTokenPlain,
       }),
     });
 
@@ -57,21 +61,21 @@ async function getValidToken(orgId: string) {
     const d = await res.json();
     const updated = {
       ...token,
-      accessToken: d.access_token,
-      refreshToken: d.refresh_token || token.refreshToken,
+      accessToken: d.access_token,                       // plaintext, for immediate use
+      refreshToken: d.refresh_token || refreshTokenPlain, // plaintext, for immediate use
       accessTokenExpiresAt: new Date(now + (d.expires_in || 1800) * 1000),
       refreshTokenExpiresAt: new Date(now + 60 * 24 * 60 * 60 * 1000),
     };
     await db.update(xeroTokens).set({
-      accessToken: updated.accessToken,
-      refreshToken: updated.refreshToken,
+      accessToken: encryptSecret(updated.accessToken)!,
+      refreshToken: encryptSecret(updated.refreshToken)!,
       accessTokenExpiresAt: updated.accessTokenExpiresAt,
       refreshTokenExpiresAt: updated.refreshTokenExpiresAt,
       updatedAt: new Date(),
     }).where(eq(xeroTokens.orgId, orgId));
     return updated;
   }
-  return token;
+  return { ...token, accessToken: decryptSecret(token.accessToken)!, refreshToken: refreshTokenPlain };
 }
 
 // ============================================================

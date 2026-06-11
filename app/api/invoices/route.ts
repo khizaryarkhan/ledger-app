@@ -1,6 +1,7 @@
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
-import { requireOrg, ok, bad } from "@/lib/api";
+import { invoices, customers, projects } from "@/db/schema";
+import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
+import { getRepScope } from "@/lib/rep-scope";
 import { z } from "zod";
 import { eq, desc, and } from "drizzle-orm";
 
@@ -23,11 +24,15 @@ const Schema = z.object({
 });
 
 export async function GET() {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role, repId } = await requireOrg();
   if (error) return error;
 
-  // All roles see all invoices in their organisation — balances must match.
-  return ok(await db.select().from(invoices).where(eq(invoices.orgId, orgId!)).orderBy(desc(invoices.dueDate)));
+  const rows = await db.select().from(invoices).where(eq(invoices.orgId, orgId!)).orderBy(desc(invoices.dueDate));
+
+  // Reps only see invoices in their book of business; admins/accountants see all.
+  const scope = await getRepScope(orgId!, role, repId);
+  if (scope) return ok(rows.filter((i) => scope.invoiceIds.has(i.id)));
+  return ok(rows);
 }
 
 export async function POST(req: Request) {
@@ -35,6 +40,9 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
+    // Ensure client-supplied references belong to this org (prevent cross-tenant linkage).
+    if (!(await ownsInOrg(customers, data.customerId, orgId!))) return bad("Customer not found in this organisation", 404);
+    if (!(await ownsInOrg(projects, data.projectId, orgId!)))   return bad("Project not found in this organisation", 404);
     const [existing] = await db.select().from(invoices).where(and(eq(invoices.invoiceNumber, data.invoiceNumber), eq(invoices.orgId, orgId!))).limit(1);
     if (existing) return bad(`Invoice number "${data.invoiceNumber}" already exists`, 409);
     const [created] = await db.insert(invoices).values({

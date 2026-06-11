@@ -1,13 +1,16 @@
 import { db } from "@/db";
 import { orgSmtpSettings } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
+import { encryptSecret } from "@/lib/crypto";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const Schema = z.object({
   host: z.string().min(1),
   port: z.number().int().default(2525),
-  user: z.string().min(1),
+  // user/pass are optional on edit: the GET never returns them (credential
+  // surface), so a blank value means "keep the existing one".
+  user: z.string().optional(),
   pass: z.string().optional(),
   fromEmail: z.string().email(),
   fromName: z.string().optional(),
@@ -24,12 +27,11 @@ export async function GET() {
     id:        orgSmtpSettings.id,
     host:      orgSmtpSettings.host,
     port:      orgSmtpSettings.port,
-    user:      orgSmtpSettings.user,
     fromEmail: orgSmtpSettings.fromEmail,
     fromName:  orgSmtpSettings.fromName,
     ccEmail:   orgSmtpSettings.ccEmail,
     ccEnabled: orgSmtpSettings.ccEnabled,
-    // Never return password
+    // Never return password or the SMTP username (credential surface).
   }).from(orgSmtpSettings).where(eq(orgSmtpSettings.orgId, orgId!)).limit(1);
 
   return ok({ configured: !!settings, settings: settings || null });
@@ -51,8 +53,8 @@ export async function POST(req: Request) {
       await db.update(orgSmtpSettings).set({
         host:      data.host,
         port:      data.port,
-        user:      data.user,
-        ...(data.keepExistingPass || !data.pass ? {} : { pass: data.pass }),
+        ...(data.user ? { user: data.user } : {}),          // blank → keep existing
+        ...(data.keepExistingPass || !data.pass ? {} : { pass: encryptSecret(data.pass)! }),
         fromEmail: data.fromEmail,
         fromName:  data.fromName,
         ccEmail,
@@ -60,10 +62,11 @@ export async function POST(req: Request) {
         updatedAt: new Date(),
       }).where(eq(orgSmtpSettings.orgId, orgId!));
     } else {
+      if (!data.user) return bad("Username is required for new SMTP configuration", 400);
       if (!data.pass) return bad("Password is required for new SMTP configuration", 400);
       await db.insert(orgSmtpSettings).values({
         orgId: orgId!, host: data.host, port: data.port,
-        user: data.user, pass: data.pass!,
+        user: data.user, pass: encryptSecret(data.pass)!,
         fromEmail: data.fromEmail, fromName: data.fromName,
         ccEmail, ccEnabled,
       });

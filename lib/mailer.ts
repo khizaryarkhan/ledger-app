@@ -19,6 +19,7 @@ import { orgSmtpSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getValidGmailToken, sendGmail } from "@/lib/gmail";
 import { getValidMicrosoftToken, sendMicrosoft } from "@/lib/microsoft";
+import { decryptSecret } from "@/lib/crypto";
 
 export interface MailAttachment {
   filename: string;
@@ -62,7 +63,7 @@ export async function getSmtpConfig(orgId: string): Promise<SmtpConfig | null> {
   const host      = smtp?.host;
   const port      = smtp?.port      ?? 2525;
   const user      = smtp?.user;
-  const pass      = smtp?.pass;
+  const pass      = decryptSecret(smtp?.pass);  // encrypted at rest (legacy plaintext passes through)
   const fromEmail = smtp?.fromEmail;
   const fromName  = smtp?.fromName;
 

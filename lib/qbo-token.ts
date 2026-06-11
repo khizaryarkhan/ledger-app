@@ -6,6 +6,7 @@
 import { db } from "@/db";
 import { qboTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export interface OrgQboToken {
   accessToken: string;
@@ -25,6 +26,10 @@ export async function getOrgQboToken(orgId: string): Promise<OrgQboToken | null>
 
   if (!token) return null;
 
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshToken = decryptSecret(token.refreshToken)!;
+  const accessToken  = decryptSecret(token.accessToken)!;
+
   const now = Date.now();
 
   // Refresh if less than 5 minutes remaining
@@ -41,7 +46,7 @@ export async function getOrgQboToken(orgId: string): Promise<OrgQboToken | null>
         },
         body: new URLSearchParams({
           grant_type:    "refresh_token",
-          refresh_token: token.refreshToken,
+          refresh_token: refreshToken,
         }),
       }
     );
@@ -51,8 +56,8 @@ export async function getOrgQboToken(orgId: string): Promise<OrgQboToken | null>
       await db
         .update(qboTokens)
         .set({
-          accessToken:          d.access_token,
-          refreshToken:         d.refresh_token || token.refreshToken,
+          accessToken:          encryptSecret(d.access_token)!,
+          refreshToken:         d.refresh_token ? encryptSecret(d.refresh_token)! : token.refreshToken,
           accessTokenExpiresAt: new Date(now + d.expires_in * 1000),
           updatedAt:            new Date(),
         })
@@ -62,7 +67,7 @@ export async function getOrgQboToken(orgId: string): Promise<OrgQboToken | null>
     // Refresh failed — use the existing token and hope for the best
   }
 
-  return { accessToken: token.accessToken, realmId: token.realmId };
+  return { accessToken, realmId: token.realmId };
 }
 
 const QBO_PDF_TIMEOUT_MS = 12_000;

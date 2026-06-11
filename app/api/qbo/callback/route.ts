@@ -2,16 +2,24 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { qboTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { verifyOAuthState } from "@/lib/oauth-state";
+import { encryptSecret } from "@/lib/crypto";
 
 export async function GET(req: Request) {
   const base = req.headers.get("origin") || process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const realmId = searchParams.get("realmId");
-  const stateParam = searchParams.get("state") || "";
-  const [orgId, userId] = stateParam.includes(":") ? stateParam.split(":") : [stateParam, stateParam];
 
-  if (!code || !realmId || !orgId || !userId) {
+  // Validate the HMAC-signed state before trusting orgId/userId. A forged or
+  // expired state is rejected so a connection can't be bound to another org.
+  const verified = verifyOAuthState(searchParams.get("state"));
+  if (!verified) {
+    return NextResponse.redirect(new URL("/settings?qbo=error&reason=invalid_state", base));
+  }
+  const { orgId, userId } = verified;
+
+  if (!code || !realmId) {
     return NextResponse.redirect(new URL("/settings?qbo=error&reason=missing_params", base));
   }
 
@@ -59,14 +67,14 @@ export async function GET(req: Request) {
     if (existing) {
       // Existing connection: preserve the original userId, just refresh tokens.
       await db.update(qboTokens).set({
-        userId, realmId, accessToken: access_token, refreshToken: refresh_token,
+        userId, realmId, accessToken: encryptSecret(access_token)!, refreshToken: encryptSecret(refresh_token)!,
         accessTokenExpiresAt, refreshTokenExpiresAt, companyName,
         updatedAt: new Date(),
       }).where(eq(qboTokens.orgId, orgId));
     } else {
       await db.insert(qboTokens).values({
         orgId, userId, realmId,
-        accessToken: access_token, refreshToken: refresh_token,
+        accessToken: encryptSecret(access_token)!, refreshToken: encryptSecret(refresh_token)!,
         accessTokenExpiresAt, refreshTokenExpiresAt, companyName,
       });
     }

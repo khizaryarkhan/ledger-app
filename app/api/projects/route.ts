@@ -1,6 +1,7 @@
 import { db } from "@/db";
-import { projects } from "@/db/schema";
-import { requireOrg, ok, bad } from "@/lib/api";
+import { projects, customers } from "@/db/schema";
+import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
+import { getRepScope } from "@/lib/rep-scope";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 
@@ -13,17 +14,20 @@ const Schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, role, repId } = await requireOrg();
   if (error) return error;
 
-  // All roles see all projects in their organisation — balances must match.
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
 
-  if (customerId) {
-    return ok(await db.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.customerId, customerId))));
-  }
-  return ok(await db.select().from(projects).where(eq(projects.orgId, orgId!)));
+  const rows = customerId
+    ? await db.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.customerId, customerId)))
+    : await db.select().from(projects).where(eq(projects.orgId, orgId!));
+
+  // Reps only see projects in their book (plus any referenced by a visible invoice).
+  const scope = await getRepScope(orgId!, role, repId);
+  if (scope) return ok(rows.filter((p) => scope.projectIds.has(p.id)));
+  return ok(rows);
 }
 
 export async function POST(req: Request) {
@@ -31,6 +35,7 @@ export async function POST(req: Request) {
   if (error) return error;
   try {
     const data = Schema.parse(await req.json());
+    if (!(await ownsInOrg(customers, data.customerId, orgId!))) return bad("Customer not found in this organisation", 404);
     const [created] = await db.insert(projects).values({
       orgId: orgId!,
       customerId: data.customerId,

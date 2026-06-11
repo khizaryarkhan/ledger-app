@@ -16,6 +16,7 @@ import { qboTokens } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 type TokenRow = typeof qboTokens.$inferSelect;
 
@@ -30,9 +31,9 @@ async function refreshAndPersistToken(token: TokenRow): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: decryptSecret(token.refreshToken)! }),
   });
-  if (!res.ok) return token.accessToken; // Fall back to the existing (possibly still valid) token
+  if (!res.ok) return decryptSecret(token.accessToken)!; // Fall back to the existing (possibly still valid) token
   const d = await res.json();
   const newAccessToken: string = d.access_token;
   const expiresIn: number = d.expires_in ?? 3600; // seconds; QBO default is 3600
@@ -40,7 +41,7 @@ async function refreshAndPersistToken(token: TokenRow): Promise<string> {
   // triggering another network round-trip to Intuit.
   await db.update(qboTokens)
     .set({
-      accessToken: newAccessToken,
+      accessToken: encryptSecret(newAccessToken)!,
       accessTokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
       updatedAt: new Date(),
     })
@@ -99,7 +100,7 @@ export async function GET(req: Request) {
 
   const accessToken = new Date(token.accessTokenExpiresAt).getTime() - Date.now() < 60_000
     ? await refreshAndPersistToken(token)
-    : token.accessToken;
+    : decryptSecret(token.accessToken)!;
 
   // 1. Compute our aging
   let ledger;

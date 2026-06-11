@@ -16,6 +16,7 @@ import { db } from "@/db";
 import { qboTokens, invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, sql, ne } from "drizzle-orm";
+import { decryptSecret } from "@/lib/crypto";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 
@@ -26,9 +27,9 @@ async function refreshToken(token: any): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refreshToken }),
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: decryptSecret(token.refreshToken)! }),
   });
-  if (!res.ok) return token.accessToken;
+  if (!res.ok) return decryptSecret(token.accessToken)!;
   const d = await res.json();
   return d.access_token as string;
 }
@@ -64,7 +65,7 @@ export async function GET() {
 
   const accessToken = new Date(token.accessTokenExpiresAt).getTime() - Date.now() < 60_000
     ? await refreshToken(token)
-    : token.accessToken;
+    : decryptSecret(token.accessToken)!;
 
   // 1. Pull QBO's current open invoices + open credit memos
   const [qboOpenInvoices, qboOpenCredits] = await Promise.all([

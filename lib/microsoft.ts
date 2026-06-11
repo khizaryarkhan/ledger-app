@@ -16,6 +16,7 @@
 import { db } from "@/db";
 import { microsoftTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export async function getValidMicrosoftToken(orgId: string) {
   const [token] = await db
@@ -24,6 +25,10 @@ export async function getValidMicrosoftToken(orgId: string) {
     .where(eq(microsoftTokens.orgId, orgId))
     .limit(1);
   if (!token) return null;
+
+  // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
+  const refreshToken = decryptSecret(token.refreshToken)!;
+  const accessToken  = decryptSecret(token.accessToken)!;
 
   const now = Date.now();
   const expiresAt = new Date(token.accessTokenExpiresAt).getTime();
@@ -38,7 +43,7 @@ export async function getValidMicrosoftToken(orgId: string) {
         body: new URLSearchParams({
           client_id:     process.env.MICROSOFT_CLIENT_ID!,
           client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
-          refresh_token: token.refreshToken,
+          refresh_token: refreshToken,
           grant_type:    "refresh_token",
           scope:         "https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read offline_access",
         }),
@@ -46,22 +51,22 @@ export async function getValidMicrosoftToken(orgId: string) {
     );
     if (!res.ok) {
       console.error("Microsoft token refresh failed:", await res.text());
-      return token; // return stale token — will fail at send, which surfaces a clear error
+      return { ...token, accessToken, refreshToken }; // stale token — surfaces a clear error at send
     }
     const data = await res.json();
     await db
       .update(microsoftTokens)
       .set({
-        accessToken:          data.access_token,
-        refreshToken:         data.refresh_token || token.refreshToken,
+        accessToken:          encryptSecret(data.access_token)!,
+        refreshToken:         data.refresh_token ? encryptSecret(data.refresh_token)! : token.refreshToken,
         accessTokenExpiresAt: new Date(now + (data.expires_in || 3600) * 1000),
         updatedAt:            new Date(),
       })
       .where(eq(microsoftTokens.id, token.id));
-    return { ...token, accessToken: data.access_token };
+    return { ...token, accessToken: data.access_token, refreshToken };
   }
 
-  return token;
+  return { ...token, accessToken, refreshToken };
 }
 
 /**

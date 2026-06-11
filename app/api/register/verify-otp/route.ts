@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { pendingRegistrations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ok, bad } from "@/lib/api";
+import { rateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 const Schema = z.object({
@@ -13,6 +14,10 @@ const Schema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const { pendingId, otp } = Schema.parse(await req.json());
+
+    // Cap attempts per pending registration so a 6-digit OTP can't be brute-forced.
+    const rl = await rateLimit(`verify-otp:${pendingId}`, 10, 900);
+    if (!rl.ok) return bad("Too many attempts. Please request a new code.", 429);
 
     const [reg] = await db
       .select()

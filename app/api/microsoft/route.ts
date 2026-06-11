@@ -19,6 +19,7 @@ import { db } from "@/db";
 import { microsoftTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
+import { signOAuthState } from "@/lib/oauth-state";
 
 export async function GET(req: Request) {
   const { error, session, orgId } = await requireOrg();
@@ -52,7 +53,7 @@ export async function GET(req: Request) {
   }
 
   const userId = (session!.user as any).id;
-  const state  = `${orgId}:${userId}`;
+  const state  = signOAuthState(orgId!, userId);
   const url =
     `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` +
     `?client_id=${encodeURIComponent(clientId)}` +

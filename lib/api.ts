@@ -114,6 +114,46 @@ export async function requireOrg() {
   return { error: null, session, orgId, role, repId };
 }
 
+/**
+ * Verify a client-supplied foreign-key id belongs to the caller's org.
+ *
+ * Postgres FK constraints only prove a row EXISTS — not that it's same-org. So
+ * a POST/PATCH that accepts customerId/projectId/repId/assigneeId from the body
+ * could otherwise link to another tenant's row (IDOR). Call this for every such
+ * id before persisting. A null/undefined id is treated as "not provided" → true
+ * (the field is optional); pass a concrete id to enforce ownership.
+ *
+ * `table` must expose `id` and `orgId` columns (all tenant-owned tables do).
+ */
+export async function ownsInOrg(
+  table: { id: any; orgId: any },
+  id: string | null | undefined,
+  orgId: string,
+): Promise<boolean> {
+  if (!id) return true;
+  const [row] = await db
+    .select({ id: table.id })
+    .from(table as any)
+    .where(and(eq(table.id, id), eq(table.orgId, orgId)))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * Verify a client-supplied user id is a member of the caller's org. Use for
+ * assignee/owner fields that reference `users` (which aren't org-scoped rows).
+ * Null/undefined → true (optional field not provided).
+ */
+export async function userInOrg(userId: string | null | undefined, orgId: string): Promise<boolean> {
+  if (!userId) return true;
+  const [m] = await db
+    .select({ userId: userOrganisations.userId })
+    .from(userOrganisations)
+    .where(and(eq(userOrganisations.userId, userId), eq(userOrganisations.orgId, orgId)))
+    .limit(1);
+  return !!m;
+}
+
 export function requireRole(role: string, minRole: string) {
   const hierarchy = ["company_user", "company_admin", "super_admin"];
   return hierarchy.indexOf(role) >= hierarchy.indexOf(minRole);

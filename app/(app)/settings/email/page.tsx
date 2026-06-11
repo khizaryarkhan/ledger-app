@@ -337,11 +337,14 @@ export default function EmailSettingsPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Username</label>
+                    <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                      SMTP Username{" "}
+                      {smtpStatus.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
+                    </label>
                     <input
                       value={smtpForm.user}
                       onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
-                      placeholder="your-smtp-username"
+                      placeholder={smtpStatus.configured ? "leave blank to keep existing" : "your-smtp-username"}
                       autoComplete="off"
                       className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     />
@@ -405,7 +408,7 @@ export default function EmailSettingsPage() {
                   <div className="flex items-center gap-2 pt-1 flex-wrap">
                     <Button
                       onClick={handleSmtpSave}
-                      disabled={savingSmtp || !smtpForm.host || !smtpForm.user || !smtpForm.fromEmail || (!smtpForm.pass && !smtpStatus.configured)}
+                      disabled={savingSmtp || !smtpForm.host || (!smtpForm.user && !smtpStatus.configured) || !smtpForm.fromEmail || (!smtpForm.pass && !smtpStatus.configured)}
                     >
                       {savingSmtp ? "Saving…" : "Save SMTP settings"}
                     </Button>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireOrg } from "@/lib/api";
+import { signOAuthState } from "@/lib/oauth-state";
 
 // Never cache this route — it must always build a fresh authorize URL.
 export const dynamic = "force-dynamic";
@@ -24,9 +25,9 @@ export async function GET() {
     );
   }
 
-  // state = orgId:userId — callback uses this to store the token against the correct org
+  // HMAC-signed state — callback validates it before trusting orgId/userId.
   const userId = (session!.user as any).id;
-  const state = `${orgId}:${userId}`;
+  const state = signOAuthState(orgId!, userId);
 
   // This app uses Xero's NEWER GRANULAR accounting scopes. Empirically verified
   // against the authorize endpoint:
