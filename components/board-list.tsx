@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 
@@ -48,14 +48,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
-  // Notes grouped by invoice, newest first.
-  // Includes internal notes (channel="Note") AND inbound customer responses
-  // from the portal (channel="Portal") so the team sees what customers said
-  // — promise notes and queries — right in the board Notes column.
+  // Activity feed grouped by invoice — includes all human-relevant events:
+  // internal notes, customer portal messages, dispute events, promise events.
+  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise"]);
   const notesByInv = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
-      if ((c.channel !== "Note" && c.channel !== "Portal") || !c.invoiceId) return;
+      if (!ACTIVITY_CHANNELS.has(c.channel) || !c.invoiceId) return;
       (m[c.invoiceId] ??= []).push(c);
     });
     Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
@@ -464,37 +463,83 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                         )}
                       </button>
                       {notesOpenId === inv.id && (
-                        <div className="absolute right-2 top-9 z-30 w-72 bg-stone-900 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-between px-3 py-2 border-b border-stone-800">
-                            <span className="text-[12px] font-semibold text-stone-300">Notes · #{inv.invoiceNumber}</span>
+                        <div className="absolute right-2 top-9 z-30 w-96 bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{maxHeight:"520px"}} onClick={e => e.stopPropagation()}>
+                          {/* Header */}
+                          <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800 flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                              <MessageSquare size={13} className="text-stone-400" />
+                              <span className="text-[12px] font-semibold text-stone-200">Activity · #{inv.invoiceNumber}</span>
+                              {(notesByInv[inv.id]?.length ?? 0) > 0 && (
+                                <span className="text-[10px] text-stone-500">{notesByInv[inv.id].length} event{notesByInv[inv.id].length !== 1 ? "s" : ""}</span>
+                              )}
+                            </div>
                             <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
                           </div>
-                          <div className="max-h-52 overflow-auto p-3 space-y-2.5">
+
+                          {/* Feed */}
+                          <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
                             {(notesByInv[inv.id] ?? []).length === 0 ? (
-                              <div className="text-[12px] text-stone-500 text-center py-2">No notes yet</div>
-                            ) : (notesByInv[inv.id] ?? []).map((n: any) => {
-                              const fromCustomer = n.channel === "Portal";
+                              <div className="text-[12px] text-stone-600 text-center py-6">No activity yet</div>
+                            ) : [...(notesByInv[inv.id] ?? [])].sort((a: any, b: any) => new Date(a.sentAt ?? a.createdAt).getTime() - new Date(b.sentAt ?? b.createdAt).getTime()).map((n: any) => {
+                              const ts = new Date(n.sentAt ?? n.createdAt);
+                              const dateStr = ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+                              const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+                              // Per-channel config
+                              type ChanCfg = { icon: React.ReactNode; border: string; label: string; labelCls: string; bg: string };
+                              const cfg: ChanCfg = (() => {
+                                switch (n.channel) {
+                                  case "Portal":   return { icon: <Globe size={11} />,         border: "border-l-2 border-emerald-500", label: "Customer · via portal", labelCls: "text-emerald-400", bg: "bg-emerald-950/30" };
+                                  case "Dispute":  return {
+                                    icon: n.body?.startsWith("Resolved") || n.subject?.includes("resolved")
+                                      ? <CheckCircle2 size={11} />
+                                      : n.body?.startsWith("Rejected") || n.subject?.includes("rejected")
+                                        ? <XCircle size={11} />
+                                        : <AlertOctagon size={11} />,
+                                    border: n.subject?.includes("resolved") ? "border-l-2 border-emerald-500" : n.subject?.includes("rejected") ? "border-l-2 border-stone-500" : "border-l-2 border-rose-500",
+                                    label: n.sender || "Staff",
+                                    labelCls: n.subject?.includes("resolved") ? "text-emerald-400" : n.subject?.includes("rejected") ? "text-stone-400" : "text-rose-400",
+                                    bg: n.subject?.includes("resolved") ? "bg-emerald-950/20" : n.subject?.includes("rejected") ? "bg-stone-800/40" : "bg-rose-950/20",
+                                  };
+                                  case "Promise":  return {
+                                    icon: n.subject === "Promise broken" ? <AlertOctagon size={11} /> : n.direction === "Inbound" ? <Clock size={11} /> : <CalendarClock size={11} />,
+                                    border: n.subject === "Promise broken" ? "border-l-2 border-amber-500" : "border-l-2 border-sky-500",
+                                    label: n.subject === "Promise broken" ? "System" : (n.sender || "Staff"),
+                                    labelCls: n.subject === "Promise broken" ? "text-amber-400" : "text-sky-400",
+                                    bg: n.subject === "Promise broken" ? "bg-amber-950/20" : "bg-sky-950/20",
+                                  };
+                                  default:         return { icon: <StickyNote size={11} />,     border: "border-l-2 border-stone-600", label: n.sender || "Staff",            labelCls: "text-stone-400",   bg: "" };
+                                }
+                              })();
+
                               return (
-                              <div key={n.id} className={`text-[12px] ${fromCustomer ? "border-l-2 border-emerald-500/60 pl-2" : ""}`}>
-                                <div className="flex items-center justify-between text-[10px] text-stone-500">
-                                  <span className="font-medium text-stone-400 flex items-center gap-1">
-                                    {fromCustomer
-                                      ? <span className="text-emerald-400">Customer · via portal</span>
-                                      : (n.sender || "User")}
-                                  </span>
-                                  <span>{new Date(n.sentAt ?? n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })}{n.refNumber ? ` · ${n.refNumber}` : ""}</span>
+                                <div key={n.id} className={`rounded-lg px-3 py-2 ${cfg.border} ${cfg.bg}`}>
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${cfg.labelCls}`}>
+                                      {cfg.icon}
+                                      <span>{cfg.label}</span>
+                                    </div>
+                                    <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
+                                  </div>
+                                  {n.subject && n.channel !== "Note" && n.channel !== "Portal" && (
+                                    <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
+                                  )}
+                                  <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
                                 </div>
-                                <div className="text-stone-200 mt-0.5 whitespace-pre-wrap">{n.body}</div>
-                              </div>
                               );
                             })}
                           </div>
-                          <div className="p-2 border-t border-stone-800 flex items-center gap-1.5">
-                            <input value={noteText} onChange={e => setNoteText(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") { const r = filteredRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
-                              placeholder="Add a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-800 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
-                            <button onClick={() => addNote(filteredRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
-                              className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-2 py-1.5 disabled:opacity-40">Add</button>
+
+                          {/* Add note input */}
+                          <div className="p-2.5 border-t border-stone-800 flex-shrink-0">
+                            <div className="text-[10px] text-stone-600 font-medium mb-1.5 px-1">Internal note</div>
+                            <div className="flex items-center gap-1.5">
+                              <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = filteredRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
+                                placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
+                              <button onClick={() => addNote(filteredRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
+                                className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
+                            </div>
                           </div>
                         </div>
                       )}

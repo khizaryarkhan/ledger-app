@@ -241,18 +241,44 @@ export async function GET(req: Request) {
   }
 
   // ── Broken-promise sweep — flip passed, unpaid Active promises to "Broken" ──
-  // Gives an audit trail and keeps active-vs-broken counts accurate.
   let promisesBroken = 0;
   try {
     const stale = await db
-      .select({ id: invoicePromises.id, paymentStatus: invoices.paymentStatus })
+      .select({
+        id: invoicePromises.id,
+        invoiceId: invoicePromises.invoiceId,
+        customerId: invoicePromises.customerId,
+        promiseDate: invoicePromises.promiseDate,
+        orgId: invoicePromises.orgId,
+        projectId: invoices.projectId,
+        paymentStatus: invoices.paymentStatus,
+      })
       .from(invoicePromises)
       .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
       .where(and(eq(invoicePromises.status, "Active"), lt(invoicePromises.promiseDate, today)));
-    const toBreak = stale.filter((s) => s.paymentStatus !== "Paid").map((s) => s.id);
-    for (let i = 0; i < toBreak.length; i += 100) {
-      await db.update(invoicePromises).set({ status: "Broken" }).where(inArray(invoicePromises.id, toBreak.slice(i, i + 100)));
-      promisesBroken += Math.min(100, toBreak.length - i);
+    const toBreak = stale.filter((s) => s.paymentStatus !== "Paid");
+    const toBreakIds = toBreak.map((s) => s.id);
+    for (let i = 0; i < toBreakIds.length; i += 100) {
+      await db.update(invoicePromises).set({ status: "Broken" }).where(inArray(invoicePromises.id, toBreakIds.slice(i, i + 100)));
+      promisesBroken += Math.min(100, toBreakIds.length - i);
+    }
+    // Log a chatbox entry for each broken promise so the board shows it
+    if (toBreak.length > 0) {
+      await db.insert(communications).values(
+        toBreak.map(p => ({
+          orgId: p.orgId,
+          customerId: p.customerId!,
+          invoiceId: p.invoiceId ?? undefined,
+          projectId: p.projectId ?? undefined,
+          direction: "Inbound" as const,
+          channel: "Promise",
+          subject: "Promise broken",
+          body: `Promise was due ${p.promiseDate} — marked broken. Invoice still unpaid.`,
+          sender: "System",
+          matchedBy: "System",
+          isDraft: false,
+        }))
+      ).catch(() => {});
     }
   } catch (e: any) {
     console.warn("cron: broken-promise sweep failed:", e?.message);
