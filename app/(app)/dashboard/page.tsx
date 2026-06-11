@@ -20,43 +20,38 @@ function openBal(inv: any): number {
 }
 
 // ── AR Health widget ────────────────────────────────────────────────────────
-function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy }: any) {
+function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy, toHome }: any) {
   const filteredInvoices = invoices;
+  const b = (i: any) => toHome ? toHome(openBal(i), i.currency ?? ccy) : openBal(i);
 
   const metrics = useMemo(() => {
-    // All invoices the snapshot considers open (i.e. have a QBO open balance).
-    // Do NOT filter on collectionStage here — "Closed" is a user-assigned
-    // collection-tracking stage, not a payment status. If the snapshot included
-    // the invoice it has a real outstanding balance and must be counted.
     const open = filteredInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
       i.txnType !== "CreditMemo"
     );
     const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
-    // Net AR = gross invoice balances minus unapplied credits (matches AR Reports)
-    const grossAR   = open.reduce((s: number, i: any) => s + openBal(i), 0);
-    const creditBal = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0);
+    const grossAR   = open.reduce((s: number, i: any) => s + b(i), 0);
+    const creditBal = activeCMs.reduce((s: number, i: any) => s + b(i), 0);
     const totalAR   = grossAR + creditBal;
 
-    // Aging buckets — Current includes CM credits as negative offsets
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + openBal(i), 0)
-      + activeCMs.reduce((s: number, i: any) => s + openBal(i), 0);
-    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + openBal(i), 0);
-    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + openBal(i), 0);
-    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + openBal(i), 0);
-    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0)
+      + activeCMs.reduce((s: number, i: any) => s + b(i), 0);
+    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + b(i), 0);
 
     const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
     const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
     const overdueRate = totalAR > 0 ? ((totalAR - current) / totalAR) * 100 : 0;
 
-    const disputedAR  = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
+    const disputedAR  = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + b(i), 0);
     const disputeRate = totalAR > 0 ? (disputedAR / totalAR) * 100 : 0;
     const highRiskAR  = open.filter((i: any) => {
       const c = customers.find((c: any) => c.id === i.customerId);
       return c?.riskRating === "High";
-    }).reduce((s: number, i: any) => s + openBal(i), 0);
+    }).reduce((s: number, i: any) => s + b(i), 0);
     const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
 
     const brokenPromises = open.filter((i: any) =>
@@ -83,8 +78,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
         const p = projects.find((p: any) => p.id === i.projectId);
         return c?.repId === rep.id || p?.repId === rep.id;
       });
-      const repOpen    = repInvs.reduce((s: number, i: any) => s + openBal(i), 0);
-      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + openBal(i), 0);
+      const repOpen    = repInvs.reduce((s: number, i: any) => s + b(i), 0);
+      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + b(i), 0);
       const custIds    = new Set(repInvs.map((i: any) => i.customerId));
       return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size };
     }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
@@ -326,6 +321,27 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
 
+  // ── Live FX rates ────────────────────────────────────────────────────────
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
+  const [fxAsOf, setFxAsOf]   = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/fx-rates")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.rates) { setFxRates(d.rates); setFxAsOf(d.asOf ?? null); }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Convert an amount from its invoice currency to the org home currency.
+  // Falls back to 1.0 (no conversion) when rates aren't loaded yet or same ccy.
+  const toHome = (amount: number, currency: string): number => {
+    if (!currency || currency === ccy) return amount;
+    const rate = fxRates[currency];
+    return rate ? amount / rate : amount;
+  };
+
   // ── AR Snapshot — same source used by all Reports pages ─────────────────
   // Ensures every financial figure on the dashboard reconciles with AR Reports.
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
@@ -492,23 +508,25 @@ export default function DashboardPage() {
     const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     // Unapplied credits / credit memos — openBal() returns negative for these
     const activeCMs = regionInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
-    // Net AR = gross invoices minus unapplied credits — uses same openBal() as AR Health widget
-    const grossReceivable = open.reduce((s: number, i: any) => s + openBal(i), 0);
-    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0); // ≤ 0
+    // FX-aware balance: converts to org home currency for all summed totals
+    const bal = (i: any) => toHome(openBal(i), i.currency ?? ccy);
+    // Net AR = gross invoices minus unapplied credits (FX-converted to home currency)
+    const grossReceivable = open.reduce((s: number, i: any) => s + bal(i), 0);
+    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + bal(i), 0); // ≤ 0
     const totalReceivable = grossReceivable + creditBalance;
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
-    const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
+    const totalOverdue = overdue.reduce((s: number, i: any) => s + bal(i), 0);
     // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-    open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
-    activeCMs.forEach((i: any) => { buckets["Current"] += openBal(i); });
-    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
+    open.forEach((i: any) => { buckets[getAgingBucket(i)] += bal(i); });
+    activeCMs.forEach((i: any) => { buckets["Current"] += bal(i); });
+    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
     const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
-    const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);
+    const promised = promisedAll.reduce((s: number, i: any) => s + bal(i), 0);
 
     // Broken promises — promise date has already passed
     const promisedBrokenItems = promisedAll.filter((i: any) => i.promiseDate && daysOverdue(i.promiseDate) > 0);
-    const promisedBroken = promisedBrokenItems.reduce((s: number, i: any) => s + openBal(i), 0);
+    const promisedBroken = promisedBrokenItems.reduce((s: number, i: any) => s + bal(i), 0);
 
     // Promises due within the next 7 days
     const promisedWeekItems = promisedAll.filter((i: any) => {
@@ -516,7 +534,7 @@ export default function DashboardPage() {
       const d = daysOverdue(i.promiseDate);
       return d <= 0 && d >= -7;
     });
-    const promisedWeek = promisedWeekItems.reduce((s: number, i: any) => s + openBal(i), 0);
+    const promisedWeek = promisedWeekItems.reduce((s: number, i: any) => s + bal(i), 0);
 
     // Promises due in 8–30 days
     const promisedMonthItems = promisedAll.filter((i: any) => {
@@ -524,7 +542,7 @@ export default function DashboardPage() {
       const d = daysOverdue(i.promiseDate);
       return d < -7 && d >= -30;
     });
-    const promisedMonth = promisedMonthItems.reduce((s: number, i: any) => s + openBal(i), 0);
+    const promisedMonth = promisedMonthItems.reduce((s: number, i: any) => s + bal(i), 0);
 
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
@@ -534,7 +552,7 @@ export default function DashboardPage() {
 
 
     // 90+ days overdue
-    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
+    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
     const proactivePipeline = open.filter((i: any) => {
@@ -560,7 +578,7 @@ export default function DashboardPage() {
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
     effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach((i: any) => {
-      byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i);
+      byCust[i.customerId] = (byCust[i.customerId] || 0) + toHome(openBal(i), i.currency ?? ccy);
     });
     return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
@@ -570,8 +588,8 @@ export default function DashboardPage() {
   const concentrationRisk = useMemo(() => {
     const byCust: Record<string, number> = {};
     const open = effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalAR = open.reduce((s: number, i: any) => s + openBal(i), 0);
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
+    const totalAR = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + toHome(openBal(i), i.currency ?? ccy); });
     const sorted = Object.entries(byCust).map(([cid, amt]) => ({
       customer: customers.find((c: any) => c.id === cid),
       amount: amt,
@@ -598,7 +616,8 @@ export default function DashboardPage() {
 
     const regionMap: Record<string, { name: string; total: number; overdue: number; count: number }> = {};
 
-    const addRow = (i: any, bal: number, countIt: boolean, overdue: boolean) => {
+    const addRow = (i: any, bal_: number, countIt: boolean, overdue: boolean) => {
+      const bal = toHome(bal_, i.currency ?? ccy);
       const c = customers.find((c: any) => c.id === i.customerId);
       const p = projects.find((p: any) => p.id === i.projectId);
       const regionId = c?.regionId || p?.regionId;
@@ -612,8 +631,7 @@ export default function DashboardPage() {
     };
 
     openInvoices.forEach((i: any) => {
-      const bal = openBal(i);
-      addRow(i, bal, true, daysOverdue(i.dueDate) > 0);
+      addRow(i, openBal(i), true, daysOverdue(i.dueDate) > 0);
     });
 
     // CMs land in the region total as negative credits (they don't age)
@@ -636,6 +654,12 @@ export default function DashboardPage() {
           <p className="text-sm text-stone-400 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
+          {fxAsOf && (
+            <div className="text-[11px] text-stone-500 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              FX live · {new Date(fxAsOf).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
           <div className="text-xs text-stone-500 flex items-center gap-1.5">
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
@@ -889,7 +913,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   {customer.riskRating === "High" && <Badge variant="red" size="sm">High risk</Badge>}
-                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, customer.currency)}</div>
+                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, ccy)}</div>
                   <ChevronRight size={14} className="text-stone-600 group-hover:text-stone-400" />
                 </Link>
               ))}
@@ -1121,17 +1145,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Multi-currency warning ───────────────────────────────────── */}
-      {hasMixedCurrencies && (
-        <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-          <span className="text-amber-400 mt-0.5 shrink-0">⚠</span>
-          <p className="text-[12px] text-amber-200 leading-relaxed">
-            <span className="font-semibold">Multi-currency data detected.</span>
-            {" "}All totals shown use the org&apos;s home currency ({ccy}) symbol but are the arithmetic sum of mixed currencies without FX conversion.
-            {" "}For precise home-currency values use the <a href="/reports" className="underline font-medium text-amber-300">AR Reports page</a> with a single-currency filter, or QBO&apos;s native Aged Receivables report.
-          </p>
-        </div>
-      )}
 
       {/* ── AR Health ─────────────────────────────────────────────────── */}
       <div className="mt-4">
@@ -1154,6 +1167,7 @@ export default function DashboardPage() {
           reps={reps ?? []}
           communications={communications}
           ccy={ccy}
+          toHome={toHome}
         />
       </div>
 
