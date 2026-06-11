@@ -351,7 +351,7 @@ export default function DashboardPage() {
   const [drillDown, setDrillDown] = useState<{
     title: string;
     subtitle: string;
-    color: "rose" | "amber" | "sky" | "stone";
+    color: "rose" | "amber" | "sky" | "stone" | "white";
     items: any[];
   } | null>(null);
 
@@ -547,7 +547,10 @@ export default function DashboardPage() {
     const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
     // 90+ days overdue
-    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
+    const over90Items = open.filter((i: any) => daysOverdue(i.dueDate) > 90);
+    const over90 = over90Items.reduce((s: number, i: any) => s + openBal(i), 0);
+    const disputedItems = open.filter((i: any) => i.collectionStage === "Disputed");
+    const openItems = [...open, ...activeCMs];
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
     const proactivePipeline = open.filter((i: any) => {
@@ -571,6 +574,7 @@ export default function DashboardPage() {
       promisedMonthItems,
       promisedAllItems: promisedAll,
       dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
+      openItems, over90Items, disputedItems,
     };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
 
@@ -717,7 +721,8 @@ export default function DashboardPage() {
         return (
           <>
             <div className="grid grid-cols-4 gap-3 mb-3">
-              <Card padding="md">
+              <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
+                onClick={() => !snapshotLoading && setDrillDown({ title: "Total Receivable", subtitle: "All open invoices as at today", color: "white", items: stats.openItems })}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
                   <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
@@ -729,7 +734,8 @@ export default function DashboardPage() {
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
                 </>}
               </Card>
-              <Card padding="md">
+              <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
+                onClick={() => !snapshotLoading && stats.overdue.length > 0 && setDrillDown({ title: "Overdue Invoices", subtitle: "Past due date — action required", color: "rose", items: stats.overdue })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-2xl font-semibold text-rose-600 tracking-tight">
@@ -738,14 +744,16 @@ export default function DashboardPage() {
                   <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
                 </>}
               </Card>
-              <Card padding="md">
+              <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
+                onClick={() => !snapshotLoading && stats.over90Items.length > 0 && setDrillDown({ title: "90+ Days Overdue", subtitle: "Escalation candidates — oldest outstanding invoices", color: "rose", items: stats.over90Items })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, stats.dominantCcy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
                 </>}
               </Card>
-              <Card padding="md">
+              <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
+                onClick={() => !snapshotLoading && stats.disputedItems.length > 0 && setDrillDown({ title: "Disputed Invoices", subtitle: "In dispute — pending resolution", color: "amber", items: stats.disputedItems })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, stats.dominantCcy)}</div>
@@ -1182,9 +1190,9 @@ export default function DashboardPage() {
           <div className="w-[500px] bg-stone-950 border-l border-stone-800 flex flex-col h-full shadow-2xl">
             {/* Header */}
             <div className={`px-5 py-4 border-b border-stone-800 ${
-              drillDown.color === "rose" ? "bg-rose-500/5" :
+              drillDown.color === "rose"  ? "bg-rose-500/5"  :
               drillDown.color === "amber" ? "bg-amber-500/5" :
-              drillDown.color === "sky" ? "bg-sky-500/5" : ""
+              drillDown.color === "sky"   ? "bg-sky-500/5"   : ""
             }`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1199,14 +1207,16 @@ export default function DashboardPage() {
                   <X size={16} />
                 </button>
               </div>
-              <div className="mt-3 flex items-center gap-3">
-                <span className={`text-lg font-semibold tabular-nums ${
-                  drillDown.color === "rose" ? "text-rose-400" :
-                  drillDown.color === "amber" ? "text-amber-400" :
-                  drillDown.color === "sky" ? "text-sky-400" : "text-white"
-                }`}>
-                  {fmt.money(drillDown.items.reduce((s, i) => s + openBal(i), 0), drillDown.items[0]?.currency ?? stats.dominantCcy)}
-                </span>
+              <div className="mt-3 flex items-center gap-3 flex-wrap">
+                {(() => {
+                  const byCcy: Record<string, number> = {};
+                  drillDown.items.forEach(i => { const c = i.currency || stats.dominantCcy; byCcy[c] = (byCcy[c] || 0) + openBal(i); });
+                  const colorClass =
+                    drillDown.color === "rose"  ? "text-rose-400"  :
+                    drillDown.color === "amber" ? "text-amber-400" :
+                    drillDown.color === "sky"   ? "text-sky-400"   : "text-white";
+                  return <CurrencyPills breakdown={byCcy} className={`text-lg font-semibold tabular-nums ${colorClass}`} />;
+                })()}
                 <span className="text-[11px] text-stone-500">
                   across {drillDown.items.length} invoice{drillDown.items.length !== 1 ? "s" : ""}
                 </span>
