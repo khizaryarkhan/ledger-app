@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
@@ -67,10 +67,10 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
   );
 }
 
-function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName }: any) {
+function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName, ccy, toHome }: any) {
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
   const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-  const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
+  const outstanding = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
@@ -107,7 +107,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       </div>
 
       <div className="flex items-center justify-between mt-2">
-        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, entity.currency)}</div>
+        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, ccy)}</div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
       </div>
 
@@ -151,8 +151,22 @@ export default function BoardPage() {
     });
     return m;
   }, [communications]);
-  const ccy: string = orgSettings?.currency ?? "EUR";
+  const ccy: string = orgSettings?.currency ?? "USD";
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
+
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
+  useEffect(() => {
+    fetch("/api/fx-rates")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.rates) setFxRates(d.rates); })
+      .catch(() => {});
+  }, []);
+
+  const toHome = useCallback((amount: number, currency: string): number => {
+    if (!currency || currency === ccy) return amount;
+    const rate = fxRates[currency];
+    return rate ? amount / rate : amount;
+  }, [fxRates, ccy]);
   const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
   const closedLabel = stages.find(s => s.isClosed)?.label ?? "Closed";
 
@@ -197,7 +211,7 @@ export default function BoardPage() {
       }
 
       const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-      const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
+      const outstanding = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
       if (outstanding === 0 && open.length === 0) return;
 
       const stageValues: Record<string, number> = {};
@@ -211,7 +225,7 @@ export default function BoardPage() {
     });
 
     return map;
-  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search]);
+  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search, toHome, ccy, stages, closedLabel]);
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};
@@ -402,6 +416,8 @@ export default function BoardPage() {
                       setDraggingId={setDraggingId}
                       stages={stages}
                       repName={repName(entity.repId)}
+                      ccy={ccy}
+                      toHome={toHome}
                     />
                   ))}
                   {items.length === 0 && (
