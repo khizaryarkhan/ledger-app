@@ -3,7 +3,7 @@
  * Returns a printable HTML page — user presses Ctrl+P → Save as PDF.
  */
 import { db } from "@/db";
-import { auditEvents } from "@/db/schema";
+import { auditEvents, invoices } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { and, desc, eq, or, SQL } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -73,20 +73,33 @@ export async function GET(req: Request) {
   }
 
   const rows = await db
-    .select()
+    .select({
+      id: auditEvents.id,
+      occurredAt: auditEvents.occurredAt,
+      eventType: auditEvents.eventType,
+      actorName: auditEvents.actorName,
+      meta: auditEvents.meta,
+      invoiceNumber: invoices.invoiceNumber,
+    })
     .from(auditEvents)
+    .leftJoin(invoices, eq(auditEvents.invoiceId, invoices.id))
     .where(and(eq(auditEvents.orgId, orgId!), entityFilter))
     .orderBy(desc(auditEvents.occurredAt))
     .limit(500);
 
-  const rows_html = rows.map(r => `
+  const rows_html = rows.map(r => {
+    // Invoice number: prefer the joined row, fall back to meta.invoiceNo for
+    // older events that were logged before invoiceId was stored.
+    const invNo = r.invoiceNumber ?? (r.meta as any)?.invoiceNo ?? null;
+    return `
     <tr>
       <td class="date">${fmt(r.occurredAt)}</td>
       <td class="type">${EVENT_LABELS[r.eventType] ?? r.eventType}</td>
       <td class="actor">${r.actorName ?? "System"}</td>
+      <td class="inv">${invNo ? `<span class="inv-num">${invNo}</span>` : '<span class="na">—</span>'}</td>
       <td class="detail">${metaLines(r.meta)}</td>
     </tr>
-  `).join("");
+  `}).join("");
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -102,9 +115,12 @@ export async function GET(req: Request) {
   thead tr { border-bottom: 2px solid #1c1917; }
   th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; color: #78716c; }
   td { padding: 8px; vertical-align: top; border-bottom: 1px solid #e7e5e4; }
-  td.date { white-space: nowrap; font-size: 11px; color: #44403c; width: 160px; }
-  td.type { font-weight: 600; width: 160px; }
-  td.actor { width: 120px; color: #44403c; }
+  td.date { white-space: nowrap; font-size: 11px; color: #44403c; width: 150px; }
+  td.type { font-weight: 600; width: 155px; }
+  td.actor { width: 110px; color: #44403c; }
+  td.inv { width: 100px; }
+  .inv-num { font-family: monospace; font-size: 11px; font-weight: 600; color: #1c1917; }
+  .na { color: #a8a29e; }
   td.detail ul { padding-left: 14px; }
   td.detail li { margin-bottom: 2px; color: #44403c; }
   .note { font-style: italic; color: #78716c; }
@@ -130,11 +146,12 @@ export async function GET(req: Request) {
         <th>Date / Time</th>
         <th>Event</th>
         <th>Actor</th>
+        <th>Invoice #</th>
         <th>Detail</th>
       </tr>
     </thead>
     <tbody>
-      ${rows_html || '<tr><td colspan="4" style="color:#a8a29e;padding:16px 8px">No events recorded yet.</td></tr>'}
+      ${rows_html || '<tr><td colspan="5" style="color:#a8a29e;padding:16px 8px">No events recorded yet.</td></tr>'}
     </tbody>
   </table>
   <p class="footer">Ledger Collections CRM — Track &amp; Trace export. This document is confidential.</p>
