@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
@@ -22,9 +22,9 @@ function openBal(inv: any): number {
 // ── AR Health widget ────────────────────────────────────────────────────────
 function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy, toHome }: any) {
   const filteredInvoices = invoices;
-  const b = (i: any) => toHome ? toHome(openBal(i), i.currency ?? ccy) : openBal(i);
 
   const metrics = useMemo(() => {
+    const b = (i: any) => toHome ? toHome(openBal(i), i.currency ?? ccy) : openBal(i);
     const open = filteredInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
@@ -92,7 +92,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
       concentrationRows, repPortfolio,
       openCount: open.length,
     };
-  }, [filteredInvoices, customers, projects, reps, communications]);
+  }, [filteredInvoices, customers, projects, reps, communications, toHome, ccy]);
 
   const {
     totalAR, current, b1_30, b31_60, b61_90, b90plus,
@@ -335,12 +335,12 @@ export default function DashboardPage() {
   }, []);
 
   // Convert an amount from its invoice currency to the org home currency.
-  // Falls back to 1.0 (no conversion) when rates aren't loaded yet or same ccy.
-  const toHome = (amount: number, currency: string): number => {
+  // Memoized so useMemos that depend on it re-run when rates arrive.
+  const toHome = useCallback((amount: number, currency: string): number => {
     if (!currency || currency === ccy) return amount;
     const rate = fxRates[currency];
     return rate ? amount / rate : amount;
-  };
+  }, [fxRates, ccy]);
 
   // ── AR Snapshot — same source used by all Reports pages ─────────────────
   // Ensures every financial figure on the dashboard reconciles with AR Reports.
@@ -573,7 +573,7 @@ export default function DashboardPage() {
       promisedAllItems: promisedAll,
       dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
     };
-  }, [effectiveInvoices, invoices, customers, projects, communications]);
+  }, [effectiveInvoices, invoices, customers, projects, communications, toHome]);
 
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
@@ -582,7 +582,7 @@ export default function DashboardPage() {
     });
     return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
-  }, [effectiveInvoices, customers]);
+  }, [effectiveInvoices, customers, toHome, ccy]);
 
   // Concentration risk — top 5 customers by total open AR
   const concentrationRisk = useMemo(() => {
@@ -597,7 +597,7 @@ export default function DashboardPage() {
     })).filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
     const top5Pct = totalAR > 0 ? sorted.reduce((s, x) => s + x.pct, 0) : 0;
     return { rows: sorted, top5Pct, totalAR };
-  }, [effectiveInvoices, customers]);
+  }, [effectiveInvoices, customers, toHome, ccy]);
 
   // AR by Region — net open AR grouped per region (matches Reports → Aging by Region).
   // Invoices contribute positive balances; CreditMemos contribute negative credits
@@ -641,7 +641,7 @@ export default function DashboardPage() {
       .map(([id, data]) => ({ id, ...data }))
       .filter(r => r.total !== 0)
       .sort((a, b) => b.total - a.total);
-  }, [effectiveInvoices, customers, projects, regions]);
+  }, [effectiveInvoices, customers, projects, regions, toHome, ccy]);
 
   const myTasks = tasks.filter(t => !t.completed && t.assigneeId === userId).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).slice(0, 5);
   const maxBucket = Math.max(...Object.values(stats.buckets), 1);
