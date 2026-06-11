@@ -16,6 +16,7 @@ const SERVICES = [
   "Invoice Chasing & Collections",
   "Customer Payment Portal",
   "AR Reporting & Analytics",
+  "Services with a bookkeeper for full accounting cycle",
   "Full Platform",
   "Not sure — I'd like a demo",
 ];
