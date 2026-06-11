@@ -42,7 +42,13 @@ function currencyLocale(ccy: string): string {
 export const fmt = {
   money: (n: number | null | undefined, ccy = "EUR") => {
     if (n == null || isNaN(n)) return "—";
-    return new Intl.NumberFormat(currencyLocale(ccy), { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
+    // Guard against invalid/placeholder currency codes (e.g. "?") which throw RangeError
+    const safeCcy = /^[A-Z]{3}$/.test(ccy ?? "") ? ccy : "EUR";
+    try {
+      return new Intl.NumberFormat(currencyLocale(safeCcy), { style: "currency", currency: safeCcy, maximumFractionDigits: 0 }).format(n);
+    } catch {
+      return `${safeCcy} ${n.toLocaleString()}`;
+    }
   },
   // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format
   date: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",

@@ -38,9 +38,9 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
 
     // Build per-currency breakdown for totalAR display
     const byCcy: Record<string, number> = {};
-    open.forEach((i: any) => { const c = i.currency || "?"; byCcy[c] = (byCcy[c] || 0) + b(i); });
-    activeCMs.forEach((i: any) => { const c = i.currency || "?"; byCcy[c] = (byCcy[c] || 0) + b(i); });
-    const dominantCurrency = Object.keys(byCcy)[0] ?? "?";
+    open.forEach((i: any) => { const c = i.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + b(i); });
+    activeCMs.forEach((i: any) => { const c = i.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + b(i); });
+    const dominantCurrency = Object.keys(byCcy)[0] ?? "EUR";
 
     const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0)
       + activeCMs.reduce((s: number, i: any) => s + b(i), 0);
@@ -97,8 +97,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
       const custIds    = new Set(repInvs.map((i: any) => i.customerId));
       // dominant currency for this rep's portfolio
       const repByCcy: Record<string, number> = {};
-      repInvs.forEach((i: any) => { const c = i.currency || "?"; repByCcy[c] = (repByCcy[c] || 0) + b(i); });
-      const repCcy = Object.keys(repByCcy)[0] ?? "?";
+      repInvs.forEach((i: any) => { const c = i.currency || "EUR"; repByCcy[c] = (repByCcy[c] || 0) + b(i); });
+      const repCcy = Object.keys(repByCcy)[0] ?? "EUR";
       return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size, currency: repCcy };
     }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
 
@@ -338,7 +338,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
 }
 
 export default function DashboardPage() {
-  const { invoices, customers, contacts, projects, regions, communications, tasks, reps, orgSettings } = useData() as any;
+  const { invoices, customers, contacts, projects, regions, communications, tasks, reps, orgSettings, refresh } = useData() as any;
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
 
@@ -465,7 +465,7 @@ export default function DashboardPage() {
     });
     if (neglected90.length > 0) {
       const breakdown: Record<string, number> = {};
-      neglected90.forEach((i: any) => { const c = i.currency || "?"; breakdown[c] = (breakdown[c] || 0) + openBal(i); });
+      neglected90.forEach((i: any) => { const c = i.currency || "EUR"; breakdown[c] = (breakdown[c] || 0) + openBal(i); });
       const parts = Object.entries(breakdown).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ");
       list.push({
         type: "overdue_90",
@@ -502,15 +502,15 @@ export default function DashboardPage() {
     // Per-currency breakdowns for KPI cards
     const totalByCurrency: Record<string, number> = {};
     const overdueByCurrency: Record<string, number> = {};
-    open.forEach((i: any) => { const c = i.currency || "?"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
-    activeCMs.forEach((i: any) => { const c = i.currency || "?"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
+    open.forEach((i: any) => { const c = i.currency || "EUR"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
+    activeCMs.forEach((i: any) => { const c = i.currency || "EUR"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
 
     // Net AR = gross invoices minus unapplied credits
     const grossReceivable = open.reduce((s: number, i: any) => s + openBal(i), 0);
     const creditBalance   = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0); // ≤ 0
     const totalReceivable = grossReceivable + creditBalance;
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
-    overdue.forEach((i: any) => { const c = i.currency || "?"; overdueByCurrency[c] = (overdueByCurrency[c] || 0) + openBal(i); });
+    overdue.forEach((i: any) => { const c = i.currency || "EUR"; overdueByCurrency[c] = (overdueByCurrency[c] || 0) + openBal(i); });
     const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
@@ -559,7 +559,7 @@ export default function DashboardPage() {
     });
 
     // Dominant currency for bucket display
-    const dominantCcy = Object.keys(totalByCurrency)[0] ?? "?";
+    const dominantCcy = Object.keys(totalByCurrency)[0] ?? "EUR";
 
     return {
       totalReceivable, totalOverdue, totalByCurrency, overdueByCurrency, dominantCcy,
@@ -586,7 +586,7 @@ export default function DashboardPage() {
     return Object.entries(byCust).map(([cid, amt]) => ({
       customer: customers.find((c: any) => c.id === cid),
       amount: amt,
-      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "?",
+      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "EUR",
     }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
   }, [effectiveInvoices, customers]);
@@ -601,7 +601,7 @@ export default function DashboardPage() {
       customer: customers.find((c: any) => c.id === cid),
       amount: amt,
       pct: totalAR > 0 ? (amt / totalAR) * 100 : 0,
-      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "?",
+      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "EUR",
     })).filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
     const top5Pct = totalAR > 0 ? sorted.reduce((s, x) => s + x.pct, 0) : 0;
     return { rows: sorted, top5Pct, totalAR };
@@ -633,7 +633,7 @@ export default function DashboardPage() {
       const name = region?.name ?? "Unassigned";
       if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0, byCurrency: {} };
       regionMap[key].total += bal_;
-      const ccy = i.currency || "?";
+      const ccy = i.currency || "EUR";
       regionMap[key].byCurrency[ccy] = (regionMap[key].byCurrency[ccy] || 0) + bal_;
       if (countIt) regionMap[key].count += 1;
       if (overdue) regionMap[key].overdue += bal_;
@@ -1111,7 +1111,7 @@ export default function DashboardPage() {
             {arByRegion.map(({ id, name, total, overdue, count, byCurrency }) => {
               const overduePct = total > 0 ? (overdue / total) * 100 : 0;
               const currentAmt = total - overdue;
-              const regionDominantCcy = Object.keys(byCurrency)[0] ?? "?";
+              const regionDominantCcy = Object.keys(byCurrency)[0] ?? "EUR";
               return (
                 <Card key={id} padding="md">
                   <div className="flex items-start justify-between mb-3">
