@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { invoices, invoicePromises, invoiceDisputes } from "@/db/schema";
+import { invoices, invoicePromises, invoiceDisputes, communications } from "@/db/schema";
 import { requireOrg, bad, ok } from "@/lib/api";
 import { recomputeInvoiceState, DISPUTE_CATEGORIES } from "@/lib/portal";
 import { and, eq, inArray } from "drizzle-orm";
@@ -20,14 +20,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (error) return error;
 
   const [inv] = await db
-    .select({ id: invoices.id, customerId: invoices.customerId, collectionOwnerId: invoices.collectionOwnerId })
+    .select({ id: invoices.id, customerId: invoices.customerId, projectId: invoices.projectId, collectionOwnerId: invoices.collectionOwnerId })
     .from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
   if (!inv) return bad("Invoice not found", 404);
 
   try {
   const body = await req.json().catch(() => ({}));
   const userId = (session!.user as any).id as string;
+  const actorName: string = (session!.user as any).name || (session!.user as any).email || "Staff";
   const source = role === "rep" ? "Rep" : "Accountant";
+
+  // Helper: write an activity entry to the chatbox
+  async function logActivity(channel: string, subject: string, commBody: string, direction = "Outbound") {
+    await db.insert(communications).values({
+      orgId: orgId!, customerId: inv.customerId,
+      invoiceId: inv.id, projectId: inv.projectId ?? undefined,
+      direction, channel, subject, body: commBody,
+      sender: actorName, authorId: userId,
+      matchedBy: "Manual", isDraft: false,
+    }).catch(() => {});
+  }
 
   // Helper: resolve all open disputes on this invoice
   async function resolveOpenDisputes(outcome: string) {
@@ -52,13 +64,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   if (body.type === "promise") {
     if (!body.promiseDate) return bad("promiseDate is required");
-    await resolveOpenDisputes("Customer agreed to pay"); // switching dispute → promise
+    await resolveOpenDisputes("Customer agreed to pay");
+    const amount = body.amount != null && !isNaN(Number(body.amount)) ? Number(body.amount) : null;
     await db.insert(invoicePromises).values({
       orgId: orgId!, invoiceId: inv.id, customerId: inv.customerId,
       promiseDate: String(body.promiseDate).slice(0, 16),
-      amount: body.amount != null && !isNaN(Number(body.amount)) ? Number(body.amount) : null,
-      source, enteredBy: userId, note: body.note ? String(body.note).slice(0, 1000) : null, status: "Active",
+      amount, source, enteredBy: userId,
+      note: body.note ? String(body.note).slice(0, 1000) : null, status: "Active",
     });
+    const amtStr = amount != null ? String(amount) : "full balance";
+    await logActivity("Promise", "Promise to pay logged",
+      `Promised ${amtStr} by ${body.promiseDate}${body.note ? `\n${body.note}` : ""}`);
   } else if (body.type === "dispute") {
     const category = DISPUTE_CATEGORIES.includes(body.category) ? body.category : "Other";
     await db.insert(invoiceDisputes).values({
@@ -66,17 +82,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       category, reason: body.reason ? String(body.reason).slice(0, 2000) : null,
       source, raisedBy: userId, assignedTo: inv.collectionOwnerId ?? userId, status: "Open",
     });
+    await logActivity("Dispute", `Dispute raised · ${category}`,
+      `Category: ${category}${body.reason ? `\n${body.reason}` : ""}`);
   } else if (body.type === "clear") {
     await resolveOpenDisputes("Resolved");
     await supersedePromises();
-    // Defensive: clear the cached flags directly so the badge clears even if a
-    // recompute hiccups. recompute below reconciles the rest (stage, etc.).
     await db.update(invoices).set({
       hasOpenDispute: false, automationsPaused: false,
       disputeReason: null, disputeDate: null,
       promiseDate: null, promiseAmount: null, promiseSource: null,
       updatedAt: new Date(),
     }).where(and(eq(invoices.id, inv.id), eq(invoices.orgId, orgId!)));
+    await logActivity("Dispute", "Response cleared", "Dispute resolved and promise superseded — back to neutral.");
   } else {
     return bad("Invalid type");
   }
