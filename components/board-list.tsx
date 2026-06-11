@@ -551,9 +551,23 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
                 <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
-                  Subtotal · {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}
+                  {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}
                 </td>
-                <td className="px-3 py-2.5 text-right text-white tabular-nums">{fmt.money(filteredRows.reduce((s, r) => s + r.bal, 0), ccy)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {(() => {
+                    const byCcy: Record<string, number> = {};
+                    filteredRows.forEach(r => {
+                      const c = r.inv.currency ?? ccy;
+                      byCcy[c] = (byCcy[c] || 0) + r.bal;
+                    });
+                    return Object.entries(byCcy)
+                      .filter(([, v]) => v > 0)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([c, v]) => (
+                        <div key={c} className="text-white">{fmt.money(v, c)}</div>
+                      ));
+                  })()}
+                </td>
                 <td />
               </tr>
             </tfoot>

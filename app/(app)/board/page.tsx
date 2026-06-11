@@ -8,6 +8,22 @@ import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } 
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
 
+// Renders a compact "PKR 1,499,999 · USD 25,000" breakdown — one pill per currency.
+function CurrencyPills({ breakdown, className }: { breakdown: Record<string, number>; className?: string }) {
+  const entries = Object.entries(breakdown).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return <span className={className}>—</span>;
+  return (
+    <span className={className}>
+      {entries.map(([c, v], i) => (
+        <span key={c}>
+          {i > 0 && <span className="text-stone-600 mx-1.5">·</span>}
+          {fmt.money(v, c)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 // Use qboBalance as the authoritative open balance — same as dashboard & reports.
 // Falls back to total-paid for rows that pre-date the QBO snapshot.
 function openBal(inv: any): number {
@@ -67,10 +83,10 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
   );
 }
 
-function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName, ccy, toHome }: any) {
+function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName }: any) {
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
   const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-  const outstanding = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
+  const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
@@ -107,7 +123,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       </div>
 
       <div className="flex items-center justify-between mt-2">
-        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, ccy)}</div>
+        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, entity.currency)}</div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
       </div>
 
@@ -211,8 +227,15 @@ export default function BoardPage() {
       }
 
       const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+      // FX-converted outstanding used only for sorting and % of total — cards display native currency
       const outstanding = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
       if (outstanding === 0 && open.length === 0) return;
+      // Native per-currency breakdown for display
+      const currencyBreakdown: Record<string, number> = {};
+      open.forEach((i: any) => {
+        const c = i.currency ?? ccy;
+        currencyBreakdown[c] = (currencyBreakdown[c] || 0) + openBal(i);
+      });
 
       const stageValues: Record<string, number> = {};
       open.forEach((i: any) => {
@@ -221,7 +244,7 @@ export default function BoardPage() {
       });
       const stage = Object.entries(stageValues).sort((a, b) => b[1] - a[1])[0]?.[0] || "New";
 
-      map[e.id] = { entity: e, invoices: entityInvoices, outstanding, stage };
+      map[e.id] = { entity: e, invoices: entityInvoices, outstanding, currencyBreakdown, stage };
     });
 
     return map;
@@ -247,7 +270,30 @@ export default function BoardPage() {
     return totals;
   }, [byStage, visibleLabels]);
 
+  // Per-currency native totals for display (SUMIF by currency per stage)
+  const stageCurrencyTotals = useMemo(() => {
+    const totals: Record<string, Record<string, number>> = {};
+    visibleLabels.forEach(s => { totals[s] = {}; });
+    Object.values(grouped).forEach(item => {
+      const bucket = totals[item.stage] ?? totals[visibleLabels[0]];
+      if (!bucket) return;
+      Object.entries(item.currencyBreakdown).forEach(([c, amt]) => {
+        bucket[c] = (bucket[c] || 0) + amt;
+      });
+    });
+    return totals;
+  }, [grouped, visibleLabels]);
+
   const totalAR = Object.values(stageTotals).reduce((s, v) => s + v, 0);
+
+  // Per-currency grand total for header
+  const totalByCurrency = useMemo(() => {
+    const t: Record<string, number> = {};
+    Object.values(stageCurrencyTotals).forEach(stageMap => {
+      Object.entries(stageMap).forEach(([c, amt]) => { t[c] = (t[c] || 0) + amt; });
+    });
+    return t;
+  }, [stageCurrencyTotals]);
 
   const handleDrop = async (stage: string) => {
     if (!draggingId) return;
@@ -308,7 +354,7 @@ export default function BoardPage() {
         <div>
           <h1 className="text-xl font-semibold text-white tracking-tight">Collections Board</h1>
           <p className="text-sm text-stone-400 mt-0.5">
-            {fmt.money(totalAR, ccy)} total AR · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
+            <CurrencyPills breakdown={totalByCurrency} /> · {Object.values(grouped).length} {groupBy === "customer" ? "customers" : "projects"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -397,7 +443,7 @@ export default function BoardPage() {
                     <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLOR_CLASSES[stages.find(s => s.label === stage)?.color ?? "stone"]?.badge ?? "bg-stone-800 text-stone-300"}`}>{stage}</span>
                     <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
                   </div>
-                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(stageTotal, ccy)}</div>
+                  <CurrencyPills breakdown={stageCurrencyTotals[stage] || {}} className="text-sm font-semibold text-white tabular-nums" />
                   {totalAR > 0 && stageTotal > 0 && (
                     <div className="text-[10px] text-stone-500 mt-0.5">{(stageTotal / totalAR * 100).toFixed(1)}% of total AR</div>
                   )}
@@ -416,8 +462,6 @@ export default function BoardPage() {
                       setDraggingId={setDraggingId}
                       stages={stages}
                       repName={repName(entity.repId)}
-                      ccy={ccy}
-                      toHome={toHome}
                     />
                   ))}
                   {items.length === 0 && (
