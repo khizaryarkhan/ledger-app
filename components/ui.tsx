@@ -74,9 +74,9 @@ export const Select = ({ value, onChange, options, placeholder, className = "" }
   </select>
 );
 
-export const Card = ({ children, className = "", padding = "md" }: any) => {
+export const Card = ({ children, className = "", padding = "md", ...rest }: any) => {
   const pad: Record<string, string> = { none: "", sm: "p-3", md: "p-5", lg: "p-6" };
-  return <div className={`bg-stone-900 rounded-lg border border-stone-800 ${pad[padding]} ${className}`}>{children}</div>;
+  return <div className={`bg-stone-900 rounded-lg border border-stone-800 ${pad[padding]} ${className}`} {...rest}>{children}</div>;
 };
 
 export const Modal = ({ open, onClose, title, children, size = "md", footer }: any) => {
