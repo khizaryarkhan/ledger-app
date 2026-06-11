@@ -2,11 +2,9 @@
  * QBO Webhook receiver — real-time sync.
  *
  * QuickBooks pushes a POST to this URL within seconds of any change.
- * We verify the HMAC-SHA256 signature, identify which org is affected,
- * and run a targeted sync (only fetching the specific changed invoices/payments).
- *
- * The sync runs synchronously before responding — targeted syncs are fast
- * (2–5 seconds) and QBO allows up to 45 seconds before retrying.
+ * We verify the HMAC-SHA256 signature, then return 200 immediately and
+ * process in the background using waitUntil so Vercel keeps the function
+ * alive until processing completes (QBO drops webhooks after 45 seconds).
  *
  * Setup (one-time, in Intuit Developer portal):
  *   1. Go to https://developer.intuit.com → your app → Webhooks
@@ -16,10 +14,15 @@
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { qboTokens, qboWebhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
+
+// Extend function lifetime so background processing has room to finish.
+// Vercel Hobby: 60s max. Pro: 300s max. Set to 60 as a safe default.
+export const maxDuration = 60;
 
 // Entity types we care about — ignore everything else (Estimate, Bill, etc.)
 const RELEVANT_ENTITIES = new Set(["Invoice", "Payment", "CreditMemo", "Customer", "RefundReceipt"]);
@@ -28,7 +31,7 @@ export async function POST(req: Request) {
   // 1. Read raw body BEFORE any parsing (signature is over raw bytes)
   const rawBody = await req.text();
 
-  // 2. Verify QBO HMAC-SHA256 signature — STRICT (fail-closed) when verifier token is configured
+  // 2. Verify QBO HMAC-SHA256 signature — MUST happen before returning 200
   const signature = req.headers.get("intuit-signature");
   const verifierToken = process.env.QBO_WEBHOOK_VERIFIER_TOKEN;
 
@@ -56,7 +59,6 @@ export async function POST(req: Request) {
   } else if (process.env.NODE_ENV === "production") {
     // In production, QBO_WEBHOOK_VERIFIER_TOKEN is mandatory. Without it any
     // caller can trigger arbitrary syncs (and exhaust QBO API rate limits).
-    // Fail-closed so a missing env var is immediately obvious from logs/alerts.
     console.error("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN is not set — rejecting all requests in production");
     await db.insert(qboWebhookEvents).values({
       realmId: "unknown", status: "invalid_signature",
@@ -64,7 +66,6 @@ export async function POST(req: Request) {
     }).catch(() => {});
     return new Response("Webhook not configured", { status: 503 });
   } else {
-    // Development only — allow unverified webhooks for local testing.
     console.warn("QBO webhook: QBO_WEBHOOK_VERIFIER_TOKEN not configured — accepting without verification (dev mode only)");
   }
 
@@ -78,11 +79,8 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  // 4. Respond 200 immediately — QBO will retry if we don't respond fast enough
-  //    Process events after sending the response (fire-and-forget)
+  // 4. Build per-realmId work items
   const eventNotifications: any[] = payload.eventNotifications ?? [];
-
-  // Build per-realmId work items
   const workItems: Array<{ realmId: string; changes: QboEntityChange[] }> = [];
 
   for (const notification of eventNotifications) {
@@ -96,18 +94,17 @@ export async function POST(req: Request) {
         name: e.name,
         id: e.id,
         operation: e.operation,
-        // Merge operations include the ID of the record that was absorbed
         ...(e.deletedId ? { deletedId: e.deletedId } : {}),
       }));
 
     if (relevant.length > 0) workItems.push({ realmId, changes: relevant });
   }
 
-  // Process synchronously — targeted sync is fast (2–5s), well within QBO's 45s limit.
-  // Fire-and-forget doesn't work on Vercel serverless: the function terminates
-  // the moment a response is returned, killing any pending async work.
+  // 5. Return 200 immediately — QBO retries if we don't respond fast enough.
+  //    waitUntil keeps the Vercel function alive to finish processing in the
+  //    background, even after the response has been sent to QBO.
   if (workItems.length > 0) {
-    await processWebhookEvents(workItems);
+    waitUntil(processWebhookEvents(workItems));
   }
 
   return new Response("OK", { status: 200 });

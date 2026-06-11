@@ -1,15 +1,10 @@
 /**
  * Xero Webhook receiver — real-time sync.
  *
- * Xero pushes a POST to this URL immediately after any entity changes.
- * We verify the HMAC-SHA256 signature, resolve the tenant → org mapping,
- * and run a targeted sync (only fetching the specific changed entities).
- *
- * The targeted sync runs synchronously before responding — it is fast
- * (2–5 seconds) and Xero allows up to 5 seconds before retrying.
- *
- * NOTE: Xero uses the same endpoint for all tenants; the tenantId in the
- * payload is how we identify the org.
+ * Xero requires a 200 response within 5 seconds or it marks the delivery
+ * as failed. We verify the signature synchronously, then return 200
+ * immediately and process in the background using waitUntil so Vercel
+ * keeps the function alive until processing completes.
  *
  * Setup (one-time, in Xero Developer portal):
  *   1. Go to https://developer.xero.com → your app → Webhooks
@@ -24,10 +19,15 @@
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { xeroTokens, xeroWebhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { syncXeroTargetedEntities, type XeroEntityChange } from "@/lib/xero-sync";
+
+// Extend function lifetime so background processing has room to finish.
+// Vercel Hobby: 60s max. Pro: 300s max. Set to 60 as a safe default.
+export const maxDuration = 60;
 
 // Entity categories we care about — ignore everything else (PurchaseOrder, Account, etc.)
 const RELEVANT_CATEGORIES = new Set([
@@ -38,12 +38,10 @@ const RELEVANT_CATEGORIES = new Set([
 ]);
 
 export async function POST(req: Request) {
-  const startedAt = Date.now();
-
   // 1. Read raw body BEFORE any parsing (signature is computed over raw bytes)
   const rawBody = await req.text();
 
-  // 2. Verify Xero HMAC-SHA256 signature
+  // 2. Verify Xero HMAC-SHA256 signature — MUST happen before returning 200
   //    Header: x-xero-signature
   //    Algorithm: Base64(HMAC-SHA256(signingKey, rawBody))
   const signature = req.headers.get("x-xero-signature");
@@ -97,7 +95,7 @@ export async function POST(req: Request) {
   console.log("Xero webhook received:", rawBody.slice(0, 300));
 
   // 5. Xero payload shape:
-  //    { events: [{ resourceUrl, resourceId, eventDateUtc, eventType, eventCategory, tenantId, tenantType }] }
+  //    { events: [{ resourceUrl, resourceId, eventDateUtc, eventType, eventCategory, tenantId, tenantType, eventId }] }
   const events: any[] = payload.events ?? [];
 
   // Xero ITR handshake: empty events list → just 200
@@ -121,7 +119,19 @@ export async function POST(req: Request) {
     });
   }
 
-  // 6. Process each tenant's changes
+  // 6. Return 200 immediately — Xero requires a response within 5 seconds.
+  //    waitUntil keeps the Vercel function alive to finish processing in the
+  //    background, even after the response has been sent to Xero.
+  if (byTenant.size > 0) {
+    waitUntil(processTenantChanges(byTenant));
+  }
+
+  return new Response("OK", { status: 200 });
+}
+
+async function processTenantChanges(byTenant: Map<string, XeroEntityChange[]>) {
+  const startedAt = Date.now();
+
   for (const [tenantId, changes] of byTenant.entries()) {
     // Resolve tenantId → org
     const [token] = await db
@@ -151,11 +161,8 @@ export async function POST(req: Request) {
         tenantId, token.orgId, "error", changes.length, changes,
         err?.message || String(err), ms
       );
-      // Don't throw — log and continue
     }
   }
-
-  return new Response("OK", { status: 200 });
 }
 
 async function logEvent(
