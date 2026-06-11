@@ -75,6 +75,11 @@ export const users = pgTable("users", {
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  // TOTP multi-factor auth (currently enforced for super_admins who enrol).
+  // mfaSecret is encrypted at rest (lib/crypto); recovery codes are bcrypt-hashed.
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  mfaSecret: text("mfa_secret"),
+  mfaRecoveryCodes: jsonb("mfa_recovery_codes").$type<string[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

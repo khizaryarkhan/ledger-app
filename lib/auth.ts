@@ -6,6 +6,8 @@ import { users, userOrganisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/audit";
+import { verifyTotp, consumeRecoveryCode } from "@/lib/mfa";
+import { decryptSecret } from "@/lib/crypto";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
@@ -17,6 +19,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        mfaCode: { label: "Authentication code", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -30,6 +33,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user || user.status !== "Active") return null;
         const valid = await bcrypt.compare(String(credentials.password), user.passwordHash);
         if (!valid) return null;
+
+        // ── Multi-factor gate ──────────────────────────────────────────────
+        // Only blocks users who have ENROLLED (mfaEnabled). A valid TOTP or a
+        // one-time recovery code is required; recovery codes are consumed.
+        if ((user as any).mfaEnabled) {
+          const code = credentials.mfaCode ? String(credentials.mfaCode) : "";
+          if (!code) return null;
+          const secret = (user as any).mfaSecret ? decryptSecret((user as any).mfaSecret) : null;
+          const totpOk = secret ? verifyTotp(code, secret) : false;
+          if (!totpOk) {
+            const remaining = await consumeRecoveryCode(code, ((user as any).mfaRecoveryCodes as string[]) ?? []);
+            if (!remaining) return null; // bad code → deny
+            await db.update(users).set({ mfaRecoveryCodes: remaining }).where(eq(users.id, user.id));
+          }
+        }
 
         // Block login if the user has no organisation access.
         // Super admin is exempt (they can access any org).

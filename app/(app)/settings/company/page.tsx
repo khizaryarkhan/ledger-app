@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
+import { MfaCard } from "@/components/mfa-card";
 import { ChevronLeft, User, Palette, Calendar, DollarSign } from "lucide-react";
 
 export default function CompanySettingsPage() {
@@ -73,6 +74,11 @@ export default function CompanySettingsPage() {
           </div>
         </div>
       </Card>
+
+      {/* Two-factor auth (super admins only — self-gates) */}
+      <div className="mb-4">
+        <MfaCard />
+      </div>
 
       {/* Organisation branding */}
       {isAdmin && (

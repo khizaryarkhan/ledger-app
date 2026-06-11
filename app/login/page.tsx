@@ -9,8 +9,10 @@ export default function LoginPage() {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const mfaRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showMfa, setShowMfa] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,10 +20,13 @@ export default function LoginPage() {
     setLoading(true);
     const email = (emailRef.current?.value ?? "").trim();
     const password = passwordRef.current?.value ?? "";
+    const mfaCode = (mfaRef.current?.value ?? "").trim();
     try {
-      const res = await signIn("credentials", { email, password, redirect: false });
+      const res = await signIn("credentials", { email, password, mfaCode, redirect: false });
       if (res?.error) {
-        setError("Invalid email or password");
+        setError(showMfa
+          ? "Invalid email, password, or authentication code"
+          : "Invalid email or password");
       } else {
         router.push("/dashboard");
         router.refresh();
@@ -66,6 +71,19 @@ export default function LoginPage() {
               <input ref={passwordRef} type="password" required autoComplete="current-password"
                 className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
             </div>
+            {showMfa ? (
+              <div>
+                <label className="text-xs font-medium text-stone-400 block mb-1.5">Authentication code</label>
+                <input ref={mfaRef} type="text" inputMode="numeric" autoComplete="one-time-code"
+                  placeholder="6-digit code or recovery code"
+                  className="w-full h-10 px-3 text-sm rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors" />
+              </div>
+            ) : (
+              <button type="button" onClick={() => setShowMfa(true)}
+                className="text-xs text-stone-500 hover:text-emerald-400 transition-colors">
+                Have a two-factor code?
+              </button>
+            )}
             {error && (
               <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">{error}</div>
             )}
