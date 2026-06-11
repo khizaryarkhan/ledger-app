@@ -16,6 +16,7 @@ import { xeroTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
+import { logEvent } from "@/lib/audit";
 
 export async function GET(req: Request) {
   const base =
@@ -133,6 +134,7 @@ export async function GET(req: Request) {
       });
     }
 
+    await logEvent({ orgId, eventType: "integration_connected", actorId: userId, meta: { provider: "Xero", tenantId, tenantName } });
     return NextResponse.redirect(new URL("/settings?xero=connected", base));
   } catch (e: any) {
     console.error("Xero callback error:", e);

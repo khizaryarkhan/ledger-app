@@ -4,6 +4,7 @@ import { qboTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
+import { logEvent } from "@/lib/audit";
 
 export async function GET(req: Request) {
   const base = req.headers.get("origin") || process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
@@ -79,6 +80,7 @@ export async function GET(req: Request) {
       });
     }
 
+    await logEvent({ orgId, eventType: "integration_connected", actorId: userId, meta: { provider: "QuickBooks", realmId, company: companyName } });
     return NextResponse.redirect(new URL("/settings?qbo=connected", base));
   } catch (e: any) {
     console.error("QBO callback error:", e);

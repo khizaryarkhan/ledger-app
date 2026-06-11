@@ -16,7 +16,13 @@ export type EventType =
   | "programme_toggled"   // auto-reminder programme on/off
   | "chase_mode_changed"  // customer chase level changed (customer ↔ project)
   | "invoice_synced"   // QBO sync created/updated this invoice
-  | "contact_updated"; // contact details changed
+  | "contact_updated"  // contact details changed
+  | "user_login"               // a user authenticated
+  | "user_deactivated"         // a user's access was removed/deactivated
+  | "user_role_changed"        // a user's role was changed
+  | "integration_connected"    // QBO/Xero/Gmail/MS connection established
+  | "integration_disconnected" // QBO/Xero/Gmail/MS connection removed
+  | "data_exported";           // audit trail / report exported
 
 export interface LogEventArgs {
   orgId: string;

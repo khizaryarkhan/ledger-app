@@ -15,6 +15,7 @@ import { microsoftTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
+import { logEvent } from "@/lib/audit";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -91,6 +92,7 @@ export async function GET(req: Request) {
       });
     }
 
+    await logEvent({ orgId, eventType: "integration_connected", actorId: userId, meta: { provider: "Microsoft", email } });
     return NextResponse.redirect(new URL("/settings/email?microsoft=connected", base));
   } catch (e: any) {
     console.error("Microsoft callback error:", e);

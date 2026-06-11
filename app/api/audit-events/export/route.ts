@@ -5,6 +5,7 @@
 import { db } from "@/db";
 import { auditEvents, invoices } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
+import { logEvent } from "@/lib/audit";
 import { and, desc, eq, or, SQL } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -20,6 +21,12 @@ const EVENT_LABELS: Record<string, string> = {
   chase_mode_changed:"Chase Mode Changed",
   invoice_synced:    "Invoice Synced (QBO)",
   contact_updated:   "Contact Updated",
+  user_login:               "User Login",
+  user_deactivated:         "User Deactivated",
+  user_role_changed:        "User Role Changed",
+  integration_connected:    "Integration Connected",
+  integration_disconnected: "Integration Disconnected",
+  data_exported:            "Data Exported",
 };
 
 function fmt(date: Date | string | null | undefined): string {
@@ -51,7 +58,7 @@ function metaLines(meta: any): string {
 }
 
 export async function GET(req: Request) {
-  const { error, orgId } = await requireOrg();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
@@ -62,6 +69,14 @@ export async function GET(req: Request) {
   if (!customerId && !projectId) {
     return bad("Provide customerId or projectId", 400);
   }
+
+  // Data exports are an exfiltration vector — record who exported what.
+  await logEvent({
+    orgId: orgId!, eventType: "data_exported",
+    customerId: customerId ?? null, projectId: projectId ?? null,
+    actorId: (session!.user as any)?.id ?? null, actorName: (session!.user as any)?.name ?? null,
+    meta: { kind: "audit_trail", name },
+  });
 
   let entityFilter: SQL | undefined;
   if (projectId && customerId) {

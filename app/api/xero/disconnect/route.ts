@@ -3,6 +3,7 @@ import { xeroTokens } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { decryptSecret } from "@/lib/crypto";
+import { logEvent } from "@/lib/audit";
 
 /**
  * POST /api/xero/disconnect
@@ -10,7 +11,7 @@ import { decryptSecret } from "@/lib/crypto";
  * the active org so a leaked token can't outlive the disconnect.
  */
 export async function POST() {
-  const { error, orgId } = await requireOrg();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
 
   const [tok] = await db.select().from(xeroTokens).where(eq(xeroTokens.orgId, orgId!)).limit(1);
@@ -29,5 +30,6 @@ export async function POST() {
   }
 
   await db.delete(xeroTokens).where(eq(xeroTokens.orgId, orgId!));
+  await logEvent({ orgId: orgId!, eventType: "integration_disconnected", actorId: (session!.user as any).id, actorName: (session!.user as any).name ?? null, meta: { provider: "Xero" } });
   return ok({ disconnected: true });
 }

@@ -3,9 +3,10 @@ import { qboTokens } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { decryptSecret } from "@/lib/crypto";
+import { logEvent } from "@/lib/audit";
 
 export async function POST() {
-  const { error, orgId } = await requireOrg();
+  const { error, session, orgId } = await requireOrg();
   if (error) return error;
 
   // Revoke at Intuit BEFORE deleting locally, so a leaked token can't outlive
@@ -26,5 +27,6 @@ export async function POST() {
   }
 
   await db.delete(qboTokens).where(eq(qboTokens.orgId, orgId!));
+  await logEvent({ orgId: orgId!, eventType: "integration_disconnected", actorId: (session!.user as any).id, actorName: (session!.user as any).name ?? null, meta: { provider: "QuickBooks" } });
   return ok({ disconnected: true });
 }

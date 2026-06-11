@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users, userOrganisations, reps } from "@/db/schema";
 import { requireAuth, isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
+import { logEvent } from "@/lib/audit";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -228,6 +229,11 @@ export async function PATCH(req: Request) {
         }
       }
 
+      await logEvent({
+        orgId: target.orgId || orgId!, eventType: "user_role_changed",
+        actorId: (session!.user as any).id, actorName: (session!.user as any).name ?? null,
+        meta: { targetUserId: userId, targetEmail: target.email, newRole: dbRole },
+      });
       return ok({ success: true });
     }
 
@@ -238,6 +244,13 @@ export async function PATCH(req: Request) {
     if (!target) return bad("User not found", 404);
     if (!isSuper && target.orgId !== orgId) return bad("Forbidden", 403);
     await db.update(users).set({ status }).where(eq(users.id, userId));
+    if (status === "Inactive") {
+      await logEvent({
+        orgId: target.orgId || orgId!, eventType: "user_deactivated",
+        actorId: (session!.user as any).id, actorName: (session!.user as any).name ?? null,
+        meta: { targetUserId: userId, targetEmail: target.email },
+      });
+    }
     return ok({ success: true });
   } catch (e: any) {
     return bad("Failed to update user", 500);
@@ -270,5 +283,10 @@ export async function DELETE(req: Request) {
 
   await db.delete(userOrganisations).where(eq(userOrganisations.userId, userId));
   await db.delete(users).where(eq(users.id, userId));
+  await logEvent({
+    orgId: target.orgId || orgId!, eventType: "user_deactivated",
+    actorId: (session!.user as any).id, actorName: (session!.user as any).name ?? null,
+    meta: { targetUserId: userId, targetEmail: target.email, deleted: true },
+  });
   return ok({ deleted: true });
 }

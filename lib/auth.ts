@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { users, userOrganisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { rateLimit } from "@/lib/rate-limit";
+import { logEvent } from "@/lib/audit";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
@@ -75,6 +76,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).repId = token.repId ?? null;
       }
       return session;
+    },
+  },
+  events: {
+    // Forensic trail of who logged in and when.
+    async signIn({ user }) {
+      const u = user as any;
+      if (u?.id && u?.orgId) {
+        await logEvent({ orgId: u.orgId, eventType: "user_login", actorId: u.id, actorName: u.email ?? null });
+      }
     },
   },
 });
