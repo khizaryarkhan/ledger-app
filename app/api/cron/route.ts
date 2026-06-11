@@ -8,7 +8,6 @@ import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
-import { refreshRates } from "@/lib/fx-rates";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -283,15 +282,6 @@ export async function GET(req: Request) {
     }
   } catch (e: any) {
     console.warn("cron: broken-promise sweep failed:", e?.message);
-  }
-
-  // ── Refresh FX rates for all distinct home currencies in use ──────────────
-  try {
-    const orgs = await db.select({ currency: organisations.currency }).from(organisations);
-    const bases = [...new Set(orgs.map((o) => o.currency).filter(Boolean))];
-    await Promise.allSettled(bases.map((b) => refreshRates(b)));
-  } catch (e: any) {
-    console.warn("cron: FX rate refresh failed:", e?.message);
   }
 
   return NextResponse.json({ ran: today, emailsSent, skipped, promisesBroken, errors: errors.length > 0 ? errors : undefined });

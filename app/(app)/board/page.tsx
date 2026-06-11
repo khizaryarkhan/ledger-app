@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue } from "@/lib/format";
@@ -169,22 +169,7 @@ export default function BoardPage() {
     });
     return m;
   }, [communications]);
-  const ccy: string = orgSettings?.currency ?? "USD";
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
-
-  const [fxRates, setFxRates] = useState<Record<string, number>>({});
-  useEffect(() => {
-    fetch("/api/fx-rates")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.rates) setFxRates(d.rates); })
-      .catch(() => {});
-  }, []);
-
-  const toHome = useCallback((amount: number, currency: string): number => {
-    if (!currency || currency === ccy) return amount;
-    const rate = fxRates[currency];
-    return rate ? amount / rate : amount;
-  }, [fxRates, ccy]);
   const visibleLabels = stages.filter(s => s.visible).map(s => s.label);
   const closedLabel = stages.find(s => s.isClosed)?.label ?? "Closed";
 
@@ -229,8 +214,7 @@ export default function BoardPage() {
       }
 
       const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
-      // FX-converted outstanding used only for sorting and % of total — cards display native currency
-      const outstanding = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
+      const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
       if (outstanding === 0 && open.length === 0) return;
       // Native per-currency breakdown for display
       const currencyBreakdown: Record<string, number> = {};
@@ -250,7 +234,7 @@ export default function BoardPage() {
     });
 
     return map;
-  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search, toHome, ccy, stages, closedLabel]);
+  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search, stages, closedLabel]);
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};

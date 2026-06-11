@@ -553,7 +553,7 @@ function ReminderProgramme() {
         <div className="text-right tabular-nums">
           {outstanding > 0 ? (
             <span className="text-sm font-semibold text-white">
-              {new Intl.NumberFormat(undefined, { style: "currency", currency: orgSettings?.currency ?? "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
+              {new Intl.NumberFormat(undefined, { style: "currency", currency: openInvoices[0]?.currency ?? "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
             </span>
           ) : (
             <span className="text-[11px] text-stone-500">—</span>

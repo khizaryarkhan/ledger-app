@@ -23,8 +23,8 @@ function XeroLogo({ size = 16 }: { size?: number }) {
 }
 
 export default function IntegrationsSettingsPage() {
-  const { customers, invoices, refresh, toast, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
+  const { customers, invoices, refresh, toast } = useData() as any;
+  const primaryCcy: string = invoices[0]?.currency ?? "USD";
   const searchParams = useSearchParams();
 
   // QBO
@@ -465,7 +465,7 @@ export default function IntegrationsSettingsPage() {
                   <span>
                     {Math.abs(arVerifyResult.difference) < 0.50
                       ? <span className="text-emerald-400 font-medium">✓ AR totals match QBO</span>
-                      : <span className="text-amber-400">Ledger AR differs by {fmt.money(Math.abs(arVerifyResult.difference), "EUR")}</span>}
+                      : <span className="text-amber-400">Ledger AR differs by {fmt.money(Math.abs(arVerifyResult.difference), primaryCcy)}</span>}
                   </span>
                 </div>
               </div>
@@ -525,7 +525,7 @@ export default function IntegrationsSettingsPage() {
                               : "text-white"
                           }`}
                         >
-                          {fmt.money(value, ccy)}
+                          {fmt.money(value, primaryCcy)}
                         </div>
                         <div className="text-[10px] text-stone-400 mt-0.5">{note}</div>
                       </div>
@@ -723,7 +723,7 @@ export default function IntegrationsSettingsPage() {
                                 reconciled ? "text-emerald-400" : "text-amber-400"
                               }`}
                             >
-                              {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0, ccy)}`}
+                              {reconciled ? "✓ Reconciled" : `Δ ${fmt.money(log.difference || 0, primaryCcy)}`}
                             </span>
                             <span className="text-stone-400 text-[11px]">
                               {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : ""}

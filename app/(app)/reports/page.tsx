@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
+import { CurrencyPills } from "@/components/currency-pills";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 // ============================================================
@@ -75,7 +76,7 @@ function netAmount(inv: any): number {
   return isCreditMemo(inv) ? -base : base;
 }
 
-function SalesKPI({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: "green" | "red" | "neutral" }) {
+function SalesKPI({ label, value, sub, highlight }: { label: string; value: React.ReactNode; sub?: React.ReactNode; highlight?: "green" | "red" | "neutral" }) {
   const colour = highlight === "green" ? "text-emerald-400" : highlight === "red" ? "text-rose-400" : "text-white";
   return (
     <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 px-5 py-4">
@@ -95,8 +96,6 @@ function MiniBar({ pct, color = "bg-stone-500" }: { pct: number; color?: string 
 }
 
 function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakdown }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [period, setPeriod] = useState<PeriodId>("last-12m");
   const [breakdown, setBreakdown] = useState<"customer" | "project" | "rep" | "region">(fixedBreakdown ?? "customer");
   // Sync breakdown when the sidebar selection changes
@@ -170,6 +169,32 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
   const paidInPeriod = periodInvoices.filter((i: any) => i.paymentStatus === "Paid").length;
   const collRate = periodInvoices.length > 0 ? Math.round(paidInPeriod / periodInvoices.length * 100) : 0;
 
+  // Per-currency breakdowns for aggregate KPI cells
+  const grossByCcy = useMemo(() => {
+    const m: Record<string, number> = {};
+    periodInvoices.forEach((i: any) => { const c = i.currency || "EUR"; m[c] = (m[c] || 0) + netAmount(i); });
+    return m;
+  }, [periodInvoices]);
+
+  const cnByCcy = useMemo(() => {
+    const m: Record<string, number> = {};
+    periodCNs.forEach((i: any) => { const c = i.currency || "EUR"; m[c] = (m[c] || 0) + Math.abs(netAmount(i)); });
+    return m;
+  }, [periodCNs]);
+
+  const netByCcy = useMemo(() => {
+    const m: Record<string, number> = {};
+    periodItems.forEach((i: any) => { const c = i.currency || "EUR"; m[c] = (m[c] || 0) + netAmount(i); });
+    // Keep only positive net entries for display
+    return Object.fromEntries(Object.entries(m).filter(([, v]) => v > 0));
+  }, [periodItems]);
+
+  const priorByCcy = useMemo(() => {
+    const m: Record<string, number> = {};
+    priorItems.forEach((i: any) => { const c = i.currency || "EUR"; m[c] = (m[c] || 0) + netAmount(i); });
+    return Object.fromEntries(Object.entries(m).filter(([, v]) => v > 0));
+  }, [priorItems]);
+
   // ── Monthly trend (last 12 months, always shown) ────────────
   const monthlyTrend = useMemo(() => {
     const months: { label: string; key: string; net: number; prior: number }[] = [];
@@ -193,12 +218,22 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
 
   // ── Breakdown ────────────────────────────────────────────────
   const breakdownData = useMemo(() => {
-    type Row = { label: string; gross: number; cnAdj: number; net: number; invCount: number; cnCount: number; projectIds: Set<string> };
+    type Row = {
+      label: string;
+      gross: number; cnAdj: number; net: number;
+      invCount: number; cnCount: number;
+      projectIds: Set<string>;
+      grossByCcy: Record<string, number>;
+      cnByCcyRow: Record<string, number>;
+      netByCcyRow: Record<string, number>;
+      invCountByCcy: Record<string, number>;
+    };
     const map = new Map<string, Row>();
 
     // Iterate all period items (invoices + credit memos)
     for (const inv of periodItems) {
       let key = "", label = "";
+      const invCcy: string = inv.currency || "EUR";
 
       if (activeBreakdown === "customer") {
         const c = customers.find((c: any) => c.id === inv.customerId);
@@ -220,22 +255,30 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
         key = regId; label = reg?.name || "No Region";
       }
 
-      if (!map.has(key)) map.set(key, { label, gross: 0, cnAdj: 0, net: 0, invCount: 0, cnCount: 0, projectIds: new Set() });
+      if (!map.has(key)) map.set(key, {
+        label, gross: 0, cnAdj: 0, net: 0, invCount: 0, cnCount: 0, projectIds: new Set(),
+        grossByCcy: {}, cnByCcyRow: {}, netByCcyRow: {}, invCountByCcy: {},
+      });
       const e = map.get(key)!;
       const amt = netAmount(inv);
       e.net += amt;
+      e.netByCcyRow[invCcy] = (e.netByCcyRow[invCcy] || 0) + amt;
       if (isCreditMemo(inv)) {
         e.cnAdj += amt; // negative
         e.cnCount += 1;
+        e.cnByCcyRow[invCcy] = (e.cnByCcyRow[invCcy] || 0) + Math.abs(amt);
       } else {
         e.gross += amt;
         e.invCount += 1;
+        e.grossByCcy[invCcy] = (e.grossByCcy[invCcy] || 0) + amt;
+        e.invCountByCcy[invCcy] = (e.invCountByCcy[invCcy] || 0) + 1;
         if (inv.projectId) e.projectIds.add(inv.projectId);
       }
     }
 
+    // Compute avgByCcy per row: track invCount per currency separately
     return Array.from(map.values()).sort((a, b) => b.net - a.net);
-  }, [periodItems, activeBreakdown, customers, projects, reps, regions]);
+  }, [periodItems, periodInvoices, activeBreakdown, customers, projects, reps, regions]);
 
   const growthColor = growth === null ? "neutral" : growth >= 0 ? "green" : "red";
   const GrowthIcon  = growth === null ? Minus : growth >= 0 ? TrendingUp : TrendingDown;
@@ -278,25 +321,25 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
       <div className="grid grid-cols-6 gap-3">
         <SalesKPI
           label="Gross Invoiced"
-          value={fmt.money(grossRevenue, ccy)}
+          value={<CurrencyPills breakdown={grossByCcy} />}
           sub={`${periodInvoices.length} invoice${periodInvoices.length !== 1 ? "s" : ""}`}
         />
         <SalesKPI
           label="Credit Note Adj."
-          value={cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment), ccy)}` : "—"}
+          value={Object.keys(cnByCcy).length > 0 ? <span className="text-rose-400">−<CurrencyPills breakdown={cnByCcy} /></span> : "—"}
           sub={periodCNs.length > 0 ? `${periodCNs.length} credit note${periodCNs.length !== 1 ? "s" : ""}` : "None issued"}
           highlight={cnAdjustment < 0 ? "red" : "neutral"}
         />
         <SalesKPI
           label="Net Revenue"
-          value={fmt.money(netRevenue, ccy)}
+          value={<CurrencyPills breakdown={netByCcy} />}
           sub="Gross minus credit notes"
           highlight={netRevenue >= grossRevenue * 0.95 ? "green" : "neutral"}
         />
         <SalesKPI
           label="vs Prior Period"
           value={growth !== null ? `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%` : "—"}
-          sub={period !== "all" ? fmt.money(priorNet, ccy) : "No comparison"}
+          sub={period !== "all" ? <CurrencyPills breakdown={priorByCcy} /> : "No comparison"}
           highlight={growthColor}
         />
         <SalesKPI
@@ -331,8 +374,8 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
               {/* Tooltip */}
               <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap border border-stone-700">
                 <div className="font-semibold">{m.label}</div>
-                <div>This yr: {fmt.money(m.net, ccy)}</div>
-                <div>Prior yr: {fmt.money(m.prior, ccy)}</div>
+                <div>This yr: {fmt.money(m.net)}</div>
+                <div>Prior yr: {fmt.money(m.prior)}</div>
               </div>
               <div className="flex-1 flex items-end gap-0.5 w-full justify-center">
                 {/* Prior year bar */}
@@ -387,24 +430,27 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
             <tbody>
               {breakdownData.map((r, i) => {
                 const pct = netRevenue > 0 ? (r.net / netRevenue) * 100 : 0;
-                const avg = r.invCount > 0 ? r.gross / r.invCount : 0;
+                const avgByCcy = Object.fromEntries(
+                  Object.entries(r.grossByCcy).map(([c, v]) => [c, r.invCountByCcy[c] > 0 ? v / r.invCountByCcy[c] : 0])
+                );
+                const netByCcyFiltered = Object.fromEntries(Object.entries(r.netByCcyRow).filter(([, v]) => v > 0));
                 return (
                   <tr key={i} className="border-b border-stone-800 hover:bg-stone-800/50">
                     <td className="px-5 py-3 text-stone-600 text-[11px] font-mono">{String(i + 1).padStart(2, "0")}</td>
                     <td className="px-3 py-3 font-medium text-white max-w-[200px] truncate">{r.label}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-400">{fmt.money(r.gross, ccy)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-400"><CurrencyPills breakdown={r.grossByCcy} /></td>
                     <td className="px-3 py-3 text-right tabular-nums">
                       {r.cnAdj < 0
-                        ? <span className="text-rose-400 font-medium">−{fmt.money(Math.abs(r.cnAdj), ccy)}</span>
+                        ? <span className="text-rose-400 font-medium">−<CurrencyPills breakdown={r.cnByCcyRow} /></span>
                         : <span className="text-stone-600">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-right font-bold tabular-nums text-white">{fmt.money(r.net, ccy)}</td>
+                    <td className="px-3 py-3 text-right font-bold tabular-nums text-white"><CurrencyPills breakdown={netByCcyFiltered} /></td>
                     {activeBreakdown !== "project" && <td className="px-3 py-3 text-right tabular-nums text-stone-400">{r.projectIds.size > 0 ? r.projectIds.size : <span className="text-stone-600">—</span>}</td>}
                     <td className="px-3 py-3 text-right tabular-nums text-stone-400">
                       {r.invCount}
                       {r.cnCount > 0 && <span className="text-[10px] text-rose-400 ml-1">−{r.cnCount}CN</span>}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-400">{fmt.money(avg, ccy)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-stone-400"><CurrencyPills breakdown={avgByCcy} /></td>
                     <td className="px-3 py-3 text-right tabular-nums text-stone-400">{pct.toFixed(1)}%</td>
                     <td className="px-5 py-3">
                       <MiniBar pct={pct} color={i === 0 ? "bg-emerald-500" : i < 3 ? "bg-stone-500" : "bg-stone-600"} />
@@ -416,11 +462,11 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
               <tr className="bg-stone-900 text-white">
                 <td className="px-5 py-3 text-stone-400 text-[11px] font-mono">—</td>
                 <td className="px-3 py-3 font-bold text-sm">TOTAL</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grossRevenue, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm"><CurrencyPills breakdown={grossByCcy} /></td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums text-sm text-rose-300">
-                  {cnAdjustment < 0 ? `−${fmt.money(Math.abs(cnAdjustment), ccy)}` : "—"}
+                  {Object.keys(cnByCcy).length > 0 ? <span>−<CurrencyPills breakdown={cnByCcy} /></span> : "—"}
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(netRevenue, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm"><CurrencyPills breakdown={netByCcy} /></td>
                 {activeBreakdown !== "project" && (
                   <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
                     {breakdownData.reduce((s, r) => s + r.projectIds.size, 0)}
@@ -430,7 +476,12 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
                   {periodInvoices.length}
                   {periodCNs.length > 0 && <span className="text-rose-300 ml-1 text-[10px]">−{periodCNs.length}CN</span>}
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(avgInvoice, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-sm">
+                  <CurrencyPills breakdown={Object.fromEntries(
+                    Object.entries(grossByCcy).map(([c, v]) => [c, periodInvoices.filter((i: any) => (i.currency || "EUR") === c).length > 0
+                      ? v / periodInvoices.filter((i: any) => (i.currency || "EUR") === c).length : 0])
+                  )} />
+                </td>
                 <td className="px-3 py-3 text-right font-bold">100%</td>
                 <td className="px-5 py-3" />
               </tr>
@@ -503,14 +554,36 @@ function invBuckets(inv: any, asAt: Date) {
   return b;
 }
 
-function BucketCell({ value, highlight, ccy = "EUR" }: { value: number; highlight?: boolean; ccy?: string }) {
+function BucketCell({ value, highlight, currency }: { value: number; highlight?: boolean; currency: string }) {
   if (!value || value === 0) return <td className="px-3 py-2 text-right text-stone-600">—</td>;
   const isCredit = value < 0;
   return (
     <td className={`px-3 py-2 text-right tabular-nums text-sm ${
       isCredit ? "text-rose-400 font-medium" : highlight ? "font-semibold text-white" : "text-stone-300"
     }`}>
-      {fmt.money(value, ccy)}
+      {fmt.money(value, currency)}
+    </td>
+  );
+}
+
+/** For aggregate rows where the bucket value spans multiple currencies, render CurrencyPills. */
+function AggregateBucketCell({ invoices, bucket, asAtDate, highlight }: { invoices: any[]; bucket: string; asAtDate: Date; highlight?: boolean }) {
+  const breakdown: Record<string, number> = {};
+  for (const inv of invoices) {
+    const b = invBuckets(inv, asAtDate);
+    const v = b[bucket];
+    if (!v) continue;
+    const c = inv.currency || "EUR";
+    breakdown[c] = (breakdown[c] || 0) + v;
+  }
+  const hasValue = Object.values(breakdown).some(v => v !== 0);
+  if (!hasValue) return <td className="px-3 py-2 text-right text-stone-600">—</td>;
+  const hasCredit = Object.values(breakdown).some(v => v < 0);
+  return (
+    <td className={`px-3 py-2 text-right tabular-nums text-sm ${
+      hasCredit ? "text-rose-400 font-medium" : highlight ? "font-semibold text-white" : "text-stone-300"
+    }`}>
+      <CurrencyPills breakdown={Object.fromEntries(Object.entries(breakdown).map(([c, v]) => [c, Math.abs(v)]))} />
     </td>
   );
 }
@@ -519,8 +592,6 @@ function BucketCell({ value, highlight, ccy = "EUR" }: { value: number; highligh
 // BY CUSTOMER VIEW — matches QBO AR Aging Summary
 // ============================================================
 function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
 
@@ -617,15 +688,18 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                     <span className="font-semibold text-white">{customer.name}</span>
                   </div>
                 </td>
-                {BUCKETS.map(b => <BucketCell key={b} value={totals[b]} highlight ccy={ccy} />)}
-                <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">{fmt.money(totals.total, ccy)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={[...directInvoices, ...Object.values(projMap).flatMap((p: any) => p.invoices)]} bucket={b} asAtDate={asAtDate} highlight />)}
+                <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; [...directInvoices, ...Object.values(projMap).flatMap((p: any) => p.invoices)].forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
               </tr>,
 
               // Expanded: projects
               ...(isOpen ? [
                 // Direct invoices (no project)
-                ...directInvoices.map(inv => {
+                ...directInvoices.map((inv: any) => {
                   const b = invBuckets(inv, asAtDate);
+                  const invCcy: string = inv.currency || "EUR";
                   return (
                     <tr key={`inv-${inv.id}`} className="border-b border-stone-800 bg-stone-800/30 hover:bg-stone-800/50">
                       <td className="px-4 py-1.5">
@@ -636,8 +710,8 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                           <span className="text-[11px] text-stone-500">· Due {inv.dueDate}</span>
                         </div>
                       </td>
-                      {BUCKETS.map(bk => <BucketCell key={bk} value={b[bk]} ccy={ccy} />)}
-                      <td className="px-4 py-1.5 text-right tabular-nums text-[12px] text-stone-300">{fmt.money(b.total, ccy)}</td>
+                      {BUCKETS.map(bk => <BucketCell key={bk} value={b[bk]} currency={invCcy} />)}
+                      <td className="px-4 py-1.5 text-right tabular-nums text-[12px] text-stone-300">{fmt.money(b.total, invCcy)}</td>
                     </tr>
                   );
                 }),
@@ -654,13 +728,16 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                         )}
                       </div>
                     </td>
-                    {BUCKETS.map(b => <BucketCell key={b} value={pb[b]} ccy={ccy} />)}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-[12px] text-stone-200">{fmt.money(pb.total, ccy)}</td>
+                    {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={projInvs} bucket={b} asAtDate={asAtDate} />)}
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-[12px] text-stone-200">
+                      <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; projInvs.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                    </td>
                   </tr>,
 
                   // Individual invoices under project
                   ...projInvs.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((inv: any) => {
                     const ib = invBuckets(inv, asAtDate);
+                    const invCcy: string = inv.currency || "EUR";
                     return (
                       <tr key={`inv-${inv.id}`} className="border-b border-stone-800 hover:bg-stone-800/40">
                         <td className="px-4 py-1.5">
@@ -671,8 +748,8 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                             <span className="text-[10px] text-stone-500">· Due {inv.dueDate}</span>
                           </div>
                         </td>
-                        {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
-                        <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-400">{fmt.money(ib.total, ccy)}</td>
+                        {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} currency={invCcy} />)}
+                        <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-400">{fmt.money(ib.total, invCcy)}</td>
                       </tr>
                     );
                   }),
@@ -683,8 +760,10 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
                   <td className="px-4 py-2 pl-4">
                     <span className="text-[12px] font-bold text-stone-300">Total for {customer.name}</span>
                   </td>
-                  {BUCKETS.map(b => <td key={b} className={`px-3 py-2 text-right text-[12px] font-bold tabular-nums ${totals[b] < 0 ? "text-rose-400" : "text-white"}`}>{totals[b] !== 0 ? fmt.money(totals[b], ccy) : "—"}</td>)}
-                  <td className="px-4 py-2 text-right text-[12px] font-bold tabular-nums text-white">{fmt.money(totals.total, ccy)}</td>
+                  {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={[...directInvoices, ...Object.values(projMap).flatMap((p: any) => p.invoices)]} bucket={b} asAtDate={asAtDate} highlight />)}
+                  <td className="px-4 py-2 text-right text-[12px] font-bold tabular-nums text-white">
+                    <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; [...directInvoices, ...Object.values(projMap).flatMap((p: any) => p.invoices)].forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                  </td>
                 </tr>,
               ] : [])
             ];
@@ -693,12 +772,10 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
           {/* Grand total */}
           <tr className="bg-stone-900 text-white">
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => (
-              <td key={b} className={`px-3 py-3 text-right font-bold tabular-nums text-sm ${grandTotals[b] < 0 ? "text-rose-300" : ""}`}>
-                {grandTotals[b] !== 0 ? fmt.money(grandTotals[b], ccy) : "—"}
-              </td>
-            ))}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
+            {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
+            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
+              <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+            </td>
           </tr>
         </tbody>
       </table>
@@ -710,8 +787,6 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
 // BY PROJECT VIEW
 // ============================================================
 function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -814,12 +889,15 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                     </div>
                   </div>
                 </td>
-                {BUCKETS.map(b => <BucketCell key={b} value={buckets[b]} highlight ccy={ccy} />)}
-                <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">{fmt.money(buckets.total, ccy)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={projInvs} bucket={b} asAtDate={asAtDate} highlight />)}
+                <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; projInvs.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
               </tr>,
 
               ...(isOpen ? projInvs.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((inv: any) => {
                 const ib = invBuckets(inv, asAtDate);
+                const invCcy: string = inv.currency || "EUR";
                 return (
                   <tr key={`inv-${inv.id}`} className="border-b border-stone-800 bg-stone-800/30 hover:bg-stone-800/40">
                     <td className="px-4 py-1.5">
@@ -828,8 +906,8 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
                         <span className="text-[10px] text-stone-500">· Due {inv.dueDate}</span>
                       </div>
                     </td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
-                    <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-400">{fmt.money(ib.total, ccy)}</td>
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} currency={invCcy} />)}
+                    <td className="px-4 py-1.5 text-right tabular-nums text-[11px] text-stone-400">{fmt.money(ib.total, invCcy)}</td>
                   </tr>
                 );
               }) : [])
@@ -838,8 +916,10 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
 
           <tr className="bg-stone-900 text-white">
             <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => <td key={b} className={`px-3 py-3 text-right font-bold tabular-nums text-sm ${grandTotals[b] < 0 ? "text-rose-300" : ""}`}>{grandTotals[b] !== 0 ? fmt.money(grandTotals[b], ccy) : "—"}</td>)}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">{fmt.money(grandTotals.total, ccy)}</td>
+            {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
+            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
+              <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+            </td>
           </tr>
         </tbody>
       </table>
@@ -894,8 +974,6 @@ function ActivityReport({ communications }: any) {
 // REGIONAL AR REPORT — Management view
 // ============================================================
 function RegionalReport({ invoices, customers, projects, regions, regionFilter, asAt }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -960,7 +1038,9 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-500/15 text-rose-400 rounded font-medium">High risk</span>}
                 {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded font-medium">Watch</span>}
               </div>
-              <div className="text-xl font-bold text-white tabular-nums mb-1">{fmt.money(r.buckets.total, ccy)}</div>
+              <div className="text-xl font-bold text-white tabular-nums mb-1">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </div>
               <div className="text-[11px] text-stone-400 mb-3">{r.customers.size} customers · {r.invoices.length} invoices</div>
 
               {/* Aging bar */}
@@ -990,7 +1070,9 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
         <div key={r.region} className="ring-1 ring-stone-800 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-stone-800/60 border-b border-stone-800 flex items-center justify-between">
             <div className="font-semibold text-white">{r.region} — Detailed Aging</div>
-            <div className="font-bold text-white tabular-nums">{fmt.money(r.buckets.total, ccy)}</div>
+            <div className="font-bold text-white tabular-nums">
+              <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+            </div>
           </div>
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
@@ -1006,14 +1088,15 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 const cust = customers.find((c: any) => c.id === inv.customerId);
                 const proj = projects.find((p: any) => p.id === inv.projectId);
                 const ib = invBuckets(inv, asAtDate);
+                const invCcy: string = inv.currency || "EUR";
                 return (
                   <tr key={inv.id} className="border-b border-stone-800 hover:bg-stone-800/50">
                     <td className="px-4 py-2 text-[12px] text-stone-300">{cust?.name}</td>
                     <td className="px-3 py-2 text-[11px] text-stone-400">{proj?.name || "—"}</td>
                     <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-emerald-400 hover:underline">{inv.invoiceNumber}</Link></td>
                     <td className="px-3 py-2 text-[11px] text-stone-400">{inv.dueDate}</td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
-                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} currency={invCcy} />)}
+                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, invCcy)}</td>
                   </tr>
                 );
               })}
@@ -1040,8 +1123,10 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 <td className="px-4 py-2.5 font-medium text-white">{r.region}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.customers.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
-                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} ccy={ccy} />)}
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={r.invoices} bucket={b} asAtDate={asAtDate} />)}
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
@@ -1049,8 +1134,10 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
               <td className="px-4 py-3 font-bold">TOTAL</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.customers.size, 0)}</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b], ccy) : "—"}</td>)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total, ccy)}</td>
+              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} />)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </td>
               <td className="px-4 py-3 text-right font-bold">100%</td>
             </tr>
           </tbody>
@@ -1064,8 +1151,6 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
 // BY REP REPORT — matches RegionalReport style
 // ============================================================
 function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const asAtDate = useMemo(() => asAt ? new Date(asAt + "T23:59:59") : new Date(), [asAt]);
   const toggle = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1122,7 +1207,9 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">High risk</span>}
                 {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">Watch</span>}
               </div>
-              <div className="text-xl font-bold text-white tabular-nums mb-1">{fmt.money(r.buckets.total, ccy)}</div>
+              <div className="text-xl font-bold text-white tabular-nums mb-1">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </div>
               <div className="text-[11px] text-stone-400 mb-3">{r.custSet.size} customers · {r.invoices.length} invoices</div>
               <div className="h-1.5 rounded-full overflow-hidden flex gap-px mb-2">
                 {AGING_COLORS_REG.map(({ key, color }) => {
@@ -1146,7 +1233,9 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
         <div key={r.rep.id} className="ring-1 ring-stone-800 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-stone-800/60 border-b border-stone-800 flex items-center justify-between">
             <div className="font-semibold text-white">{r.rep.name} — Detailed Aging</div>
-            <div className="font-bold text-white tabular-nums">{fmt.money(r.buckets.total, ccy)}</div>
+            <div className="font-bold text-white tabular-nums">
+            <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+          </div>
           </div>
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-800">
@@ -1162,14 +1251,15 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 const cust = customers.find((c: any) => c.id === inv.customerId);
                 const proj = projects.find((p: any) => p.id === inv.projectId);
                 const ib = invBuckets(inv, asAtDate);
+                const invCcy: string = inv.currency || "USD";
                 return (
                   <tr key={inv.id} className="border-b border-stone-800 hover:bg-stone-800/50">
-                    <td className="px-4 py-2 text-[12px] text-stone-700">{cust?.name}</td>
-                    <td className="px-3 py-2 text-[11px] text-stone-500">{proj?.name || "—"}</td>
-                    <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-blue-600 hover:underline">{inv.invoiceNumber}</Link></td>
-                    <td className="px-3 py-2 text-[11px] text-stone-500">{inv.dueDate}</td>
-                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} ccy={ccy} />)}
-                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, ccy)}</td>
+                    <td className="px-4 py-2 text-[12px] text-stone-300">{cust?.name}</td>
+                    <td className="px-3 py-2 text-[11px] text-stone-400">{proj?.name || "—"}</td>
+                    <td className="px-3 py-2"><Link href={`/invoices/${inv.id}`} className="text-[11px] font-mono text-emerald-400 hover:underline">{inv.invoiceNumber}</Link></td>
+                    <td className="px-3 py-2 text-[11px] text-stone-400">{inv.dueDate}</td>
+                    {BUCKETS.map(bk => <BucketCell key={bk} value={ib[bk]} currency={invCcy} />)}
+                    <td className="px-4 py-2 text-right font-semibold text-[12px] tabular-nums">{fmt.money(ib.total, invCcy)}</td>
                   </tr>
                 );
               })}
@@ -1196,8 +1286,10 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 <td className="px-4 py-2.5 font-medium text-white">{r.rep.name}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.custSet.size}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
-                {BUCKETS.map(b => <BucketCell key={b} value={r.buckets[b]} ccy={ccy} />)}
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmt.money(r.buckets.total, ccy)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={r.invoices} bucket={b} asAtDate={asAtDate} />)}
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
@@ -1205,8 +1297,10 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
               <td className="px-4 py-3 font-bold">TOTAL</td>
               <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <td key={b} className="px-3 py-3 text-right font-bold tabular-nums">{grandTotal[b] > 0 ? fmt.money(grandTotal[b], ccy) : "—"}</td>)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmt.money(grandTotal.total, ccy)}</td>
+              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} highlight />)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </td>
               <td className="px-4 py-3 text-right font-bold">100%</td>
             </tr>
           </tbody>
@@ -1224,11 +1318,9 @@ const AGING_COLORS_REG = [
   { key: "90+", color: "bg-rose-700" },
 ];
 
-// AR Health has been moved to the Dashboard page.
-// ──────────────────────────────────────────────────────────────────────────
-function ArHealthReport({ invoices, customers, projects, reps, communications, regionFilter }: any) {
-  const { orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
+// AR Health has been moved to the Dashboard page — this stub keeps the file compilable.
+function _arHealthPlaceholder() {
+  const ccy = "USD"; // stub — function is never called
   const filteredInvoices = useMemo(() => {
     if (!regionFilter) return invoices;
     return invoices.filter((i: any) => {
@@ -1611,7 +1703,6 @@ const SALES_BREAKDOWN: Partial<Record<ReportId, "customer" | "project" | "rep" |
 
 export default function ReportsPage() {
   const { invoices, customers, projects, regions, reps, communications, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const [report, setReport] = useState<ReportId>("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());

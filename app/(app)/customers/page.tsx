@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo, useEffect } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
@@ -105,11 +105,11 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c
           <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-800">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
-              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{fmt.money(c.outstanding, ccy)}</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{fmt.money(c.outstanding, c.invoiceCurrency)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
-              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-400" : "text-white"}`}>{fmt.money(c.overdue, ccy)}</div>
+              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-400" : "text-white"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open inv.</div>
@@ -123,22 +123,7 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle }: { c
 });
 
 export default function CustomersPage() {
-  const { customers, invoices, reps, regions, bulkDeleteCustomers, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "USD";
-
-  const [fxRates, setFxRates] = useState<Record<string, number>>({});
-  useEffect(() => {
-    fetch("/api/fx-rates")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.rates) setFxRates(d.rates); })
-      .catch(() => {});
-  }, []);
-
-  const toHome = useCallback((amount: number, currency: string): number => {
-    if (!currency || currency === ccy) return amount;
-    const rate = fxRates[currency];
-    return rate ? amount / rate : amount;
-  }, [fxRates, ccy]);
+  const { customers, invoices, reps, regions, bulkDeleteCustomers } = useData() as any;
 
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
@@ -155,16 +140,17 @@ export default function CustomersPage() {
     return customers.map((c: any) => {
       const custInvoices = invoices.filter((i: any) => i.customerId === c.id);
       const open = custInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-      const outstanding = open.reduce((s: number, i: any) => s + toHome(i.total - (i.paid || 0), i.currency ?? ccy), 0);
-      const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + toHome(i.total - (i.paid || 0), i.currency ?? ccy), 0);
+      const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+      const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const rep = reps.find((r: any) => r.id === c.repId);
       const region = regions.find((r: any) => r.id === c.regionId);
       // Compute status from outstanding — always real-time, no sync delay needed.
       // "On Hold" is a manual override and is preserved regardless of AR balance.
       const effectiveStatus = c.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
-      return { ...c, outstanding, overdue, openCount: open.length, repName: rep?.name, regionName: region?.name, effectiveStatus };
+      const invoiceCurrency = open[0]?.currency ?? "?";
+      return { ...c, outstanding, overdue, openCount: open.length, repName: rep?.name, regionName: region?.name, effectiveStatus, invoiceCurrency };
     });
-  }, [customers, invoices, reps, regions, toHome, ccy]);
+  }, [customers, invoices, reps, regions]);
 
   const filtered = useMemo(() => {
     let res = enriched;
@@ -331,8 +317,8 @@ export default function CustomersPage() {
                     <td className="px-3 py-2.5">
                       <Badge variant={c.effectiveStatus === "Active" ? "green" : c.effectiveStatus === "On Hold" ? "orange" : "neutral"} size="sm">{c.effectiveStatus}</Badge>
                     </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(c.outstanding, ccy)}</td>
-                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-400" : "text-stone-500"}`}>{fmt.money(c.overdue, ccy)}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(c.outstanding, c.invoiceCurrency)}</td>
+                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-400" : "text-stone-500"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</td>
                     <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums">{c.openCount}</td>
                   </tr>
                 ))}

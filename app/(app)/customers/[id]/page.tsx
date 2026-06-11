@@ -43,6 +43,7 @@ export default function CustomerDetailPage() {
   const open = custInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
   const invoiceOutstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
   const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+  const invCcy = open[0]?.currency ?? customer.currency ?? "USD";
   const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
   open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
 
@@ -102,7 +103,7 @@ export default function CustomerDetailPage() {
               </Badge>
               {outstanding > 0 && (
                 <span className="text-sm font-semibold tabular-nums text-stone-300">
-                  {fmt.money(outstanding, customer.currency)} outstanding
+                  {fmt.money(outstanding, invCcy)} outstanding
                 </span>
               )}
             </div>
@@ -146,11 +147,11 @@ export default function CustomerDetailPage() {
       <div className="grid grid-cols-4 gap-3 mb-6">
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Outstanding</div>
-          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(outstanding, customer.currency)}</div>
+          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(outstanding, invCcy)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdue, customer.currency)}</div>
+          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdue, invCcy)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open invoices</div>
@@ -158,7 +159,7 @@ export default function CustomerDetailPage() {
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Credit limit</div>
-          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(customer.creditLimit, customer.currency)}</div>
+          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(customer.creditLimit, invCcy)}</div>
         </Card>
       </div>
 
@@ -196,7 +197,7 @@ export default function CustomerDetailPage() {
                     <div className="flex-1 h-6 bg-stone-800 rounded relative overflow-hidden">
                       <div className={`h-full ${colors[i]}`} style={{ width: `${(buckets[b] / max) * 100}%` }} />
                     </div>
-                    <div className="w-28 text-right text-sm font-semibold text-stone-100 tabular-nums">{fmt.money(buckets[b], customer.currency)}</div>
+                    <div className="w-28 text-right text-sm font-semibold text-stone-100 tabular-nums">{fmt.money(buckets[b], invCcy)}</div>
                   </div>
                 );
               })}
@@ -271,6 +272,7 @@ export default function CustomerDetailPage() {
               const projOpen = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
               const projOut = projOpen.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
               const projOverdue = projOpen.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+              const projCcy = projOpen[0]?.currency ?? invCcy;
               return (
                 <Link key={p.id} href={`/projects/${p.id}`} className="block group">
                   <Card className="group-hover:ring-stone-600 transition-colors cursor-pointer">
@@ -286,8 +288,8 @@ export default function CustomerDetailPage() {
                     <div className="flex items-center justify-between pt-3 border-t border-stone-800 mt-3">
                       <span className="text-xs text-stone-500">{projInvoices.length} invoice{projInvoices.length !== 1 ? "s" : ""}</span>
                       <div className="text-right">
-                        <div className="text-sm font-semibold tabular-nums text-stone-100">{fmt.money(projOut, customer.currency)}</div>
-                        {projOverdue > 0 && <div className="text-[11px] text-rose-400 font-medium tabular-nums">{fmt.money(projOverdue, customer.currency)} overdue</div>}
+                        <div className="text-sm font-semibold tabular-nums text-stone-100">{fmt.money(projOut, projCcy)}</div>
+                        {projOverdue > 0 && <div className="text-[11px] text-rose-400 font-medium tabular-nums">{fmt.money(projOverdue, projCcy)} overdue</div>}
                       </div>
                     </div>
                   </Card>

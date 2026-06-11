@@ -347,7 +347,7 @@ export default function InvoiceDetailPage() {
             days: daysOverdue(inv.dueDate),
             email: inv.billingEmail ?? null,
           }]}
-          ccy={orgSettings?.currency ?? inv.currency ?? "EUR"}
+          ccy={inv.currency ?? "EUR"}
           onClose={() => setShowCompose(false)}
           onSent={() => { setShowCompose(false); refresh(); }}
           toast={toast}

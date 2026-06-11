@@ -139,17 +139,17 @@ export default function ReconcilePage() {
             <div className={`text-2xl font-semibold tabular-nums ${totals.customersInDrift > 0 ? "text-rose-700" : "text-emerald-700"}`}>
               {totals.customersInDrift}
             </div>
-            <div className="text-[11px] text-stone-500 mt-2">{totals.customersInMatch} match · tolerance €{tolerance}</div>
+            <div className="text-[11px] text-stone-500 mt-2">{totals.customersInMatch} match · tolerance {tolerance}</div>
           </Card>
           <Card padding="md">
             <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Our total net AR</div>
-            <div className="text-2xl font-semibold text-stone-900 tabular-nums">{fmt.money(totals.ourTotalNetAR, "EUR")}</div>
+            <div className="text-2xl font-semibold text-stone-900 tabular-nums">{fmt.money(totals.ourTotalNetAR, "?")}</div>
           </Card>
           <Card padding="md">
             <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">QBO total net AR</div>
-            <div className="text-2xl font-semibold text-stone-900 tabular-nums">{fmt.money(totals.qboTotalNetAR, "EUR")}</div>
+            <div className="text-2xl font-semibold text-stone-900 tabular-nums">{fmt.money(totals.qboTotalNetAR, "?")}</div>
             <div className={`text-[11px] mt-2 tabular-nums ${Math.abs(totals.ourTotalNetAR - totals.qboTotalNetAR) < 1 ? "text-emerald-600" : "text-rose-700"}`}>
-              Δ {fmt.money(totals.ourTotalNetAR - totals.qboTotalNetAR, "EUR")}
+              Δ {fmt.money(totals.ourTotalNetAR - totals.qboTotalNetAR, "?")}
             </div>
           </Card>
         </div>
@@ -219,7 +219,7 @@ export default function ReconcilePage() {
             <CheckCircle size={32} className="mx-auto text-emerald-500 mb-2" />
             <div className="text-sm text-stone-700 font-medium">All customers tie to QBO</div>
             <div className="text-[12px] text-stone-500 mt-1">
-              {totals.customersInMatch} of {totals.customersChecked} customers match within €{tolerance} tolerance.
+              {totals.customersInMatch} of {totals.customersChecked} customers match within {tolerance} tolerance.
             </div>
           </div>
         </Card>

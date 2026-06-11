@@ -6,6 +6,7 @@ import { Card, Button, Badge } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { Calendar, FileText, RefreshCw, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { CurrencyPills } from "@/components/currency-pills";
 
 type Bucket = "Current" | "1-30" | "31-60" | "61-90" | "90+";
 const BUCKETS: Bucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
@@ -78,8 +79,7 @@ function bucketColor(b: Bucket): string {
 }
 
 export function ArAgingReport() {
-  const { customers, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
+  const { customers } = useData() as any;
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const [asOf, setAsOf] = useState(todayIso);
@@ -242,18 +242,18 @@ export function ArAgingReport() {
                 <div>
                   <span className="text-stone-500">QBO Balance Sheet AR: </span>
                   <span className="font-semibold tabular-nums text-stone-900">
-                    {recon.balanceSheetAR !== null ? fmt.money(recon.balanceSheetAR, ccy) : "—"}
+                    {recon.balanceSheetAR !== null ? fmt.money(recon.balanceSheetAR, "?") : "—"}
                   </span>
                 </div>
                 <div>
                   <span className="text-stone-500">Our AR Aging total: </span>
-                  <span className="font-semibold tabular-nums text-stone-900">{fmt.money(recon.ledgerAR, ccy)}</span>
+                  <span className="font-semibold tabular-nums text-stone-900">{fmt.money(recon.ledgerAR, "?")}</span>
                 </div>
                 {recon.variance !== null && (
                   <div>
                     <span className="text-stone-500">Variance: </span>
                     <span className={`font-semibold tabular-nums ${Math.abs(recon.variance) < 1 ? "text-emerald-700" : "text-rose-700"}`}>
-                      {fmt.money(recon.variance, ccy)}
+                      {fmt.money(recon.variance, "?")}
                     </span>
                   </div>
                 )}
@@ -345,13 +345,21 @@ export function ArAgingReport() {
                           )}
                         </div>
                       </td>
-                      {BUCKETS.map(b => (
-                        <td key={b} className={`px-3 py-3 text-right tabular-nums ${row.buckets[b] !== 0 ? bucketColor(b) : "text-stone-300"}`}>
-                          {Math.abs(row.buckets[b]) > 0.005 ? fmt.money(row.buckets[b], ccy) : "—"}
-                        </td>
-                      ))}
+                      {BUCKETS.map(b => {
+                        const bkByCcy: Record<string, number> = {};
+                        custDetail.filter(d => d.bucket === b).forEach(d => { bkByCcy[d.currency] = (bkByCcy[d.currency] || 0) + d.openBalance; });
+                        return (
+                          <td key={b} className={`px-3 py-3 text-right tabular-nums ${row.buckets[b] !== 0 ? bucketColor(b) : "text-stone-300"}`}>
+                            {Math.abs(row.buckets[b]) > 0.005 ? <CurrencyPills breakdown={bkByCcy} /> : "—"}
+                          </td>
+                        );
+                      })}
                       <td className={`px-4 py-3 text-right tabular-nums font-semibold ${row.total < 0 ? "text-amber-700" : "text-stone-900"}`}>
-                        {fmt.money(row.total, ccy)}
+                        {(() => {
+                          const totByCcy: Record<string, number> = {};
+                          custDetail.forEach(d => { totByCcy[d.currency] = (totByCcy[d.currency] || 0) + d.openBalance; });
+                          return <CurrencyPills breakdown={totByCcy} />;
+                        })()}
                       </td>
                     </tr>
                     {isExpanded && custDetail.map(d => (
@@ -380,13 +388,21 @@ export function ArAgingReport() {
             <tfoot>
               <tr className="border-t-2 border-stone-300 bg-stone-50">
                 <td className="px-4 py-3 font-semibold text-stone-900">TOTAL</td>
-                {BUCKETS.map(b => (
-                  <td key={b} className={`px-3 py-3 text-right tabular-nums font-semibold ${data.grandTotals[b] !== 0 ? bucketColor(b) : "text-stone-300"}`}>
-                    {Math.abs(data.grandTotals[b]) > 0.005 ? fmt.money(data.grandTotals[b], ccy) : "—"}
-                  </td>
-                ))}
+                {BUCKETS.map(b => {
+                  const gtByCcy: Record<string, number> = {};
+                  data.detail.filter(d => d.bucket === b).forEach(d => { gtByCcy[d.currency] = (gtByCcy[d.currency] || 0) + d.openBalance; });
+                  return (
+                    <td key={b} className={`px-3 py-3 text-right tabular-nums font-semibold ${data.grandTotals[b] !== 0 ? bucketColor(b) : "text-stone-300"}`}>
+                      {Math.abs(data.grandTotals[b]) > 0.005 ? <CurrencyPills breakdown={gtByCcy} /> : "—"}
+                    </td>
+                  );
+                })}
                 <td className="px-4 py-3 text-right tabular-nums font-bold text-stone-900">
-                  {fmt.money(data.grandTotals.total, ccy)}
+                  {(() => {
+                    const allByCcy: Record<string, number> = {};
+                    data.detail.forEach(d => { allByCcy[d.currency] = (allByCcy[d.currency] || 0) + d.openBalance; });
+                    return <CurrencyPills breakdown={allByCcy} />;
+                  })()}
                 </td>
               </tr>
             </tfoot>
@@ -461,7 +477,13 @@ export function ArAgingReport() {
             <tfoot>
               <tr className="border-t-2 border-stone-300 bg-stone-50">
                 <td colSpan={7} className="px-3 py-3 text-right font-semibold text-stone-900">GRAND TOTAL</td>
-                <td className="px-3 py-3 text-right tabular-nums font-bold text-stone-900">{fmt.money(data.grandTotals.total, ccy)}</td>
+                <td className="px-3 py-3 text-right tabular-nums font-bold text-stone-900">
+                  {(() => {
+                    const dtlByCcy: Record<string, number> = {};
+                    data.detail.forEach(d => { dtlByCcy[d.currency] = (dtlByCcy[d.currency] || 0) + d.openBalance; });
+                    return <CurrencyPills breakdown={dtlByCcy} />;
+                  })()}
+                </td>
                 <td colSpan={3} />
               </tr>
             </tfoot>

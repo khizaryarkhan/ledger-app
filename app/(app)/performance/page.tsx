@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
 import { fmt, daysOverdue } from "@/lib/format";
+import { CurrencyPills } from "@/components/currency-pills";
 import {
   Users, Mail, CheckSquare, TrendingUp, TrendingDown, Target,
   AlertTriangle, BarChart3, Minus, Phone, Clock,
@@ -36,8 +37,7 @@ function Chip({
 
 // ─── main ────────────────────────────────────────────────────────────────────
 export default function PerformancePage() {
-  const { invoices, customers, projects, reps, communications, tasks, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
+  const { invoices, customers, projects, reps, communications, tasks } = useData() as any;
   const [period, setPeriod] = useState<"week" | "month">("month");
 
   const now = new Date();
@@ -119,6 +119,25 @@ export default function PerformancePage() {
         .filter((i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate)
         .reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
 
+      // Currency breakdowns for multi-currency display
+      function byCcy(invs: any[], amtFn: (i: any) => number): Record<string, number> {
+        const out: Record<string, number> = {};
+        for (const i of invs) {
+          const c = i.currency ?? "?";
+          const a = amtFn(i);
+          if (a) out[c] = (out[c] || 0) + a;
+        }
+        return out;
+      }
+      const openARByCcy       = byCcy(openInvs, i => i.total - (i.paid || 0));
+      const overdueARByCcy    = byCcy(overdueInvs, i => i.total - (i.paid || 0));
+      const cashCollByCcy     = byCcy(repInvs.filter((i: any) => i.paidAt && i.paidAt >= periodStart), i => i.total);
+      const at90plusByCcy     = byCcy(openInvs.filter((i: any) => daysOverdue(i.dueDate) > 90), i => i.total - (i.paid || 0));
+      const promisedARByCcy   = byCcy(
+        openInvs.filter((i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate),
+        i => i.total - (i.paid || 0)
+      );
+
       return {
         rep,
         openAR,
@@ -137,18 +156,38 @@ export default function PerformancePage() {
         at90plus,
         disputedAR,
         promisedAR,
+        openARByCcy,
+        overdueARByCcy,
+        cashCollByCcy,
+        at90plusByCcy,
+        promisedARByCcy,
       };
     }).sort((a: any, b: any) => b.openAR - a.openAR);
   }, [invoices, customers, projects, reps, communications, tasks, periodStart, now]);
 
   // ── totals ────────────────────────────────────────────────────────────────
-  const totals = useMemo(() => ({
-    openAR:        repData.reduce((s: number, r: any) => s + r.openAR, 0),
-    overdueAR:     repData.reduce((s: number, r: any) => s + r.overdueAR, 0),
-    cashCollected: repData.reduce((s: number, r: any) => s + r.cashCollected, 0),
-    emailsSent:    repData.reduce((s: number, r: any) => s + r.emailsSent, 0),
-    openTasks:     repData.reduce((s: number, r: any) => s + r.openTasks, 0),
-  }), [repData]);
+  const totals = useMemo(() => {
+    function mergeByCcy(key: string): Record<string, number> {
+      const out: Record<string, number> = {};
+      for (const r of repData) {
+        for (const [c, v] of Object.entries(r[key] as Record<string, number>)) {
+          out[c] = (out[c] || 0) + v;
+        }
+      }
+      return out;
+    }
+    return {
+      openAR:           repData.reduce((s: number, r: any) => s + r.openAR, 0),
+      overdueAR:        repData.reduce((s: number, r: any) => s + r.overdueAR, 0),
+      cashCollected:    repData.reduce((s: number, r: any) => s + r.cashCollected, 0),
+      emailsSent:       repData.reduce((s: number, r: any) => s + r.emailsSent, 0),
+      openTasks:        repData.reduce((s: number, r: any) => s + r.openTasks, 0),
+      openARByCcy:      mergeByCcy("openARByCcy"),
+      overdueARByCcy:   mergeByCcy("overdueARByCcy"),
+      cashCollByCcy:    mergeByCcy("cashCollByCcy"),
+      at90plusByCcy:    mergeByCcy("at90plusByCcy"),
+    };
+  }, [repData]);
 
   const maxCash  = Math.max(...repData.map((r: any) => r.cashCollected), 1);
   const maxEmails = Math.max(...repData.map((r: any) => r.emailsSent), 1);
@@ -211,13 +250,13 @@ export default function PerformancePage() {
 
       {/* Org-level KPIs */}
       <div className="grid grid-cols-5 gap-3 mb-5">
-        {[
-          { label: "Total Open AR", value: fmt.money(totals.openAR, ccy), sub: `across ${repData.length} reps`, icon: BarChart3, color: "text-white" },
-          { label: "Total Overdue", value: fmt.money(totals.overdueAR, ccy), sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-400" },
-          { label: "Cash Collected", value: fmt.money(totals.cashCollected, ccy), sub: periodLabel, icon: TrendingUp, color: "text-emerald-400" },
-          { label: "Emails Sent", value: String(totals.emailsSent), sub: periodLabel, icon: Mail, color: "text-white" },
-          { label: "Open Tasks", value: String(totals.openTasks), sub: "assigned to reps", icon: CheckSquare, color: "text-amber-600" },
-        ].map(({ label, value, sub, icon: Icon, color }) => (
+        {([
+          { label: "Total Open AR",   value: <CurrencyPills breakdown={totals.openARByCcy} />,    sub: `across ${repData.length} reps`,  icon: BarChart3,    color: "text-white"      },
+          { label: "Total Overdue",   value: <CurrencyPills breakdown={totals.overdueARByCcy} />, sub: `${totals.openAR > 0 ? ((totals.overdueAR/totals.openAR)*100).toFixed(0) : 0}% of AR`, icon: AlertTriangle, color: "text-rose-400"  },
+          { label: "Cash Collected",  value: <CurrencyPills breakdown={totals.cashCollByCcy} />,  sub: periodLabel,                       icon: TrendingUp,   color: "text-emerald-400"},
+          { label: "Emails Sent",     value: String(totals.emailsSent),                           sub: periodLabel,                       icon: Mail,         color: "text-white"      },
+          { label: "Open Tasks",      value: String(totals.openTasks),                            sub: "assigned to reps",                icon: CheckSquare,  color: "text-amber-600"  },
+        ] as { label: string; value: React.ReactNode; sub: string; icon: any; color: string }[]).map(({ label, value, sub, icon: Icon, color }) => (
           <Card key={label} padding="md">
             <div className="flex items-center gap-2 mb-2">
               <Icon size={14} className={`${color} shrink-0`} />
@@ -262,13 +301,13 @@ export default function PerformancePage() {
                     {r.rep.email && <div className="text-[11px] text-stone-400">{r.rep.email}</div>}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-stone-400">{r.custCount}</td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums text-white">{fmt.money(r.openAR, ccy)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-rose-400 font-medium">{fmt.money(r.overdueAR, ccy)}</td>
+                  <td className="px-3 py-3 text-right font-bold tabular-nums text-white"><CurrencyPills breakdown={r.openARByCcy} /></td>
+                  <td className="px-3 py-3 text-right tabular-nums text-rose-400 font-medium"><CurrencyPills breakdown={r.overdueARByCcy} /></td>
                   <td className="px-3 py-3 text-right">
                     <Chip value={r.overduePct} good={20} warn={50} />
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-stone-400 text-xs">
-                    {r.at90plus > 0 ? <span className="text-rose-400 font-medium">{fmt.money(r.at90plus, ccy)}</span> : <span className="text-stone-600">—</span>}
+                    {r.at90plus > 0 ? <span className="text-rose-400 font-medium"><CurrencyPills breakdown={r.at90plusByCcy} /></span> : <span className="text-stone-600">—</span>}
                   </td>
                   <td className="px-3 py-3 text-right">
                     {r.avgDPD > 0 ? (
@@ -282,7 +321,7 @@ export default function PerformancePage() {
                       <div className="w-16">
                         <ScoreBar value={r.cashCollected} max={maxCash} color="bg-emerald-500" />
                       </div>
-                      <span className="text-xs font-semibold text-emerald-400 tabular-nums">{fmt.money(r.cashCollected, ccy)}</span>
+                      <span className="text-xs font-semibold text-emerald-400 tabular-nums"><CurrencyPills breakdown={r.cashCollByCcy} /></span>
                     </div>
                   </td>
                   <td className="px-3 py-3">
@@ -309,14 +348,14 @@ export default function PerformancePage() {
               <tr className="bg-stone-900 text-white">
                 <td className="px-5 py-3 font-bold text-sm">TOTAL</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.custCount, 0)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.openAR, ccy)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.overdueAR, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.openARByCcy} /></td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.overdueARByCcy} /></td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">
                   {totals.openAR > 0 ? ((totals.overdueAR / totals.openAR) * 100).toFixed(0) : 0}%
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(repData.reduce((s: number, r: any) => s + r.at90plus, 0), ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.at90plusByCcy} /></td>
                 <td className="px-3 py-3" />
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{fmt.money(totals.cashCollected, ccy)}</td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.cashCollByCcy} /></td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{totals.emailsSent}</td>
                 <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.repliesReceived, 0)}</td>
                 <td className="px-5 py-3 text-right font-bold tabular-nums">{totals.openTasks}</td>
@@ -367,11 +406,11 @@ export default function PerformancePage() {
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Open AR</div>
-                  <div className="text-base font-bold text-white tabular-nums">{fmt.money(r.openAR, ccy)}</div>
+                  <div className="text-base font-bold text-white tabular-nums"><CurrencyPills breakdown={r.openARByCcy} /></div>
                 </div>
                 <div>
                   <div className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider mb-0.5">Cash {period === "month" ? "MTD" : "WTD"}</div>
-                  <div className="text-base font-bold text-emerald-400 tabular-nums">{fmt.money(r.cashCollected, ccy)}</div>
+                  <div className="text-base font-bold text-emerald-400 tabular-nums"><CurrencyPills breakdown={r.cashCollByCcy} /></div>
                 </div>
               </div>
 
@@ -395,13 +434,13 @@ export default function PerformancePage() {
                 {r.at90plus > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-stone-500 flex items-center gap-1"><AlertTriangle size={10} /> 90+ days</span>
-                    <span className="font-semibold text-rose-600">{fmt.money(r.at90plus, ccy)}</span>
+                    <span className="font-semibold text-rose-600"><CurrencyPills breakdown={r.at90plusByCcy} /></span>
                   </div>
                 )}
                 {r.promisedAR > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-stone-500 flex items-center gap-1"><Target size={10} /> Promised</span>
-                    <span className="font-semibold text-amber-600">{fmt.money(r.promisedAR, ccy)}</span>
+                    <span className="font-semibold text-amber-600"><CurrencyPills breakdown={r.promisedARByCcy} /></span>
                   </div>
                 )}
               </div>

@@ -835,18 +835,6 @@ export const rateLimits = pgTable("rate_limits", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
-// =========================================================================
-// FX RATES — live exchange rate cache (base → quote, refreshed every 4h)
-// Shared across all orgs; rates are universal.
-// =========================================================================
-export const fxRates = pgTable("fx_rates", {
-  base:      varchar("base",  { length: 8 }).notNull(),
-  quote:     varchar("quote", { length: 8 }).notNull(),
-  rate:      real("rate").notNull(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({
-  baseQuoteUnique: uniqueIndex("fx_rates_base_quote_unique").on(t.base, t.quote),
-}));
 
 // Type exports
 export type User = typeof users.$inferSelect;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
@@ -8,6 +8,7 @@ import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail, X } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
+import { CurrencyPills } from "@/components/currency-pills";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -20,20 +21,26 @@ function openBal(inv: any): number {
 }
 
 // ── AR Health widget ────────────────────────────────────────────────────────
-function ArHealthWidget({ invoices, customers, projects, reps, communications, ccy, toHome }: any) {
+function ArHealthWidget({ invoices, customers, projects, reps, communications }: any) {
   const filteredInvoices = invoices;
 
   const metrics = useMemo(() => {
-    const b = (i: any) => toHome ? toHome(openBal(i), i.currency ?? ccy) : openBal(i);
     const open = filteredInvoices.filter((i: any) =>
       i.paymentStatus !== "Paid" &&
       i.paymentStatus !== "Written Off" &&
       i.txnType !== "CreditMemo"
     );
     const activeCMs = filteredInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
+    const b = (i: any) => openBal(i);
     const grossAR   = open.reduce((s: number, i: any) => s + b(i), 0);
     const creditBal = activeCMs.reduce((s: number, i: any) => s + b(i), 0);
     const totalAR   = grossAR + creditBal;
+
+    // Build per-currency breakdown for totalAR display
+    const byCcy: Record<string, number> = {};
+    open.forEach((i: any) => { const c = i.currency || "?"; byCcy[c] = (byCcy[c] || 0) + b(i); });
+    activeCMs.forEach((i: any) => { const c = i.currency || "?"; byCcy[c] = (byCcy[c] || 0) + b(i); });
+    const dominantCurrency = Object.keys(byCcy)[0] ?? "?";
 
     const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0)
       + activeCMs.reduce((s: number, i: any) => s + b(i), 0);
@@ -64,10 +71,17 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
     const emails30d  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
     const replies30d = communications.filter((c: any) => c.direction === "Inbound"  && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
 
+    const custCurrency = (invs: any[], cid: string) => invs.find((i: any) => i.customerId === cid)?.currency ?? "—";
+
     const byCust: Record<string, number> = {};
     open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
     const concentrationRows = Object.entries(byCust)
-      .map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt as number, pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0 }))
+      .map(([cid, amt]) => ({
+        customer: customers.find((c: any) => c.id === cid),
+        amount: amt as number,
+        pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0,
+        currency: custCurrency(open, cid),
+      }))
       .filter(x => x.customer)
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 10);
@@ -81,21 +95,27 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
       const repOpen    = repInvs.reduce((s: number, i: any) => s + b(i), 0);
       const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + b(i), 0);
       const custIds    = new Set(repInvs.map((i: any) => i.customerId));
-      return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size };
+      // dominant currency for this rep's portfolio
+      const repByCcy: Record<string, number> = {};
+      repInvs.forEach((i: any) => { const c = i.currency || "?"; repByCcy[c] = (repByCcy[c] || 0) + b(i); });
+      const repCcy = Object.keys(repByCcy)[0] ?? "?";
+      return { rep, openAR: repOpen, overdueAR: repOverdue, custCount: custIds.size, currency: repCcy };
     }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
 
     return {
-      totalAR, current, b1_30, b31_60, b61_90, b90plus,
+      totalAR, byCcy, dominantCurrency,
+      current, b1_30, b31_60, b61_90, b90plus,
       currentPct, over90Pct, overdueRate,
       disputeRate, highRiskPct,
       brokenPromises, neverContacted,
       concentrationRows, repPortfolio,
       openCount: open.length,
     };
-  }, [filteredInvoices, customers, projects, reps, communications, toHome, ccy]);
+  }, [filteredInvoices, customers, projects, reps, communications]);
 
   const {
-    totalAR, current, b1_30, b31_60, b61_90, b90plus,
+    totalAR, byCcy, dominantCurrency,
+    current, b1_30, b31_60, b61_90, b90plus,
     currentPct, over90Pct, overdueRate,
     disputeRate, highRiskPct,
     brokenPromises, neverContacted,
@@ -175,7 +195,9 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-stone-800/40 rounded-lg p-3 text-center">
-              <div className="text-xl font-bold text-white tabular-nums">{fmt.money(totalAR, ccy)}</div>
+              <div className="text-xl font-bold text-white tabular-nums">
+                <CurrencyPills breakdown={byCcy} />
+              </div>
               <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
             </div>
             <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-500/10" : overdueRate > 25 ? "bg-amber-500/10" : "bg-emerald-500/10"}`}>
@@ -195,7 +217,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
               <div key={label} className="flex items-center gap-2 text-[11px]">
                 <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
                 <div className="flex-1 text-stone-400">{label}</div>
-                <div className="font-semibold text-stone-200 tabular-nums">{fmt.money(value, ccy)}</div>
+                <div className="font-semibold text-stone-200 tabular-nums">{fmt.money(value, dominantCurrency)}</div>
                 <div className="w-9 text-right text-stone-500">{pct.toFixed(0)}%</div>
               </div>
             ))}
@@ -255,14 +277,14 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
           <div className="space-y-2">
             {concentrationRows.length === 0 ? (
               <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
-            ) : concentrationRows.map(({ customer, amount, pct }: any, idx: number) => (
+            ) : concentrationRows.map(({ customer, amount, pct, currency }: any, idx: number) => (
               <div key={customer.id} className="flex items-center gap-2">
                 <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="text-[12px] font-medium text-stone-300 truncate">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, ccy)}</span>
+                      <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, currency)}</span>
                       <span className="text-[11px] text-stone-500 w-9 text-right">{pct.toFixed(0)}%</span>
                     </div>
                   </div>
@@ -288,13 +310,13 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
                 </tr>
               </thead>
               <tbody>
-                {repPortfolio.map(({ rep, openAR, overdueAR }: any) => {
+                {repPortfolio.map(({ rep, openAR, overdueAR, currency }: any) => {
                   const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
                   return (
                     <tr key={rep.id} className="border-b border-stone-800 last:border-0">
                       <td className="py-2 font-medium text-stone-200 pr-3">{rep.name}</td>
-                      <td className="py-2 text-right tabular-nums text-stone-300 pr-3">{fmt.money(openAR, ccy)}</td>
-                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, ccy)}</td>
+                      <td className="py-2 text-right tabular-nums text-stone-300 pr-3">{fmt.money(openAR, currency)}</td>
+                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, currency)}</td>
                       <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-500"}`}>
                         {overdPct.toFixed(0)}%
                       </td>
@@ -317,30 +339,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications, c
 
 export default function DashboardPage() {
   const { invoices, customers, contacts, projects, regions, communications, tasks, reps, orgSettings } = useData() as any;
-  const ccy: string = orgSettings?.currency ?? "EUR";
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
-
-  // ── Live FX rates ────────────────────────────────────────────────────────
-  const [fxRates, setFxRates] = useState<Record<string, number>>({});
-  const [fxAsOf, setFxAsOf]   = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/fx-rates")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.rates) { setFxRates(d.rates); setFxAsOf(d.asOf ?? null); }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Convert an amount from its invoice currency to the org home currency.
-  // Memoized so useMemos that depend on it re-run when rates arrive.
-  const toHome = useCallback((amount: number, currency: string): number => {
-    if (!currency || currency === ccy) return amount;
-    const rate = fxRates[currency];
-    return rate ? amount / rate : amount;
-  }, [fxRates, ccy]);
 
   // ── AR Snapshot — same source used by all Reports pages ─────────────────
   // Ensures every financial figure on the dashboard reconciles with AR Reports.
@@ -400,18 +400,6 @@ export default function DashboardPage() {
       return snap;
     });
   }, [snapshotInvoices, invoices]);
-
-  // Detect mixed currencies — warn when AR data spans multiple currencies.
-  // The dashboard sums all open balances into one number using the org's home
-  // currency symbol, which is misleading when EUR and GBP invoices coexist.
-  const hasMixedCurrencies = useMemo(() => {
-    const seen = new Set<string>();
-    for (const inv of effectiveInvoices) {
-      if (inv.currency && inv.txnType !== "CreditMemo") seen.add(inv.currency);
-      if (seen.size > 1) return true;
-    }
-    return false;
-  }, [effectiveInvoices]);
 
   // Setup checklist state
   const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
@@ -476,10 +464,12 @@ export default function DashboardPage() {
       return days > 90;
     });
     if (neglected90.length > 0) {
-      const total = neglected90.reduce((s: number, i: any) => s + openBal(i), 0);
+      const breakdown: Record<string, number> = {};
+      neglected90.forEach((i: any) => { const c = i.currency || "?"; breakdown[c] = (breakdown[c] || 0) + openBal(i); });
+      const parts = Object.entries(breakdown).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ");
       list.push({
         type: "overdue_90",
-        label: `90+ day debt: ${new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total)}`,
+        label: `90+ day debt: ${parts}`,
         sub: `${neglected90.length} invoice${neglected90.length > 1 ? "s" : ""} — escalate or write off`,
         color: "rose",
         href: "/smart-views",
@@ -500,7 +490,7 @@ export default function DashboardPage() {
     }
 
     return list;
-  }, [effectiveInvoices, contacts, ccy]);
+  }, [effectiveInvoices, contacts]);
 
   const stats = useMemo(() => {
     const regionInvoices = effectiveInvoices;
@@ -508,25 +498,32 @@ export default function DashboardPage() {
     const open = regionInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
     // Unapplied credits / credit memos — openBal() returns negative for these
     const activeCMs = regionInvoices.filter((i: any) => i.txnType === "CreditMemo" && openBal(i) < 0);
-    // FX-aware balance: converts to org home currency for all summed totals
-    const bal = (i: any) => toHome(openBal(i), i.currency ?? ccy);
-    // Net AR = gross invoices minus unapplied credits (FX-converted to home currency)
-    const grossReceivable = open.reduce((s: number, i: any) => s + bal(i), 0);
-    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + bal(i), 0); // ≤ 0
+
+    // Per-currency breakdowns for KPI cards
+    const totalByCurrency: Record<string, number> = {};
+    const overdueByCurrency: Record<string, number> = {};
+    open.forEach((i: any) => { const c = i.currency || "?"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
+    activeCMs.forEach((i: any) => { const c = i.currency || "?"; totalByCurrency[c] = (totalByCurrency[c] || 0) + openBal(i); });
+
+    // Net AR = gross invoices minus unapplied credits
+    const grossReceivable = open.reduce((s: number, i: any) => s + openBal(i), 0);
+    const creditBalance   = activeCMs.reduce((s: number, i: any) => s + openBal(i), 0); // ≤ 0
     const totalReceivable = grossReceivable + creditBalance;
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
-    const totalOverdue = overdue.reduce((s: number, i: any) => s + bal(i), 0);
+    overdue.forEach((i: any) => { const c = i.currency || "?"; overdueByCurrency[c] = (overdueByCurrency[c] || 0) + openBal(i); });
+    const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
+
     // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-    open.forEach((i: any) => { buckets[getAgingBucket(i)] += bal(i); });
-    activeCMs.forEach((i: any) => { buckets["Current"] += bal(i); });
-    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
+    open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
+    activeCMs.forEach((i: any) => { buckets["Current"] += openBal(i); });
+    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
     const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
-    const promised = promisedAll.reduce((s: number, i: any) => s + bal(i), 0);
+    const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Broken promises — promise date has already passed
     const promisedBrokenItems = promisedAll.filter((i: any) => i.promiseDate && daysOverdue(i.promiseDate) > 0);
-    const promisedBroken = promisedBrokenItems.reduce((s: number, i: any) => s + bal(i), 0);
+    const promisedBroken = promisedBrokenItems.reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Promises due within the next 7 days
     const promisedWeekItems = promisedAll.filter((i: any) => {
@@ -534,7 +531,7 @@ export default function DashboardPage() {
       const d = daysOverdue(i.promiseDate);
       return d <= 0 && d >= -7;
     });
-    const promisedWeek = promisedWeekItems.reduce((s: number, i: any) => s + bal(i), 0);
+    const promisedWeek = promisedWeekItems.reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Promises due in 8–30 days
     const promisedMonthItems = promisedAll.filter((i: any) => {
@@ -542,17 +539,15 @@ export default function DashboardPage() {
       const d = daysOverdue(i.promiseDate);
       return d < -7 && d >= -30;
     });
-    const promisedMonth = promisedMonthItems.reduce((s: number, i: any) => s + bal(i), 0);
+    const promisedMonth = promisedMonthItems.reduce((s: number, i: any) => s + openBal(i), 0);
 
     const dueThisWeek = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d <= 0 && d >= -7; });
     const sevenDaysAgo = new Date(daysFromNow(-7)).getTime();
     const emailsSent = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
     const replies = communications.filter((c: any) => c.direction === "Inbound" && new Date(c.sentAt).getTime() > sevenDaysAgo).length;
 
-
-
     // 90+ days overdue
-    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
+    const over90 = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
     const proactivePipeline = open.filter((i: any) => {
@@ -560,8 +555,12 @@ export default function DashboardPage() {
       return d < -6 && d >= -14 && !i.lastFollowupDate;
     });
 
+    // Dominant currency for bucket display
+    const dominantCcy = Object.keys(totalByCurrency)[0] ?? "?";
+
     return {
-      totalReceivable, totalOverdue, buckets, disputed,
+      totalReceivable, totalOverdue, totalByCurrency, overdueByCurrency, dominantCcy,
+      buckets, disputed,
       promised, promisedBroken, promisedBrokenCount: promisedBrokenItems.length,
       promisedWeek, promisedWeekCount: promisedWeekItems.length,
       promisedMonth, promisedMonthCount: promisedMonthItems.length,
@@ -573,31 +572,36 @@ export default function DashboardPage() {
       promisedAllItems: promisedAll,
       dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
     };
-  }, [effectiveInvoices, invoices, customers, projects, communications, toHome]);
+  }, [effectiveInvoices, invoices, customers, projects, communications]);
 
   const topOverdue = useMemo(() => {
     const byCust: Record<string, number> = {};
     effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.txnType !== "CreditMemo" && daysOverdue(i.dueDate) > 0).forEach((i: any) => {
-      byCust[i.customerId] = (byCust[i.customerId] || 0) + toHome(openBal(i), i.currency ?? ccy);
+      byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i);
     });
-    return Object.entries(byCust).map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt }))
+    return Object.entries(byCust).map(([cid, amt]) => ({
+      customer: customers.find((c: any) => c.id === cid),
+      amount: amt,
+      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "?",
+    }))
       .filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
-  }, [effectiveInvoices, customers, toHome, ccy]);
+  }, [effectiveInvoices, customers]);
 
   // Concentration risk — top 5 customers by total open AR
   const concentrationRisk = useMemo(() => {
     const byCust: Record<string, number> = {};
     const open = effectiveInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const totalAR = open.reduce((s: number, i: any) => s + toHome(openBal(i), i.currency ?? ccy), 0);
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + toHome(openBal(i), i.currency ?? ccy); });
+    const totalAR = open.reduce((s: number, i: any) => s + openBal(i), 0);
+    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
     const sorted = Object.entries(byCust).map(([cid, amt]) => ({
       customer: customers.find((c: any) => c.id === cid),
       amount: amt,
       pct: totalAR > 0 ? (amt / totalAR) * 100 : 0,
+      currency: effectiveInvoices.find((i: any) => i.customerId === cid)?.currency ?? "?",
     })).filter(x => x.customer).sort((a, b) => b.amount - a.amount).slice(0, 5);
     const top5Pct = totalAR > 0 ? sorted.reduce((s, x) => s + x.pct, 0) : 0;
     return { rows: sorted, top5Pct, totalAR };
-  }, [effectiveInvoices, customers, toHome, ccy]);
+  }, [effectiveInvoices, customers]);
 
   // AR by Region — net open AR grouped per region (matches Reports → Aging by Region).
   // Invoices contribute positive balances; CreditMemos contribute negative credits
@@ -614,20 +618,21 @@ export default function DashboardPage() {
       i.txnType === "CreditMemo" && openBal(i) < 0
     );
 
-    const regionMap: Record<string, { name: string; total: number; overdue: number; count: number }> = {};
+    const regionMap: Record<string, { name: string; total: number; overdue: number; count: number; byCurrency: Record<string, number> }> = {};
 
     const addRow = (i: any, bal_: number, countIt: boolean, overdue: boolean) => {
-      const bal = toHome(bal_, i.currency ?? ccy);
       const c = customers.find((c: any) => c.id === i.customerId);
       const p = projects.find((p: any) => p.id === i.projectId);
       const regionId = c?.regionId || p?.regionId;
       const region   = (regions ?? []).find((r: any) => r.id === regionId);
       const key  = regionId || "__unassigned__";
       const name = region?.name ?? "Unassigned";
-      if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0 };
-      regionMap[key].total += bal;
+      if (!regionMap[key]) regionMap[key] = { name, total: 0, overdue: 0, count: 0, byCurrency: {} };
+      regionMap[key].total += bal_;
+      const ccy = i.currency || "?";
+      regionMap[key].byCurrency[ccy] = (regionMap[key].byCurrency[ccy] || 0) + bal_;
       if (countIt) regionMap[key].count += 1;
-      if (overdue) regionMap[key].overdue += bal;
+      if (overdue) regionMap[key].overdue += bal_;
     };
 
     openInvoices.forEach((i: any) => {
@@ -641,7 +646,7 @@ export default function DashboardPage() {
       .map(([id, data]) => ({ id, ...data }))
       .filter(r => r.total !== 0)
       .sort((a, b) => b.total - a.total);
-  }, [effectiveInvoices, customers, projects, regions, toHome, ccy]);
+  }, [effectiveInvoices, customers, projects, regions]);
 
   const myTasks = tasks.filter(t => !t.completed && t.assigneeId === userId).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).slice(0, 5);
   const maxBucket = Math.max(...Object.values(stats.buckets), 1);
@@ -654,12 +659,6 @@ export default function DashboardPage() {
           <p className="text-sm text-stone-400 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
-          {fxAsOf && (
-            <div className="text-[11px] text-stone-500 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              FX live · {new Date(fxAsOf).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-            </div>
-          )}
           <div className="text-xs text-stone-500 flex items-center gap-1.5">
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
@@ -724,28 +723,32 @@ export default function DashboardPage() {
                   <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.totalReceivable, ccy)}</div>
+                  <div className="text-2xl font-semibold text-white tracking-tight">
+                    <CurrencyPills breakdown={stats.totalByCurrency} />
+                  </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
                 </>}
               </Card>
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-rose-600 tracking-tight">{fmt.money(stats.totalOverdue, ccy)}</div>
+                  <div className="text-2xl font-semibold text-rose-600 tracking-tight">
+                    <CurrencyPills breakdown={stats.overdueByCurrency} />
+                  </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
                 </>}
               </Card>
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, ccy)}</div>
+                  <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, stats.dominantCcy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
                 </>}
               </Card>
               <Card padding="md">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, ccy)}</div>
+                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, stats.dominantCcy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
                 </>}
               </Card>
@@ -773,7 +776,7 @@ export default function DashboardPage() {
                   >
                     <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-600"}`}>
-                      {fmt.money(stats.promisedBroken, ccy)}
+                      {fmt.money(stats.promisedBroken, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
                       {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} promise${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
@@ -789,7 +792,7 @@ export default function DashboardPage() {
                   >
                     <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedWeek > 0 ? "text-amber-400" : "text-stone-600"}`}>
-                      {fmt.money(stats.promisedWeek, ccy)}
+                      {fmt.money(stats.promisedWeek, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
                       {stats.promisedWeekCount === 0 ? "Nothing due" : `${stats.promisedWeekCount} invoice${stats.promisedWeekCount !== 1 ? "s" : ""} · due ≤7 days`}
@@ -805,7 +808,7 @@ export default function DashboardPage() {
                   >
                     <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedMonth > 0 ? "text-sky-400" : "text-stone-600"}`}>
-                      {fmt.money(stats.promisedMonth, ccy)}
+                      {fmt.money(stats.promisedMonth, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
                       {stats.promisedMonthCount === 0 ? "Nothing due" : `${stats.promisedMonthCount} invoice${stats.promisedMonthCount !== 1 ? "s" : ""} · due 8–30 days`}
@@ -821,7 +824,7 @@ export default function DashboardPage() {
                   >
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total Pipeline</div>
                     <div className="text-2xl font-semibold text-white tabular-nums tracking-tight">
-                      {fmt.money(stats.promised, ccy)}
+                      {fmt.money(stats.promised, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
                       {stats.promisedTotalCount} active promise{stats.promisedTotalCount !== 1 ? "s" : ""}
@@ -868,7 +871,7 @@ export default function DashboardPage() {
                   <div className="flex-1 h-7 bg-stone-800 rounded relative overflow-hidden">
                     <div className={`h-full ${colors[i]}`} style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="w-28 text-right text-sm font-semibold text-white tabular-nums">{fmt.money(stats.buckets[bucket], ccy)}</div>
+                  <div className="w-28 text-right text-sm font-semibold text-white tabular-nums">{fmt.money(stats.buckets[bucket], stats.dominantCcy)}</div>
                 </div>
               );
             })}
@@ -900,7 +903,7 @@ export default function DashboardPage() {
           </div>
           {topOverdue.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No overdue customers</div> : (
             <div className="space-y-1">
-              {topOverdue.map(({ customer, amount }, i) => (
+              {topOverdue.map(({ customer, amount, currency }, i) => (
                 <Link key={customer.id} href={`/customers/${customer.id}`} className="w-full flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-stone-800/60 group">
                   <div className="w-6 text-xs text-stone-500 font-mono">{i + 1}</div>
                   <div className="w-9 h-9 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-xs font-semibold flex-shrink-0">
@@ -913,7 +916,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   {customer.riskRating === "High" && <Badge variant="red" size="sm">High risk</Badge>}
-                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, ccy)}</div>
+                  <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(amount, currency)}</div>
                   <ChevronRight size={14} className="text-stone-600 group-hover:text-stone-400" />
                 </Link>
               ))}
@@ -1020,12 +1023,12 @@ export default function DashboardPage() {
             <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
           ) : (
             <div className="space-y-2.5">
-              {concentrationRisk.rows.map(({ customer, amount, pct }) => (
+              {concentrationRisk.rows.map(({ customer, amount, pct, currency }) => (
                 <Link key={customer.id} href={`/customers/${customer.id}`} className="block group">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[12px] font-medium text-stone-300 truncate group-hover:text-white">{customer.name}</span>
                     <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, ccy)}</span>
+                      <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, currency)}</span>
                       <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
                     </div>
                   </div>
@@ -1073,7 +1076,7 @@ export default function DashboardPage() {
                       <div className="text-[11px] text-stone-500 font-mono">{inv.invoiceNumber}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[12px] font-semibold tabular-nums text-white">{fmt.money(inv.total - (inv.paid || 0), inv.currency ?? ccy)}</div>
+                      <div className="text-[12px] font-semibold tabular-nums text-white">{fmt.money(inv.total - (inv.paid || 0), inv.currency)}</div>
                       <div className="text-[10px] text-amber-400">in {d}d</div>
                     </div>
                   </Link>
@@ -1097,9 +1100,10 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className={`grid gap-3 ${arByRegion.length === 1 ? "grid-cols-1" : arByRegion.length === 2 ? "grid-cols-2" : arByRegion.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
-            {arByRegion.map(({ id, name, total, overdue, count }) => {
+            {arByRegion.map(({ id, name, total, overdue, count, byCurrency }) => {
               const overduePct = total > 0 ? (overdue / total) * 100 : 0;
               const currentAmt = total - overdue;
+              const regionDominantCcy = Object.keys(byCurrency)[0] ?? "?";
               return (
                 <Card key={id} padding="md">
                   <div className="flex items-start justify-between mb-3">
@@ -1109,7 +1113,7 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="text-2xl font-semibold text-white tracking-tight tabular-nums mb-1">
-                    {fmt.money(total, ccy)}
+                    <CurrencyPills breakdown={byCurrency} />
                   </div>
                   <div className="text-[11px] text-stone-500 mb-3">{count} open invoice{count !== 1 ? "s" : ""}</div>
                   {/* Stacked bar: current vs overdue */}
@@ -1130,11 +1134,11 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-stone-400">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> {fmt.money(currentAmt, ccy)} current</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> {fmt.money(currentAmt, regionDominantCcy)} current</span>
                     {overdue > 0 && (
                       <span className={`flex items-center gap-1 font-medium ${overduePct > 50 ? "text-rose-500" : "text-amber-500"}`}>
                         <span className={`w-2 h-2 rounded-full inline-block ${overduePct > 50 ? "bg-rose-500" : "bg-amber-400"}`} />
-                        {fmt.money(overdue, ccy)} overdue
+                        {fmt.money(overdue, regionDominantCcy)} overdue
                       </span>
                     )}
                   </div>
@@ -1166,8 +1170,6 @@ export default function DashboardPage() {
           projects={projects}
           reps={reps ?? []}
           communications={communications}
-          ccy={ccy}
-          toHome={toHome}
         />
       </div>
 
@@ -1203,7 +1205,7 @@ export default function DashboardPage() {
                   drillDown.color === "amber" ? "text-amber-400" :
                   drillDown.color === "sky" ? "text-sky-400" : "text-white"
                 }`}>
-                  {fmt.money(drillDown.items.reduce((s, i) => s + openBal(i), 0), ccy)}
+                  {fmt.money(drillDown.items.reduce((s, i) => s + openBal(i), 0), drillDown.items[0]?.currency ?? stats.dominantCcy)}
                 </span>
                 <span className="text-[11px] text-stone-500">
                   across {drillDown.items.length} invoice{drillDown.items.length !== 1 ? "s" : ""}
@@ -1262,7 +1264,7 @@ export default function DashboardPage() {
                         {/* Amount */}
                         <div className="text-right flex-shrink-0">
                           <div className="text-[13px] font-semibold text-white tabular-nums">
-                            {fmt.money(openBal(inv), inv.currency ?? ccy)}
+                            {fmt.money(openBal(inv), inv.currency ?? stats.dominantCcy)}
                           </div>
                           <div className="text-[10px] text-stone-500 mt-0.5">open balance</div>
                           <ChevronRight size={12} className="text-stone-700 group-hover:text-stone-400 mt-1 ml-auto" />

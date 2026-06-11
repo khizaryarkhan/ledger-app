@@ -462,7 +462,7 @@ export default function InvoicesPage() {
         return (
           <SendInvoicesModal
             rows={sendRows}
-            ccy={orgSettings?.currency ?? sendRows[0]?.inv?.currency ?? "EUR"}
+            ccy={sendRows[0]?.inv?.currency ?? "EUR"}
             multiCustomer={multiCustomer}
             onClose={() => setShowBatchEmail(false)}
             onSent={() => { setShowBatchEmail(false); setSelected(new Set()); refresh(); }}

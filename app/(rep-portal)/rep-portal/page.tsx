@@ -11,6 +11,7 @@ import {
 import { ResponsesInbox } from "@/components/responses-inbox";
 import { BoardList, type BoardRow } from "@/components/board-list";
 import { resolveStageLabel, DEFAULT_STAGES } from "@/lib/stages";
+import { CurrencyPills } from "@/components/currency-pills";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Invoice = {
@@ -152,7 +153,7 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
 
       <div className="flex items-center justify-between mt-3">
         <div className="text-lg sm:text-xl font-bold tabular-nums text-stone-100">
-          {fmt.money(outstanding, (entity as any).currency)}
+          {fmt.money(outstanding, open[0]?.currency ?? "?")}
         </div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${STAGE_COLORS[dominantStage] || STAGE_COLORS["New"]}`}>
           {dominantStage}
@@ -375,10 +376,10 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
 // ─── Project Group Card (used in Customer detail view) ───────────────────────
 // Shows a collapsible card for one project (or "Direct Customer Invoices")
 // containing all invoices for that project under the parent customer.
-function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, downloadingId, onChanged }: {
+function ProjectGroupCard({ project, invoices: grpInvs, df, onDownload, downloadingId, onChanged }: {
   project: Project | null;  // null → "Direct Customer Invoices"
   invoices: Invoice[];
-  df: string; ccy: string;
+  df: string;
   onDownload: (inv: Invoice) => void;
   downloadingId: string | null;
   onChanged?: () => void;
@@ -417,7 +418,7 @@ function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, dow
           <div className="flex items-center gap-2 flex-shrink-0">
             {outstanding > 0 && (
               <span className="text-base font-bold tabular-nums text-stone-100">
-                {fmt.money(outstanding, ccy)}
+                {fmt.money(outstanding, open[0]?.currency ?? "?")}
               </span>
             )}
             {expanded
@@ -472,7 +473,6 @@ export default function RepPortalPage() {
 
   const repName = session?.user?.name || "Rep";
   const df      = orgSettings.dateFormat || "DD MMM YYYY";
-  const ccy     = orgSettings.currency || "EUR";
 
   // Sync viewMode with org settings once they load (e.g. if org defaults to "project")
   useEffect(() => {
@@ -785,7 +785,7 @@ export default function RepPortalPage() {
                 await load();
               }}
               refresh={load}
-              ccy={ccy}
+              ccy={openInvoices[0]?.currency ?? "?"}
               comments={communications}
             />
           </div>
@@ -800,12 +800,24 @@ export default function RepPortalPage() {
                 <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Total AR</div>
-                    <div className="text-base sm:text-xl font-bold text-stone-100 tabular-nums leading-tight truncate">{fmt.money(totalAR, ccy)}</div>
+                    <div className="text-base sm:text-xl font-bold text-stone-100 tabular-nums leading-tight truncate">
+                      {(() => {
+                        const byCcy: Record<string, number> = {};
+                        for (const i of openInvoices) { const c = i.currency; byCcy[c] = (byCcy[c] || 0) + openBal(i); }
+                        return <CurrencyPills breakdown={byCcy} />;
+                      })()}
+                    </div>
                     <div className="text-[10px] text-stone-500 mt-0.5">{openInvoices.length} open invoices</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Overdue</div>
-                    <div className={`text-base sm:text-xl font-bold tabular-nums leading-tight truncate ${overdueAR > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdueAR, ccy)}</div>
+                    <div className={`text-base sm:text-xl font-bold tabular-nums leading-tight truncate ${overdueAR > 0 ? "text-rose-400" : "text-stone-100"}`}>
+                      {(() => {
+                        const byCcy: Record<string, number> = {};
+                        for (const i of openInvoices.filter(i => daysOverdue(i.dueDate) > 0)) { const c = i.currency; byCcy[c] = (byCcy[c] || 0) + openBal(i); }
+                        return <CurrencyPills breakdown={byCcy} />;
+                      })()}
+                    </div>
                     <div className="text-[10px] text-stone-500 mt-0.5">{overdueCnt} invoice{overdueCnt !== 1 ? "s" : ""}</div>
                   </div>
                   <div>
@@ -926,7 +938,13 @@ export default function RepPortalPage() {
               <div className="flex items-end justify-between">
                 <div>
                   <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Outstanding</div>
-                  <div className="text-xl sm:text-2xl font-bold tabular-nums text-stone-100">{fmt.money(detailData.outstanding, ccy)}</div>
+                  <div className="text-xl sm:text-2xl font-bold tabular-nums text-stone-100">
+                    {(() => {
+                      const byCcy: Record<string, number> = {};
+                      for (const i of detailData.entityInvoices.filter(isOpenInvoice)) { const c = i.currency; byCcy[c] = (byCcy[c] || 0) + openBal(i); }
+                      return <CurrencyPills breakdown={byCcy} />;
+                    })()}
+                  </div>
                 </div>
                 <div className="text-right text-[12px] text-stone-400 pb-0.5">
                   <div>{detailData.openCount} open</div>
@@ -951,7 +969,6 @@ export default function RepPortalPage() {
                     project={project}
                     invoices={grpInvs}
                     df={df}
-                    ccy={ccy}
                     onDownload={handleDownload}
                     downloadingId={downloadingId}
                     onChanged={load}
