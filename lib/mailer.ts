@@ -56,11 +56,14 @@ export async function getSmtpConfig(orgId: string): Promise<SmtpConfig | null> {
     .where(eq(orgSmtpSettings.orgId, orgId))
     .limit(1);
 
-  const host      = smtp?.host      || process.env.SMTP_HOST;
-  const port      = smtp?.port      || parseInt(process.env.SMTP_PORT || "2525");
-  const user      = smtp?.user      || process.env.SMTP_USER;
-  const pass      = smtp?.pass      || process.env.SMTP_PASS;
-  const fromEmail = smtp?.fromEmail || process.env.SMTP_FROM;
+  // NEVER fall back to global env vars — that would leak one org's SMTP
+  // credentials into another org's outbound mail. Each org must configure
+  // their own transport (Gmail OAuth, Microsoft OAuth, or SMTP).
+  const host      = smtp?.host;
+  const port      = smtp?.port      ?? 2525;
+  const user      = smtp?.user;
+  const pass      = smtp?.pass;
+  const fromEmail = smtp?.fromEmail;
   const fromName  = smtp?.fromName;
 
   if (!host || !user || !pass || !fromEmail) return null;
