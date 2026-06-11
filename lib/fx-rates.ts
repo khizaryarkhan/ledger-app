@@ -14,8 +14,7 @@
 
 import { db } from "@/db";
 import { fxRates } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const FRANKFURTER  = "https://api.frankfurter.app/latest";

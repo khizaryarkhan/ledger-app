@@ -844,7 +844,9 @@ export const fxRates = pgTable("fx_rates", {
   quote:     varchar("quote", { length: 8 }).notNull(),
   rate:      real("rate").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => ({ pk: { columns: [t.base, t.quote], name: "fx_rates_pkey" } as any }));
+}, (t) => ({
+  baseQuoteUnique: uniqueIndex("fx_rates_base_quote_unique").on(t.base, t.quote),
+}));
 
 // Type exports
 export type User = typeof users.$inferSelect;
