@@ -29,17 +29,6 @@ export async function GET() {
     });
   }
 
-  // Fall back to env vars
-  const envConfigured = !!(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.SMTP_FROM
-  );
-
-  return ok({
-    configured: envConfigured,
-    from: process.env.SMTP_FROM || "",
-    source: envConfigured ? ("env" as const) : ("none" as const),
-  });
+  // Each org must configure their own SMTP — no global env var fallback.
+  return ok({ configured: false, from: "", source: "none" as const });
 }
