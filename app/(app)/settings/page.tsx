@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, ChevronRight, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -83,6 +83,13 @@ export default function SettingsPage() {
       icon: Layers,
       title: "Collection Stages",
       description: "Rename, recolour and show/hide the board columns to match your collections process.",
+      badge: null,
+    },
+    {
+      href: "/settings/billing",
+      icon: CreditCard,
+      title: "Billing",
+      description: "View your plan, payment history, manage payment method and request cancellation.",
       badge: null,
     },
   ];

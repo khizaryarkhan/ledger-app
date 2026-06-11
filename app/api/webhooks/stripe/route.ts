@@ -4,6 +4,7 @@ import { pendingRegistrations, organisations, users, userOrganisations, subscrip
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
+import { syncSubscriptionFromStripe, syncCustomerBillingEmail, logBillingEvent } from "@/lib/billing";
 import crypto from "crypto";
 
 export async function POST(req: NextRequest) {
@@ -21,8 +22,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // ── Initial checkout ──────────────────────────────────────────────────
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+      const session   = event.data.object;
       const pendingId = session.metadata?.pendingId;
       if (!pendingId) {
         console.warn("[stripe-webhook] no pendingId in session metadata");
@@ -39,14 +41,12 @@ export async function POST(req: NextRequest) {
         return new Response("OK", { status: 200 }); // idempotent
       }
 
-      // --- Create organisation ---
       const slug = reg.companyName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 64);
 
-      // Ensure slug uniqueness
       let finalSlug = slug;
       let attempt   = 0;
       while (true) {
@@ -65,12 +65,9 @@ export async function POST(req: NextRequest) {
         slug: finalSlug,
       }).returning();
 
-      // --- Create admin user (no password yet — will be set via reset link) ---
-      // Generate a reset token they'll use to set their initial password
       const resetToken  = crypto.randomBytes(32).toString("hex");
-      const resetExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
-
-      const tempPasswordHash = crypto.randomBytes(32).toString("hex"); // unusable placeholder
+      const resetExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
+      const tempPasswordHash = crypto.randomBytes(32).toString("hex");
 
       const [admin] = await db.insert(users).values({
         orgId:            org.id,
@@ -83,29 +80,36 @@ export async function POST(req: NextRequest) {
         resetTokenExpiry: resetExpiry,
       }).returning({ id: users.id, name: users.name, email: users.email });
 
-      // Link to org
       await db.insert(userOrganisations).values({
         userId: admin.id,
         orgId:  org.id,
         role:   "company_admin",
       }).onConflictDoNothing();
 
-      // --- Store subscription ---
       const subscriptionId = session.subscription as string | null;
-      await db.insert(subscriptions).values({
+      const [newSub] = await db.insert(subscriptions).values({
         orgId:                org.id,
         stripeCustomerId:     session.customer as string,
         stripeSubscriptionId: subscriptionId ?? undefined,
         stripePriceId:        process.env.STRIPE_PRICE_ID ?? null,
         status:               "active",
-      });
+      }).returning();
 
-      // --- Mark pending registration as completed ---
+      // Sync full subscription details
+      if (subscriptionId) {
+        try {
+          const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+            expand: ["default_payment_method", "items.data.price.product"],
+          });
+          await syncSubscriptionFromStripe(sub);
+          await syncCustomerBillingEmail(session.customer as string);
+        } catch { /* non-fatal */ }
+      }
+
       await db.update(pendingRegistrations)
         .set({ status: "completed" })
         .where(eq(pendingRegistrations.id, pendingId));
 
-      // --- Send "Set your password" email ---
       const resetUrl = `${getAppUrl()}/reset-password?token=${resetToken}`;
       await sendSystemEmail({
         to:      admin.email,
@@ -116,6 +120,7 @@ export async function POST(req: NextRequest) {
       console.log(`[stripe-webhook] org created: ${org.slug}, admin: ${admin.email}`);
     }
 
+    // ── Checkout expired ─────────────────────────────────────────────────
     if (event.type === "checkout.session.expired") {
       const session   = event.data.object;
       const pendingId = session.metadata?.pendingId;
@@ -125,13 +130,107 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Subscription created / updated ───────────────────────────────────
+    if (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") {
+      const sub = event.data.object as any;
+      try {
+        const fullSub = await stripe.subscriptions.retrieve(sub.id, {
+          expand: ["default_payment_method", "items.data.price.product"],
+        });
+        await syncSubscriptionFromStripe(fullSub);
+        await syncCustomerBillingEmail(sub.customer as string);
+
+        const [subRow] = await db
+          .select({ orgId: subscriptions.orgId })
+          .from(subscriptions)
+          .where(eq(subscriptions.stripeCustomerId, sub.customer as string))
+          .limit(1);
+
+        if (subRow) {
+          await logBillingEvent({
+            organizationId: subRow.orgId,
+            action: event.type === "customer.subscription.created" ? "subscription_created" : "subscription_updated",
+            newStatus: fullSub.status,
+            stripeEventId: event.id,
+          });
+        }
+      } catch (err) {
+        console.error("[stripe-webhook] subscription sync error:", err);
+      }
+    }
+
+    // ── Subscription deleted ─────────────────────────────────────────────
     if (event.type === "customer.subscription.deleted") {
-      const sub = event.data.object;
+      const sub = event.data.object as any;
+      const [subRow] = await db
+        .select({ orgId: subscriptions.orgId })
+        .from(subscriptions)
+        .where(eq(subscriptions.stripeSubscriptionId, sub.id))
+        .limit(1);
+
       await db
         .update(subscriptions)
-        .set({ status: "cancelled" })
+        .set({ status: "cancelled", cancelAt: null, cancelAtPeriodEnd: false, stripeUpdatedAt: new Date() })
         .where(eq(subscriptions.stripeSubscriptionId, sub.id));
+
+      if (subRow) {
+        await logBillingEvent({
+          organizationId: subRow.orgId,
+          action: "subscription_cancelled",
+          newStatus: "cancelled",
+          stripeEventId: event.id,
+        });
+      }
       console.log(`[stripe-webhook] subscription cancelled: ${sub.id}`);
+    }
+
+    // ── Invoice paid ─────────────────────────────────────────────────────
+    if (event.type === "invoice.paid") {
+      const inv        = event.data.object as any;
+      const customerId = inv.customer as string;
+      await db
+        .update(subscriptions)
+        .set({
+          lastPaymentStatus: "paid",
+          lastPaymentAmount: inv.amount_paid,
+          lastPaymentDate:   new Date(inv.created * 1000),
+          stripeUpdatedAt:   new Date(),
+        })
+        .where(eq(subscriptions.stripeCustomerId, customerId));
+    }
+
+    // ── Invoice payment failed ────────────────────────────────────────────
+    if (event.type === "invoice.payment_failed") {
+      const inv        = event.data.object as any;
+      const customerId = inv.customer as string;
+      await db
+        .update(subscriptions)
+        .set({ lastPaymentStatus: "failed", stripeUpdatedAt: new Date() })
+        .where(eq(subscriptions.stripeCustomerId, customerId));
+
+      const [subRow] = await db
+        .select({ orgId: subscriptions.orgId })
+        .from(subscriptions)
+        .where(eq(subscriptions.stripeCustomerId, customerId))
+        .limit(1);
+
+      if (subRow) {
+        await logBillingEvent({
+          organizationId: subRow.orgId,
+          action: "payment_failed",
+          stripeEventId: event.id,
+          metadata: { invoiceId: inv.id, attemptCount: inv.attempt_count },
+        });
+      }
+    }
+
+    // ── Invoice payment action required ──────────────────────────────────
+    if (event.type === "invoice.payment_action_required") {
+      const inv = event.data.object as any;
+      await db
+        .update(subscriptions)
+        .set({ lastPaymentStatus: "action_required", stripeUpdatedAt: new Date() })
+        .where(eq(subscriptions.stripeCustomerId, inv.customer as string));
     }
 
   } catch (err: any) {

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { InterestForm } from "@/components/interest-form";
 
 const FEATURES = [
   {
@@ -981,6 +982,46 @@ export default function LandingPage() {
               </Reveal>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── INTEREST FORM ── */}
+      <section id="contact" className="relative py-24 px-5">
+        <div className="max-w-5xl mx-auto">
+          <Reveal>
+            <div className="grid md:grid-cols-2 gap-12 items-start">
+              <div>
+                <span className="text-xs font-semibold text-emerald-400 tracking-widest uppercase mb-3 block">Get in touch</span>
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 leading-tight">
+                  Interested in Prime Accountax?
+                </h2>
+                <p className="text-stone-400 text-base leading-relaxed mb-8">
+                  Submit your details and our team will contact you shortly to discuss how we can help streamline your accounts receivable process.
+                </p>
+                <div className="space-y-4">
+                  {[
+                    "Connect QuickBooks Online or Xero in minutes",
+                    "Automated invoice chasing and collection workflows",
+                    "Customer payment portal and dispute management",
+                    "Real-time AR reporting and aging analysis",
+                  ].map(item => (
+                    <div key={item} className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      </div>
+                      <p className="text-sm text-stone-300">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-stone-900/60 border border-stone-800 rounded-2xl p-7 backdrop-blur-sm">
+                <h3 className="text-base font-semibold text-white mb-5">Request a demo</h3>
+                <InterestForm />
+              </div>
+            </div>
+          </Reveal>
         </div>
       </section>
 

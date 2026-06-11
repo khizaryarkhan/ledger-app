@@ -120,9 +120,96 @@ export const subscriptions = pgTable("subscriptions", {
   stripeSubscriptionId:   text("stripe_subscription_id"),
   stripePriceId:          text("stripe_price_id"),
   status:                 varchar("status", { length: 32 }).notNull().default("active"),
+  // 'active' | 'trialing' | 'past_due' | 'cancelled' | 'unpaid' | 'incomplete' | 'incomplete_expired'
+  currentPeriodStart:     timestamp("current_period_start"),
   currentPeriodEnd:       timestamp("current_period_end"),
+  cancelAt:               timestamp("cancel_at"),
+  cancelAtPeriodEnd:      boolean("cancel_at_period_end").notNull().default(false),
+  trialEnd:               timestamp("trial_end"),
+  billingEmail:           varchar("billing_email", { length: 255 }),
+  planName:               varchar("plan_name", { length: 128 }),
+  planAmount:             integer("plan_amount"),         // amount in pence/cents
+  planInterval:           varchar("plan_interval", { length: 16 }), // 'month' | 'year'
+  planCurrency:           varchar("plan_currency", { length: 8 }),
+  lastPaymentStatus:      varchar("last_payment_status", { length: 32 }), // 'paid' | 'failed' | null
+  lastPaymentAmount:      integer("last_payment_amount"),
+  lastPaymentDate:        timestamp("last_payment_date"),
+  paymentMethodBrand:     varchar("payment_method_brand", { length: 32 }), // 'visa' | 'mastercard' etc
+  paymentMethodLast4:     varchar("payment_method_last4", { length: 4 }),
+  stripeUpdatedAt:        timestamp("stripe_updated_at"), // last time Stripe data was synced
   createdAt:              timestamp("created_at").notNull().defaultNow(),
 });
+export type Subscription = typeof subscriptions.$inferSelect;
+
+// =========================================================================
+// CANCELLATION REQUESTS
+// =========================================================================
+export const cancellationRequests = pgTable("cancellation_requests", {
+  id:                       uuid("id").defaultRandom().primaryKey(),
+  organizationId:           uuid("organization_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  stripeCustomerId:         text("stripe_customer_id"),
+  stripeSubscriptionId:     text("stripe_subscription_id"),
+  requestedByUserId:        uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  requestedByEmail:         varchar("requested_by_email", { length: 255 }),
+  reason:                   text("reason"),
+  // 'pending' | 'approved' | 'rejected' | 'cancelled'
+  status:                   varchar("status", { length: 32 }).notNull().default("pending"),
+  requestedAt:              timestamp("requested_at").notNull().defaultNow(),
+  reviewedAt:               timestamp("reviewed_at"),
+  reviewedByAdminId:        uuid("reviewed_by_admin_id").references(() => users.id, { onDelete: "set null" }),
+  // 'immediate' | '30_days' | '60_days' | '90_days' | 'period_end' | 'rejected'
+  adminDecision:            varchar("admin_decision", { length: 32 }),
+  cancellationEffectiveDate: timestamp("cancellation_effective_date"),
+  internalNotes:            text("internal_notes"),
+  stripeActionStatus:       varchar("stripe_action_status", { length: 32 }), // 'pending' | 'applied' | 'failed'
+  createdAt:                timestamp("created_at").notNull().defaultNow(),
+  updatedAt:                timestamp("updated_at").notNull().defaultNow(),
+});
+export type CancellationRequest = typeof cancellationRequests.$inferSelect;
+
+// =========================================================================
+// LANDING PAGE REQUESTS / LEADS
+// =========================================================================
+export const landingPageRequests = pgTable("landing_page_requests", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  fullName:         varchar("full_name", { length: 255 }).notNull(),
+  companyName:      varchar("company_name", { length: 255 }),
+  email:            varchar("email", { length: 255 }).notNull(),
+  phone:            varchar("phone", { length: 64 }),
+  companySize:      varchar("company_size", { length: 64 }),
+  interestedService: varchar("interested_service", { length: 128 }),
+  message:          text("message"),
+  source:           varchar("source", { length: 64 }).notNull().default("landing_page"),
+  // 'new' | 'contacted' | 'qualified' | 'converted' | 'rejected' | 'archived'
+  status:           varchar("status", { length: 32 }).notNull().default("new"),
+  assignedToAdminId: uuid("assigned_to_admin_id").references(() => users.id, { onDelete: "set null" }),
+  adminNotes:       text("admin_notes"),
+  utmSource:        varchar("utm_source", { length: 128 }),
+  utmMedium:        varchar("utm_medium", { length: 128 }),
+  utmCampaign:      varchar("utm_campaign", { length: 128 }),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+});
+export type LandingPageRequest = typeof landingPageRequests.$inferSelect;
+
+// =========================================================================
+// BILLING AUDIT LOG
+// =========================================================================
+export const billingAuditLogs = pgTable("billing_audit_logs", {
+  id:                     uuid("id").defaultRandom().primaryKey(),
+  organizationId:         uuid("organization_id").references(() => organisations.id, { onDelete: "set null" }),
+  cancellationRequestId:  uuid("cancellation_request_id").references(() => cancellationRequests.id, { onDelete: "set null" }),
+  actorUserId:            uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorRole:              varchar("actor_role", { length: 32 }),
+  action:                 varchar("action", { length: 64 }).notNull(), // e.g. 'cancellation_requested' | 'cancellation_approved' | 'subscription_reactivated'
+  previousStatus:         varchar("previous_status", { length: 32 }),
+  newStatus:              varchar("new_status", { length: 32 }),
+  stripeEventId:          varchar("stripe_event_id", { length: 128 }),
+  stripeActionStatus:     varchar("stripe_action_status", { length: 32 }),
+  metadata:               jsonb("metadata"),
+  createdAt:              timestamp("created_at").notNull().defaultNow(),
+});
+export type BillingAuditLog = typeof billingAuditLogs.$inferSelect;
 
 // =========================================================================
 // CUSTOMERS
