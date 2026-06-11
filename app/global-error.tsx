@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  // Log full details to console only — never exposed to the user
-  useEffect(() => { console.error("Global error:", error); }, [error]);
+  // Log to console + report to Sentry (no-op unless NEXT_PUBLIC_SENTRY_DSN is set).
+  useEffect(() => {
+    console.error("Global error:", error);
+    Sentry.captureException(error);
+  }, [error]);
   return (
     <html lang="en">
       <body style={{ fontFamily: "system-ui, sans-serif", background: "#fafaf9", margin: 0, padding: "2rem", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
