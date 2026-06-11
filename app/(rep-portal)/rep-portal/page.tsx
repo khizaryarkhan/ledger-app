@@ -97,17 +97,17 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
 
 // ─── Badge colours ────────────────────────────────────────────────────────────
 const STAGE_COLORS: Record<string, string> = {
-  "New": "bg-stone-100 text-stone-600", "Scheduled": "bg-blue-100 text-blue-700",
-  "Reminder Sent": "bg-blue-200 text-blue-800", "Second Notice": "bg-violet-100 text-violet-700",
-  "Final Notice": "bg-violet-200 text-violet-800", "Awaiting": "bg-amber-100 text-amber-700",
-  "Promised": "bg-amber-100 text-amber-800", "Disputed": "bg-rose-100 text-rose-700",
-  "Escalated": "bg-rose-200 text-rose-800", "On Hold": "bg-orange-100 text-orange-700",
-  "Closed": "bg-emerald-100 text-emerald-700",
+  "New": "bg-stone-800 text-stone-300", "Scheduled": "bg-blue-900/50 text-blue-300",
+  "Reminder Sent": "bg-blue-900/70 text-blue-200", "Second Notice": "bg-violet-900/50 text-violet-300",
+  "Final Notice": "bg-violet-900/70 text-violet-200", "Awaiting": "bg-amber-900/50 text-amber-300",
+  "Promised": "bg-amber-900/50 text-amber-200", "Disputed": "bg-rose-900/50 text-rose-300",
+  "Escalated": "bg-rose-900/70 text-rose-200", "On Hold": "bg-orange-900/50 text-orange-300",
+  "Closed": "bg-emerald-900/50 text-emerald-300",
 };
 const STATUS_COLORS: Record<string, string> = {
-  "Overdue": "bg-rose-100 text-rose-700", "Due Today": "bg-amber-100 text-amber-700",
-  "Due Soon": "bg-yellow-100 text-yellow-700", "Not Due": "bg-stone-100 text-stone-500",
-  "Paid": "bg-emerald-100 text-emerald-700", "Written Off": "bg-stone-100 text-stone-400",
+  "Overdue": "bg-rose-900/50 text-rose-300", "Due Today": "bg-amber-900/50 text-amber-300",
+  "Due Soon": "bg-yellow-900/50 text-yellow-300", "Not Due": "bg-stone-800 text-stone-400",
+  "Paid": "bg-emerald-900/50 text-emerald-300", "Written Off": "bg-stone-800 text-stone-500",
 };
 
 function getDueStatus(inv: Invoice): string {
@@ -137,21 +137,21 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
 
   return (
     <button onClick={onClick}
-      className="w-full text-left bg-white rounded-xl ring-1 ring-stone-200 p-3 sm:p-4 hover:ring-stone-400 hover:shadow-sm transition-all active:scale-[0.99]">
+      className="w-full text-left bg-stone-900 rounded-xl ring-1 ring-stone-800 p-3 sm:p-4 hover:ring-stone-600 transition-all active:scale-[0.99]">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-stone-900 leading-snug">{entity.name}</div>
-          {customerName && <div className="text-[11px] text-stone-400 mt-0.5">{customerName}</div>}
-          {repName && <div className="text-[11px] text-stone-400 mt-0.5">Rep: {repName}</div>}
+          <div className="text-sm font-semibold text-stone-100 leading-snug">{entity.name}</div>
+          {customerName && <div className="text-[11px] text-stone-500 mt-0.5">{customerName}</div>}
+          {repName && <div className="text-[11px] text-stone-500 mt-0.5">Rep: {repName}</div>}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-3 mt-0.5">
           {hasOverdue && <div className="w-2 h-2 rounded-full bg-rose-500" />}
-          <ChevronRight size={14} className="text-stone-300" />
+          <ChevronRight size={14} className="text-stone-600" />
         </div>
       </div>
 
       <div className="flex items-center justify-between mt-3">
-        <div className="text-lg sm:text-xl font-bold tabular-nums text-stone-900">
+        <div className="text-lg sm:text-xl font-bold tabular-nums text-stone-100">
           {fmt.money(outstanding, (entity as any).currency)}
         </div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${STAGE_COLORS[dominantStage] || STAGE_COLORS["New"]}`}>
@@ -159,15 +159,15 @@ function EntityCard({ entity, invoices, customerName, repName, onClick }: {
         </div>
       </div>
 
-      <div className="text-[11px] text-stone-400 mt-1">
+      <div className="text-[11px] text-stone-500 mt-1">
         {open.length} open invoice{open.length !== 1 ? "s" : ""}
         {invoices.length > open.length && ` · ${invoices.length - open.length} closed`}
       </div>
 
       {(disputedCount > 0 || promisedCount > 0) && (
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-          {disputedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-rose-100 text-rose-700">⚠ {disputedCount} disputed</span>}
-          {promisedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-blue-100 text-blue-700">📅 {promisedCount} promised</span>}
+          {disputedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-rose-900/50 text-rose-300">⚠ {disputedCount} disputed</span>}
+          {promisedCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-sky-900/50 text-sky-300">📅 {promisedCount} promised</span>}
         </div>
       )}
 
@@ -223,84 +223,82 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
   const canDownload    = !!inv.qboId && !inv.qboId.startsWith("CM-") && !isPaidOrClosed;
 
   return (
-    <div className={nested ? "border-t border-stone-100 first:border-t-0" : "bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden"}>
+    <div className={nested ? "border-t border-stone-800 first:border-t-0" : "bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden"}>
       <button className="w-full text-left px-4 py-3" onClick={() => setExpanded(e => !e)}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-[12px] font-semibold text-stone-500">{inv.invoiceNumber}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${STATUS_COLORS[dueStatus] || "bg-stone-100 text-stone-500"}`}>
+              <span className="font-mono text-[12px] font-semibold text-stone-400">{inv.invoiceNumber}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${STATUS_COLORS[dueStatus] || "bg-stone-800 text-stone-400"}`}>
                 {dueStatus}
               </span>
-              {inv.hasOpenDispute && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-700">⚠ Disputed</span>}
-              {!inv.hasOpenDispute && inv.promiseDate && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-700">📅 Promised</span>}
+              {inv.hasOpenDispute && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-900/50 text-rose-300">⚠ Disputed</span>}
+              {!inv.hasOpenDispute && inv.promiseDate && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-900/50 text-sky-300">📅 Promised</span>}
             </div>
-            <div className="text-[11px] text-stone-400 mt-0.5">
+            <div className="text-[11px] text-stone-500 mt-0.5">
               Due {formatDate(inv.dueDate, df)}
-              {overdue > 0 && <span className="text-rose-500 font-semibold ml-1">+{overdue}d</span>}
+              {overdue > 0 && <span className="text-rose-400 font-semibold ml-1">+{overdue}d</span>}
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <div className={`text-base font-bold tabular-nums ${isPaidOrClosed ? "text-stone-300" : overdue > 0 ? "text-rose-600" : "text-stone-900"}`}>
+            <div className={`text-base font-bold tabular-nums ${isPaidOrClosed ? "text-stone-600" : overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>
               {fmt.money(outstanding, inv.currency)}
             </div>
             {expanded
-              ? <ChevronUp size={13} className="mt-0.5 ml-auto text-stone-300" />
-              : <ChevronDown size={13} className="mt-0.5 ml-auto text-stone-300" />}
+              ? <ChevronUp size={13} className="mt-0.5 ml-auto text-stone-600" />
+              : <ChevronDown size={13} className="mt-0.5 ml-auto text-stone-600" />}
           </div>
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-stone-100 px-4 py-3 bg-stone-50/50 space-y-3">
+        <div className="border-t border-stone-800 px-4 py-3 bg-stone-800/40 space-y-3">
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Invoice date</div>
-              <div className="font-medium text-stone-700">{formatDate(inv.invoiceDate, df)}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Invoice date</div>
+              <div className="font-medium text-stone-300">{formatDate(inv.invoiceDate, df)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Due date</div>
-              <div className={`font-medium ${overdue > 0 ? "text-rose-600" : "text-stone-700"}`}>{formatDate(inv.dueDate, df)}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Due date</div>
+              <div className={`font-medium ${overdue > 0 ? "text-rose-400" : "text-stone-300"}`}>{formatDate(inv.dueDate, df)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Invoice total</div>
-              <div className="font-semibold text-stone-900 tabular-nums">{fmt.money(inv.total, inv.currency)}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Invoice total</div>
+              <div className="font-semibold text-stone-100 tabular-nums">{fmt.money(inv.total, inv.currency)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Paid</div>
-              <div className="font-semibold text-emerald-600 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Paid</div>
+              <div className="font-semibold text-emerald-400 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Stage</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Stage</div>
               <div className={`inline-flex text-[10px] px-1.5 py-0.5 rounded font-semibold ${STAGE_COLORS[inv.collectionStage] || STAGE_COLORS["New"]}`}>
                 {inv.collectionStage}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-0.5">Status</div>
-              <div className="font-medium text-stone-700">{inv.paymentStatus}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-wide mb-0.5">Status</div>
+              <div className="font-medium text-stone-300">{inv.paymentStatus}</div>
             </div>
           </div>
 
-          {/* Promise-to-pay detail */}
           {inv.promiseDate && !inv.hasOpenDispute && (
-            <div className="flex items-start gap-2 rounded-lg bg-blue-50 ring-1 ring-blue-100 px-3 py-2">
+            <div className="flex items-start gap-2 rounded-lg bg-sky-950/40 ring-1 ring-sky-800/50 px-3 py-2">
               <span className="text-sm">📅</span>
-              <div className="text-[12px] text-blue-900">
+              <div className="text-[12px] text-sky-200">
                 <span className="font-semibold">Promised payment by {formatDate(inv.promiseDate, df)}</span>
                 {inv.promiseAmount != null && <span> · {fmt.money(inv.promiseAmount, inv.currency)}</span>}
-                {inv.promiseSource && <span className="text-blue-600"> · via {inv.promiseSource}</span>}
+                {inv.promiseSource && <span className="text-sky-400"> · via {inv.promiseSource}</span>}
               </div>
             </div>
           )}
 
-          {/* Dispute detail */}
           {inv.hasOpenDispute && (
-            <div className="flex items-start gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2">
+            <div className="flex items-start gap-2 rounded-lg bg-rose-950/40 ring-1 ring-rose-800/50 px-3 py-2">
               <span className="text-sm">⚠️</span>
-              <div className="text-[12px] text-rose-900">
+              <div className="text-[12px] text-rose-200">
                 <span className="font-semibold">Disputed{inv.disputeDate ? ` since ${formatDate(inv.disputeDate, df)}` : ""}</span>
-                {inv.disputeReason && <div className="text-rose-700 mt-0.5">{inv.disputeReason}</div>}
+                {inv.disputeReason && <div className="text-rose-300 mt-0.5">{inv.disputeReason}</div>}
               </div>
             </div>
           )}
@@ -309,40 +307,39 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
             <button
               onClick={() => onDownload(inv)}
               disabled={downloading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-stone-900 text-white text-sm font-medium active:bg-stone-700 disabled:opacity-50 transition-colors">
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-medium active:bg-emerald-700 disabled:opacity-50 transition-colors">
               {downloading
                 ? <><Loader size={14} className="animate-spin" /> Preparing PDF…</>
                 : <><Download size={14} /> Download Invoice PDF</>}
             </button>
           )}
 
-          {/* Manually log a call outcome — promise or dispute */}
           {!isPaidOrClosed && (
             <div className="pt-1">
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => setLogMode(m => m === "promise" ? null : "promise")}
-                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "promise" ? "bg-blue-600 text-white ring-blue-600" : "bg-blue-50 text-blue-700 ring-blue-200"}`}>
+                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "promise" ? "bg-sky-600 text-white ring-sky-600" : "bg-sky-900/30 text-sky-300 ring-sky-700"}`}>
                   📅 Log promise
                 </button>
                 <button onClick={() => setLogMode(m => m === "dispute" ? null : "dispute")}
-                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "dispute" ? "bg-rose-600 text-white ring-rose-600" : "bg-rose-50 text-rose-700 ring-rose-200"}`}>
+                  className={`py-2 rounded-lg text-xs font-semibold ring-1 transition-colors ${logMode === "dispute" ? "bg-rose-600 text-white ring-rose-600" : "bg-rose-900/30 text-rose-300 ring-rose-700"}`}>
                   ⚠️ Raise dispute
                 </button>
               </div>
 
               {logMode === "promise" && (
-                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-blue-200 bg-blue-50/60 p-3">
-                  <div className="text-[11px] font-semibold text-blue-900">Customer promised to pay…</div>
+                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-sky-800 bg-sky-950/30 p-3">
+                  <div className="text-[11px] font-semibold text-sky-300">Customer promised to pay…</div>
                   <input type="date" value={pDate} min={todayStr} onChange={e => setPDate(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200" />
                   <input type="number" placeholder="Amount (leave blank = full balance)" value={pAmount} onChange={e => setPAmount(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600" />
                   <input type="text" placeholder="Note (e.g. spoke to John)" value={pNote} onChange={e => setPNote(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600" />
                   <div className="flex justify-end gap-2">
-                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-600">Cancel</button>
+                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400">Cancel</button>
                     <button onClick={submitPromise} disabled={!pDate || saving}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white disabled:opacity-50">
+                      className="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-600 text-white disabled:opacity-50">
                       {saving ? "Saving…" : "Save promise"}
                     </button>
                   </div>
@@ -350,16 +347,16 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
               )}
 
               {logMode === "dispute" && (
-                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-rose-200 bg-rose-50/60 p-3">
-                  <div className="text-[11px] font-semibold text-rose-900">Customer raised a query…</div>
+                <div className="mt-2 space-y-2 rounded-lg ring-1 ring-rose-800 bg-rose-950/30 p-3">
+                  <div className="text-[11px] font-semibold text-rose-300">Customer raised a query…</div>
                   <select value={dCat} onChange={e => setDCat(e.target.value)}
-                    className="w-full text-sm border border-rose-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-rose-300 bg-white">
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200">
                     {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <textarea rows={2} placeholder="What's the issue?" value={dReason} onChange={e => setDReason(e.target.value)}
-                    className="w-full text-sm border border-rose-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-rose-300 bg-white resize-none" />
+                    className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-emerald-500 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none" />
                   <div className="flex justify-end gap-2">
-                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-600">Cancel</button>
+                    <button onClick={() => setLogMode(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400">Cancel</button>
                     <button onClick={submitDispute} disabled={saving}
                       className="px-3 py-1.5 text-xs font-semibold rounded-md bg-rose-600 text-white disabled:opacity-50">
                       {saving ? "Saving…" : "Raise dispute"}
@@ -400,41 +397,39 @@ function ProjectGroupCard({ project, invoices: grpInvs, df, ccy, onDownload, dow
   });
 
   return (
-    <div className="bg-white rounded-xl ring-1 ring-stone-200 overflow-hidden">
-      {/* Card header — click to expand/collapse */}
+    <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
       <button className="w-full text-left px-4 py-3.5" onClick={() => setExpanded(e => !e)}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               {isDirect
-                ? <FileText size={12} className="text-stone-400 flex-shrink-0 mt-0.5" />
-                : <Briefcase size={12} className="text-stone-500 flex-shrink-0 mt-0.5" />}
-              <span className={`text-sm font-semibold leading-snug ${isDirect ? "text-stone-400 italic" : "text-stone-900"}`}>
+                ? <FileText size={12} className="text-stone-500 flex-shrink-0 mt-0.5" />
+                : <Briefcase size={12} className="text-stone-400 flex-shrink-0 mt-0.5" />}
+              <span className={`text-sm font-semibold leading-snug ${isDirect ? "text-stone-500 italic" : "text-stone-100"}`}>
                 {isDirect ? "Direct Customer Invoices" : project!.name}
               </span>
               {hasOverdue && <div className="w-1.5 h-1.5 rounded-full bg-rose-500 flex-shrink-0" />}
             </div>
-            <div className="text-[11px] text-stone-400 mt-0.5 ml-4">
+            <div className="text-[11px] text-stone-500 mt-0.5 ml-4">
               {open.length} open{grpInvs.length > open.length ? ` · ${grpInvs.length - open.length} closed` : ""}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {outstanding > 0 && (
-              <span className="text-base font-bold tabular-nums text-stone-900">
+              <span className="text-base font-bold tabular-nums text-stone-100">
                 {fmt.money(outstanding, ccy)}
               </span>
             )}
             {expanded
-              ? <ChevronUp size={14} className="text-stone-300" />
-              : <ChevronDown size={14} className="text-stone-300" />}
+              ? <ChevronUp size={14} className="text-stone-600" />
+              : <ChevronDown size={14} className="text-stone-600" />}
           </div>
         </div>
         {expanded && outstanding > 0 && <div className="mt-3"><AgingBar buckets={buckets} /></div>}
       </button>
 
-      {/* Expanded: flat invoice rows */}
       {expanded && (
-        <div className="border-t border-stone-100">
+        <div className="border-t border-stone-800">
           {sorted.map(inv => (
             <InvoiceRow
               key={inv.id}
@@ -715,57 +710,56 @@ export default function RepPortalPage() {
 
   // ═══ RENDER ══════════════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-stone-50 pb-10">
+    <div className="min-h-screen bg-stone-950 pb-10">
 
       {/* Sticky header */}
-      <div className="bg-white border-b border-stone-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-20 safe-area-inset-top">
+      <div className="bg-stone-900 border-b border-stone-800 px-4 py-3 flex items-center gap-3 sticky top-0 z-20 safe-area-inset-top">
         {view.type === "entity" ? (
           <button onClick={() => setView({ type: "home" })}
-            className="p-1.5 -ml-1.5 rounded-lg hover:bg-stone-100 text-stone-700">
+            className="p-1.5 -ml-1.5 rounded-lg hover:bg-stone-800 text-stone-300">
             <ChevronLeft size={20} />
           </button>
         ) : (
-          <div className="w-8 h-8 rounded-lg bg-stone-900 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 select-none">
-            AR
+          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 select-none leading-tight text-center">
+            PA
           </div>
         )}
 
         <div className="flex-1 min-w-0">
           {view.type === "home" ? (
             <>
-              <div className="text-[10px] uppercase tracking-widest text-stone-400 font-semibold leading-none">Ledger AR</div>
-              <div className="text-base font-semibold text-stone-900 leading-tight mt-0.5">Hi, {repName.split(" ")[0]} 👋</div>
+              <div className="text-[10px] uppercase tracking-widest text-stone-500 font-semibold leading-none">Primeaccountax</div>
+              <div className="text-base font-semibold text-stone-100 leading-tight mt-0.5">Hi, {repName.split(" ")[0]} 👋</div>
             </>
           ) : (
             <>
-              <div className="text-[10px] uppercase tracking-widest text-stone-400 font-semibold leading-none">
+              <div className="text-[10px] uppercase tracking-widest text-stone-500 font-semibold leading-none">
                 {view.kind === "customer" ? "Customer" : "Project"}
               </div>
-              <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">{detailData?.entity?.name}</div>
+              <div className="text-sm font-semibold text-stone-100 truncate mt-0.5">{detailData?.entity?.name}</div>
             </>
           )}
         </div>
 
         <div className="flex items-center gap-0.5">
-          {/* Cards / List toggle — only on home view */}
           {view.type === "home" && !loading && (
-            <div className="flex items-center gap-0.5 bg-stone-100 rounded-lg p-0.5 mr-1">
+            <div className="flex items-center gap-0.5 bg-stone-800 rounded-lg p-0.5 mr-1">
               <button onClick={() => setLayoutMode("cards")}
-                className={`p-1.5 rounded-md transition-colors ${layoutMode === "cards" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600"}`}
+                className={`p-1.5 rounded-md transition-colors ${layoutMode === "cards" ? "bg-stone-700 shadow-sm text-stone-100" : "text-stone-500 hover:text-stone-300"}`}
                 title="Card view">
                 <LayoutGrid size={14} />
               </button>
               <button onClick={() => setLayoutMode("list")}
-                className={`p-1.5 rounded-md transition-colors ${layoutMode === "list" ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600"}`}
+                className={`p-1.5 rounded-md transition-colors ${layoutMode === "list" ? "bg-stone-700 shadow-sm text-stone-100" : "text-stone-500 hover:text-stone-300"}`}
                 title="List view">
                 <ListIcon size={14} />
               </button>
             </div>
           )}
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-100 text-stone-400">
+          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={() => signOut({ callbackUrl: "/login" })} className="p-2 rounded-lg hover:bg-stone-100 text-stone-400">
+          <button onClick={() => signOut({ callbackUrl: "/login" })} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500">
             <LogOut size={15} />
           </button>
         </div>
@@ -775,7 +769,7 @@ export default function RepPortalPage() {
 
         {/* Error */}
         {error && (
-          <div className="mb-4 flex items-center gap-2 bg-rose-50 ring-1 ring-rose-200 rounded-xl p-3 text-sm text-rose-700">
+          <div className="mb-4 flex items-center gap-2 bg-rose-950 ring-1 ring-rose-800 rounded-xl p-3 text-sm text-rose-300">
             <AlertCircle size={15} className="flex-shrink-0" /> {error}
           </div>
         )}
@@ -802,24 +796,24 @@ export default function RepPortalPage() {
           <>
             {/* Summary banner */}
             {!loading && (
-              <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4 mb-4">
+              <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 p-4 mb-4">
                 <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Total AR</div>
-                    <div className="text-base sm:text-xl font-bold text-stone-900 tabular-nums leading-tight truncate">{fmt.money(totalAR, ccy)}</div>
-                    <div className="text-[10px] text-stone-400 mt-0.5">{openInvoices.length} open invoices</div>
+                    <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Total AR</div>
+                    <div className="text-base sm:text-xl font-bold text-stone-100 tabular-nums leading-tight truncate">{fmt.money(totalAR, ccy)}</div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">{openInvoices.length} open invoices</div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Overdue</div>
-                    <div className={`text-base sm:text-xl font-bold tabular-nums leading-tight truncate ${overdueAR > 0 ? "text-rose-600" : "text-stone-900"}`}>{fmt.money(overdueAR, ccy)}</div>
-                    <div className="text-[10px] text-stone-400 mt-0.5">{overdueCnt} invoice{overdueCnt !== 1 ? "s" : ""}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Overdue</div>
+                    <div className={`text-base sm:text-xl font-bold tabular-nums leading-tight truncate ${overdueAR > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdueAR, ccy)}</div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">{overdueCnt} invoice{overdueCnt !== 1 ? "s" : ""}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">
+                    <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">
                       {viewMode === "customer" ? "Customers" : "Projects"}
                     </div>
-                    <div className="text-base sm:text-xl font-bold text-stone-900 leading-tight">{entityList.length}</div>
-                    <div className="text-[10px] text-stone-400 mt-0.5">with open invoices</div>
+                    <div className="text-base sm:text-xl font-bold text-stone-100 leading-tight">{entityList.length}</div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">with open invoices</div>
                   </div>
                 </div>
                 <AgingBar buckets={globalBuckets} />
@@ -828,9 +822,9 @@ export default function RepPortalPage() {
 
             {/* Customer Responses (promises + disputes) — collapsible */}
             {!loading && (
-              <details className="bg-white rounded-xl ring-1 ring-stone-200 p-4 mb-4">
-                <summary className="cursor-pointer text-sm font-semibold text-stone-900 flex items-center gap-2 select-none">
-                  <MessageSquare size={14} className="text-stone-500" /> Customer Responses
+              <details className="bg-stone-900 rounded-xl ring-1 ring-stone-800 p-4 mb-4">
+                <summary className="cursor-pointer text-sm font-semibold text-stone-100 flex items-center gap-2 select-none">
+                  <MessageSquare size={14} className="text-stone-400" /> Customer Responses
                 </summary>
                 <div className="mt-3">
                   <ResponsesInbox linkInvoices={false} />
@@ -840,15 +834,15 @@ export default function RepPortalPage() {
 
             {/* Customer / Project toggle */}
             {!loading && (
-              <div className="flex bg-stone-100 rounded-xl p-0.5 mb-3">
+              <div className="flex bg-stone-800 rounded-xl p-0.5 mb-3">
                 <button
                   onClick={() => { setViewMode("customer"); setHomeSearch(""); }}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "customer" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700"}`}>
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "customer" ? "bg-stone-700 text-stone-100 shadow-sm" : "text-stone-500 hover:text-stone-300"}`}>
                   <Users size={12} /> Customers
                 </button>
                 <button
                   onClick={() => { setViewMode("project"); setHomeSearch(""); }}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "project" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700"}`}>
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${viewMode === "project" ? "bg-stone-700 text-stone-100 shadow-sm" : "text-stone-500 hover:text-stone-300"}`}>
                   <Briefcase size={12} /> Projects
                 </button>
               </div>
@@ -857,16 +851,16 @@ export default function RepPortalPage() {
             {/* Search bar */}
             {!loading && entityList.length > 0 && (
               <div className="relative mb-3">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
                 <input
                   value={homeSearch}
                   onChange={e => setHomeSearch(e.target.value)}
                   placeholder={`Search ${viewMode === "customer" ? "customers" : "projects"}…`}
-                  className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-200 bg-white focus:ring-2 focus:ring-stone-900 focus:outline-none"
+                  className="w-full h-10 pl-9 pr-9 text-sm rounded-xl ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder:text-stone-500 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                 />
                 {homeSearch && (
                   <button onClick={() => setHomeSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700">
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
                     <X size={14} />
                   </button>
                 )}
@@ -877,15 +871,15 @@ export default function RepPortalPage() {
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4].map(n => (
-                  <div key={n} className="bg-white rounded-xl ring-1 ring-stone-200 p-4 animate-pulse">
-                    <div className="h-2.5 bg-stone-100 rounded w-16 mb-2" />
-                    <div className="h-4 bg-stone-100 rounded w-40 mb-3" />
-                    <div className="h-6 bg-stone-100 rounded w-28" />
+                  <div key={n} className="bg-stone-900 rounded-xl ring-1 ring-stone-800 p-4 animate-pulse">
+                    <div className="h-2.5 bg-stone-800 rounded w-16 mb-2" />
+                    <div className="h-4 bg-stone-800 rounded w-40 mb-3" />
+                    <div className="h-6 bg-stone-800 rounded w-28" />
                   </div>
                 ))}
               </div>
             ) : entityList.length === 0 ? (
-              <div className="text-center py-16 text-stone-400">
+              <div className="text-center py-16 text-stone-500">
                 <FileText size={32} className="mx-auto mb-2 opacity-30" />
                 <div className="text-sm">No receivables assigned yet</div>
               </div>
@@ -899,7 +893,7 @@ export default function RepPortalPage() {
                   )
                 : entityList;
               return visible.length === 0 ? (
-                <div className="text-center py-12 text-stone-400">
+                <div className="text-center py-12 text-stone-500">
                   <Search size={24} className="mx-auto mb-2 opacity-30" />
                   <div className="text-sm">No results for "{homeSearch}"</div>
                 </div>
@@ -925,16 +919,16 @@ export default function RepPortalPage() {
         {view.type === "entity" && detailData && (
           <>
             {/* Entity summary */}
-            <div className="bg-white rounded-xl ring-1 ring-stone-200 p-4 mb-4">
+            <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 p-4 mb-4">
               {detailData.customerName && (
-                <div className="text-[11px] text-stone-400 mb-1">{detailData.customerName}</div>
+                <div className="text-[11px] text-stone-500 mb-1">{detailData.customerName}</div>
               )}
               <div className="flex items-end justify-between">
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-0.5">Outstanding</div>
-                  <div className="text-xl sm:text-2xl font-bold tabular-nums text-stone-900">{fmt.money(detailData.outstanding, ccy)}</div>
+                  <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-0.5">Outstanding</div>
+                  <div className="text-xl sm:text-2xl font-bold tabular-nums text-stone-100">{fmt.money(detailData.outstanding, ccy)}</div>
                 </div>
-                <div className="text-right text-[12px] text-stone-500 pb-0.5">
+                <div className="text-right text-[12px] text-stone-400 pb-0.5">
                   <div>{detailData.openCount} open</div>
                   <div>{detailData.entityInvoices.length} total</div>
                 </div>
@@ -944,7 +938,7 @@ export default function RepPortalPage() {
 
             {/* Invoices / Project cards */}
             {detailData.entityInvoices.length === 0 ? (
-              <div className="text-center py-12 text-stone-400">
+              <div className="text-center py-12 text-stone-500">
                 <FileText size={28} className="mx-auto mb-2 opacity-30" />
                 <div className="text-sm">No invoices</div>
               </div>
