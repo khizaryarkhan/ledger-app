@@ -27,8 +27,8 @@ export default function InboxPage() {
     <div className="p-6 max-w-[1200px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Inbox</h1>
-          <p className="text-sm text-stone-400 mt-1">All emails and notes across customers</p>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Communications</h1>
+          <p className="text-sm text-stone-400 mt-1">Sent emails, customer responses and internal notes</p>
         </div>
       </div>
 
@@ -66,7 +66,15 @@ export default function InboxPage() {
                   </div>
                   {c.subject && <div className="text-sm text-stone-300 truncate">{c.subject}</div>}
                   <div className="text-[12px] text-stone-500 truncate mt-0.5">{c.body}</div>
-                  {invoice && <div className="text-[10px] font-mono text-stone-500 mt-1">{invoice.invoiceNumber}</div>}
+                  <div className="flex items-center gap-3 mt-1">
+                    {invoice && <span className="text-[10px] font-mono text-stone-500">{invoice.invoiceNumber}</span>}
+                    {!isNote && c.recipients && (
+                      <span className="text-[10px] text-stone-600 truncate">
+                        <span className="text-stone-700">{isInbound ? "From:" : "To:"}</span>{" "}
+                        <span className="text-stone-500">{c.recipients}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </Link>
             );
