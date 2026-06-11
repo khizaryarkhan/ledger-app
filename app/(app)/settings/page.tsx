@@ -11,12 +11,16 @@ export default function SettingsPage() {
   const { data: session } = useSession();
   const { reps, regions } = useData();
   const [qboStatus, setQboStatus]     = useState<any>(null);
+  const [xeroStatus, setXeroStatus]   = useState<any>(null);
   const [emailStatus, setEmailStatus] = useState<any>(null);
 
   useEffect(() => {
     fetch("/api/qbo/sync")
       .then(r => r.json()).then(setQboStatus)
       .catch(() => setQboStatus({ connected: false }));
+    fetch("/api/xero/sync")
+      .then(r => r.json()).then(setXeroStatus)
+      .catch(() => setXeroStatus({ connected: false }));
     // Check active email transport (Gmail first, then Microsoft, then SMTP)
     Promise.all([
       fetch("/api/gmail?status=1").then(r => r.json()).catch(() => ({ connected: false })),
@@ -52,13 +56,17 @@ export default function SettingsPage() {
       href: "/settings/integrations",
       icon: Link2,
       title: "Integrations",
-      description: "QuickBooks Online sync, reconciliation, data verification and data tools.",
+      description: "QuickBooks Online and Xero sync, reconciliation, data verification and data tools.",
       badge:
-        qboStatus === null
+        (qboStatus === null && xeroStatus === null)
           ? { state: "loading", label: "" }
-          : qboStatus.connected
+          : qboStatus?.connected
           ? { state: "ok",  label: `Connected · ${qboStatus.companyName || "QBO"}` }
-          : { state: "off", label: "Not connected" },
+          : xeroStatus?.connected
+          ? { state: "ok",  label: `Connected · ${xeroStatus.tenantName || "Xero"}` }
+          : (qboStatus !== null || xeroStatus !== null)
+          ? { state: "off", label: "Not connected" }
+          : { state: "loading", label: "" },
     },
     {
       href: "/settings/email",

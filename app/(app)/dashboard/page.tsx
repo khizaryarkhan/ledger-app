@@ -415,10 +415,10 @@ export default function DashboardPage() {
   const setupLoading = smtpConfigured === null || hasTemplates === null;
 
   const setupSteps = useMemo(() => {
-    const qboConnected = invoices.length > 0;
+    const integrationsConnected = invoices.length > 0;
     const hasAutoContacts = (contacts ?? []).filter((c: any) => c.receivesAuto).length > 0;
     return [
-      { label: "Connect QuickBooks", done: qboConnected, href: "/settings/integrations" },
+      { label: "Connect QuickBooks or Xero", done: integrationsConnected, href: "/settings/integrations" },
       { label: "Configure email (SMTP)", done: !!smtpConfigured, href: "/settings/company" },
       { label: "Create an email template", done: !!hasTemplates, href: "/automations" },
       { label: "Enable reminder programme", done: hasAutoContacts, href: "/automations" },

@@ -33,17 +33,17 @@ export function ResponsesDashboardWidget() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <MessageSquare size={15} className="text-stone-500" />
-          <h3 className="text-sm font-semibold text-stone-900">Customer Responses</h3>
+          <h3 className="text-sm font-semibold text-white">Customer Responses</h3>
         </div>
-        <Link href="/responses" className="text-xs text-stone-500 hover:text-stone-900 flex items-center gap-1">Open inbox <ArrowUpRight size={12} /></Link>
+        <Link href="/responses" className="text-xs text-stone-500 hover:text-stone-200 flex items-center gap-1">Open inbox <ArrowUpRight size={12} /></Link>
       </div>
       <div className="grid grid-cols-3 gap-3">
         {tiles.map(t => {
           const Icon = t.icon;
-          const color = t.tone === "rose" ? "text-rose-600" : t.tone === "blue" ? "text-blue-600" : "text-stone-900";
-          const bg = t.tone === "rose" && t.value > 0 ? "bg-rose-50" : "bg-stone-50";
+          const color = t.tone === "rose" ? "text-rose-400" : t.tone === "blue" ? "text-blue-400" : "text-white";
+          const bg = t.tone === "rose" && t.value > 0 ? "bg-rose-900/20" : "bg-stone-800/50";
           return (
-            <Link key={t.label} href="/responses" className={`rounded-lg p-3 ${bg} hover:ring-1 hover:ring-stone-200 transition-all`}>
+            <Link key={t.label} href="/responses" className={`rounded-lg p-3 ${bg} hover:ring-1 hover:ring-stone-700 transition-all`}>
               <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
                 <Icon size={12} /> {t.label}
               </div>

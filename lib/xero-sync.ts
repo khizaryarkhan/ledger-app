@@ -333,6 +333,15 @@ export async function runXeroSync(orgId: string, userId: string) {
     await db.update(contacts).set({ email, updatedAt: new Date() }).where(eq(contacts.id, id));
   }
 
+  // Build a lookup from Xero ContactID → email from the freshly-fetched contacts.
+  // Xero's inline Contact object on an Invoice often omits EmailAddress (returns
+  // only ContactID + Name), so we fall back to the full contact we already have.
+  const xeroContactEmailMap = new Map<string, string>(
+    allXeroContacts
+      .filter((c: any) => c.ContactID && c.EmailAddress)
+      .map((c: any) => [c.ContactID as string, c.EmailAddress as string])
+  );
+
   // STEP 5: Upsert open AR invoices
   const invsToInsert: any[] = [];
   const invsToUpdate: { id: string; data: any }[] = [];
@@ -353,7 +362,9 @@ export async function runXeroSync(orgId: string, userId: string) {
     const paid       = Math.max(0, total - balance);
     const invoiceDate = parseXeroDate(xi.Date) || new Date().toISOString().slice(0, 10);
     const dueDate    = parseXeroDate(xi.DueDate) || invoiceDate;
-    const billingEmail = xi.Contact?.EmailAddress || null;
+    const billingEmail = xi.Contact?.EmailAddress
+      || xeroContactEmailMap.get(contactId)
+      || null;
 
     const wasClosedOrPaid = (() => {
       const ex = ledgerInvByXeroId.get(xeroId);
@@ -448,7 +459,7 @@ export async function runXeroSync(orgId: string, userId: string) {
       xeroTenantId: tenantId,
       paymentStatus: "Paid" as const,
       collectionStage: "Closed",
-      billingEmail: xi.Contact?.EmailAddress || null,
+      billingEmail: xi.Contact?.EmailAddress || xeroContactEmailMap.get(xi.Contact?.ContactID) || null,
       updatedAt: new Date(),
       ...(paidAt ? { paidAt } : {}),
     };

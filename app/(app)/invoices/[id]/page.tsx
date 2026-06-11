@@ -136,14 +136,14 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
-      <Link href="/invoices" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 mb-4">
+      <Link href="/invoices" className="inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-200 mb-4">
         <ArrowLeft size={14} /> Back to invoices
       </Link>
 
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-semibold text-stone-900 tracking-tight font-mono">{inv.invoiceNumber}</h1>
+            <h1 className="text-2xl font-semibold text-white tracking-tight font-mono">{inv.invoiceNumber}</h1>
             <Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge>
             {/* Clickable stage badge with dropdown */}
             <div ref={stageMenuRef} className="relative">
@@ -159,12 +159,12 @@ export default function InvoiceDetailPage() {
                 <ChevronDown size={12} className="text-stone-400 -ml-0.5" />
               </button>
               {showStageMenu && (
-                <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-lg shadow-lg ring-1 ring-stone-200 py-1 min-w-[180px]">
+                <div className="absolute left-0 top-full mt-1 z-50 bg-stone-800 rounded-lg shadow-lg ring-1 ring-stone-700 py-1 min-w-[180px]">
                   {orgStages.map((stage) => (
                     <button
                       key={stage}
                       onClick={() => handleStageChange(stage)}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-stone-50 flex items-center gap-2 ${stage === inv.collectionStage ? "font-semibold text-stone-900" : "text-stone-700"}`}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-stone-700 flex items-center gap-2 ${stage === inv.collectionStage ? "font-semibold text-white" : "text-stone-300"}`}
                     >
                       {stage === inv.collectionStage && <span className="w-1.5 h-1.5 rounded-full bg-stone-900 flex-shrink-0" />}
                       {stage !== inv.collectionStage && <span className="w-1.5 h-1.5 flex-shrink-0" />}
@@ -175,8 +175,8 @@ export default function InvoiceDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-stone-600">
-            <Link href={customer ? `/customers/${customer.id}` : "#"} className="hover:text-stone-900 hover:underline">{customer?.name}</Link>
+          <div className="flex items-center gap-2 text-sm text-stone-400">
+            <Link href={customer ? `/customers/${customer.id}` : "#"} className="hover:text-white hover:underline">{customer?.name}</Link>
             {project && <><span className="text-stone-300">·</span><span>{project.name}</span></>}
             {inv.poNumber && <><span className="text-stone-300">·</span><span className="font-mono text-xs">PO {inv.poNumber}</span></>}
           </div>
@@ -213,24 +213,24 @@ export default function InvoiceDetailPage() {
       <div className="grid grid-cols-4 gap-3 mb-6">
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Total</div>
-          <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(inv.total, inv.currency)}</div>
+          <div className="text-xl font-semibold text-white tabular-nums">{fmt.money(inv.total, inv.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Paid</div>
-          <div className="text-xl font-semibold text-emerald-600 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
+          <div className="text-xl font-semibold text-emerald-400 tabular-nums">{fmt.money(inv.paid || 0, inv.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Outstanding</div>
-          <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(out, inv.currency)}</div>
+          <div className="text-xl font-semibold text-white tabular-nums">{fmt.money(out, inv.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Due</div>
-          <div className="text-xl font-semibold text-stone-900 tabular-nums">{formatDate(inv.dueDate, df)}</div>
+          <div className="text-xl font-semibold text-white tabular-nums">{formatDate(inv.dueDate, df)}</div>
           {daysOverdue(inv.dueDate) > 0 && <div className="text-[11px] text-rose-600 font-medium mt-1">{daysOverdue(inv.dueDate)} days overdue</div>}
         </Card>
       </div>
 
-      <div className="border-b border-stone-200 mb-5">
+      <div className="border-b border-stone-800 mb-5">
         <div className="flex items-center gap-1">
           {[
             { id: "overview", label: "Overview" },
@@ -238,7 +238,7 @@ export default function InvoiceDetailPage() {
             { id: "tasks", label: `Tasks (${invTasks.length})` },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-900"}`}>
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? "border-emerald-400 text-white" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
               {t.label}
             </button>
           ))}
@@ -248,8 +248,8 @@ export default function InvoiceDetailPage() {
       {tab === "overview" && (
         <div className="grid grid-cols-3 gap-3">
           <Card className="col-span-2">
-            <h3 className="text-sm font-semibold text-stone-900 mb-4">Invoice details</h3>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <h3 className="text-sm font-semibold text-white mb-4">Invoice details</h3>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm text-stone-200">
               <div><dt className="text-xs text-stone-500 mb-0.5">Invoice date</dt><dd>{formatDate(inv.invoiceDate, df)}</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Due date</dt><dd>{formatDate(inv.dueDate, df)}</dd></div>
               <div><dt className="text-xs text-stone-500 mb-0.5">Payment terms</dt><dd>{inv.paymentTerms} days</dd></div>
@@ -270,13 +270,13 @@ export default function InvoiceDetailPage() {
                     <div className="flex flex-wrap gap-1.5 mt-0.5">
                       {resolvedEmail.split(",").map((addr: string) => addr.trim()).filter(Boolean).map((addr: string) => (
                         <a key={addr} href={`mailto:${addr}`}
-                          className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[12px] hover:bg-blue-100 transition-colors">
+                          className="inline-flex items-center px-2 py-0.5 rounded bg-blue-900/20 text-blue-400 text-[12px] hover:bg-blue-900/30 transition-colors">
                           {addr}
                         </a>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-stone-400 italic text-xs">No billing email — add in QBO (BillEmail field) or add a contact</span>
+                    <span className="text-stone-500 italic text-xs">No billing email — add in QBO/Xero or add a contact</span>
                   )}
                 </dd>
               </div>
@@ -285,29 +285,29 @@ export default function InvoiceDetailPage() {
               {inv.disputeDate && <div><dt className="text-xs text-stone-500 mb-0.5">Disputed since</dt><dd>{formatDate(inv.disputeDate, df)}</dd></div>}
             </dl>
             {inv.disputeReason && (
-              <div className="mt-4 pt-4 border-t border-stone-200">
+              <div className="mt-4 pt-4 border-t border-stone-800">
                 <div className="text-xs text-stone-500 mb-1">Dispute reason</div>
-                <div className="text-sm text-stone-800 bg-rose-50 ring-1 ring-rose-200 rounded-md p-3">{inv.disputeReason}</div>
+                <div className="text-sm text-rose-200 bg-rose-900/20 ring-1 ring-rose-800/50 rounded-md p-3">{inv.disputeReason}</div>
               </div>
             )}
             {inv.notes && (
-              <div className="mt-4 pt-4 border-t border-stone-200">
+              <div className="mt-4 pt-4 border-t border-stone-800">
                 <div className="text-xs text-stone-500 mb-1">Notes</div>
-                <div className="text-sm text-stone-700 whitespace-pre-wrap">{inv.notes}</div>
+                <div className="text-sm text-stone-300 whitespace-pre-wrap">{inv.notes}</div>
               </div>
             )}
           </Card>
           <Card className="col-span-1">
-            <h3 className="text-sm font-semibold text-stone-900 mb-4">Contacts</h3>
+            <h3 className="text-sm font-semibold text-white mb-4">Contacts</h3>
             {customerContacts.length === 0 ? <div className="text-sm text-stone-500">No contacts added</div> : (
               <div className="space-y-3">
                 {customerContacts.map(c => (
                   <div key={c.id} className="flex items-start gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-600 text-[10px] font-semibold flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-stone-700 flex items-center justify-center text-stone-300 text-[10px] font-semibold flex-shrink-0">
                       {c.name.split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-stone-900 truncate">{c.name}</div>
+                      <div className="text-sm font-medium text-stone-100 truncate">{c.name}</div>
                       <div className="text-[11px] text-stone-500 truncate">{c.email}</div>
                       {c.isPrimary && <Badge variant="blue" size="sm">Primary</Badge>}
                     </div>
