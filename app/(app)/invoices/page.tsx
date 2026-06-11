@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { InvoiceModal } from "@/components/forms";
-import { BatchEmailModal } from "@/components/feature";
+import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
 import { Search, Upload, Plus, FileText, Trash2, X, Download, Send, CalendarDays } from "lucide-react";
 
@@ -445,12 +445,31 @@ export default function InvoicesPage() {
       </Card>
 
       {showCreate && <InvoiceModal onClose={() => setShowCreate(false)} />}
-      {showBatchEmail && (
-        <BatchEmailModal
-          invoiceIds={Array.from(selected)}
-          onClose={() => setShowBatchEmail(false)}
-        />
-      )}
+      {showBatchEmail && (() => {
+        const sendRows = Array.from(selected)
+          .map((sid) => invoices.find((i: any) => i.id === sid))
+          .filter(Boolean)
+          .map((inv: any) => ({
+            inv,
+            custId: inv.customerId,
+            custName: customers.find((c: any) => c.id === inv.customerId)?.name ?? "Customer",
+            projName: projects.find((p: any) => p.id === inv.projectId)?.name ?? null,
+            bal: Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0))),
+            days: daysOverdue(inv.dueDate),
+            email: resolveEmail(inv),
+          }));
+        const multiCustomer = new Set(sendRows.map((r: any) => r.custId)).size > 1;
+        return (
+          <SendInvoicesModal
+            rows={sendRows}
+            ccy={orgSettings?.currency ?? sendRows[0]?.inv?.currency ?? "EUR"}
+            multiCustomer={multiCustomer}
+            onClose={() => setShowBatchEmail(false)}
+            onSent={() => { setShowBatchEmail(false); setSelected(new Set()); refresh(); }}
+            toast={toast}
+          />
+        );
+      })()}
     </div>
   );
 }

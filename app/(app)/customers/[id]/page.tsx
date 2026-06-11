@@ -7,6 +7,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { CustomerModal, ProjectModal } from "@/components/forms";
 import { Timeline, AuditTimeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
+import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { TransactionsTab } from "@/components/transactions-tab";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
 import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase, Zap } from "lucide-react";
@@ -336,7 +337,29 @@ export default function CustomerDetailPage() {
       {showAddContact && <AddContactModal customerId={id} onClose={() => setShowAddContact(false)} />}
       {showEditCustomer && <CustomerModal customer={customer} onClose={() => setShowEditCustomer(false)} />}
       {showAddProject && <ProjectModal preCustomerId={id} onClose={() => setShowAddProject(false)} />}
-      {showCompose && <EmailComposer context={{ customerId: id }} onClose={() => setShowCompose(false)} />}
+      {showCompose && (() => {
+        const sendRows = open.map((inv: any) => ({
+          inv,
+          custId: inv.customerId,
+          custName: customer?.name ?? "Customer",
+          projName: projects.find((p: any) => p.id === inv.projectId)?.name ?? null,
+          bal: Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0))),
+          days: daysOverdue(inv.dueDate),
+          email: inv.billingEmail
+            ?? contacts?.find((c: any) => c.customerId === id && c.isPrimary && c.email)?.email
+            ?? customer?.email
+            ?? null,
+        }));
+        return (
+          <SendInvoicesModal
+            rows={sendRows}
+            ccy={open[0]?.currency ?? "EUR"}
+            onClose={() => setShowCompose(false)}
+            onSent={() => { setShowCompose(false); refresh(); }}
+            toast={toast}
+          />
+        );
+      })()}
     </div>
   );
 }

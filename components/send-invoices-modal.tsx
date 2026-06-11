@@ -47,6 +47,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
   const [body, setBody] = useState(
     `Hi,\n\nPlease find attached the statement of open invoices along with the invoice copies for your reference.\nKindly share the tentative payment dates at your earliest convenience.\nFeel free to reach out for any queries.`
   );
+  const [attachPdf, setAttachPdf] = useState(true);
   const [sending, setSending] = useState(false);
 
   async function send() {
@@ -76,7 +77,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
       });
       const res = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, attachInvoiceIds: ids }),
+        body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, attachInvoiceIds: attachPdf ? ids : undefined }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Send failed"); }
       // Log a communication per invoice so it shows on each timeline
@@ -128,7 +129,23 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
             <label className="text-[11px] font-medium text-stone-400">Message</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 resize-none" />
           </div>
-          <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table, the &ldquo;View &amp; Respond&rdquo; portal link, and invoice PDFs attached automatically. The text above is the intro message.</p>
+          {/* Attach invoice PDF toggle */}
+          <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
+            <div>
+              <div className="text-[13px] font-medium text-stone-200">Attach invoice PDF</div>
+              <div className="text-[11px] text-stone-500">{attachPdf ? "Each invoice PDF will be attached." : "No PDFs attached — statement only."}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={attachPdf}
+              onClick={() => setAttachPdf(v => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${attachPdf ? "bg-emerald-600" : "bg-stone-600"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachPdf ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+          <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table and the &ldquo;View &amp; Respond&rdquo; portal link. The text above is the intro message.</p>
         </div>
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
