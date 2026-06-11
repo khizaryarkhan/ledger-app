@@ -398,28 +398,32 @@ export default function DashboardPage() {
   }, [effectiveInvoices]);
 
   // Setup checklist state
-  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
   const [hasTemplates, setHasTemplates] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch("/api/email/status")
-      .then(r => r.json())
-      .then(d => setSmtpConfigured(!!d.configured))
-      .catch(() => setSmtpConfigured(false));
+    // Check all email methods — any one connected counts as configured
+    Promise.all([
+      fetch("/api/gmail?status=1").then(r => r.json()).catch(() => ({ connected: false })),
+      fetch("/api/microsoft?status=1").then(r => r.json()).catch(() => ({ connected: false })),
+      fetch("/api/email/status").then(r => r.json()).catch(() => ({ configured: false })),
+    ]).then(([gmail, ms, smtp]) => {
+      setEmailConfigured(!!(gmail.connected || ms.connected || smtp.configured));
+    });
     fetch("/api/email-templates")
       .then(r => r.json())
       .then(d => setHasTemplates(Array.isArray(d) ? d.length > 0 : false))
       .catch(() => setHasTemplates(false));
   }, []);
 
-  const setupLoading = smtpConfigured === null || hasTemplates === null;
+  const setupLoading = emailConfigured === null || hasTemplates === null;
 
   const setupSteps = useMemo(() => {
     const integrationsConnected = invoices.length > 0;
     const hasAutoContacts = (contacts ?? []).filter((c: any) => c.receivesAuto).length > 0;
     return [
       { label: "Connect QuickBooks or Xero", done: integrationsConnected, href: "/settings/integrations" },
-      { label: "Configure email (SMTP)", done: !!smtpConfigured, href: "/settings/company" },
+      { label: "Configure SMTP or connect Gmail / M365", done: !!emailConfigured, href: "/settings/email" },
       { label: "Create an email template", done: !!hasTemplates, href: "/automations" },
       { label: "Enable reminder programme", done: hasAutoContacts, href: "/automations" },
     ];

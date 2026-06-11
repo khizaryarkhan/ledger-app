@@ -31,7 +31,13 @@ async function getValidToken(orgId: string) {
   if (!token) return null;
 
   // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
-  const refreshTokenPlain = decryptSecret(token.refreshToken)!;
+  const refreshTokenPlain = decryptSecret(token.refreshToken);
+  if (!refreshTokenPlain) {
+    throw new Error(
+      "Xero tokens could not be decrypted (ENCRYPTION_KEY may have been rotated). " +
+      "Reconnect Xero under Settings → Integrations to re-authorise."
+    );
+  }
 
   const now = Date.now();
   // Refresh if less than 10 minutes remaining
