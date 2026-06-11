@@ -443,7 +443,7 @@ export default function DashboardPage() {
       { label: "Create an email template", done: !!hasTemplates, href: "/automations" },
       { label: "Enable reminder programme", done: hasAutoContacts, href: "/automations" },
     ];
-  }, [invoices, contacts, smtpConfigured, hasTemplates]);
+  }, [invoices, contacts, emailConfigured, hasTemplates]);
 
   const setupComplete = setupSteps.every(s => s.done);
   const setupDoneCount = setupSteps.filter(s => s.done).length;
