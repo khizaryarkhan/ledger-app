@@ -10,16 +10,28 @@ export function CurrencyPills({
   breakdown,
   className,
   separator = " · ",
+  stacked = false,
 }: {
   breakdown: Record<string, number>;
   className?: string;
   separator?: string;
+  stacked?: boolean;
 }) {
   const entries = Object.entries(breakdown)
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1]);
 
   if (entries.length === 0) return <span className={className}>—</span>;
+
+  if (stacked) {
+    return (
+      <span className={`flex flex-col gap-0.5 ${className ?? ""}`}>
+        {entries.map(([c, v]) => (
+          <span key={c}>{fmt.money(v, c)}</span>
+        ))}
+      </span>
+    );
+  }
 
   return (
     <span className={className}>

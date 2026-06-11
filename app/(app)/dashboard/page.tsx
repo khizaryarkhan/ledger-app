@@ -724,7 +724,7 @@ export default function DashboardPage() {
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-2xl font-semibold text-white tracking-tight">
-                    <CurrencyPills breakdown={stats.totalByCurrency} />
+                    <CurrencyPills breakdown={stats.totalByCurrency} stacked />
                   </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
                 </>}
