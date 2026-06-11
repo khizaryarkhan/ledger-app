@@ -87,6 +87,8 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
   const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
   const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
+  // Use the currency from the invoices themselves — entity.currency can be stale
+  const invoiceCurrency = open[0]?.currency ?? invoices[0]?.currency ?? entity.currency;
   const buckets = getAgingBuckets(open);
   const hasOverdue = open.some((i: any) => daysOverdue(i.dueDate) > 0);
 
@@ -123,7 +125,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
       </div>
 
       <div className="flex items-center justify-between mt-2">
-        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, entity.currency)}</div>
+        <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, invoiceCurrency)}</div>
         <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
       </div>
 
