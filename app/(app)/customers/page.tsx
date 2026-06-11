@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
