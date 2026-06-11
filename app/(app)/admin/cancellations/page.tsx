@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { AlertTriangle, ChevronDown, Loader, X, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Loader, CheckCircle2 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
 
@@ -13,12 +13,12 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const DECISION_OPTIONS = [
-  { value: "immediate",   label: "Cancel immediately",           warning: true },
-  { value: "period_end",  label: "Cancel at end of billing period" },
-  { value: "30_days",     label: "Cancel in 30 days" },
-  { value: "60_days",     label: "Cancel in 60 days" },
-  { value: "90_days",     label: "Cancel in 90 days" },
-  { value: "rejected",    label: "Reject — keep subscription active" },
+  { value: "immediate",  label: "Cancel immediately",               warning: true },
+  { value: "period_end", label: "Cancel at end of billing period" },
+  { value: "30_days",    label: "Cancel in 30 days" },
+  { value: "60_days",    label: "Cancel in 60 days" },
+  { value: "90_days",    label: "Cancel in 90 days" },
+  { value: "rejected",   label: "Reject — keep subscription active" },
 ];
 
 function fmtPlan(amount: number | null, currency: string | null) {
@@ -27,10 +27,10 @@ function fmtPlan(amount: number | null, currency: string | null) {
 }
 
 function DecideModal({ request, onClose, onDecide }: any) {
-  const [decision, setDecision]   = useState("");
-  const [notes, setNotes]         = useState("");
-  const [confirm, setConfirm]     = useState(false);
-  const [loading, setLoading]     = useState(false);
+  const [decision, setDecision] = useState("");
+  const [notes, setNotes]       = useState("");
+  const [confirm, setConfirm]   = useState(false);
+  const [loading, setLoading]   = useState(false);
 
   if (!request) return null;
 
@@ -43,11 +43,7 @@ function DecideModal({ request, onClose, onDecide }: any) {
   };
 
   return (
-    <Modal
-      open={!!request}
-      onClose={onClose}
-      title="Review Cancellation Request"
-      size="md"
+    <Modal open={!!request} onClose={onClose} title="Review Cancellation Request" size="md"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -56,14 +52,13 @@ function DecideModal({ request, onClose, onDecide }: any) {
             onClick={handleDecide}
             disabled={!decision || loading}
           >
-            {loading ? <Loader size={14} className="animate-spin mr-1" /> : null}
+            {loading && <Loader size={14} className="animate-spin mr-1" />}
             {confirm ? "Confirm immediate cancellation" : "Apply decision"}
           </Button>
         </>
       }
     >
       <div className="px-5 py-4 space-y-4">
-        {/* Request info */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-[11px] text-stone-500 mb-0.5">Organisation</p>
@@ -94,7 +89,6 @@ function DecideModal({ request, onClose, onDecide }: any) {
           </div>
         )}
 
-        {/* Decision selector */}
         <div>
           <p className="text-xs text-stone-400 mb-2 font-medium">Admin decision</p>
           <div className="space-y-1.5">
@@ -106,10 +100,7 @@ function DecideModal({ request, onClose, onDecide }: any) {
                     : "border-stone-700 hover:border-stone-600 bg-stone-800/40"
                 }`}
               >
-                <input
-                  type="radio"
-                  name="decision"
-                  value={opt.value}
+                <input type="radio" name="decision" value={opt.value}
                   checked={decision === opt.value}
                   onChange={() => { setDecision(opt.value); setConfirm(false); }}
                   className="accent-emerald-500"
@@ -124,19 +115,14 @@ function DecideModal({ request, onClose, onDecide }: any) {
           <div className="flex items-start gap-2 p-3 bg-rose-500/10 border border-rose-500/25 rounded-lg">
             <AlertTriangle size={14} className="text-rose-400 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-rose-300">
-              This will immediately cancel the Stripe subscription. The customer will lose access based on their Stripe plan settings.
-              Click "Confirm immediate cancellation" to proceed.
+              This will immediately cancel the Stripe subscription. Click "Confirm immediate cancellation" to proceed.
             </p>
           </div>
         )}
 
         <div>
           <label className="text-xs text-stone-400 mb-1.5 block">Internal notes <span className="text-stone-600">(optional)</span></label>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            rows={2}
-            maxLength={2000}
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} maxLength={2000}
             placeholder="Internal notes visible only to admins…"
             className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
@@ -157,13 +143,8 @@ export default function CancellationsPage() {
     setLoading(true);
     try {
       const r = await fetch("/api/admin/cancellations");
-      if (r.ok) {
-        const d = await r.json();
-        setCancellations(d.cancellations ?? []);
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (r.ok) setCancellations((await r.json()).cancellations ?? []);
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -194,16 +175,12 @@ export default function CancellationsPage() {
           <p className="text-xs text-stone-500 mt-0.5">Review and action customer cancellation requests</p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            className="h-8 px-2.5 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 focus:outline-none"
-          >
+          <select value={filter} onChange={e => setFilter(e.target.value)}
+            className="h-8 px-2.5 text-xs rounded-md border border-stone-700 bg-stone-800 text-stone-200 focus:outline-none">
             <option value="all">All statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
-            <option value="cancelled">Cancelled</option>
           </select>
           <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
             {loading ? <Loader size={12} className="animate-spin" /> : "Refresh"}
@@ -213,13 +190,11 @@ export default function CancellationsPage() {
 
       <Card padding="none">
         {loading ? (
-          <div className="p-5 space-y-3">
-            {[1,2,3].map(i => <div key={i} className="h-14 bg-stone-800 rounded animate-pulse" />)}
-          </div>
+          <div className="p-5 space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 bg-stone-800 rounded animate-pulse" />)}</div>
         ) : !visible.length ? (
           <div className="py-16 text-center">
             <CheckCircle2 size={28} className="text-stone-600 mx-auto mb-3" />
-            <p className="text-sm text-stone-500">{filter === "pending" ? "No pending requests" : "No cancellation requests"}</p>
+            <p className="text-sm text-stone-500">No cancellation requests</p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -237,17 +212,13 @@ export default function CancellationsPage() {
                     <p className="text-white font-medium">{c.orgName ?? "—"}</p>
                     <p className="text-[11px] text-stone-500 font-mono">{c.stripeCustomerId?.slice(0, 14) ?? "—"}</p>
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="text-stone-300 text-xs truncate max-w-[140px]">{c.requestedByEmail ?? "—"}</p>
-                  </td>
+                  <td className="px-4 py-3 text-xs text-stone-300 truncate max-w-[140px]">{c.requestedByEmail ?? "—"}</td>
                   <td className="px-4 py-3">
                     <p className="text-stone-300 text-xs">{c.planName ?? "—"}</p>
                     <p className="text-[11px] text-stone-500">{fmtPlan(c.planAmount, c.planCurrency)}/{c.planInterval ?? "mo"}</p>
                   </td>
                   <td className="px-4 py-3 text-xs text-stone-400">
-                    {c.currentPeriodEnd
-                      ? new Date(c.currentPeriodEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-                      : "—"}
+                    {c.currentPeriodEnd ? new Date(c.currentPeriodEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={STATUS_BADGE[c.status] as any}>{c.status}</Badge>
@@ -256,13 +227,9 @@ export default function CancellationsPage() {
                     {new Date(c.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </td>
                   <td className="px-4 py-3">
-                    {c.status === "pending" ? (
-                      <Button variant="primary" size="sm" onClick={() => setActive(c)}>Review</Button>
-                    ) : (
-                      <button onClick={() => setActive(c)} className="text-xs text-stone-500 hover:text-stone-300 transition-colors">
-                        View
-                      </button>
-                    )}
+                    {c.status === "pending"
+                      ? <Button variant="primary" size="sm" onClick={() => setActive(c)}>Review</Button>
+                      : <button onClick={() => setActive(c)} className="text-xs text-stone-500 hover:text-stone-300 transition-colors">View</button>}
                   </td>
                 </tr>
               ))}
@@ -271,15 +238,8 @@ export default function CancellationsPage() {
         )}
       </Card>
 
-      {active && (
-        <DecideModal
-          request={active}
-          onClose={() => setActive(null)}
-          onDecide={handleDecide}
-        />
-      )}
+      {active && <DecideModal request={active} onClose={() => setActive(null)} onDecide={handleDecide} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
-

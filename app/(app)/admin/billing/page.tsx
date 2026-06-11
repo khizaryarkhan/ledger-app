@@ -2,57 +2,56 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Users, XCircle, AlertTriangle, FileText, CreditCard, TrendingUp, Clock, CheckCircle2, RefreshCw } from "lucide-react";
+import { XCircle, AlertTriangle, FileText, CreditCard, Clock, CheckCircle2, RefreshCw } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { fmt } from "@/lib/format";
 
 function StatCard({ label, value, icon: Icon, color = "stone", href }: any) {
-  const colors: Record<string, string> = {
+  const colorMap: Record<string, string> = {
     stone:   "text-stone-400 bg-stone-800/60",
     emerald: "text-emerald-400 bg-emerald-500/10",
     amber:   "text-amber-400 bg-amber-500/10",
     rose:    "text-rose-400 bg-rose-500/10",
     blue:    "text-blue-400 bg-blue-500/10",
   };
+  const valueColor: Record<string, string> = {
+    stone:   "text-white",
+    emerald: "text-white",
+    amber:   "text-amber-400",
+    rose:    "text-rose-400",
+    blue:    "text-blue-400",
+  };
   const content = (
-    <Card padding="md" className={`${href ? "cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all" : ""}`}>
+    <Card padding="md" className={href ? "cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all" : ""}>
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-stone-500">{label}</span>
-        <div className={`w-7 h-7 rounded-md flex items-center justify-center ${colors[color]}`}>
+        <div className={`w-7 h-7 rounded-md flex items-center justify-center ${colorMap[color]}`}>
           <Icon size={14} />
         </div>
       </div>
-      <div className={`text-3xl font-bold tabular-nums ${value > 0 ? (color === "rose" || color === "amber" ? `text-${color}-400` : "text-white") : "text-white"}`}>
-        {value ?? 0}
-      </div>
+      <div className={`text-3xl font-bold tabular-nums ${valueColor[color]}`}>{value ?? 0}</div>
     </Card>
   );
   return href ? <Link href={href}>{content}</Link> : content;
-}
-
-function actionBadge(action: string) {
-  const map: Record<string, string> = {
-    cancellation_requested:   "yellow",
-    cancellation_immediate:   "red",
-    cancellation_30_days:     "orange",
-    cancellation_60_days:     "orange",
-    cancellation_90_days:     "orange",
-    cancellation_period_end:  "orange",
-    cancellation_rejected:    "neutral",
-    subscription_reactivated: "green",
-    subscription_created:     "green",
-    subscription_updated:     "blue",
-    subscription_cancelled:   "red",
-    payment_failed:           "red",
-  };
-  return map[action] ?? "neutral";
 }
 
 function actionLabel(action: string) {
   return action.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
 
-export default function AdminOverviewPage() {
+const ACTION_BADGE: Record<string, string> = {
+  cancellation_requested:   "yellow",
+  cancellation_immediate:   "red",
+  cancellation_period_end:  "orange",
+  cancellation_rejected:    "neutral",
+  subscription_reactivated: "green",
+  subscription_created:     "green",
+  subscription_updated:     "blue",
+  subscription_cancelled:   "red",
+  payment_failed:           "red",
+};
+
+export default function AdminBillingPage() {
   const [data, setData]       = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,33 +73,26 @@ export default function AdminOverviewPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-white">Admin Overview</h1>
-          <p className="text-xs text-stone-500 mt-0.5">Internal billing and subscription management</p>
+          <h1 className="text-base font-semibold text-white">Billing Overview</h1>
+          <p className="text-xs text-stone-500 mt-0.5">Subscription and billing status across all organisations</p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-200 transition-colors"
-        >
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          Refresh
+        <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-200 transition-colors">
+          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Active"        value={stats.active}              icon={CheckCircle2} color="emerald" href="/admin/subscriptions" />
-        <StatCard label="Trialing"      value={stats.trialing}            icon={Clock}        color="blue"    href="/admin/subscriptions" />
-        <StatCard label="Past due"      value={stats.pastDue}             icon={AlertTriangle} color="rose"   href="/admin/subscriptions" />
-        <StatCard label="Cancelling"    value={stats.cancelling}          icon={XCircle}      color="amber"   href="/admin/subscriptions" />
-        <StatCard label="Cancelled"     value={stats.cancelled}           icon={XCircle}      color="stone"   href="/admin/subscriptions" />
-        <StatCard label="Failed payments" value={stats.failedPayments}   icon={AlertTriangle} color="rose"   href="/admin/subscriptions" />
-        <StatCard label="Pending cancellations" value={stats.pendingCancellations} icon={Clock} color={stats.pendingCancellations > 0 ? "amber" : "stone"} href="/admin/cancellations" />
-        <StatCard label="New leads"     value={stats.newLeads}            icon={FileText}     color={stats.newLeads > 0 ? "blue" : "stone"} href="/admin/leads" />
+        <StatCard label="Active"                value={stats.active}              icon={CheckCircle2} color="emerald" href="/admin/subscriptions" />
+        <StatCard label="Trialing"              value={stats.trialing}            icon={Clock}        color="blue"    href="/admin/subscriptions" />
+        <StatCard label="Past due"              value={stats.pastDue}             icon={AlertTriangle} color="rose"  href="/admin/subscriptions" />
+        <StatCard label="Cancelling"            value={stats.cancelling}          icon={XCircle}      color="amber"  href="/admin/subscriptions" />
+        <StatCard label="Cancelled"             value={stats.cancelled}           icon={XCircle}      color="stone"  href="/admin/subscriptions" />
+        <StatCard label="Failed payments"       value={stats.failedPayments}      icon={AlertTriangle} color="rose"  href="/admin/subscriptions" />
+        <StatCard label="Pending cancellations" value={stats.pendingCancellations} icon={Clock}       color={stats.pendingCancellations > 0 ? "amber" : "stone"} href="/admin/cancellations" />
+        <StatCard label="New leads"             value={stats.newLeads}            icon={FileText}     color={stats.newLeads > 0 ? "blue" : "stone"} href="/admin/leads" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-5">
-        {/* Recent cancellations */}
         <Card padding="md">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-white">Recent Cancellations</h2>
@@ -121,7 +113,7 @@ export default function AdminOverviewPage() {
                       {new Date(c.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                     </p>
                   </div>
-                  <Badge variant={c.status === "pending" ? "yellow" : c.status === "approved" ? "green" : "neutral"}>
+                  <Badge variant={c.status === "pending" ? "yellow" : c.status === "approved" ? "green" : "neutral" as any}>
                     {c.status}
                   </Badge>
                 </Link>
@@ -130,7 +122,6 @@ export default function AdminOverviewPage() {
           )}
         </Card>
 
-        {/* Recent leads */}
         <Card padding="md">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-white">Recent Leads</h2>
@@ -149,7 +140,7 @@ export default function AdminOverviewPage() {
                     <p className="text-xs text-stone-300 truncate">{l.fullName} {l.companyName ? `· ${l.companyName}` : ""}</p>
                     <p className="text-[11px] text-stone-500 truncate">{l.email}</p>
                   </div>
-                  <Badge variant={l.status === "new" ? "blue" : l.status === "converted" ? "green" : "neutral"}>
+                  <Badge variant={l.status === "new" ? "blue" : l.status === "converted" ? "green" : "neutral" as any}>
                     {l.status}
                   </Badge>
                 </Link>
@@ -159,7 +150,6 @@ export default function AdminOverviewPage() {
         </Card>
       </div>
 
-      {/* Recent audit log */}
       <Card padding="md">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-white">Recent Audit Events</h2>
@@ -173,7 +163,7 @@ export default function AdminOverviewPage() {
           <div className="space-y-0.5">
             {data.recentAuditLogs.map((log: any) => (
               <div key={log.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-stone-800/40">
-                <Badge variant={actionBadge(log.action) as any} size="sm">{actionLabel(log.action)}</Badge>
+                <Badge variant={ACTION_BADGE[log.action] as any ?? "neutral"} size="sm">{actionLabel(log.action)}</Badge>
                 <span className="text-xs text-stone-500 flex-1 min-w-0 truncate">
                   {log.orgName ?? "—"} {log.actorName ? `· by ${log.actorName}` : ""}
                 </span>
