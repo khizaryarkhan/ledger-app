@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Badge } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards } from "lucide-react";
+import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send } from "lucide-react";
 
 type Txn = {
   id: string;
@@ -83,16 +83,19 @@ function withinDateRange(dateStr: string, range: string): boolean {
 
 export function TransactionsTab({
   fetchUrl,
-  scope, // "customer" | "project" — controls available filters
+  scope,
+  onSendSelected,
 }: {
   fetchUrl: string;
   scope: "customer" | "project";
+  onSendSelected?: (refIds: string[]) => void;
 }) {
   const [rows, setRows] = useState<Txn[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -126,6 +129,33 @@ export function TransactionsTab({
     return { arIncrease, arDecrease, net: arIncrease - arDecrease, openBalance };
   }, [filtered]);
 
+  // Invoice rows that are selectable (open/unpaid invoices only)
+  const selectableRefIds = useMemo(
+    () => filtered.filter(r => r.type === "Invoice" && r.balance > 0.005).map(r => r.refId),
+    [filtered]
+  );
+  const allSelected = selectableRefIds.length > 0 && selectableRefIds.every(id => selected.has(id));
+  const someSelected = selectableRefIds.some(id => selected.has(id));
+
+  function toggleRow(refId: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(refId) ? next.delete(refId) : next.add(refId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(prev => { const next = new Set(prev); selectableRefIds.forEach(id => next.delete(id)); return next; });
+    } else {
+      setSelected(prev => new Set([...prev, ...selectableRefIds]));
+    }
+  }
+
+  const selectedIds = [...selected].filter(id => selectableRefIds.includes(id));
+  const hasSelection = selectedIds.length > 0;
+
   return (
     <div className="space-y-3">
       {/* Filter bar */}
@@ -149,6 +179,17 @@ export function TransactionsTab({
               {DATE_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
+
+          {/* Send selected action */}
+          {hasSelection && onSendSelected && (
+            <button
+              onClick={() => onSendSelected(selectedIds)}
+              className="flex items-center gap-2 h-8 px-3 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+            >
+              <Send size={13} />
+              Send {selectedIds.length} invoice{selectedIds.length !== 1 ? "s" : ""}
+            </button>
+          )}
 
           {/* Net change in visible set */}
           {filtered.length > 0 && (
@@ -179,6 +220,18 @@ export function TransactionsTab({
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              {onSendSelected && (
+                <th className="px-3 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                    onChange={toggleAll}
+                    className="rounded border-stone-600 bg-stone-800 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                    title="Select all open invoices"
+                  />
+                </th>
+              )}
               <th className="text-left font-semibold px-4 py-3 w-28">Date</th>
               <th className="text-left font-semibold px-4 py-3 w-40">Type</th>
               <th className="text-left font-semibold px-4 py-3 w-28">Number</th>
@@ -191,15 +244,35 @@ export function TransactionsTab({
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm">Loading…</td></tr>
+              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-sm">Loading…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm">No transactions found for this filter.</td></tr>
+              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-sm">No transactions found for this filter.</td></tr>
             )}
             {filtered.map(r => {
               const showBalance = r.balance > 0.005;
+              const isSelectable = onSendSelected && r.type === "Invoice" && showBalance;
+              const isSelected = selected.has(r.refId);
               return (
-                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
+                <tr
+                  key={r.id}
+                  onClick={isSelectable ? () => toggleRow(r.refId) : undefined}
+                  className={`border-b border-stone-800/60 transition-colors ${
+                    isSelectable ? "cursor-pointer" : ""
+                  } ${isSelected ? "bg-emerald-900/20 hover:bg-emerald-900/30" : "hover:bg-stone-800/40"}`}
+                >
+                  {onSendSelected && (
+                    <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                      {isSelectable && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleRow(r.refId)}
+                          className="rounded border-stone-600 bg-stone-800 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-stone-300 tabular-nums text-[12px]">
                     {new Date(r.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
                   </td>
@@ -222,7 +295,7 @@ export function TransactionsTab({
                     {showBalance ? fmt.money(r.balance, r.currency) : "—"}
                   </td>
                   <td className="px-4 py-3">{statusBadge(r.status)}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                     {(r.type === "Invoice" || r.type === "Credit Memo") && (
                       <Link href={`/invoices/${r.refId}`} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">
                         View
@@ -236,7 +309,10 @@ export function TransactionsTab({
         </table>
         {!loading && filtered.length > 0 && (
           <div className="px-4 py-2 border-t border-stone-800 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>Showing {filtered.length} of {rows.length} transactions</span>
+            <span>
+              {hasSelection ? `${selectedIds.length} invoice${selectedIds.length !== 1 ? "s" : ""} selected · ` : ""}
+              Showing {filtered.length} of {rows.length} transactions
+            </span>
             <span className="text-stone-600">Balance shown for unpaid invoices and partially-applied credits/payments only</span>
           </div>
         )}

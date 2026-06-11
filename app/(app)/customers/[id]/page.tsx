@@ -21,6 +21,7 @@ export default function CustomerDetailPage() {
   const [showEditCustomer, setShowEditCustomer] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const [composeSeed, setComposeSeed] = useState<string[] | null>(null);
   const [togglingChase, setTogglingChase] = useState(false);
 
   const customer = customers.find(c => c.id === id);
@@ -214,7 +215,15 @@ export default function CustomerDetailPage() {
       )}
 
       {tab === "transactions" && (
-        <TransactionsTab fetchUrl={`/api/customers/${id}/transactions`} scope="customer" />
+        <TransactionsTab
+          fetchUrl={`/api/customers/${id}/transactions`}
+          scope="customer"
+          onSendSelected={(refIds) => {
+            if (!refIds.length) return;
+            setComposeSeed(refIds);
+            setShowCompose(true);
+          }}
+        />
       )}
 
       {tab === "invoices" && (
@@ -338,7 +347,12 @@ export default function CustomerDetailPage() {
       {showEditCustomer && <CustomerModal customer={customer} onClose={() => setShowEditCustomer(false)} />}
       {showAddProject && <ProjectModal preCustomerId={id} onClose={() => setShowAddProject(false)} />}
       {showCompose && (() => {
-        const sendRows = open.map((inv: any) => ({
+        // If triggered from Transactions tab with a specific selection, use those invoices.
+        // Otherwise fall back to all open invoices (top-level "Send email" button).
+        const source = composeSeed
+          ? custInvoices.filter((inv: any) => composeSeed.includes(inv.id))
+          : open;
+        const sendRows = source.map((inv: any) => ({
           inv,
           custId: inv.customerId,
           custName: customer?.name ?? "Customer",
@@ -353,9 +367,9 @@ export default function CustomerDetailPage() {
         return (
           <SendInvoicesModal
             rows={sendRows}
-            ccy={open[0]?.currency ?? "EUR"}
-            onClose={() => setShowCompose(false)}
-            onSent={() => { setShowCompose(false); refresh(); }}
+            ccy={source[0]?.currency ?? "EUR"}
+            onClose={() => { setShowCompose(false); setComposeSeed(null); }}
+            onSent={() => { setShowCompose(false); setComposeSeed(null); refresh(); }}
             toast={toast}
           />
         );
