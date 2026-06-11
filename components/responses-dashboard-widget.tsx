@@ -27,6 +27,8 @@ interface Counts {
   openDisputes: number;
   activePromises: number;
   brokenPromises: number;
+  unpromisedOverdueCount: number;
+  unpromisedByCcy: Record<string, number>;
 }
 
 /**
@@ -49,15 +51,18 @@ export function ResponsesDashboardWidget() {
   }, []);
 
   // Hide entirely if there's nothing to show
-  if (!counts || (counts.openDisputes === 0 && counts.activePromises === 0 && counts.brokenPromises === 0)) return null;
+  if (!counts || (counts.openDisputes === 0 && counts.activePromises === 0 && counts.brokenPromises === 0 && (counts.unpromisedOverdueCount ?? 0) === 0)) return null;
 
   const activeItems = promises.filter(p => p.status === "Active" && !p.isBroken)
     .sort((a, b) => a.promiseDate.localeCompare(b.promiseDate));
 
-  // Per-currency total for "Promise to secure"
-  const byCcy: Record<string, number> = {};
-  activeItems.forEach(p => { byCcy[p.currency] = (byCcy[p.currency] || 0) + (p.amount || 0); });
-  const promisedSummary = Object.entries(byCcy).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ");
+  // "Promise to secure" — overdue invoices with no active promise yet
+  const unpromisedCount = counts.unpromisedOverdueCount ?? 0;
+  const unpromisedByCcy = counts.unpromisedByCcy ?? {};
+  const unpromisedSummary = Object.entries(unpromisedByCcy)
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, v]) => fmt.money(v, c))
+    .join(" · ");
 
   return (
     <>
@@ -102,18 +107,21 @@ export function ResponsesDashboardWidget() {
             <div className="text-2xl font-bold tabular-nums text-blue-400">{counts.activePromises}</div>
           </button>
 
-          {/* Promise to secure */}
-          <div className="rounded-lg p-3 bg-stone-800/50">
+          {/* Promise to secure — overdue invoices with no active promise */}
+          <div className={`rounded-lg p-3 ${unpromisedCount > 0 ? "bg-amber-900/20" : "bg-stone-800/50"}`}>
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
               <CheckCircle2 size={12} /> Promise to secure
             </div>
-            {counts.activePromises === 0 ? (
-              <div className="text-sm text-stone-600 mt-1">—</div>
+            {unpromisedCount === 0 ? (
+              <div className="text-2xl font-bold tabular-nums text-white">0</div>
             ) : (
               <>
-                <div className="text-sm font-semibold text-emerald-400 leading-snug">{promisedSummary || "—"}</div>
+                <div className={`text-2xl font-bold tabular-nums ${unpromisedCount > 0 ? "text-amber-400" : "text-white"}`}>
+                  {unpromisedCount}
+                </div>
+                <div className="text-[11px] text-amber-500/80 leading-snug mt-0.5">{unpromisedSummary}</div>
                 <div className="text-[10px] text-stone-600 mt-0.5">
-                  on {counts.activePromises} invoice{counts.activePromises !== 1 ? "s" : ""}
+                  overdue invoice{unpromisedCount !== 1 ? "s" : ""} · no promise
                 </div>
               </>
             )}

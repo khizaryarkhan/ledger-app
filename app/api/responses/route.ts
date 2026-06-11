@@ -4,7 +4,7 @@ import {
   reps as repsTable,
 } from "@/db/schema";
 import { requireOrg } from "@/lib/api";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { NextResponse } from "next/server";
 
@@ -107,11 +107,52 @@ export async function GET(_req: Request, _ctx?: any) {
   const activePromises = promises.filter(p => p.status === "Active" && !p.isBroken).length;
   const brokenPromises = promises.filter(p => p.isBroken).length;
 
+  // ── Invoices without a secured promise ──
+  // Overdue, open invoices that have no active promise on them — the gap we need to chase.
+  const activePromisedInvIds = new Set(
+    promises.filter(p => p.status === "Active" && !p.isBroken).map(p => p.invoiceId)
+  );
+
+  const overdueRows = await db
+    .select({
+      id: invoices.id,
+      currency: invoices.currency,
+      qboBalance: invoices.qboBalance,
+      xeroBalance: invoices.xeroBalance,
+      total: invoices.total,
+      paid: invoices.paid,
+      customerRepId: customers.repId,
+      projectRepId: projects.repId,
+    })
+    .from(invoices)
+    .leftJoin(customers, eq(customers.id, invoices.customerId))
+    .leftJoin(projects, eq(projects.id, invoices.projectId))
+    .where(and(
+      eq(invoices.orgId, orgId!),
+      ne(invoices.paymentStatus, "Paid"),
+      sql`${invoices.dueDate} < ${todayStr}`,
+    ));
+
+  const unpromisedOverdue = overdueRows.filter(i =>
+    !activePromisedInvIds.has(i.id) &&
+    inScope(i.projectRepId as any, i.customerRepId as any)
+  );
+
+  // Build per-currency totals for the unpromised invoices
+  const unpromisedByCcy: Record<string, number> = {};
+  for (const i of unpromisedOverdue) {
+    const bal = i.qboBalance ?? i.xeroBalance ?? Math.max(0, (i.total ?? 0) - (i.paid ?? 0));
+    const ccy = i.currency || "USD";
+    unpromisedByCcy[ccy] = (unpromisedByCcy[ccy] || 0) + bal;
+  }
+
   return NextResponse.json({
     disputes, promises,
     counts: {
       needsAttention: openDisputes + brokenPromises,
       openDisputes, activePromises, brokenPromises,
+      unpromisedOverdueCount: unpromisedOverdue.length,
+      unpromisedByCcy,
     },
   });
 }
