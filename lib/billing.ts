@@ -8,44 +8,63 @@ import type Stripe from "stripe";
 
 // ── Sync Stripe subscription → local DB ──────────────────────────────────
 
+function tsToDate(epoch: number | null | undefined): Date | null {
+  if (epoch == null || isNaN(epoch)) return null;
+  const d = new Date(epoch * 1000);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export async function syncSubscriptionFromStripe(sub: any) {
-  const price   = sub.items.data[0]?.price;
+  const price   = sub.items?.data?.[0]?.price;
   const product = price?.product;
   const planName =
     typeof product === "object" && product !== null
       ? (product as Stripe.Product).name
       : undefined;
 
-  const pmId = sub.default_payment_method;
+  // Payment method may already be expanded on the sub object
   let brand: string | undefined;
   let last4: string | undefined;
-  if (typeof pmId === "string") {
+  const pm = sub.default_payment_method;
+  if (pm && typeof pm === "object") {
+    brand = pm.card?.brand ?? undefined;
+    last4 = pm.card?.last4 ?? undefined;
+  } else if (typeof pm === "string") {
     try {
-      const pm = await stripe.paymentMethods.retrieve(pmId);
-      brand = pm.card?.brand ?? undefined;
-      last4 = pm.card?.last4 ?? undefined;
+      const pmObj = await stripe.paymentMethods.retrieve(pm);
+      brand = pmObj.card?.brand ?? undefined;
+      last4 = pmObj.card?.last4 ?? undefined;
     } catch { /* ignore */ }
   }
 
+  // current_period_* may be absent on some subscription states — fall back gracefully
+  const periodStart = tsToDate(sub.current_period_start);
+  const periodEnd   = tsToDate(sub.current_period_end);
+  const cancelAt    = tsToDate(sub.cancel_at);
+  const trialEnd    = tsToDate(sub.trial_end);
+
+  const patch: Record<string, any> = {
+    stripeSubscriptionId: sub.id,
+    status:               sub.status,
+    cancelAtPeriodEnd:    sub.cancel_at_period_end ?? false,
+    stripeUpdatedAt:      new Date(),
+  };
+
+  if (price?.id)                         patch.stripePriceId      = price.id;
+  if (periodStart)                        patch.currentPeriodStart = periodStart;
+  if (periodEnd)                          patch.currentPeriodEnd   = periodEnd;
+  if (cancelAt !== undefined)             patch.cancelAt           = cancelAt;
+  if (trialEnd !== undefined)             patch.trialEnd           = trialEnd;
+  if (planName)                           patch.planName           = planName;
+  if (price?.unit_amount != null)         patch.planAmount         = price.unit_amount;
+  if (price?.recurring?.interval)        patch.planInterval       = price.recurring.interval;
+  if (price?.currency)                   patch.planCurrency       = price.currency;
+  if (brand)                             patch.paymentMethodBrand = brand;
+  if (last4)                             patch.paymentMethodLast4 = last4;
+
   await db
     .update(subscriptions)
-    .set({
-      stripeSubscriptionId: sub.id,
-      stripePriceId:        price?.id,
-      status:               sub.status,
-      currentPeriodStart:   new Date(sub.current_period_start * 1000),
-      currentPeriodEnd:     new Date(sub.current_period_end * 1000),
-      cancelAt:             sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
-      cancelAtPeriodEnd:    sub.cancel_at_period_end,
-      trialEnd:             sub.trial_end ? new Date(sub.trial_end * 1000) : null,
-      planName,
-      planAmount:           price?.unit_amount ?? undefined,
-      planInterval:         price?.recurring?.interval ?? undefined,
-      planCurrency:         price?.currency ?? undefined,
-      paymentMethodBrand:   brand,
-      paymentMethodLast4:   last4,
-      stripeUpdatedAt:      new Date(),
-    })
+    .set(patch)
     .where(eq(subscriptions.stripeCustomerId, sub.customer as string));
 }
 
