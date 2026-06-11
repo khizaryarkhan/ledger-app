@@ -219,7 +219,7 @@ export default function BoardPage() {
       // Native per-currency breakdown for display
       const currencyBreakdown: Record<string, number> = {};
       open.forEach((i: any) => {
-        const c = i.currency ?? ccy;
+        const c = i.currency ?? "USD";
         currencyBreakdown[c] = (currencyBreakdown[c] || 0) + openBal(i);
       });
 
@@ -471,7 +471,6 @@ export default function BoardPage() {
           updateInvoice={updateInvoice}
           refresh={refresh}
           toast={toast}
-          ccy={ccy}
           comments={communications ?? []}
         />
       )}

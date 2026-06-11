@@ -31,13 +31,12 @@ const uniqEmails = (vals: (string | null)[]) => {
   return [...set];
 };
 
-export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, comments = [] }: {
+export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [] }: {
   rows: BoardRow[];
   stages: Stage[];
   updateInvoice: (id: string, patch: any) => Promise<any>;
   refresh: () => Promise<any> | void;
   toast?: (m: string, t?: string) => void;
-  ccy: string;
   comments?: any[];
 }) {
   const { data: session } = useSession();
@@ -235,7 +234,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
       {/* Selection action bar */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white flex-wrap">
-          <span className="text-sm font-medium">{selected.size} selected · {fmt.money(selectedTotal, ccy)}</span>
+          <span className="text-sm font-medium">{selected.size} selected · {(() => {
+            const m: Record<string,number> = {};
+            selectedRows.forEach(r => { const c = r.inv.currency ?? "USD"; m[c] = (m[c]||0) + r.bal; });
+            return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,v]) => fmt.money(v,c)).join(" · ");
+          })()}</span>
           {selectedCustomers.size > 1 && (
             <span className="flex items-center gap-1.5 text-[12px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded">
               <AlertTriangle size={13} /> {selectedCustomers.size} different customers selected — a single email would mix them
@@ -557,7 +560,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
                   {(() => {
                     const byCcy: Record<string, number> = {};
                     filteredRows.forEach(r => {
-                      const c = r.inv.currency ?? ccy;
+                      const c = r.inv.currency ?? "USD";
                       byCcy[c] = (byCcy[c] || 0) + r.bal;
                     });
                     return Object.entries(byCcy)
@@ -576,7 +579,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, ccy, co
       </div>
 
       {showSend && (
-        <SendInvoicesModal rows={selectedRows} ccy={ccy} multiCustomer={selectedCustomers.size > 1}
+        <SendInvoicesModal rows={selectedRows} ccy={selectedRows[0]?.inv.currency ?? "USD"} multiCustomer={selectedCustomers.size > 1}
           onClose={() => setShowSend(false)}
           onSent={() => { setShowSend(false); setSelected(new Set()); refresh(); }}
           toast={toast} />
