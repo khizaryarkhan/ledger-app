@@ -752,9 +752,21 @@ export const orgSmtpSettings = pgTable("org_smtp_settings", {
   pass: text("pass").notNull(),
   fromEmail: varchar("from_email", { length: 255 }).notNull(),
   fromName: varchar("from_name", { length: 255 }),
-  ccEmail: varchar("cc_email", { length: 255 }),      // default CC address on every outgoing email
+  // ccEmail / ccEnabled kept for migration compat; new code reads from orgEmailSettings
+  ccEmail: varchar("cc_email", { length: 255 }),
   ccEnabled: boolean("cc_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// =========================================================================
+// ORG EMAIL DEFAULTS (transport-agnostic — applies to Gmail, MS, and SMTP)
+// =========================================================================
+export const orgEmailSettings = pgTable("org_email_settings", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().unique().references(() => organisations.id, { onDelete: "cascade" }),
+  ccEmail:   varchar("cc_email", { length: 500 }),
+  ccEnabled: boolean("cc_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

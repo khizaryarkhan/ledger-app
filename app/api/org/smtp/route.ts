@@ -15,8 +15,6 @@ const Schema = z.object({
   fromEmail: z.string().email(),
   fromName: z.string().optional(),
   keepExistingPass: z.boolean().optional(),
-  ccEmail: z.string().email().optional().or(z.literal("")),
-  ccEnabled: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -29,9 +27,8 @@ export async function GET() {
     port:      orgSmtpSettings.port,
     fromEmail: orgSmtpSettings.fromEmail,
     fromName:  orgSmtpSettings.fromName,
-    ccEmail:   orgSmtpSettings.ccEmail,
-    ccEnabled: orgSmtpSettings.ccEnabled,
-    // Never return password or the SMTP username (credential surface).
+    // user/pass never returned (credential surface)
+    // CC is now managed in orgEmailSettings (transport-agnostic)
   }).from(orgSmtpSettings).where(eq(orgSmtpSettings.orgId, orgId!)).limit(1);
 
   return ok({ configured: !!settings, settings: settings || null });
@@ -46,19 +43,14 @@ export async function POST(req: Request) {
     const data = Schema.parse(await req.json());
     const [existing] = await db.select().from(orgSmtpSettings).where(eq(orgSmtpSettings.orgId, orgId!)).limit(1);
 
-    const ccEmail  = data.ccEmail  || null;
-    const ccEnabled = data.ccEnabled ?? false;
-
     if (existing) {
       await db.update(orgSmtpSettings).set({
         host:      data.host,
         port:      data.port,
-        ...(data.user ? { user: data.user } : {}),          // blank → keep existing
+        ...(data.user ? { user: data.user } : {}),
         ...(data.keepExistingPass || !data.pass ? {} : { pass: encryptSecret(data.pass)! }),
         fromEmail: data.fromEmail,
         fromName:  data.fromName,
-        ccEmail,
-        ccEnabled,
         updatedAt: new Date(),
       }).where(eq(orgSmtpSettings.orgId, orgId!));
     } else {
@@ -68,7 +60,6 @@ export async function POST(req: Request) {
         orgId: orgId!, host: data.host, port: data.port,
         user: data.user, pass: encryptSecret(data.pass)!,
         fromEmail: data.fromEmail, fromName: data.fromName,
-        ccEmail, ccEnabled,
       });
     }
 

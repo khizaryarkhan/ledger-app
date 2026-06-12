@@ -8,8 +8,20 @@ import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import {
   ChevronLeft, Mail, Server, Unlink, Check, Loader,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, AtSign,
 } from "lucide-react";
+
+function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${enabled ? "bg-emerald-600" : "bg-stone-700"}`}
+    >
+      <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
+    </button>
+  );
+}
 
 export default function EmailSettingsPage() {
   const { toast } = useData() as any;
@@ -34,8 +46,12 @@ export default function EmailSettingsPage() {
   const [smtpForm, setSmtpForm] = useState({
     host: "mail-eu.smtp2go.com", port: "2525",
     user: "", pass: "", fromEmail: "", fromName: "",
-    ccEmail: "", ccEnabled: false,
   });
+
+  // Email defaults (transport-agnostic)
+  const [emailDefaults, setEmailDefaults] = useState({ ccEmail: "", ccEnabled: false });
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [defaultsSaved, setDefaultsSaved] = useState(false);
 
   const loadSmtp = () =>
     fetch("/api/org/smtp").then(r => r.json()).then(data => {
@@ -45,19 +61,23 @@ export default function EmailSettingsPage() {
           ...f,
           host:      data.settings.host      || f.host,
           port:      String(data.settings.port || f.port),
-          user:      data.settings.user      || "",
+          user:      "",
           fromEmail: data.settings.fromEmail || "",
           fromName:  data.settings.fromName  || "",
-          ccEmail:   data.settings.ccEmail   || "",
-          ccEnabled: data.settings.ccEnabled ?? false,
         }));
       }
     }).catch(() => setSmtpStatus({ configured: false }));
+
+  const loadEmailDefaults = () =>
+    fetch("/api/org/email-settings").then(r => r.json()).then(data => {
+      setEmailDefaults({ ccEmail: data.ccEmail ?? "", ccEnabled: data.ccEnabled ?? false });
+    }).catch(() => {});
 
   useEffect(() => {
     fetch("/api/gmail?status=1").then(r => r.json()).then(setGmailStatus).catch(() => setGmailStatus({ connected: false }));
     fetch("/api/microsoft?status=1").then(r => r.json()).then(setMsStatus).catch(() => setMsStatus({ connected: false }));
     loadSmtp();
+    loadEmailDefaults();
   }, []);
 
   useEffect(() => {
@@ -102,11 +122,7 @@ export default function EmailSettingsPage() {
   const handleSmtpSave = async () => {
     setSavingSmtp(true);
     try {
-      const payload: any = {
-        ...smtpForm, port: parseInt(smtpForm.port),
-        ccEmail: smtpForm.ccEnabled ? smtpForm.ccEmail : "",
-        ccEnabled: smtpForm.ccEnabled,
-      };
+      const payload: any = { ...smtpForm, port: parseInt(smtpForm.port) };
       if (!smtpForm.pass && smtpStatus?.configured) {
         delete payload.pass;
         payload.keepExistingPass = true;
@@ -129,7 +145,7 @@ export default function EmailSettingsPage() {
   const handleSmtpDelete = async () => {
     await fetch("/api/org/smtp", { method: "DELETE" });
     setSmtpStatus({ configured: false, settings: null });
-    setSmtpForm({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "", ccEmail: "", ccEnabled: false });
+    setSmtpForm({ host: "mail-eu.smtp2go.com", port: "2525", user: "", pass: "", fromEmail: "", fromName: "" });
     setShowSmtpForm(false);
     toast("SMTP settings removed");
   };
@@ -143,7 +159,7 @@ export default function EmailSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: userEmail,
-          subject: "Ledger — Email Test",
+          subject: "Prime Accountax — Email Test",
           body: "This is a test email. Your email transport is configured correctly.",
         }),
       });
@@ -157,10 +173,28 @@ export default function EmailSettingsPage() {
     }
   };
 
+  const handleSaveDefaults = async () => {
+    setSavingDefaults(true);
+    try {
+      const res = await fetch("/api/org/email-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ccEmail:   emailDefaults.ccEnabled ? emailDefaults.ccEmail : "",
+          ccEnabled: emailDefaults.ccEnabled,
+        }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast(d.error || "Failed to save", "error"); return; }
+      setDefaultsSaved(true);
+      setTimeout(() => setDefaultsSaved(false), 2000);
+    } finally {
+      setSavingDefaults(false);
+    }
+  };
+
   const oauthActive = gmailStatus?.connected || msStatus?.connected;
   const loading     = gmailStatus === null || msStatus === null || smtpStatus === null;
 
-  // Active transport label for header badge
   const activeLabel = gmailStatus?.connected
     ? "Gmail active"
     : msStatus?.connected
@@ -169,10 +203,12 @@ export default function EmailSettingsPage() {
     ? "SMTP active"
     : null;
 
+  const inputCls = "w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none";
+
   return (
-    <div className="p-6 max-w-[720px] mx-auto">
+    <div className="p-6 max-w-[720px] mx-auto space-y-6">
       {/* Header */}
-      <div className="mb-6">
+      <div>
         <Link
           href="/settings"
           className="inline-flex items-center gap-1 text-[13px] text-stone-500 hover:text-stone-200 mb-3 transition-colors"
@@ -192,6 +228,7 @@ export default function EmailSettingsPage() {
         </p>
       </div>
 
+      {/* ── Transport card ── */}
       <Card>
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-stone-500 py-4">
@@ -200,7 +237,7 @@ export default function EmailSettingsPage() {
         ) : (
           <div className="space-y-3">
 
-            {/* ── Gmail ── */}
+            {/* Gmail */}
             <div className={`rounded-lg ring-1 p-4 transition-colors ${
               gmailStatus.connected ? "ring-emerald-500/30 bg-emerald-500/10" : "ring-stone-700 bg-stone-800/40"
             }`}>
@@ -241,7 +278,7 @@ export default function EmailSettingsPage() {
               </div>
             </div>
 
-            {/* ── Microsoft ── */}
+            {/* Microsoft */}
             <div className={`rounded-lg ring-1 p-4 transition-colors ${
               msStatus.connected ? "ring-emerald-500/30 bg-emerald-500/10" : "ring-stone-700 bg-stone-800/40"
             }`}>
@@ -282,7 +319,7 @@ export default function EmailSettingsPage() {
               </div>
             </div>
 
-            {/* ── SMTP ── */}
+            {/* SMTP */}
             <div className={`rounded-lg ring-1 transition-colors ${
               !oauthActive && smtpStatus.configured ? "ring-stone-600 bg-stone-800/50" : "ring-stone-700 bg-stone-800/30"
             }`}>
@@ -311,29 +348,18 @@ export default function EmailSettingsPage() {
                 </button>
               </div>
 
-              {/* Inline SMTP form */}
               {showSmtpForm && (
                 <div className="border-t border-stone-800 px-4 pb-5 pt-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">SMTP Host</label>
-                      <input
-                        value={smtpForm.host}
-                        onChange={e => setSmtpForm(p => ({ ...p, host: e.target.value }))}
-                        placeholder="mail-eu.smtp2go.com"
-                        autoComplete="off"
-                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
+                      <input value={smtpForm.host} onChange={e => setSmtpForm(p => ({ ...p, host: e.target.value }))}
+                        placeholder="mail-eu.smtp2go.com" autoComplete="off" className={inputCls} />
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Port</label>
-                      <input
-                        value={smtpForm.port}
-                        onChange={e => setSmtpForm(p => ({ ...p, port: e.target.value }))}
-                        placeholder="2525"
-                        autoComplete="off"
-                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
+                      <input value={smtpForm.port} onChange={e => setSmtpForm(p => ({ ...p, port: e.target.value }))}
+                        placeholder="2525" autoComplete="off" className={inputCls} />
                     </div>
                   </div>
                   <div>
@@ -341,70 +367,31 @@ export default function EmailSettingsPage() {
                       SMTP Username{" "}
                       {smtpStatus.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
                     </label>
-                    <input
-                      value={smtpForm.user}
-                      onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
+                    <input value={smtpForm.user} onChange={e => setSmtpForm(p => ({ ...p, user: e.target.value }))}
                       placeholder={smtpStatus.configured ? "leave blank to keep existing" : "your-smtp-username"}
-                      autoComplete="off"
-                      className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
+                      autoComplete="off" className={inputCls} />
                   </div>
                   <div>
                     <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
                       SMTP Password{" "}
                       {smtpStatus.configured && <span className="text-stone-400 normal-case font-normal">(leave blank to keep existing)</span>}
                     </label>
-                    <input
-                      type="password"
-                      value={smtpForm.pass}
-                      onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
+                    <input type="password" value={smtpForm.pass} onChange={e => setSmtpForm(p => ({ ...p, pass: e.target.value }))}
                       placeholder={smtpStatus.configured ? "leave blank to keep existing" : "your-smtp-password"}
-                      autoComplete="new-password"
-                      className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
+                      autoComplete="new-password" className={inputCls} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Email *</label>
-                      <input
-                        value={smtpForm.fromEmail}
-                        onChange={e => setSmtpForm(p => ({ ...p, fromEmail: e.target.value }))}
-                        placeholder="ar@yourcompany.com"
-                        autoComplete="off"
-                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
+                      <input value={smtpForm.fromEmail} onChange={e => setSmtpForm(p => ({ ...p, fromEmail: e.target.value }))}
+                        placeholder="ar@yourcompany.com" autoComplete="off" className={inputCls} />
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">From Name</label>
-                      <input
-                        value={smtpForm.fromName}
-                        onChange={e => setSmtpForm(p => ({ ...p, fromName: e.target.value }))}
-                        placeholder="Accounts Receivable"
-                        autoComplete="off"
-                        className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
+                      <input value={smtpForm.fromName} onChange={e => setSmtpForm(p => ({ ...p, fromName: e.target.value }))}
+                        placeholder="Accounts Receivable" autoComplete="off" className={inputCls} />
                     </div>
                   </div>
-                  {/* Default CC */}
-                  <div className="flex items-center justify-between pt-1">
-                    <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Default CC on every email</label>
-                    <button
-                      type="button"
-                      onClick={() => setSmtpForm(p => ({ ...p, ccEnabled: !p.ccEnabled }))}
-                      className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${smtpForm.ccEnabled ? "bg-emerald-600" : "bg-stone-700"}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${smtpForm.ccEnabled ? "translate-x-4" : "translate-x-0"}`} />
-                    </button>
-                  </div>
-                  {smtpForm.ccEnabled && (
-                    <input
-                      type="email"
-                      value={smtpForm.ccEmail}
-                      onChange={e => setSmtpForm(p => ({ ...p, ccEmail: e.target.value }))}
-                      placeholder="e.g. accounts@yourcompany.com"
-                      className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  )}
                   <div className="flex items-center gap-2 pt-1 flex-wrap">
                     <Button
                       onClick={handleSmtpSave}
@@ -434,15 +421,74 @@ export default function EmailSettingsPage() {
               )}
             </div>
 
-            {/* Lock hint */}
             {oauthActive && (
               <p className="text-[11px] text-stone-400 pt-1">
                 Disconnect {gmailStatus.connected ? "Gmail" : "Microsoft"} to switch to a different transport.
               </p>
             )}
-
           </div>
         )}
+      </Card>
+
+      {/* ── Email Defaults card (transport-agnostic) ── */}
+      <Card>
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-stone-800 flex items-center justify-center shrink-0 mt-0.5">
+            <AtSign size={16} className="text-stone-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Email Defaults</h2>
+            <p className="text-[12px] text-stone-500 mt-0.5">
+              Applied to every outgoing email regardless of transport — Gmail, Microsoft, or SMTP.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Default CC toggle */}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-stone-200 font-medium">Default CC on every email</p>
+              <p className="text-[12px] text-stone-500 mt-0.5">
+                Automatically CC an internal inbox on all outbound emails
+              </p>
+            </div>
+            <Toggle
+              enabled={emailDefaults.ccEnabled}
+              onToggle={() => setEmailDefaults(p => ({ ...p, ccEnabled: !p.ccEnabled }))}
+            />
+          </div>
+
+          {emailDefaults.ccEnabled && (
+            <div>
+              <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                CC email address
+              </label>
+              <input
+                type="email"
+                value={emailDefaults.ccEmail}
+                onChange={e => setEmailDefaults(p => ({ ...p, ccEmail: e.target.value }))}
+                placeholder="e.g. accounts@yourcompany.com"
+                className={inputCls}
+              />
+            </div>
+          )}
+
+          <div className="pt-1">
+            <Button
+              onClick={handleSaveDefaults}
+              disabled={savingDefaults || (emailDefaults.ccEnabled && !emailDefaults.ccEmail)}
+            >
+              {savingDefaults ? (
+                <><Loader size={13} className="animate-spin mr-1.5" /> Saving…</>
+              ) : defaultsSaved ? (
+                <><Check size={13} className="mr-1.5" /> Saved</>
+              ) : (
+                "Save defaults"
+              )}
+            </Button>
+          </div>
+        </div>
       </Card>
     </div>
   );

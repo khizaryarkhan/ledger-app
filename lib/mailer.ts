@@ -15,7 +15,7 @@
 
 import * as nodemailer from "nodemailer";
 import { db } from "@/db";
-import { orgSmtpSettings } from "@/db/schema";
+import { orgSmtpSettings, orgEmailSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getValidGmailToken, sendGmail } from "@/lib/gmail";
 import { getValidMicrosoftToken, sendMicrosoft } from "@/lib/microsoft";
@@ -84,6 +84,29 @@ export async function getSmtpConfig(orgId: string): Promise<SmtpConfig | null> {
 }
 
 /**
+ * Load the org-level default CC setting (transport-agnostic).
+ * Returns null if not configured or the table doesn't exist yet.
+ */
+async function getOrgDefaultCc(orgId: string): Promise<string | null> {
+  try {
+    const [row] = await db
+      .select({ ccEmail: orgEmailSettings.ccEmail, ccEnabled: orgEmailSettings.ccEnabled })
+      .from(orgEmailSettings)
+      .where(eq(orgEmailSettings.orgId, orgId))
+      .limit(1);
+    return row?.ccEnabled && row.ccEmail ? row.ccEmail : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Merge caller-supplied CC with the org default CC. */
+function mergeCC(callerCc: string | undefined, defaultCc: string | null): string | undefined {
+  const parts = [callerCc || null, defaultCc].filter(Boolean);
+  return parts.length > 0 ? parts.join(",") : undefined;
+}
+
+/**
  * True if the org has ANY working email transport (Gmail, Microsoft, or SMTP).
  * Use this to gate bulk sends so Gmail/MS365-only orgs aren't skipped.
  */
@@ -103,15 +126,20 @@ export async function sendEmail(
   orgId: string,
   opts: MailOptions,
 ): Promise<{ transport: "gmail" | "microsoft" | "smtp"; from: string }> {
+  // Load org-level default CC (applies to all transports)
+  const defaultCc = await getOrgDefaultCc(orgId);
+  const effectiveCc = mergeCC(opts.cc, defaultCc);
+  const enriched = { ...opts, cc: effectiveCc };
+
   // --- 1. Gmail ---
   const gmailToken = await getValidGmailToken(orgId);
   if (gmailToken) {
     await sendGmail(gmailToken.accessToken, gmailToken.email, {
-      to:          opts.to,
-      subject:     opts.subject,
-      body:        opts.body,
-      cc:          opts.cc,
-      attachments: opts.attachments,
+      to:          enriched.to,
+      subject:     enriched.subject,
+      body:        enriched.body,
+      cc:          enriched.cc,
+      attachments: enriched.attachments,
     });
     return { transport: "gmail", from: gmailToken.email };
   }
@@ -120,11 +148,11 @@ export async function sendEmail(
   const msToken = await getValidMicrosoftToken(orgId);
   if (msToken) {
     await sendMicrosoft(msToken.accessToken, {
-      to:          opts.to,
-      subject:     opts.subject,
-      body:        opts.body,
-      cc:          opts.cc,
-      attachments: opts.attachments,
+      to:          enriched.to,
+      subject:     enriched.subject,
+      body:        enriched.body,
+      cc:          enriched.cc,
+      attachments: enriched.attachments,
     });
     return { transport: "microsoft", from: msToken.email };
   }
@@ -136,7 +164,9 @@ export async function sendEmail(
       "No email transport configured. Connect Gmail, Microsoft, or set up SMTP in Settings → Email.",
     );
   }
-  await sendSmtp(config, opts);
+  // Pass enriched opts — SMTP's own legacy CC logic is bypassed since
+  // defaultCc is already merged in above.
+  await sendSmtp(config, enriched);
   return { transport: "smtp", from: config.fromEmail };
 }
 
@@ -151,17 +181,10 @@ export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<v
     auth:   { user: config.user, pass: config.pass },
   });
 
-  // Merge caller CC with org-level default CC
-  const ccParts = [
-    opts.cc || null,
-    config.ccEnabled && config.ccEmail ? config.ccEmail : null,
-  ].filter(Boolean);
-  const cc = ccParts.length > 0 ? ccParts.join(",") : undefined;
-
   await transporter.sendMail({
     from:        config.from,
     to:          opts.to,
-    cc,
+    cc:          opts.cc || undefined,
     bcc:         config.fromEmail, // BCC-to-self so every sent email lands in your inbox
     replyTo:     opts.replyTo || config.fromEmail,
     subject:     opts.subject,
