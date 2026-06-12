@@ -1,16 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/qbo-sync",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/xero-sync",
-      "schedule": "0 2 * * *"
-    }
-  ]
+  "comment": "Cron jobs are now managed by Inngest. The /api/cron/* routes remain for manual triggers only."
 }
