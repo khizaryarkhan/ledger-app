@@ -176,6 +176,7 @@ export const landingPageRequests = pgTable("landing_page_requests", {
   companyName:      varchar("company_name", { length: 255 }),
   email:            varchar("email", { length: 255 }).notNull(),
   phone:            varchar("phone", { length: 64 }),
+  country:          varchar("country", { length: 100 }),
   companySize:      varchar("company_size", { length: 64 }),
   interestedService: varchar("interested_service", { length: 128 }),
   message:          text("message"),

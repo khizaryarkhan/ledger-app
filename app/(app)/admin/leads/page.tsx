@@ -47,6 +47,7 @@ function LeadModal({ lead, onClose, onSave }: any) {
             ["Company",      lead.companyName ?? "—"],
             ["Email",        lead.email       ?? "—"],
             ["Phone",        lead.phone       ?? "—"],
+            ["Country",      lead.country     ?? "—"],
             ["Company size", lead.companySize ?? "—"],
             ["Service",      lead.interestedService ?? "—"],
           ].map(([label, value]) => (

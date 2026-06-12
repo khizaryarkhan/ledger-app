@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
   const email       = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 255) : "";
   const companyName = typeof body.companyName === "string" ? body.companyName.trim().slice(0, 255) : null;
   const phone       = typeof body.phone === "string" ? body.phone.trim().slice(0, 64) : null;
+  const country     = typeof body.country === "string" ? body.country.trim().slice(0, 100) : null;
   const companySize = typeof body.companySize === "string" ? body.companySize.trim().slice(0, 64) : null;
   const interestedService = typeof body.interestedService === "string" ? body.interestedService.trim().slice(0, 128) : null;
   const message     = typeof body.message === "string" ? body.message.trim().slice(0, 2000) : null;
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     email,
     companyName,
     phone,
+    country,
     companySize,
     interestedService,
     message,

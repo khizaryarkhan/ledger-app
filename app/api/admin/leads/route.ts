@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
       companyName:      landingPageRequests.companyName,
       email:            landingPageRequests.email,
       phone:            landingPageRequests.phone,
+      country:          landingPageRequests.country,
       companySize:      landingPageRequests.companySize,
       interestedService: landingPageRequests.interestedService,
       message:          landingPageRequests.message,
