@@ -96,8 +96,8 @@ function ManualModal({ open, onClose, onSaved, existing }: ManualModalProps) {
   useEffect(() => {
     if (!open) return;
     fetch("/api/admin/organisations")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => setOrgs((d?.organisations ?? []).map((o: any) => ({ id: o.id, name: o.name }))));
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setOrgs((Array.isArray(d) ? d : (d?.organisations ?? [])).map((o: any) => ({ id: o.id, name: o.name }))));
   }, [open]);
 
   const handleSubmit = async () => {
