@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   CreditCard, RefreshCw, AlertTriangle, CheckCircle2, Clock,
   XCircle, ExternalLink, ChevronRight, Loader, ShieldAlert, ArrowLeft,
-  FileText, Download,
+  FileText, Download, Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
@@ -109,6 +109,112 @@ function ReactivateModal({ open, onClose, onConfirm, loading }: any) {
   );
 }
 
+// ── RenewModal ────────────────────────────────────────────────────────────
+
+function intervalLabel(interval: string, intervalCount: number) {
+  if (interval === "year")  return intervalCount === 1 ? "/yr"  : `/${intervalCount} yrs`;
+  if (interval === "month") return intervalCount === 1 ? "/mo"  : `/${intervalCount} mo`;
+  return `/${intervalCount} ${interval}`;
+}
+
+function RenewModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [plans, setPlans]       = useState<any[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [selecting, setSelecting] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoadingPlans(true);
+    fetch("/api/billing/plans")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => setPlans(d.plans ?? []))
+      .catch(() => setPlans([]))
+      .finally(() => setLoadingPlans(false));
+  }, [open]);
+
+  const handleSelect = async (priceId: string) => {
+    setSelecting(priceId);
+    try {
+      const r = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ priceId }),
+      });
+      if (r.ok) {
+        const { url } = await r.json();
+        window.location.href = url;
+      }
+    } finally {
+      setSelecting(null);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Choose a plan"
+      footer={<Button variant="secondary" onClick={onClose}>Cancel</Button>}>
+      <div className="px-5 py-5">
+        {loadingPlans ? (
+          <div className="space-y-3 animate-pulse">
+            {[1,2].map(i => <div key={i} className="h-20 bg-stone-800 rounded-lg" />)}
+          </div>
+        ) : plans.length === 0 ? (
+          <p className="text-sm text-stone-400 text-center py-4">No plans available. Contact support.</p>
+        ) : (
+          <div className="space-y-3">
+            {plans.map((plan: any) => {
+              const amount = plan.amount != null
+                ? `$${(plan.amount / 100).toFixed(plan.amount % 100 === 0 ? 0 : 2)}`
+                : null;
+              const period = plan.interval ? intervalLabel(plan.interval, plan.intervalCount ?? 1) : "";
+              const isLoading = selecting === plan.priceId;
+              return (
+                <button
+                  key={plan.priceId}
+                  onClick={() => handleSelect(plan.priceId)}
+                  disabled={!!selecting}
+                  className="w-full text-left p-4 rounded-lg border border-stone-700 bg-stone-800/40 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-md bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                        <Zap size={14} className="text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          {plan.productName}
+                          {plan.interval === "year" && (
+                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">
+                              Best value
+                            </span>
+                          )}
+                        </p>
+                        {plan.description && (
+                          <p className="text-xs text-stone-400 mt-0.5">{plan.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {amount && (
+                        <p className="text-sm font-semibold text-white">
+                          {amount}<span className="text-xs text-stone-400 font-normal">{period}</span>
+                        </p>
+                      )}
+                      {isLoading
+                        ? <Loader size={14} className="animate-spin text-emerald-400" />
+                        : <ChevronRight size={14} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
+                      }
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
@@ -122,6 +228,7 @@ export default function BillingPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [showCancel, setShowCancel]         = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
+  const [showRenew, setShowRenew]           = useState(false);
   const [actionLoading, setActionLoading]   = useState(false);
   const [portalLoading, setPortalLoading]   = useState(false);
   const [toast, setToast]                   = useState<any>(null);
@@ -419,11 +526,11 @@ export default function BillingPage() {
                 <div>
                   <h3 className="text-sm font-semibold text-white">Renew subscription</h3>
                   <p className="text-xs text-stone-500 mt-0.5">
-                    Your subscription is cancelled. Reactivate to restore full access and resume automations.
+                    Your subscription is cancelled. Choose a plan to restore full access and resume automations.
                   </p>
                 </div>
-                <Button variant="primary" size="sm" icon={RefreshCw} onClick={handlePortal} disabled={portalLoading}>
-                  {portalLoading ? "Opening…" : "Renew now"}
+                <Button variant="primary" size="sm" icon={RefreshCw} onClick={() => setShowRenew(true)}>
+                  Renew now
                 </Button>
               </div>
             </Card>
@@ -499,6 +606,7 @@ export default function BillingPage() {
         onConfirm={handleReactivate}
         loading={actionLoading}
       />
+      <RenewModal open={showRenew} onClose={() => setShowRenew(false)} />
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
