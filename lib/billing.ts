@@ -1,7 +1,7 @@
 import { stripe } from "@/lib/stripe";
 import { db } from "@/db";
 import { subscriptions, billingAuditLogs, users } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -65,7 +65,10 @@ export async function syncSubscriptionFromStripe(sub: any) {
   await db
     .update(subscriptions)
     .set(patch)
-    .where(eq(subscriptions.stripeCustomerId, sub.customer as string));
+    .where(and(
+      eq(subscriptions.stripeCustomerId, sub.customer as string),
+      eq(subscriptions.source, "stripe"),  // never overwrite admin-managed rows
+    ));
 }
 
 // ── Sync Stripe customer billing email → local DB ─────────────────────────
@@ -121,21 +124,25 @@ export async function logBillingEvent(opts: {
 export type SubscriptionAccess = "full" | "warning" | "readonly" | "blocked";
 
 /**
- * Maps a Stripe subscription status to an access level:
- *   full     — active / trialing
- *   warning  — past_due (grace period: automations still run, show banner)
- *   readonly — unpaid (automations paused, UI read-only)
- *   blocked  — cancelled / incomplete_expired (org fully blocked)
+ * Maps a subscription to an access level.
+ * Manual subscriptions use expiry date; Stripe subscriptions use status string.
  */
 export function getSubscriptionAccess(
   status: string,
   cancelAtPeriodEnd: boolean,
+  source?: string | null,
+  manualExpiresAt?: Date | null,
 ): SubscriptionAccess {
+  if (source === "manual") {
+    if (!manualExpiresAt) return "full";        // no expiry = unlimited admin grant
+    return manualExpiresAt > new Date() ? "full" : "blocked";
+  }
+  // Stripe path
   if (status === "active" || status === "trialing") return "full";
   if (status === "past_due") return "warning";
   if (status === "unpaid") return "readonly";
   if (status === "canceled" || status === "cancelled" || status === "incomplete_expired") return "blocked";
-  return "full"; // unknown — default open
+  return "full";
 }
 
 /**
@@ -146,14 +153,21 @@ export async function requireActiveSubscription(
   orgId: string,
 ): Promise<{ access: SubscriptionAccess; status?: string }> {
   const [sub] = await db
-    .select({ status: subscriptions.status, cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd })
+    .select({
+      status:          subscriptions.status,
+      cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+      source:          subscriptions.source,
+      manualExpiresAt: subscriptions.manualExpiresAt,
+    })
     .from(subscriptions)
     .where(eq(subscriptions.orgId, orgId))
     .limit(1);
   if (!sub) return { access: "full" };
   return {
-    access: getSubscriptionAccess(sub.status, sub.cancelAtPeriodEnd ?? false),
-    status: sub.status,
+    access: getSubscriptionAccess(sub.status, sub.cancelAtPeriodEnd ?? false, sub.source, sub.manualExpiresAt),
+    status: sub.source === "manual"
+      ? `manual:${sub.manualExpiresAt ? "active" : "unlimited"}`
+      : sub.status,
   };
 }
 

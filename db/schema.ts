@@ -116,7 +116,7 @@ export type PendingRegistration = typeof pendingRegistrations.$inferSelect;
 export const subscriptions = pgTable("subscriptions", {
   id:                     uuid("id").defaultRandom().primaryKey(),
   orgId:                  uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  stripeCustomerId:       text("stripe_customer_id").notNull(),
+  stripeCustomerId:       text("stripe_customer_id"),
   stripeSubscriptionId:   text("stripe_subscription_id"),
   stripePriceId:          text("stripe_price_id"),
   status:                 varchar("status", { length: 32 }).notNull().default("active"),
@@ -138,6 +138,16 @@ export const subscriptions = pgTable("subscriptions", {
   paymentMethodLast4:     varchar("payment_method_last4", { length: 4 }),
   stripeUpdatedAt:        timestamp("stripe_updated_at"), // last time Stripe data was synced
   createdAt:              timestamp("created_at").notNull().defaultNow(),
+  // ── Hybrid billing ─────────────────────────────────────────────────────
+  // 'stripe' = auto-managed by Stripe webhooks
+  // 'manual' = Super Admin controlled (bank transfer, offline payment, etc.)
+  source:              varchar("source", { length: 16 }).notNull().default("stripe"),
+  manualExpiresAt:     timestamp("manual_expires_at"),
+  manualPaymentStatus: varchar("manual_payment_status", { length: 32 }),
+  manualInvoiceRef:    varchar("manual_invoice_ref", { length: 128 }),
+  manualNotes:         text("manual_notes"),
+  managedByAdminId:    uuid("managed_by_admin_id").references(() => users.id, { onDelete: "set null" }),
+  managedAt:           timestamp("managed_at"),
 }, (t) => [
   index("idx_subscriptions_org_id").on(t.orgId),
 ]);

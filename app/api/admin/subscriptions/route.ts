@@ -29,6 +29,12 @@ export async function GET() {
       paymentMethodBrand:   subscriptions.paymentMethodBrand,
       paymentMethodLast4:   subscriptions.paymentMethodLast4,
       createdAt:            subscriptions.createdAt,
+      source:               subscriptions.source,
+      manualExpiresAt:      subscriptions.manualExpiresAt,
+      manualPaymentStatus:  subscriptions.manualPaymentStatus,
+      manualInvoiceRef:     subscriptions.manualInvoiceRef,
+      manualNotes:          subscriptions.manualNotes,
+      managedAt:            subscriptions.managedAt,
     })
     .from(subscriptions)
     .leftJoin(organisations, eq(organisations.id, subscriptions.orgId))
