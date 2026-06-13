@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { pendingRegistrations, organisations, users, userOrganisations, subscriptions } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
 import { syncSubscriptionFromStripe, syncCustomerBillingEmail, logBillingEvent } from "@/lib/billing";
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       await db
         .update(subscriptions)
         .set({ status: "cancelled", cancelAt: null, cancelAtPeriodEnd: false, stripeUpdatedAt: new Date() })
-        .where(eq(subscriptions.stripeSubscriptionId, sub.id));
+        .where(and(eq(subscriptions.stripeSubscriptionId, sub.id), eq(subscriptions.source, "stripe")));
 
       if (subRow) {
         await logBillingEvent({
@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
           lastPaymentDate:   new Date(inv.created * 1000),
           stripeUpdatedAt:   new Date(),
         })
-        .where(eq(subscriptions.stripeCustomerId, customerId));
+        .where(and(eq(subscriptions.stripeCustomerId, customerId), eq(subscriptions.source, "stripe")));
     }
 
     // ── Invoice payment failed ────────────────────────────────────────────
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
       await db
         .update(subscriptions)
         .set({ lastPaymentStatus: "failed", stripeUpdatedAt: new Date() })
-        .where(eq(subscriptions.stripeCustomerId, customerId));
+        .where(and(eq(subscriptions.stripeCustomerId, customerId), eq(subscriptions.source, "stripe")));
 
       const [subRow] = await db
         .select({ orgId: subscriptions.orgId })
