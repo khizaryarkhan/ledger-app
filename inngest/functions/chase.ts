@@ -50,8 +50,7 @@ function fillTemplate(template: string, name: string, invoiceLines: string[], re
 // ─── 1. Scheduler ────────────────────────────────────────────────────────────
 
 export const chaseScheduler = inngest.createFunction(
-  { id: "chase-scheduler" },
-  { cron: "0 8 * * *" },
+  { id: "chase-scheduler", triggers: [{ cron: "0 8 * * *" }] },
   async ({ step }) => {
     const orgs = await step.run("fetch-orgs", () =>
       db.select({ id: organisations.id }).from(organisations),
@@ -70,8 +69,7 @@ export const chaseScheduler = inngest.createFunction(
 // ─── 2. Per-org chase ────────────────────────────────────────────────────────
 
 export const runOrgChase = inngest.createFunction(
-  { id: "run-org-chase", retries: 2 },
-  { event: "invoice/chase-org" },
+  { id: "run-org-chase", retries: 2, triggers: [{ event: "invoice/chase-org" }] },
   async ({ event, step }) => {
     const { orgId } = event.data;
     const now = new Date();
@@ -255,8 +253,7 @@ export const runOrgChase = inngest.createFunction(
 // ─── 3. Broken-promise sweep ─────────────────────────────────────────────────
 
 export const brokenPromiseSweep = inngest.createFunction(
-  { id: "broken-promise-sweep" },
-  { cron: "0 8 * * *" },
+  { id: "broken-promise-sweep", triggers: [{ cron: "0 8 * * *" }] },
   async ({ step }) => {
     const today = new Date().toISOString().slice(0, 10);
 

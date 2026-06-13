@@ -5,8 +5,7 @@ import { isNotNull } from "drizzle-orm";
 import { runQboSync } from "@/lib/qbo-sync";
 
 export const qboSyncScheduler = inngest.createFunction(
-  { id: "qbo-sync-scheduler" },
-  { cron: "0 3 * * *" },
+  { id: "qbo-sync-scheduler", triggers: [{ cron: "0 3 * * *" }] },
   async ({ step }) => {
     const tokens = await step.run("fetch-qbo-tokens", () =>
       db.select({
@@ -38,8 +37,7 @@ export const qboSyncScheduler = inngest.createFunction(
 );
 
 export const runOrgQboSync = inngest.createFunction(
-  { id: "run-org-qbo-sync", retries: 2 },
-  { event: "qbo/sync-org" },
+  { id: "run-org-qbo-sync", retries: 2, triggers: [{ event: "qbo/sync-org" }] },
   async ({ event, step }) => {
     const { orgId, userId, companyName, refreshTokenExpiresAt } = event.data;
 

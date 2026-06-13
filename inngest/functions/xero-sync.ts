@@ -5,8 +5,7 @@ import { isNotNull } from "drizzle-orm";
 import { runXeroSync } from "@/lib/xero-sync";
 
 export const xeroSyncScheduler = inngest.createFunction(
-  { id: "xero-sync-scheduler" },
-  { cron: "0 2 * * *" },
+  { id: "xero-sync-scheduler", triggers: [{ cron: "0 2 * * *" }] },
   async ({ step }) => {
     const tokens = await step.run("fetch-xero-tokens", () =>
       db.select({
@@ -38,8 +37,7 @@ export const xeroSyncScheduler = inngest.createFunction(
 );
 
 export const runOrgXeroSync = inngest.createFunction(
-  { id: "run-org-xero-sync", retries: 2 },
-  { event: "xero/sync-org" },
+  { id: "run-org-xero-sync", retries: 2, triggers: [{ event: "xero/sync-org" }] },
   async ({ event, step }) => {
     const { orgId, userId, tenantName, refreshTokenExpiresAt } = event.data;
 
