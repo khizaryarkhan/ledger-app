@@ -215,6 +215,28 @@ export const billingAuditLogs = pgTable("billing_audit_logs", {
 export type BillingAuditLog = typeof billingAuditLogs.$inferSelect;
 
 // =========================================================================
+// TEMPORARY ACCESS REQUESTS
+// =========================================================================
+export const tempAccessRequests = pgTable("temp_access_requests", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  orgId:               uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  requestedByUserId:   uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  requestedByEmail:    varchar("requested_by_email", { length: 255 }),
+  reason:              text("reason"),
+  // 'pending' | 'approved' | 'rejected'
+  status:              varchar("status", { length: 32 }).notNull().default("pending"),
+  reviewedByAdminId:   uuid("reviewed_by_admin_id").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt:          timestamp("reviewed_at"),
+  expiresAt:           timestamp("expires_at"),   // set by admin on approval
+  adminNotes:          text("admin_notes"),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_temp_access_org_id").on(t.orgId),
+]);
+export type TempAccessRequest = typeof tempAccessRequests.$inferSelect;
+
+// =========================================================================
 // CUSTOMERS
 // =========================================================================
 export const customers = pgTable("customers", {

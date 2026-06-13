@@ -7,6 +7,7 @@ import { DataProvider, useData } from "@/components/data-provider";
 import { Sidebar } from "@/components/sidebar";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { Toast } from "@/components/ui";
+import { SubscriptionGate } from "@/components/subscription-gate";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { loaded, toastState, clearToast } = useData();
@@ -46,7 +47,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <OrgSwitcher />
         </header>
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto">
+          <SubscriptionGate>{children}</SubscriptionGate>
+        </main>
       </div>
 
       <Toast toast={toastState} onClose={clearToast} />
