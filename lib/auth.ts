@@ -12,7 +12,7 @@ import { decryptSecret } from "@/lib/crypto";
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   trustHost: true,
-  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 }, // 30 days
+  session: { strategy: "jwt", maxAge: 8 * 60 * 60 }, // 8 hours — re-login required after inactivity
   pages: { signIn: "/login" },
   providers: [
     Credentials({
