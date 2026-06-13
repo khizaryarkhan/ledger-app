@@ -397,7 +397,14 @@ export default function SubscriptionsPage() {
     setLoading(true);
     try {
       const r = await fetch("/api/admin/subscriptions");
-      if (r.ok) setSubs((await r.json()).subscriptions ?? []);
+      const d = await r.json();
+      if (r.ok) {
+        setSubs(d.subscriptions ?? []);
+      } else {
+        setToast({ type: "error", message: d.error ?? `Failed to load (${r.status})` });
+      }
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setLoading(false); }
   }, []);
 
