@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
@@ -138,7 +138,9 @@ export const subscriptions = pgTable("subscriptions", {
   paymentMethodLast4:     varchar("payment_method_last4", { length: 4 }),
   stripeUpdatedAt:        timestamp("stripe_updated_at"), // last time Stripe data was synced
   createdAt:              timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("idx_subscriptions_org_id").on(t.orgId),
+]);
 export type Subscription = typeof subscriptions.$inferSelect;
 
 // =========================================================================

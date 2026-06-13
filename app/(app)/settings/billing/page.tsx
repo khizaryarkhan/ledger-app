@@ -256,13 +256,44 @@ export default function BillingPage() {
         </div>
       )}
 
-      {sub?.lastPaymentStatus === "failed" && (
+      {sub?.lastPaymentStatus === "failed" && sub?.status !== "past_due" && sub?.status !== "unpaid" && (
         <div className="flex items-start gap-3 p-4 bg-rose-500/10 border border-rose-500/25 rounded-lg">
           <AlertTriangle size={15} className="text-rose-400 mt-0.5 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-sm text-rose-300 font-medium">Payment failed</p>
             <p className="text-xs text-rose-400/80 mt-0.5">
               We couldn't process your latest payment. Please update your payment method to avoid interruption.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={handlePortal} disabled={portalLoading}>
+            Update card
+          </Button>
+        </div>
+      )}
+
+      {sub?.status === "past_due" && (
+        <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
+          <AlertTriangle size={15} className="text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm text-amber-300 font-medium">Payment overdue — update your card</p>
+            <p className="text-xs text-amber-400/80 mt-0.5">
+              Your subscription has an outstanding payment. Chase automations are still running during this grace period,
+              but access will be suspended if payment is not resolved.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={handlePortal} disabled={portalLoading}>
+            Update card
+          </Button>
+        </div>
+      )}
+
+      {sub?.status === "unpaid" && (
+        <div className="flex items-start gap-3 p-4 bg-rose-500/10 border border-rose-500/25 rounded-lg">
+          <AlertTriangle size={15} className="text-rose-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm text-rose-300 font-medium">Automations paused — payment required</p>
+            <p className="text-xs text-rose-400/80 mt-0.5">
+              Automated invoice chasing has been paused because your subscription is unpaid. Update your payment method to resume.
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={handlePortal} disabled={portalLoading}>

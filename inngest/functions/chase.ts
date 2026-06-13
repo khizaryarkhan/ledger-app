@@ -20,6 +20,7 @@ import {
 import type { EmailTemplate } from "@/db/schema";
 import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
 import { sendEmail, hasEmailTransport } from "@/lib/mailer";
+import { requireActiveSubscription } from "@/lib/billing";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
@@ -80,6 +81,14 @@ export const runOrgChase = inngest.createFunction(
 
     const hasTransport = await step.run("check-transport", () => hasEmailTransport(orgId));
     if (!hasTransport) return { orgId, skipped: 1, reason: "no-transport" };
+
+    // Gate on subscription — cancelled/unpaid orgs must not receive chase emails
+    const { access: subAccess, status: subStatus } = await step.run("check-subscription", () =>
+      requireActiveSubscription(orgId),
+    ) as { access: string; status?: string };
+    if (subAccess === "blocked" || subAccess === "readonly") {
+      return { orgId, skipped: 1, reason: `subscription-${subAccess}` };
+    }
 
     const orgTemplates = await step.run("load-templates", (): Promise<EmailTemplate[]> =>
       db.select().from(emailTemplates)

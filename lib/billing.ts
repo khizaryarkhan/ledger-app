@@ -116,6 +116,47 @@ export async function logBillingEvent(opts: {
   }
 }
 
+// ── Subscription access levels ───────────────────────────────────────────
+
+export type SubscriptionAccess = "full" | "warning" | "readonly" | "blocked";
+
+/**
+ * Maps a Stripe subscription status to an access level:
+ *   full     — active / trialing
+ *   warning  — past_due (grace period: automations still run, show banner)
+ *   readonly — unpaid (automations paused, UI read-only)
+ *   blocked  — cancelled / incomplete_expired (org fully blocked)
+ */
+export function getSubscriptionAccess(
+  status: string,
+  cancelAtPeriodEnd: boolean,
+): SubscriptionAccess {
+  if (status === "active" || status === "trialing") return "full";
+  if (status === "past_due") return "warning";
+  if (status === "unpaid") return "readonly";
+  if (status === "cancelled" || status === "incomplete_expired") return "blocked";
+  return "full"; // unknown — default open
+}
+
+/**
+ * Load the org's subscription and return its access level.
+ * Returns { access: "full" } when there is no subscription row (setup/trial).
+ */
+export async function requireActiveSubscription(
+  orgId: string,
+): Promise<{ access: SubscriptionAccess; status?: string }> {
+  const [sub] = await db
+    .select({ status: subscriptions.status, cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd })
+    .from(subscriptions)
+    .where(eq(subscriptions.orgId, orgId))
+    .limit(1);
+  if (!sub) return { access: "full" };
+  return {
+    access: getSubscriptionAccess(sub.status, sub.cancelAtPeriodEnd ?? false),
+    status: sub.status,
+  };
+}
+
 // ── requirePlatformAdmin — use inside API routes ──────────────────────────
 
 export async function requirePlatformAdmin() {
