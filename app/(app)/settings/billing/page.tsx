@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import {
   CreditCard, RefreshCw, AlertTriangle, CheckCircle2, Clock,
   XCircle, ExternalLink, ChevronRight, Loader, ShieldAlert, ArrowLeft,
+  FileText, Download,
 } from "lucide-react";
 import Link from "next/link";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
@@ -116,6 +117,8 @@ export default function BillingPage() {
 
   const [billing, setBilling]               = useState<any>(null);
   const [loading, setLoading]               = useState(true);
+  const [invoices, setInvoices]             = useState<any[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [showCancel, setShowCancel]         = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
   const [actionLoading, setActionLoading]   = useState(false);
@@ -132,7 +135,20 @@ export default function BillingPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadInvoices = useCallback(async () => {
+    setInvoicesLoading(true);
+    try {
+      const r = await fetch("/api/billing/invoices");
+      if (r.ok) {
+        const d = await r.json();
+        setInvoices(d.invoices ?? []);
+      }
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); loadInvoices(); }, [load, loadInvoices]);
 
   if (!canManage) {
     return (
@@ -396,14 +412,76 @@ export default function BillingPage() {
             </Card>
           )}
 
-          {sub.status === "cancelled" && (
+          {sub.status === "cancelled" && canManage && (
             <Card padding="md">
-              <div className="flex items-center gap-3">
-                <XCircle size={16} className="text-stone-500" />
-                <p className="text-sm text-stone-400">Your subscription has been cancelled.</p>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Renew subscription</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Your subscription is cancelled. Reactivate to restore full access and resume automations.
+                  </p>
+                </div>
+                <Button variant="primary" size="sm" icon={RefreshCw} onClick={handlePortal} disabled={portalLoading}>
+                  {portalLoading ? "Opening…" : "Renew now"}
+                </Button>
               </div>
             </Card>
           )}
+
+          {/* Invoice history */}
+          <Card padding="md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white">Invoice history</h3>
+            </div>
+            {invoicesLoading ? (
+              <div className="space-y-2 animate-pulse">
+                {[1,2,3].map(i => <div key={i} className="h-9 bg-stone-800 rounded" />)}
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="flex flex-col items-center py-6 text-center gap-2">
+                <FileText size={22} className="text-stone-600" />
+                <p className="text-xs text-stone-500">No invoices yet</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-stone-800">
+                {invoices.map((inv: any) => {
+                  const date = new Date(inv.date * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+                  const amount = inv.amount != null
+                    ? fmt.money(inv.amount / 100, (inv.currency ?? "usd").toUpperCase())
+                    : "—";
+                  return (
+                    <div key={inv.id} className="flex items-center justify-between py-2.5 gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText size={14} className="text-stone-500 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm text-white">{date}</p>
+                          {inv.number && <p className="text-[11px] text-stone-500">{inv.number}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="text-sm text-white">{amount}</span>
+                        {inv.status === "paid" && <Badge variant="green">Paid</Badge>}
+                        {inv.status === "open" && <Badge variant="yellow">Open</Badge>}
+                        {inv.status === "void" && <Badge variant="neutral">Void</Badge>}
+                        {inv.status === "uncollectible" && <Badge variant="red">Uncollectible</Badge>}
+                        {inv.pdfUrl && (
+                          <a
+                            href={inv.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-stone-400 hover:text-white transition-colors"
+                            title="Download PDF"
+                          >
+                            <Download size={14} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
         </>
       )}
 
