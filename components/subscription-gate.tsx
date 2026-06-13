@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { AlertTriangle, RefreshCw, Clock, CheckCircle2, Zap, ChevronRight, Loader } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { AlertTriangle, RefreshCw, Clock, CheckCircle2, Zap, ChevronRight, Loader, LogOut } from "lucide-react";
 
 // Pages a cancelled user can still access freely
 const ALLOWED_PATHS = ["/settings/billing", "/api/", "/auth/"];
@@ -274,13 +274,20 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Footer */}
-          <div className="px-6 pb-5 text-center">
+          <div className="px-6 pb-5 flex items-center justify-between">
             <p className="text-[11px] text-stone-600">
-              Need help? Contact{" "}
-              <a href="mailto:support@primeaccountax.com" className="text-stone-400 hover:text-white underline transition-colors">
+              Need help?{" "}
+              <a href="mailto:support@primeaccountax.com" className="text-stone-500 hover:text-white underline transition-colors">
                 support@primeaccountax.com
               </a>
             </p>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="flex items-center gap-1.5 text-[11px] text-stone-500 hover:text-stone-300 transition-colors"
+            >
+              <LogOut size={11} />
+              Sign out
+            </button>
           </div>
         </div>
       </div>
