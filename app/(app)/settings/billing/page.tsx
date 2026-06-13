@@ -20,6 +20,7 @@ function statusBadge(status: string, cancelAtPeriodEnd: boolean) {
     case "trialing":   return <Badge variant="blue">Trialing</Badge>;
     case "past_due":   return <Badge variant="red">Past due</Badge>;
     case "unpaid":     return <Badge variant="red">Unpaid</Badge>;
+    case "canceled":
     case "cancelled":  return <Badge variant="neutral">Cancelled</Badge>;
     case "incomplete": return <Badge variant="yellow">Incomplete</Badge>;
     default:           return <Badge variant="neutral">{status}</Badge>;
@@ -396,7 +397,7 @@ export default function BillingPage() {
           </Card>
 
           {/* Cancellation zone */}
-          {canManage && sub.status !== "cancelled" && !pendingCancel && !isScheduledCancel && (
+          {canManage && sub.status !== "cancelled" && sub.status !== "canceled" && !pendingCancel && !isScheduledCancel && (
             <Card padding="md">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -412,7 +413,7 @@ export default function BillingPage() {
             </Card>
           )}
 
-          {sub.status === "cancelled" && canManage && (
+          {(sub.status === "canceled" || sub.status === "cancelled") && canManage && (
             <Card padding="md">
               <div className="flex items-center justify-between gap-4">
                 <div>

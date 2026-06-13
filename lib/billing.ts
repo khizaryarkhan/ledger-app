@@ -134,7 +134,7 @@ export function getSubscriptionAccess(
   if (status === "active" || status === "trialing") return "full";
   if (status === "past_due") return "warning";
   if (status === "unpaid") return "readonly";
-  if (status === "cancelled" || status === "incomplete_expired") return "blocked";
+  if (status === "canceled" || status === "cancelled" || status === "incomplete_expired") return "blocked";
   return "full"; // unknown — default open
 }
 
