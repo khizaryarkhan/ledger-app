@@ -28,6 +28,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const [plans, setPlans]         = useState<any[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Temp access state
   const [reason, setReason]       = useState("");
@@ -60,13 +61,21 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
 
   const handleSelectPlan = async (priceId: string) => {
     setSelecting(priceId);
+    setCheckoutError(null);
     try {
       const r = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ priceId }),
       });
-      if (r.ok) window.location.href = (await r.json()).url;
+      const d = await r.json();
+      if (r.ok && d.url) {
+        window.location.href = d.url;
+      } else {
+        setCheckoutError(d.error ?? "Could not start checkout. Please try another plan or contact support.");
+      }
+    } catch {
+      setCheckoutError("Network error. Please try again.");
     } finally {
       setSelecting(null);
     }
@@ -168,9 +177,14 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
             {/* ── Plans view ── */}
             {view === "plans" && (
               <div className="space-y-3">
-                <button onClick={() => setView("options")} className="text-xs text-stone-500 hover:text-stone-300 transition-colors mb-1">
+                <button onClick={() => { setView("options"); setCheckoutError(null); }} className="text-xs text-stone-500 hover:text-stone-300 transition-colors mb-1">
                   ← Back
                 </button>
+                {checkoutError && (
+                  <div className="px-3 py-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 leading-relaxed">
+                    {checkoutError}
+                  </div>
+                )}
                 {plansLoading ? (
                   <div className="space-y-2 animate-pulse">
                     {[1,2].map(i => <div key={i} className="h-16 bg-stone-800 rounded-lg" />)}

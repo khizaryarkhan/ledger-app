@@ -33,13 +33,17 @@ export async function POST(req: Request) {
   }
 
   const appUrl = getAppUrl();
-  const session = await stripe.checkout.sessions.create({
-    customer:   sub.stripeCustomerId,
-    mode:       "subscription",
-    line_items: [{ price: parsed.data.priceId, quantity: 1 }],
-    success_url: `${appUrl}/settings/billing?renewed=1`,
-    cancel_url:  `${appUrl}/settings/billing`,
-  });
-
-  return NextResponse.json({ url: session.url });
+  try {
+    const session = await stripe.checkout.sessions.create({
+      customer:   sub.stripeCustomerId,
+      mode:       "subscription",
+      line_items: [{ price: parsed.data.priceId, quantity: 1 }],
+      success_url: `${appUrl}/settings/billing?renewed=1`,
+      cancel_url:  `${appUrl}/settings/billing`,
+    });
+    return NextResponse.json({ url: session.url });
+  } catch (err: any) {
+    const message = err?.raw?.message ?? err?.message ?? "Failed to create checkout session";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }
