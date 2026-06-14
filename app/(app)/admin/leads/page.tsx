@@ -65,9 +65,11 @@ function StatusCell({ lead, onChange }: { lead: any; onChange: (id: string, stat
       >
         {saving
           ? <Loader size={12} className="animate-spin text-stone-400" />
-          : <Badge variant={STATUS_COLOR[lead.status as LeadStatus] as any} size="sm" className="cursor-pointer hover:opacity-80 transition-opacity">
-              {STATUS_LABEL[lead.status as LeadStatus] ?? lead.status}
-            </Badge>
+          : <span className="cursor-pointer hover:opacity-80 transition-opacity">
+              <Badge variant={STATUS_COLOR[lead.status as LeadStatus] as any} size="sm">
+                {STATUS_LABEL[lead.status as LeadStatus] ?? lead.status}
+              </Badge>
+            </span>
         }
       </button>
       {open && (

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { emailTemplates } from "@/db/schema";
+import { leadEmailTemplates } from "@/db/schema";
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
@@ -15,9 +15,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!body?.trim())    return bad("Body is required");
 
   const [tpl] = await db
-    .update(emailTemplates)
+    .update(leadEmailTemplates)
     .set({ name: name.trim(), subject: subject.trim(), body: body.trim(), updatedAt: new Date() })
-    .where(eq(emailTemplates.id, params.id))
+    .where(eq(leadEmailTemplates.id, params.id))
     .returning();
 
   if (!tpl) return bad("Template not found", 404);
@@ -29,6 +29,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  await db.delete(emailTemplates).where(eq(emailTemplates.id, params.id));
+  await db.delete(leadEmailTemplates).where(eq(leadEmailTemplates.id, params.id));
   return ok({ deleted: true });
 }

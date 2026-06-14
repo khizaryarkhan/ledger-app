@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       body:       body.trim(),
     }).returning();
 
-    return ok(note, 201);
+    return ok(note);
   } catch (e) {
     if (isTableMissingError(e)) {
       return bad("Notes table not initialised — run the SQL in Neon console first.", 503);

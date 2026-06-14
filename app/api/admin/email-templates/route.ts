@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { emailTemplates } from "@/db/schema";
+import { leadEmailTemplates } from "@/db/schema";
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
@@ -17,8 +17,8 @@ export async function GET() {
   try {
     const templates = await db
       .select()
-      .from(emailTemplates)
-      .orderBy(desc(emailTemplates.createdAt));
+      .from(leadEmailTemplates)
+      .orderBy(desc(leadEmailTemplates.createdAt));
     return ok(templates);
   } catch (e) {
     if (isTableMissingError(e)) return ok([]);
@@ -39,15 +39,15 @@ export async function POST(req: NextRequest) {
   const createdBy = (session as any).user?.id ?? null;
 
   try {
-    const [tpl] = await db.insert(emailTemplates).values({
+    const [tpl] = await db.insert(leadEmailTemplates).values({
       name:      name.trim(),
       subject:   subject.trim(),
       body:      body.trim(),
       createdBy,
     }).returning();
-    return ok(tpl, 201);
+    return ok(tpl);
   } catch (e) {
-    if (isTableMissingError(e)) return bad("email_templates table not initialised — run the SQL in Neon console first.", 503);
+    if (isTableMissingError(e)) return bad("lead_email_templates table not initialised — run the SQL in Neon console first.", 503);
     throw e;
   }
 }

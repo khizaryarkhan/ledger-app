@@ -220,9 +220,9 @@ export const leadNotes = pgTable("lead_notes", {
 export type LeadNote = typeof leadNotes.$inferSelect;
 
 // =========================================================================
-// EMAIL TEMPLATES (platform admin — reusable lead email templates)
+// LEAD EMAIL TEMPLATES (platform admin — reusable lead outreach templates)
 // =========================================================================
-export const emailTemplates = pgTable("email_templates", {
+export const leadEmailTemplates = pgTable("lead_email_templates", {
   id:        uuid("id").defaultRandom().primaryKey(),
   name:      varchar("name", { length: 255 }).notNull(),
   subject:   varchar("subject", { length: 500 }).notNull(),
@@ -231,7 +231,7 @@ export const emailTemplates = pgTable("email_templates", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
-export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type LeadEmailTemplate = typeof leadEmailTemplates.$inferSelect;
 
 // =========================================================================
 // BILLING AUDIT LOG

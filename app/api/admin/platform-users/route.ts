@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     role: users.role, status: users.status, createdAt: users.createdAt,
   });
 
-  return ok(created, 201);
+  return ok(created);
 }
 
 export async function PATCH(req: Request) {
