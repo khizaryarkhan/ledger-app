@@ -597,9 +597,9 @@ function ReferralBanner({ customerName, orgName, onDismiss }: { customerName: st
     <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white px-4 py-3">
       <div className="max-w-2xl mx-auto flex items-start gap-3">
         <div className="flex-1">
-          <p className="text-[13px] font-semibold">Does your business chase invoices like {orgName}?</p>
+          <p className="text-[13px] font-semibold">Smarter receivables management for ambitious businesses</p>
           <p className="text-[12px] text-stone-300 mt-0.5">
-            Prime Accountax automates your accounts receivable — chase emails, payment commitments, and real-time reports. Trusted by growing businesses.
+            Prime Accountax gives finance teams a single platform to automate collections, track payment commitments, and report on debtor performance — integrated with QuickBooks and Xero.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
