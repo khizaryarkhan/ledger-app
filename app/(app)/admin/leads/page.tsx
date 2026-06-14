@@ -635,6 +635,30 @@ function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: 
           const ts      = new Date(n.createdAt);
           const dateStr = ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
           const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+          // Detect email-log entries (stored as JSON by the email API)
+          let emailData: { subject: string; preview: string } | null = null;
+          try {
+            const parsed = JSON.parse(n.body);
+            if (parsed._type === "email") emailData = parsed;
+          } catch {}
+
+          if (emailData) {
+            return (
+              <div key={n.id} className="rounded-lg px-3 py-2 border-l-2 border-blue-500 bg-blue-950/20">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold text-blue-400">
+                    <Mail size={11} />
+                    <span>{n.authorName} · email sent</span>
+                  </div>
+                  <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
+                </div>
+                <div className="text-[11px] font-medium text-stone-300 mb-1">{emailData.subject}</div>
+                <div className="text-[12px] text-stone-400 whitespace-pre-wrap leading-relaxed line-clamp-3">{emailData.preview}</div>
+              </div>
+            );
+          }
+
           return (
             <div key={n.id} className="rounded-lg px-3 py-2 border-l-2 border-stone-600">
               <div className="flex items-center justify-between gap-2 mb-1">
