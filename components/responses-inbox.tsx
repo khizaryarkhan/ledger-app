@@ -92,7 +92,7 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
 
   const TABS = [
     { id: "attention", label: "Needs attention", count: data.counts.needsAttention },
-    { id: "promises",  label: "Promises",        count: data.counts.activePromises },
+    { id: "promises",  label: "Commitments",      count: data.counts.activePromises },
     { id: "disputes",  label: "Disputes",        count: data.counts.openDisputes },
     { id: "all",       label: "All activity",    count: data.disputes.length + data.promises.length },
   ];
@@ -207,9 +207,9 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
       ...openDisputes.map(d => ({ t: "d" as const, when: d.createdAt, node: <DisputeRow key={`d${d.id}`} d={d} /> })),
       ...brokenPromises.map(p => ({ t: "p" as const, when: p.createdAt, node: <PromiseRow key={`p${p.id}`} p={p} /> })),
     ].sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
-    content = items.length ? items.map(i => i.node) : <EmptyState icon={Check} title="All clear" description="No open disputes or broken promises. Nice." />;
+    content = items.length ? items.map(i => i.node) : <EmptyState icon={Check} title="All clear" description="No open disputes or broken commitments. Nice." />;
   } else if (tab === "promises") {
-    content = activePromises.length ? activePromises.map(p => <PromiseRow key={p.id} p={p} />) : <EmptyState icon={CalendarClock} title="No active promises" description="Promises customers make will appear here." />;
+    content = activePromises.length ? activePromises.map(p => <PromiseRow key={p.id} p={p} />) : <EmptyState icon={CalendarClock} title="No active commitments" description="Payment commitments from customers will appear here." />;
   } else if (tab === "disputes") {
     content = data.disputes.length ? data.disputes.map(d => <DisputeRow key={d.id} d={d} />) : <EmptyState icon={AlertOctagon} title="No disputes" description="Disputes raised by customers or staff appear here." />;
   } else {

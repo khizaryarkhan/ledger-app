@@ -394,7 +394,7 @@ export default function InvoicesPage() {
                     <Link href={`/invoices/${inv.id}`} className="inline-flex items-center gap-1 flex-wrap">
                       <Badge variant={dueStatusBadge(inv.dueStatus)}>{inv.dueStatus}</Badge>
                       {inv.hasOpenDispute && <Badge variant="red" size="sm">⚠ Dispute</Badge>}
-                      {!inv.hasOpenDispute && inv.promiseDate && <Badge variant="blue" size="sm">📅 Promised</Badge>}
+                      {!inv.hasOpenDispute && inv.promiseDate && <Badge variant="blue" size="sm">📅 Committed</Badge>}
                     </Link>
                   </td>
                   <td className="px-3 py-2.5">

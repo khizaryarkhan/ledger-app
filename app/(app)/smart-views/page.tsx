@@ -12,7 +12,7 @@ const VIEWS = [
   { id: "due-today", name: "Due today", description: "Must follow up today", filter: (i: any) => i.paymentStatus !== "Paid" && daysOverdue(i.dueDate) === 0, group: "Immediate" },
   { id: "due-week", name: "Due this week", description: "Invoices due in the next 7 days", filter: (i: any) => i.paymentStatus !== "Paid" && daysOverdue(i.dueDate) < 0 && daysOverdue(i.dueDate) >= -7, group: "Immediate" },
   { id: "overdue-no-reminder", name: "Overdue, never contacted", description: "Past due with zero follow-up — chase today", filter: (i: any) => daysOverdue(i.dueDate) > 0 && i.paymentStatus !== "Paid" && !i.lastFollowupDate, group: "Immediate" },
-  { id: "broken-promises", name: "Broken promises", description: "Customer promised to pay — date passed, still unpaid", filter: (i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate && daysOverdue(i.promiseDate) > 0 && i.paymentStatus !== "Paid", group: "Immediate" },
+  { id: "broken-promises", name: "Broken commitments", description: "Customer committed to pay — date passed, still unpaid", filter: (i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate && daysOverdue(i.promiseDate) > 0 && i.paymentStatus !== "Paid", group: "Immediate" },
   // AGING BUCKETS
   { id: "1-30", name: "1–30 days overdue", description: "First overdue bucket — send reminder now", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30 && i.paymentStatus !== "Paid"; }, group: "Aging" },
   { id: "31-60", name: "31–60 days overdue", description: "Second bucket — escalate to senior contact", filter: (i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60 && i.paymentStatus !== "Paid"; }, group: "Aging" },
@@ -26,7 +26,7 @@ const VIEWS = [
   { id: "high-value-overdue", name: "High value overdue (>€10k)", description: "Big-ticket invoices past due — priority chase", filter: (i: any) => daysOverdue(i.dueDate) > 0 && i.paymentStatus !== "Paid" && (i.total - (i.paid || 0)) > 10000, group: "Risk" },
   { id: "disputed", name: "Disputed", description: "In dispute — needs resolution before collection", filter: (i: any) => i.collectionStage === "Disputed", group: "Risk" },
   { id: "partial-paid", name: "Partially paid", description: "Payment received but balance still owing", filter: (i: any) => i.paymentStatus === "Partially Paid", group: "Risk" },
-  { id: "promise-this-week", name: "Promises due this week", description: "Confirm receipt of promised payments", filter: (i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate && daysOverdue(i.promiseDate) <= 0 && daysOverdue(i.promiseDate) >= -7, group: "Risk" },
+  { id: "promise-this-week", name: "Commitments due this week", description: "Confirm receipt of committed payments due this week", filter: (i: any) => (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") && i.promiseDate && daysOverdue(i.promiseDate) <= 0 && daysOverdue(i.promiseDate) >= -7, group: "Risk" },
 ];
 
 export default function SmartViewsPage() {

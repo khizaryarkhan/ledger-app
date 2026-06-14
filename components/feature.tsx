@@ -504,10 +504,10 @@ export function PromiseModal({ invoice, onClose }: any) {
   };
 
   return (
-    <Modal open onClose={onClose} title="Set promise to pay date" size="sm"
+    <Modal open onClose={onClose} title="Set commitment date" size="sm"
       footer={<>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={handle} disabled={submitting}>Set promise date</Button>
+        <Button onClick={handle} disabled={submitting}>Set commitment date</Button>
       </>}>
       <div className="p-5">
         <div className="mb-3 text-sm text-stone-600">Reminders will pause until this date.</div>
@@ -690,7 +690,7 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
   if (eventType === "promise_to_pay" && meta.promiseDate) {
     parts.push(
       <span key="promise" className="text-[12px]">
-        Promise date: <strong>{meta.promiseDate}</strong>
+        Commitment date: <strong>{meta.promiseDate}</strong>
         {meta.invoiceNo && <span className="text-stone-400 ml-1.5">· {meta.invoiceNo}</span>}
       </span>
     );

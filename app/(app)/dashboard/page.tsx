@@ -169,7 +169,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
             {([
               { label: "Aging",      score: scores.aging,      tip: "Weighted by bucket age" },
               { label: "Risk",       score: scores.risk,       tip: "Disputed AR + high-risk customers" },
-              { label: "Collection", score: scores.collection, tip: "Broken promises + uncontacted overdue" },
+              { label: "Collection", score: scores.collection, tip: "Broken commitments + uncontacted overdue" },
             ] as { label: string; score: number; tip: string }[]).map(({ label, score, tip }) => (
               <div key={label} className="text-center group relative">
                 <div className="relative w-16 h-16 mx-auto mb-1">
@@ -254,7 +254,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
               { label: "Dispute rate",            value: `${disputeRate.toFixed(1)}%`,  sub: "AR value in Disputed stage",    good: disputeRate < 2,         warn: disputeRate > 5 },
               { label: "High-risk customer AR",   value: `${highRiskPct.toFixed(1)}%`,  sub: "Held by High risk customers",   good: highRiskPct < 10,        warn: highRiskPct > 25 },
               { label: "No contact (overdue)",    value: String(neverContacted),        sub: "Overdue with zero follow-up",   good: neverContacted === 0,    warn: neverContacted > 5 },
-              { label: "Broken promises",         value: String(brokenPromises),        sub: "Promise date passed, still open", good: brokenPromises === 0,  warn: brokenPromises > 2 },
+              { label: "Broken commitments",       value: String(brokenPromises),        sub: "Commitment date passed, still open", good: brokenPromises === 0,  warn: brokenPromises > 2 },
             ].map(({ label, value, sub, good, warn }) => (
               <div key={label} className="flex items-center justify-between">
                 <div>
@@ -449,8 +449,8 @@ export default function DashboardPage() {
     if (brokenPromises.length > 0) {
       list.push({
         type: "broken_promise",
-        label: `${brokenPromises.length} broken promise${brokenPromises.length > 1 ? "s" : ""}`,
-        sub: "Payment dates passed — follow up now",
+        label: `${brokenPromises.length} broken commitment${brokenPromises.length > 1 ? "s" : ""}`,
+        sub: "Commitment dates passed — follow up now",
         color: "rose",
         href: "/smart-views",
         icon: "AlertTriangle",
@@ -764,10 +764,10 @@ export default function DashboardPage() {
             {/* Promised — breakdown row */}
             <Card padding="md" className="mb-3">
               <div className="flex items-center justify-between mb-4">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Promised to Pay</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Committed to Pay</div>
                 {!snapshotLoading && stats.promisedBroken > 0 && (
                   <div className="flex items-center gap-1 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
-                    <AlertTriangle size={10} /> {stats.promisedBrokenCount} broken
+                    <AlertTriangle size={10} /> {stats.promisedBrokenCount} broken commitment{stats.promisedBrokenCount !== 1 ? "s" : ""}
                   </div>
                 )}
               </div>
@@ -779,15 +779,15 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-4 gap-4 divide-x divide-stone-800">
                   {/* Broken */}
                   <button
-                    onClick={() => stats.promisedBrokenCount > 0 && setDrillDown({ title: "Broken Promises", subtitle: "Promise date passed — follow up now", color: "rose", items: stats.promisedBrokenItems })}
+                    onClick={() => stats.promisedBrokenCount > 0 && setDrillDown({ title: "Broken Commitments", subtitle: "Commitment date passed — follow up now", color: "rose", items: stats.promisedBrokenItems })}
                     className={`pr-4 text-left group ${stats.promisedBrokenCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
-                    <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken</div>
+                    <div className="text-[10px] uppercase tracking-wider text-rose-500/80 font-semibold mb-1">Broken Commitments</div>
                     <div className={`text-2xl font-semibold tabular-nums tracking-tight ${stats.promisedBroken > 0 ? "text-rose-400" : "text-stone-600"}`}>
                       {fmt.money(stats.promisedBroken, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
-                      {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} promise${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
+                      {stats.promisedBrokenCount === 0 ? "None — all on track" : `${stats.promisedBrokenCount} commitment${stats.promisedBrokenCount !== 1 ? "s" : ""} passed`}
                     </div>
                     {stats.promisedBroken > 0 && (
                       <span className="mt-2 text-[10px] text-rose-500 bg-rose-500/10 rounded px-1.5 py-0.5 inline-block group-hover:bg-rose-500/20">View invoices →</span>
@@ -795,7 +795,7 @@ export default function DashboardPage() {
                   </button>
                   {/* This Week */}
                   <button
-                    onClick={() => stats.promisedWeekCount > 0 && setDrillDown({ title: "Promises Due This Week", subtitle: "Promise date within the next 7 days", color: "amber", items: stats.promisedWeekItems })}
+                    onClick={() => stats.promisedWeekCount > 0 && setDrillDown({ title: "Commitments Due This Week", subtitle: "Commitment date within the next 7 days", color: "amber", items: stats.promisedWeekItems })}
                     className={`px-4 text-left group ${stats.promisedWeekCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-amber-500/80 font-semibold mb-1">This Week</div>
@@ -811,7 +811,7 @@ export default function DashboardPage() {
                   </button>
                   {/* This Month */}
                   <button
-                    onClick={() => stats.promisedMonthCount > 0 && setDrillDown({ title: "Promises Due This Month", subtitle: "Promise date 8–30 days from today", color: "sky", items: stats.promisedMonthItems })}
+                    onClick={() => stats.promisedMonthCount > 0 && setDrillDown({ title: "Commitments Due This Month", subtitle: "Commitment date 8–30 days from today", color: "sky", items: stats.promisedMonthItems })}
                     className={`px-4 text-left group ${stats.promisedMonthCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-sky-500/80 font-semibold mb-1">This Month</div>
@@ -827,7 +827,7 @@ export default function DashboardPage() {
                   </button>
                   {/* Total */}
                   <button
-                    onClick={() => stats.promisedTotalCount > 0 && setDrillDown({ title: "All Active Promises", subtitle: "All invoices with a promise to pay", color: "stone", items: stats.promisedAllItems })}
+                    onClick={() => stats.promisedTotalCount > 0 && setDrillDown({ title: "All Active Commitments", subtitle: "All invoices with a payment commitment", color: "stone", items: stats.promisedAllItems })}
                     className={`pl-4 text-left group ${stats.promisedTotalCount > 0 ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1">Total Pipeline</div>
@@ -835,7 +835,7 @@ export default function DashboardPage() {
                       {fmt.money(stats.promised, stats.dominantCcy)}
                     </div>
                     <div className="mt-1.5 text-[11px] text-stone-500">
-                      {stats.promisedTotalCount} active promise{stats.promisedTotalCount !== 1 ? "s" : ""}
+                      {stats.promisedTotalCount} active commitment{stats.promisedTotalCount !== 1 ? "s" : ""}
                     </div>
                     {/* Mini progress bar: broken vs healthy */}
                     {stats.promisedTotalCount > 0 && (
@@ -848,7 +848,7 @@ export default function DashboardPage() {
                     )}
                     {stats.promisedTotalCount > 0 && (
                       <div className="mt-1 text-[10px] text-stone-600 group-hover:text-stone-500">
-                        {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken · view all →
+                        {stats.promised > 0 ? ((stats.promisedBroken / stats.promised) * 100).toFixed(0) : 0}% broken commitments · view all →
                       </div>
                     )}
                   </button>
@@ -1267,7 +1267,7 @@ export default function DashboardPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-600">
-                            {inv.promiseDate && <span>Promised {fmt.shortDate(inv.promiseDate)}</span>}
+                            {inv.promiseDate && <span>Committed {fmt.shortDate(inv.promiseDate)}</span>}
                             <span>Invoice due {fmt.shortDate(inv.dueDate)}</span>
                           </div>
                         </div>

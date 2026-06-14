@@ -439,7 +439,7 @@ export default function PerformancePage() {
                 )}
                 {r.promisedAR > 0 && (
                   <div className="flex items-center justify-between">
-                    <span className="text-stone-500 flex items-center gap-1"><Target size={10} /> Promised</span>
+                    <span className="text-stone-500 flex items-center gap-1"><Target size={10} /> Committed</span>
                     <span className="font-semibold text-amber-600"><CurrencyPills breakdown={r.promisedARByCcy} /></span>
                   </div>
                 )}

@@ -436,33 +436,33 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
                 {/* Bulk commitment panel */}
                 {selected.size > 0 && (
-                  <div className="bg-stone-900 text-white rounded-xl p-4 mb-4 space-y-3">
-                    <div className="text-sm font-semibold">
+                  <div className="bg-white ring-2 ring-stone-900 rounded-xl p-4 mb-4 space-y-3">
+                    <div className="text-sm font-semibold text-stone-900">
                       Commitment for {selected.size} invoice{selected.size !== 1 ? "s" : ""}
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <div className="flex-1">
-                        <label className="text-[11px] text-stone-400 font-medium block mb-1">Payment date *</label>
+                        <label className="text-[11px] text-stone-500 font-medium block mb-1">Payment date *</label>
                         <input
                           type="date"
                           min={todayStr}
                           value={bulkDate}
                           onChange={e => setBulkDate(e.target.value)}
-                          className="w-full text-base sm:text-sm bg-stone-800 border border-stone-600 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className="w-full text-base sm:text-sm bg-white border border-stone-300 text-stone-900 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-stone-500"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="text-[11px] text-stone-400 font-medium block mb-1">Note (optional)</label>
+                      <label className="text-[11px] text-stone-500 font-medium block mb-1">Note (optional)</label>
                       <input
                         type="text"
                         placeholder="e.g. Payment scheduled via bank transfer"
                         value={bulkNote}
                         onChange={e => setBulkNote(e.target.value)}
-                        className="w-full text-sm bg-stone-800 border border-stone-600 text-white rounded-lg px-3 py-2 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full text-sm bg-white border border-stone-300 text-stone-800 rounded-lg px-3 py-2 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500"
                       />
                     </div>
-                    <p className="text-[11px] text-stone-400">
+                    <p className="text-[11px] text-stone-500">
                       This commitment will be applied to all {selected.size} selected invoice{selected.size !== 1 ? "s" : ""}.
                       Our team will follow up if we don't receive payment by this date.
                     </p>
@@ -575,11 +575,18 @@ function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => voi
   );
 }
 
-function PortalFooter({ orgName }: { orgName?: string }) {
+function PortalFooter({ orgName: _ }: { orgName?: string }) {
   return (
     <footer className="text-center py-6 text-[11px] text-stone-400 border-t border-stone-200 mt-4">
-      <span>{orgName ? `${orgName} · ` : ""}Powered by </span>
-      <span className="font-semibold text-stone-600">Prime Accountax</span>
+      <span>Powered by </span>
+      <a
+        href="https://primeaccountax.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold text-stone-600 hover:text-stone-800 underline underline-offset-2 transition-colors"
+      >
+        Prime Accountax
+      </a>
       <span> · Accounts Receivable Management</span>
     </footer>
   );

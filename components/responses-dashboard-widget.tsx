@@ -124,7 +124,7 @@ export function ResponsesDashboardWidget() {
             className={`rounded-lg p-3 text-left transition-all ${counts.activePromises > 0 ? "bg-stone-800/50 hover:ring-1 hover:ring-stone-600 cursor-pointer" : "bg-stone-800/50 cursor-default"}`}
           >
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
-              <CalendarClock size={12} /> Active promises
+              <CalendarClock size={12} /> Active commitments
             </div>
             <div className="text-2xl font-bold tabular-nums text-blue-400">{counts.activePromises}</div>
           </button>
@@ -132,7 +132,7 @@ export function ResponsesDashboardWidget() {
           {/* Promise to secure */}
           <div className={`rounded-lg p-3 ${unpromisedCount > 0 ? "bg-amber-900/20" : "bg-stone-800/50"}`}>
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
-              <CheckCircle2 size={12} /> Promise to secure
+              <CheckCircle2 size={12} /> Commitment to secure
             </div>
             {unpromisedCount === 0 ? (
               <div className="text-2xl font-bold tabular-nums text-white">0</div>
@@ -140,7 +140,7 @@ export function ResponsesDashboardWidget() {
               <>
                 <div className="text-2xl font-bold tabular-nums text-amber-400">{unpromisedCount}</div>
                 <div className="text-[11px] text-amber-500/80 leading-snug mt-0.5">{unpromisedSummary}</div>
-                <div className="text-[10px] text-stone-600 mt-0.5">overdue invoice{unpromisedCount !== 1 ? "s" : ""} · no promise</div>
+                <div className="text-[10px] text-stone-600 mt-0.5">overdue invoice{unpromisedCount !== 1 ? "s" : ""} · no commitment</div>
               </>
             )}
           </div>

@@ -318,7 +318,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </th>
                 <th className="px-2 py-1.5">
                   <select value={cf.response ?? ""} onChange={e => setFilter("response", e.target.value)} className={inputCls}>
-                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Promised">Promised</option><option value="None">No response</option>
+                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Promised">Committed</option><option value="None">No response</option>
                   </select>
                 </th>
                 <th className="px-2 py-1.5">
@@ -372,7 +372,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         if (editingResp) return (
                           <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg p-2">
                             <div className="flex gap-1">
-                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-700 text-stone-400"}`}>📅 Promise</button>
+                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-700 text-stone-400"}`}>📅 Commitment</button>
                               <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-700 text-stone-400"}`}>⚠️ Dispute</button>
                             </div>
                             {respEdit!.mode === "promise" ? (
@@ -417,7 +417,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             ) : effPromise ? (
                               <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(effPromise || ""); setRReason(""); }}
                                 className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-semibold inline-flex items-center gap-1 hover:bg-blue-500/25">
-                                <CalendarClock size={10} /> Promised {effPromise}
+                                <CalendarClock size={10} /> Committed {effPromise}
                               </button>
                             ) : (
                               <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(""); setRReason(""); }}

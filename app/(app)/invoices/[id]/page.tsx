@@ -281,7 +281,7 @@ export default function InvoiceDetailPage() {
                 </dd>
               </div>
               {inv.lastFollowupDate && <div><dt className="text-xs text-stone-500 mb-0.5">Last followup</dt><dd>{formatDate(inv.lastFollowupDate, df)}</dd></div>}
-              {inv.promiseDate && <div><dt className="text-xs text-stone-500 mb-0.5">Promise date</dt><dd>{formatDate(inv.promiseDate, df)}</dd></div>}
+              {inv.promiseDate && <div><dt className="text-xs text-stone-500 mb-0.5">Commitment date</dt><dd>{formatDate(inv.promiseDate, df)}</dd></div>}
               {inv.disputeDate && <div><dt className="text-xs text-stone-500 mb-0.5">Disputed since</dt><dd>{formatDate(inv.disputeDate, df)}</dd></div>}
             </dl>
             {inv.disputeReason && (

@@ -145,7 +145,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-semibold">⚠ {disputedCount} disputed</span>
           )}
           {promisedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20 font-semibold">📅 {promisedCount} promised</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20 font-semibold">📅 {promisedCount} committed</span>
           )}
         </div>
       )}
