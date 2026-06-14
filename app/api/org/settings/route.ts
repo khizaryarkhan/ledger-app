@@ -32,6 +32,7 @@ export async function GET() {
         disabledRules: organisations.disabledRules,
         lastCronRun: organisations.lastCronRun,
         lastCronStats: organisations.lastCronStats,
+        showPaymentHistory: organisations.showPaymentHistory,
       })
       .from(organisations)
       .where(eq(organisations.id, orgId!))
@@ -39,6 +40,7 @@ export async function GET() {
     org = row;
     lastCronRun = row?.lastCronRun ?? null;
     lastCronStats = row?.lastCronStats ?? null;
+    org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false };
   } catch {
     // Columns likely missing — run the 0003 migration. Degrade gracefully.
     const [row] = await db
@@ -69,6 +71,7 @@ export async function GET() {
     disabledRules: (org?.disabledRules as string[]) ?? [],
     lastCronRun,
     lastCronStats,
+    showPaymentHistory: org?.showPaymentHistory ?? false,
   });
 }
 
@@ -118,6 +121,9 @@ export async function PATCH(req: Request) {
   if (body.disabledRules !== undefined) {
     if (!Array.isArray(body.disabledRules)) return bad("disabledRules must be an array");
     updates.disabledRules = body.disabledRules.filter((r: any) => typeof r === "string");
+  }
+  if (body.showPaymentHistory !== undefined) {
+    updates.showPaymentHistory = Boolean(body.showPaymentHistory);
   }
 
   // ── Stages update ──────────────────────────────────────────────────────────
@@ -169,6 +175,7 @@ export async function PATCH(req: Request) {
       name: organisations.name,
       stages: organisations.stages,
       disabledRules: organisations.disabledRules,
+      showPaymentHistory: organisations.showPaymentHistory,
     })
     .from(organisations)
     .where(eq(organisations.id, orgId!))
@@ -183,5 +190,6 @@ export async function PATCH(req: Request) {
     name: updated.name,
     stages: getStages(updated),
     disabledRules: (updated.disabledRules as string[]) ?? [],
+    showPaymentHistory: updated.showPaymentHistory ?? false,
   });
 }

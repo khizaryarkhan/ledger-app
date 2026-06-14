@@ -17,6 +17,7 @@ export const organisations = pgTable("organisations", {
   displayName: varchar("display_name", { length: 255 }), // optional display name override
   stages: jsonb("stages"), // customisable collection stages array
   disabledRules: jsonb("disabled_rules").notNull().default([]), // automation rule IDs that are paused
+  showPaymentHistory: boolean("show_payment_history").notNull().default(false), // show payment history tab on customer portal
   // Cron run tracking — updated at the end of every cron execution
   lastCronRun:   timestamp("last_cron_run"),
   lastCronStats: jsonb("last_cron_stats"), // { escalated, emailsSent, skipped, errors[] }

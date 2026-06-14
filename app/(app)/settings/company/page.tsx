@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import { MfaCard } from "@/components/mfa-card";
-import { ChevronLeft, User, Palette, Calendar } from "lucide-react";
+import { ChevronLeft, User, Palette, Calendar, LayoutDashboard } from "lucide-react";
 
 
 export default function CompanySettingsPage() {
@@ -28,12 +28,17 @@ export default function CompanySettingsPage() {
   const [dateFormat, setDateFormat] = useState("DD MMM YYYY");
   const [savingDateFormat, setSavingDateFormat] = useState(false);
 
+  // Portal settings
+  const [showPaymentHistory, setShowPaymentHistory] = useState(false);
+  const [savingPortal, setSavingPortal] = useState(false);
+
 
 
   useEffect(() => {
     if (orgSettings) {
       setBrandingForm({ logoUrl: orgSettings.logoUrl || "", displayName: orgSettings.displayName || "" });
       setDateFormat(orgSettings.dateFormat || "DD MMM YYYY");
+      setShowPaymentHistory(orgSettings.showPaymentHistory ?? false);
     }
   }, [orgSettings]);
 
@@ -197,6 +202,49 @@ export default function CompanySettingsPage() {
               }}
             >
               {savingDateFormat ? "Saving…" : "Save date format"}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Customer Portal settings */}
+      {isAdmin && (
+        <Card className="mb-4">
+          <div className="flex items-center gap-2 mb-4">
+            <LayoutDashboard size={16} className="text-stone-400" />
+            <h3 className="text-sm font-semibold text-white">Customer portal</h3>
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-white">Show payment history tab</div>
+                <p className="text-[12px] text-stone-400 mt-0.5">
+                  When enabled, customers can see all their paid invoices in a separate tab on the portal.
+                  Useful for transparency and reducing "did you receive my payment?" queries.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={showPaymentHistory}
+                onClick={() => setShowPaymentHistory(v => !v)}
+                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-stone-900 ${showPaymentHistory ? "bg-emerald-600" : "bg-stone-700"}`}
+              >
+                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${showPaymentHistory ? "translate-x-4" : ""}`} />
+              </button>
+            </div>
+            <Button
+              size="sm"
+              disabled={savingPortal}
+              onClick={async () => {
+                setSavingPortal(true);
+                try {
+                  await updateOrgSettings({ showPaymentHistory });
+                } finally {
+                  setSavingPortal(false);
+                }
+              }}
+            >
+              {savingPortal ? "Saving…" : "Save portal settings"}
             </Button>
           </div>
         </Card>

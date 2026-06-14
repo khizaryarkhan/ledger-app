@@ -7,25 +7,31 @@ import { NextResponse } from "next/server";
 
 /**
  * GET /api/portal/[token]
- * Public, token-authenticated. Returns org branding, customer name, and the
- * open invoices covered by this request. No login required.
+ * Public, token-authenticated. Returns org branding, customer name, open invoices
+ * covered by this request, and (if org enabled) the full paid invoice history.
  */
 export async function GET(_req: Request, { params }: { params: { token: string } }) {
   const v = await validatePortalToken(params.token);
   if (!v.ok) {
     const reason = "reason" in v ? v.reason : "error";
-    return NextResponse.json({ error: reason }, { status: 410 }); // 410 Gone — expired/used
+    return NextResponse.json({ error: reason }, { status: 410 });
   }
   const { row } = v;
 
-  // Touch last-viewed (fire-and-forget — don't block the response on it)
+  // Touch last-viewed (fire-and-forget)
   await db.update(customerPortalTokens)
     .set({ lastViewedAt: new Date() })
     .where(eq(customerPortalTokens.id, row.id))
     .catch(() => {});
 
   const [org] = await db
-    .select({ name: organisations.name, displayName: organisations.displayName, logoUrl: organisations.logoUrl, currency: organisations.currency })
+    .select({
+      name: organisations.name,
+      displayName: organisations.displayName,
+      logoUrl: organisations.logoUrl,
+      currency: organisations.currency,
+      showPaymentHistory: organisations.showPaymentHistory,
+    })
     .from(organisations).where(eq(organisations.id, row.orgId)).limit(1);
 
   const [cust] = await db
@@ -34,6 +40,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
 
   const ids = (row.invoiceIds as string[]) ?? [];
   let invList: any[] = [];
+
   if (ids.length > 0) {
     const rows = await db
       .select({
@@ -56,7 +63,6 @@ export async function GET(_req: Request, { params }: { params: { token: string }
         inArray(invoices.id, ids),
       ));
 
-    // Only show still-open invoices; compute the open balance
     invList = rows
       .filter(i => i.paymentStatus !== "Paid")
       .map(i => ({
@@ -71,9 +77,45 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       }));
   }
 
+  // Payment history — all paid invoices for this customer (only if org opted in)
+  let paymentHistory: any[] = [];
+  if (org?.showPaymentHistory) {
+    const paidRows = await db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        invoiceDate: invoices.invoiceDate,
+        dueDate: invoices.dueDate,
+        currency: invoices.currency,
+        total: invoices.total,
+        paid: invoices.paid,
+      })
+      .from(invoices)
+      .where(and(
+        eq(invoices.orgId, row.orgId),
+        eq(invoices.customerId, row.customerId),
+        eq(invoices.paymentStatus, "Paid"),
+      ));
+
+    paymentHistory = paidRows.map(i => ({
+      id: i.id,
+      invoiceNumber: i.invoiceNumber,
+      invoiceDate: i.invoiceDate,
+      dueDate: i.dueDate,
+      currency: i.currency || org?.currency || "EUR",
+      total: i.total ?? 0,
+      paid: i.paid ?? 0,
+    }));
+  }
+
   return NextResponse.json({
-    org: { name: org?.displayName || org?.name || "Accounts Receivable", logoUrl: org?.logoUrl ?? null },
+    org: {
+      name: org?.displayName || org?.name || "Accounts Receivable",
+      logoUrl: org?.logoUrl ?? null,
+      showPaymentHistory: org?.showPaymentHistory ?? false,
+    },
     customer: { name: cust?.name ?? "Customer" },
     invoices: invList,
+    paymentHistory,
   });
 }
