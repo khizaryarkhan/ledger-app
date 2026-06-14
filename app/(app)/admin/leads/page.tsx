@@ -678,12 +678,10 @@ function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: 
   );
 }
 
-// ── Lead detail modal ──────────────────────────────────────────────────────
-function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
-  const [status,     setStatus]     = useState<LeadStatus>(lead?.status ?? "new");
-  const [saving,     setSaving]     = useState(false);
-  const [tab,        setTab]        = useState<"details" | "notes">("details");
-  const [noteCount,  setNoteCount]  = useState(0);
+// ── Lead detail modal (no Activity tab — panel is inline on the row) ────────
+function LeadModal({ lead, onClose, onSave, onEmail }: any) {
+  const [status, setStatus] = useState<LeadStatus>(lead?.status ?? "new");
+  const [saving, setSaving] = useState(false);
 
   if (!lead) return null;
 
@@ -695,7 +693,7 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ height: "min(90vh, 680px)" }}>
+      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ maxHeight: "min(90vh, 600px)" }}>
         {/* Header */}
         <div className="px-5 py-4 border-b border-stone-800 flex items-start justify-between shrink-0">
           <div>
@@ -715,82 +713,55 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-stone-800 shrink-0 px-5">
-          {(["details", "notes"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-xs font-medium border-b-2 -mb-px capitalize transition-colors flex items-center gap-1.5 ${
-                tab === t ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-300"
-              }`}>
-              {t === "notes" && <MessageSquare size={11} />}
-              {t === "details" ? "Details" : "Activity"}
-              {t === "notes" && noteCount > 0 && (
-                <span className="text-[10px] text-stone-500 font-normal">{noteCount}</span>
-              )}
-            </button>
-          ))}
+        {/* Details */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+            {[
+              ["Phone",        lead.phone       ?? "—"],
+              ["Country",      lead.country     ?? "—"],
+              ["Company size", lead.companySize ?? "—"],
+              ["Service",      lead.interestedService ?? "—"],
+              ["Source",       lead.source ?? "landing_page"],
+              ["Received",     new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <p className="text-[10px] text-stone-500 mb-0.5 uppercase tracking-wider font-semibold">{label}</p>
+                <p className="text-stone-200">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {lead.message && (
+            <div className="p-3 bg-stone-800/60 rounded-lg">
+              <p className="text-[10px] text-stone-500 mb-1.5 uppercase tracking-wider font-semibold">Message</p>
+              <p className="text-xs text-stone-300 whitespace-pre-wrap leading-relaxed">{lead.message}</p>
+            </div>
+          )}
+
+          {(lead.utmSource || lead.utmMedium || lead.utmCampaign) && (
+            <div className="flex gap-2 flex-wrap">
+              {lead.utmSource   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">src: {lead.utmSource}</span>}
+              {lead.utmMedium   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">med: {lead.utmMedium}</span>}
+              {lead.utmCampaign && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">cmp: {lead.utmCampaign}</span>}
+            </div>
+          )}
+
+          <div>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
+              className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
+              {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            </select>
+          </div>
         </div>
-
-        {/* Details tab */}
-        {tab === "details" && (
-          <div className="overflow-y-auto flex-1 p-5 space-y-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-              {[
-                ["Phone",        lead.phone       ?? "—"],
-                ["Country",      lead.country     ?? "—"],
-                ["Company size", lead.companySize ?? "—"],
-                ["Service",      lead.interestedService ?? "—"],
-                ["Source",       lead.source ?? "landing_page"],
-                ["Received",     new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <p className="text-[10px] text-stone-500 mb-0.5 uppercase tracking-wider font-semibold">{label}</p>
-                  <p className="text-stone-200">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            {lead.message && (
-              <div className="p-3 bg-stone-800/60 rounded-lg">
-                <p className="text-[10px] text-stone-500 mb-1.5 uppercase tracking-wider font-semibold">Message</p>
-                <p className="text-xs text-stone-300 whitespace-pre-wrap leading-relaxed">{lead.message}</p>
-              </div>
-            )}
-
-            {(lead.utmSource || lead.utmMedium || lead.utmCampaign) && (
-              <div className="flex gap-2 flex-wrap">
-                {lead.utmSource   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">src: {lead.utmSource}</span>}
-                {lead.utmMedium   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">med: {lead.utmMedium}</span>}
-                {lead.utmCampaign && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">cmp: {lead.utmCampaign}</span>}
-              </div>
-            )}
-
-            <div>
-              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
-                className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
-                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* Activity tab */}
-        {tab === "notes" && (
-          <div className="flex-1 flex flex-col min-h-0">
-            <LeadNotes leadId={lead.id} onCountChange={setNoteCount} />
-          </div>
-        )}
 
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2 shrink-0">
           <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">Close</button>
-          {tab === "details" && (
-            <button onClick={handleSave} disabled={saving}
-              className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
-              {saving && <Loader size={11} className="animate-spin" />}
-              Save changes
-            </button>
-          )}
+          <button onClick={handleSave} disabled={saving}
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            {saving && <Loader size={11} className="animate-spin" />}
+            Save changes
+          </button>
         </div>
       </div>
     </div>
@@ -803,6 +774,8 @@ export default function LeadsPage() {
   const [loading, setLoading]         = useState(true);
   const [active, setActive]           = useState<any>(null);
   const [emailTarget, setEmailTarget] = useState<any>(null);
+  const [notesOpenId, setNotesOpenId] = useState<string | null>(null);
+  const [noteCounts, setNoteCounts]   = useState<Record<string, number>>({});
   const [toast, setToast]             = useState<any>(null);
   const [search, setSearch]           = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -972,7 +945,9 @@ export default function LeadsPage() {
                   <td className="px-4 py-3 text-xs text-stone-500 whitespace-nowrap">
                     {new Date(l.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </td>
-                  <td className="px-4 py-3">
+
+                  {/* Actions + inline activity panel */}
+                  <td className="px-4 py-3 relative">
                     <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={e => { e.stopPropagation(); setEmailTarget(l); }}
@@ -981,11 +956,61 @@ export default function LeadsPage() {
                       >
                         <Mail size={13} />
                       </button>
+                      {/* Notes icon — shows count badge if notes exist */}
+                      <button
+                        onClick={e => { e.stopPropagation(); setNotesOpenId(notesOpenId === l.id ? null : l.id); }}
+                        title="Activity notes"
+                        className={`relative p-1.5 rounded transition-colors ${
+                          notesOpenId === l.id
+                            ? "bg-stone-700 text-stone-200"
+                            : "text-stone-500 hover:text-stone-200 hover:bg-stone-800"
+                        }`}
+                      >
+                        <MessageSquare size={13} />
+                        {(noteCounts[l.id] ?? 0) > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-emerald-500 text-[9px] font-bold text-white flex items-center justify-center px-0.5">
+                            {noteCounts[l.id]}
+                          </span>
+                        )}
+                      </button>
                       <button onClick={() => setActive(l)}
                         className="text-[10px] px-2 py-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors font-medium">
                         View
                       </button>
                     </div>
+
+                    {/* Inline activity panel — identical to Collections Board */}
+                    {notesOpenId === l.id && (
+                      <div
+                        className="absolute right-2 top-9 z-30 w-96 bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col"
+                        style={{ maxHeight: "520px" }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {/* Panel header */}
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800 flex-shrink-0">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare size={13} className="text-stone-400" />
+                            <span className="text-[12px] font-semibold text-stone-200">
+                              Activity · {l.fullName}
+                            </span>
+                            {(noteCounts[l.id] ?? 0) > 0 && (
+                              <span className="text-[10px] text-stone-500">
+                                {noteCounts[l.id]} note{noteCounts[l.id] !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                          <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200">
+                            <X size={14} />
+                          </button>
+                        </div>
+
+                        {/* Notes feed */}
+                        <LeadNotes
+                          leadId={l.id}
+                          onCountChange={count => setNoteCounts(prev => ({ ...prev, [l.id]: count }))}
+                        />
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
