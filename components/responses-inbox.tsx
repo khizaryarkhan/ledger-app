@@ -191,7 +191,7 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
           {p.status !== "Active" && <Badge variant="neutral" size="sm">{p.status}</Badge>}
         </div>
         <div className="text-[13px] text-stone-300 mt-1">
-          Promised <strong className="text-white">{p.amount != null ? money(p.amount, p.currency) : "full balance"}</strong> by <strong className="text-white">{p.promiseDate}</strong>
+          Committed to pay <strong className="text-white">{p.amount != null ? money(p.amount, p.currency) : "full balance"}</strong> by <strong className="text-white">{p.promiseDate}</strong>
           {p.note ? <span className="text-stone-500"> — {p.note}</span> : null}
         </div>
         <div className="text-[11px] text-stone-500 mt-1">{p.enteredByName ? `by ${p.enteredByName}` : "via portal"} · {new Date(p.createdAt).toLocaleDateString()}</div>

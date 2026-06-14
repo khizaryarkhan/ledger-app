@@ -70,7 +70,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
         status: "Active",
         tokenId: row.id,
       });
-      summary.push(`#${inv.invoiceNumber}: promised ${amount != null ? amount : "full balance"} by ${r.promise.date}`);
+      summary.push(`#${inv.invoiceNumber}: committed to pay ${amount != null ? amount : "full balance"} by ${r.promise.date}`);
     }
 
     // --- Dispute ---
@@ -91,7 +91,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
     // Inbound communication record so staff see the response in the timeline
     const parts: string[] = [];
-    if (r.promise?.date) parts.push(`Promise to pay ${r.promise.amount != null ? r.promise.amount : "full balance"} by ${r.promise.date}${r.promise.note ? ` (${r.promise.note})` : ""}`);
+    if (r.promise?.date) parts.push(`Committed to pay ${r.promise.amount != null ? r.promise.amount : "full balance"} by ${r.promise.date}${r.promise.note ? ` (${r.promise.note})` : ""}`);
     if (r.dispute?.category) parts.push(`Dispute: ${r.dispute.category}${r.dispute.reason ? ` — ${r.dispute.reason}` : ""}`);
     if (parts.length > 0) {
       commRows.push({
