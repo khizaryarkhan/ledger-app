@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus } from "lucide-react";
+import { Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send, MessageSquare } from "lucide-react";
 import { Card, Badge, Button, Toast } from "@/components/ui";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
@@ -172,26 +172,123 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
   );
 }
 
+// ── Lead chat / notes thread ───────────────────────────────────────────────
+function LeadNotes({ leadId }: { leadId: string }) {
+  const [notes, setNotes]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [body, setBody]     = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const load = async () => {
+    const r = await fetch(`/api/admin/leads/${leadId}/notes`);
+    if (r.ok) setNotes(await r.json());
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [leadId]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [notes]);
+
+  const send = async () => {
+    if (!body.trim() || sending) return;
+    setSending(true);
+    const res = await fetch(`/api/admin/leads/${leadId}/notes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    if (res.ok) {
+      const note = await res.json();
+      setNotes(p => [...p, note]);
+      setBody("");
+    }
+    setSending(false);
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Thread */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-stone-500 py-2">
+            <Loader size={11} className="animate-spin" /> Loading…
+          </div>
+        )}
+        {!loading && notes.length === 0 && (
+          <div className="text-center py-6">
+            <MessageSquare size={20} className="text-stone-700 mx-auto mb-2" />
+            <p className="text-xs text-stone-600">No notes yet. Add the first one below.</p>
+          </div>
+        )}
+        {notes.map(n => (
+          <div key={n.id} className="flex gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-stone-700 flex items-center justify-center text-[10px] font-bold text-stone-300 shrink-0 mt-0.5">
+              {n.authorName.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-stone-300">{n.authorName}</span>
+                <span className="text-[10px] text-stone-600">
+                  {new Date(n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                  {" "}
+                  {new Date(n.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+              <p className="text-xs text-stone-200 whitespace-pre-wrap leading-relaxed bg-stone-800/60 rounded-lg px-3 py-2">
+                {n.body}
+              </p>
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Compose */}
+      <div className="px-4 pb-3 pt-2 border-t border-stone-800 shrink-0">
+        <div className="flex gap-2 items-end">
+          <textarea
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            onKeyDown={onKey}
+            rows={2}
+            placeholder="Add a note… (⌘↵ to send)"
+            className="flex-1 px-3 py-2 text-xs rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 resize-none focus:border-emerald-500 focus:outline-none leading-relaxed"
+          />
+          <button onClick={send} disabled={!body.trim() || sending}
+            className="h-9 w-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 flex items-center justify-center transition-colors shrink-0">
+            {sending ? <Loader size={13} className="animate-spin text-white" /> : <Send size={13} className="text-white" />}
+          </button>
+        </div>
+        <p className="text-[10px] text-stone-700 mt-1">Internal only — not visible to the lead</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Lead detail modal ──────────────────────────────────────────────────────
 function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
   const [status, setStatus] = useState<LeadStatus>(lead?.status ?? "new");
-  const [notes, setNotes]   = useState(lead?.adminNotes ?? "");
   const [saving, setSaving] = useState(false);
+  const [tab, setTab]       = useState<"details" | "notes">("details");
 
   if (!lead) return null;
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave(lead.id, status, notes);
+    await onSave(lead.id, status, lead.adminNotes);
     setSaving(false);
   };
 
-  const firstName = lead.fullName?.split(" ")[0] ?? "";
+  const firstName  = lead.fullName?.split(" ")[0] ?? "";
   const mailtoHref = `mailto:${lead.email}?subject=${encodeURIComponent("Prime Accountax — Following up")}&body=${encodeURIComponent(`Hi ${firstName},\n\n`)}`;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-lg shadow-xl ring-1 ring-stone-800 flex flex-col max-h-[90vh]">
+      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ height: "min(90vh, 680px)" }}>
         {/* Header */}
         <div className="px-5 py-4 border-b border-stone-800 flex items-start justify-between shrink-0">
           <div>
@@ -207,67 +304,80 @@ function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
           </div>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5 space-y-4">
-          {/* Contact info */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-            {[
-              ["Phone",        lead.phone       ?? "—"],
-              ["Country",      lead.country     ?? "—"],
-              ["Company size", lead.companySize ?? "—"],
-              ["Service",      lead.interestedService ?? "—"],
-              ["Source",       lead.source ?? "landing_page"],
-              ["Received",     new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <p className="text-[10px] text-stone-500 mb-0.5 uppercase tracking-wider font-semibold">{label}</p>
-                <p className="text-stone-200">{value}</p>
-              </div>
-            ))}
-          </div>
-
-          {lead.message && (
-            <div className="p-3 bg-stone-800/60 rounded-lg">
-              <p className="text-[10px] text-stone-500 mb-1.5 uppercase tracking-wider font-semibold">Message</p>
-              <p className="text-xs text-stone-300 whitespace-pre-wrap leading-relaxed">{lead.message}</p>
-            </div>
-          )}
-
-          {(lead.utmSource || lead.utmMedium || lead.utmCampaign) && (
-            <div className="flex gap-2 flex-wrap">
-              {lead.utmSource   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">src: {lead.utmSource}</span>}
-              {lead.utmMedium   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">med: {lead.utmMedium}</span>}
-              {lead.utmCampaign && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">cmp: {lead.utmCampaign}</span>}
-            </div>
-          )}
-
-          {/* Status */}
-          <div>
-            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
-            <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
-              className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
-              {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-            </select>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">
-              Admin notes <span className="normal-case text-stone-600 font-normal">(internal)</span>
-            </label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} maxLength={2000}
-              placeholder="Notes about this lead…"
-              className="w-full px-3 py-2 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800/60 text-white placeholder-stone-500 resize-none focus:ring-emerald-500 focus:outline-none leading-relaxed"
-            />
-          </div>
+        {/* Tabs */}
+        <div className="flex border-b border-stone-800 shrink-0 px-5">
+          {(["details", "notes"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2.5 text-xs font-medium border-b-2 -mb-px capitalize transition-colors flex items-center gap-1.5 ${
+                tab === t ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-300"
+              }`}>
+              {t === "notes" && <MessageSquare size={11} />}
+              {t === "details" ? "Details" : "Notes"}
+            </button>
+          ))}
         </div>
+
+        {/* Details tab */}
+        {tab === "details" && (
+          <div className="overflow-y-auto flex-1 p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+              {[
+                ["Phone",        lead.phone       ?? "—"],
+                ["Country",      lead.country     ?? "—"],
+                ["Company size", lead.companySize ?? "—"],
+                ["Service",      lead.interestedService ?? "—"],
+                ["Source",       lead.source ?? "landing_page"],
+                ["Received",     new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] text-stone-500 mb-0.5 uppercase tracking-wider font-semibold">{label}</p>
+                  <p className="text-stone-200">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {lead.message && (
+              <div className="p-3 bg-stone-800/60 rounded-lg">
+                <p className="text-[10px] text-stone-500 mb-1.5 uppercase tracking-wider font-semibold">Message</p>
+                <p className="text-xs text-stone-300 whitespace-pre-wrap leading-relaxed">{lead.message}</p>
+              </div>
+            )}
+
+            {(lead.utmSource || lead.utmMedium || lead.utmCampaign) && (
+              <div className="flex gap-2 flex-wrap">
+                {lead.utmSource   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">src: {lead.utmSource}</span>}
+                {lead.utmMedium   && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">med: {lead.utmMedium}</span>}
+                {lead.utmCampaign && <span className="text-[10px] text-stone-500 bg-stone-800 px-2 py-0.5 rounded font-mono">cmp: {lead.utmCampaign}</span>}
+              </div>
+            )}
+
+            {/* Status */}
+            <div>
+              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
+                className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
+                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Notes tab */}
+        {tab === "notes" && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <LeadNotes leadId={lead.id} />
+          </div>
+        )}
 
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2 shrink-0">
           <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">Close</button>
-          <button onClick={handleSave} disabled={saving}
-            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
-            {saving && <Loader size={11} className="animate-spin" />}
-            Save changes
-          </button>
+          {tab === "details" && (
+            <button onClick={handleSave} disabled={saving}
+              className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+              {saving && <Loader size={11} className="animate-spin" />}
+              Save changes
+            </button>
+          )}
         </div>
       </div>
     </div>

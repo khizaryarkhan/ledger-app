@@ -207,6 +207,19 @@ export const landingPageRequests = pgTable("landing_page_requests", {
 export type LandingPageRequest = typeof landingPageRequests.$inferSelect;
 
 // =========================================================================
+// LEAD NOTES (threaded chat per lead — platform admin only)
+// =========================================================================
+export const leadNotes = pgTable("lead_notes", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  leadId:    uuid("lead_id").notNull().references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  authorId:  uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+  authorName: varchar("author_name", { length: 255 }).notNull(),
+  body:      text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type LeadNote = typeof leadNotes.$inferSelect;
+
+// =========================================================================
 // BILLING AUDIT LOG
 // =========================================================================
 export const billingAuditLogs = pgTable("billing_audit_logs", {
