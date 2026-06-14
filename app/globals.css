@@ -145,3 +145,34 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .lp-chart-line, .lp-draw { animation: none !important; }
   .lp-reveal { opacity: 1; transform: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   REPORT PRINT STYLES — triggered by window.print() on the Reports page
+   ══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  /* Strip dark theme — print on white */
+  body, * { background: white !important; color: #1c1917 !important; }
+
+  /* Hide chrome that has no place on paper */
+  .report-no-print,
+  [data-report-no-print] { display: none !important; }
+
+  /* Un-clip the report content area so all rows are visible */
+  .report-print-root { height: auto !important; overflow: visible !important; }
+  .report-print-content { overflow: visible !important; height: auto !important; }
+
+  /* Unstick the toolbar so it doesn't re-print at the top of every page */
+  .report-print-toolbar { position: static !important; }
+
+  /* Sidebar collapses entirely */
+  .report-print-sidebar { display: none !important; }
+
+  /* Avoid page-breaks mid-row */
+  tr { page-break-inside: avoid; }
+
+  /* Ensure borders print */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Use full page width */
+  @page { size: A4 landscape; margin: 12mm; }
+}

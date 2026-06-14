@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
 import { CurrencyPills } from "@/components/currency-pills";
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, Download, FileSpreadsheet, FileText } from "lucide-react";
+import { exportArReport, exportSalesReport } from "@/lib/export-report";
 
 // ============================================================
 // SALES REPORT — Net (Ex VAT) only. Uses invoice.amount field.
@@ -1441,10 +1442,69 @@ export default function ReportsPage() {
   const toggleGroup = (label: string) =>
     setCollapsedGroups(prev => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n; });
 
+  // ── Export ─────────────────────────────────────────────────────────────
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function handleExportPdf() {
+    setExportOpen(false);
+    setTimeout(() => window.print(), 50); // tiny delay so dropdown closes first
+  }
+
+  function handleExportExcel() {
+    setExportOpen(false);
+    const orgName = orgSettings?.displayName || orgSettings?.name || "Organisation";
+
+    if (isArReport) {
+      exportArReport({
+        reportId: report as any,
+        reportLabel: currentItem?.label ?? report,
+        orgName,
+        asAtDate,
+        invoices: effectiveInvoices,
+        customers,
+        projects,
+        regions: regions ?? [],
+        reps: reps ?? [],
+        regionFilter,
+      });
+    } else {
+      // Derive the active period dates from what SalesReport would use
+      // Default to "last-12m" range (same as SalesReport default period)
+      const now = new Date();
+      const from = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+      const to   = new Date();
+      const breakdown = (SALES_BREAKDOWN[report] ?? "customer") as "customer" | "project" | "rep" | "region";
+      exportSalesReport({
+        reportId: report,
+        reportLabel: currentItem?.label ?? report,
+        orgName,
+        periodLabel: "Last 12 months",
+        periodFrom: from.toISOString().slice(0, 10),
+        periodTo: to.toISOString().slice(0, 10),
+        invoices,
+        customers,
+        projects,
+        regions: regions ?? [],
+        reps: reps ?? [],
+        breakdown,
+      });
+    }
+  }
+
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+    <div className="flex h-[calc(100vh-56px)] overflow-hidden report-print-root">
       {/* ── Sidebar ── */}
-      <aside className="w-56 shrink-0 border-r border-stone-800 bg-stone-950 overflow-y-auto flex flex-col">
+      <aside className="w-56 shrink-0 border-r border-stone-800 bg-stone-950 overflow-y-auto flex flex-col report-print-sidebar">
         <div className="px-4 pt-5 pb-3">
           <div className="text-[11px] uppercase tracking-widest font-semibold text-stone-500">Reports</div>
         </div>
@@ -1491,9 +1551,9 @@ export default function ReportsPage() {
       </aside>
 
       {/* ── Main content ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto report-print-content">
         {/* Top toolbar */}
-        <div className="sticky top-0 z-10 bg-stone-950 border-b border-stone-800 px-6 py-3 flex items-center justify-between gap-3">
+        <div className="sticky top-0 z-10 bg-stone-950 border-b border-stone-800 px-6 py-3 flex items-center justify-between gap-3 report-print-toolbar">
           <div>
             <h1 className="text-base font-semibold text-white">{currentItem?.label}</h1>
             <p className="text-[11px] text-stone-400 mt-0.5">{currentItem?.description}</p>
@@ -1503,7 +1563,7 @@ export default function ReportsPage() {
               <select
                 value={regionFilter}
                 onChange={(e) => setRegionFilter(e.target.value)}
-                className="h-8 px-3 pr-8 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
+                className="h-8 px-3 pr-8 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none report-no-print"
                 style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundRepeat: "no-repeat", backgroundSize: "12px" }}
               >
                 <option value="">All regions</option>
@@ -1511,7 +1571,7 @@ export default function ReportsPage() {
               </select>
             )}
             {isArReport && (
-              <div className="flex items-center gap-1.5 h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-xs">
+              <div className="flex items-center gap-1.5 h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-xs report-no-print">
                 <span className="text-stone-400 font-medium whitespace-nowrap">As at</span>
                 <input
                   type="date"
@@ -1527,6 +1587,43 @@ export default function ReportsPage() {
                 )}
               </div>
             )}
+
+            {/* ── Export dropdown ── */}
+            <div className="relative report-no-print" ref={exportRef}>
+              <button
+                onClick={() => setExportOpen(v => !v)}
+                className="h-8 flex items-center gap-1.5 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white text-xs font-medium transition-colors"
+              >
+                <Download size={13} />
+                Export
+                <ChevronDown size={11} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
+              </button>
+              {exportOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 bg-stone-800 border border-stone-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                  <button
+                    onClick={handleExportExcel}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-300 hover:bg-stone-700 hover:text-white transition-colors text-left"
+                  >
+                    <FileSpreadsheet size={15} className="text-emerald-400 shrink-0" />
+                    <div>
+                      <div className="font-medium">Export to Excel</div>
+                      <div className="text-[10px] text-stone-500">Summary + invoice detail</div>
+                    </div>
+                  </button>
+                  <div className="border-t border-stone-700" />
+                  <button
+                    onClick={handleExportPdf}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-300 hover:bg-stone-700 hover:text-white transition-colors text-left"
+                  >
+                    <FileText size={15} className="text-rose-400 shrink-0" />
+                    <div>
+                      <div className="font-medium">Export to PDF</div>
+                      <div className="text-[10px] text-stone-500">Print-ready view (A4 landscape)</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
