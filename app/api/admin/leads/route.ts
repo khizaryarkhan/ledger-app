@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { landingPageRequests, users } from "@/db/schema";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { eq, desc, ilike, or } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export async function GET(req: NextRequest) {
   const { error } = await requirePlatformAdmin();
@@ -50,4 +51,31 @@ export async function GET(req: NextRequest) {
 
   const rows = await (query as any).orderBy(desc(landingPageRequests.createdAt));
   return NextResponse.json({ leads: rows });
+}
+
+export async function POST(req: NextRequest) {
+  const { error } = await requirePlatformAdmin();
+  if (error) return error;
+
+  const body = await req.json().catch(() => ({}));
+  const { fullName, email, companyName, phone, country, interestedService, message } = body;
+
+  if (!fullName?.trim() || !email?.trim()) {
+    return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+  }
+
+  const [row] = await db.insert(landingPageRequests).values({
+    id:               randomUUID(),
+    fullName:         fullName.trim(),
+    email:            email.toLowerCase().trim(),
+    companyName:      companyName?.trim() || null,
+    phone:            phone?.trim() || null,
+    country:          country?.trim() || null,
+    interestedService: interestedService?.trim() || null,
+    message:          message?.trim() || null,
+    source:           "manual",
+    status:           "new",
+  }).returning();
+
+  return NextResponse.json(row, { status: 201 });
 }

@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { LayoutDashboard, XCircle, FileText, CreditCard, ScrollText, ShieldAlert, Clock } from "lucide-react";
+import { LayoutDashboard, XCircle, FileText, CreditCard, ScrollText, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 const BILLING_NAV = [
-  { href: "/admin/billing",       icon: LayoutDashboard, label: "Billing Overview" },
-  { href: "/admin/cancellations", icon: XCircle,         label: "Cancellations" },
-  { href: "/admin/temp-access",   icon: Clock,           label: "Temp Access" },
+  { href: "/admin/billing",       icon: LayoutDashboard, label: "Overview" },
   { href: "/admin/leads",         icon: FileText,        label: "Leads" },
+  { href: "/admin/cancellations", icon: XCircle,         label: "Cancellations" },
   { href: "/admin/subscriptions", icon: CreditCard,      label: "Subscriptions" },
   { href: "/admin/audit",         icon: ScrollText,      label: "Audit Log" },
 ];
@@ -42,7 +41,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside className="w-48 flex-shrink-0 space-y-0.5 pt-1">
         <p className="text-[10px] text-stone-600 font-semibold uppercase tracking-widest px-3 pb-2">
-          Billing Admin
+          Platform
         </p>
         {BILLING_NAV.map(({ href, icon: Icon, label }) => {
           const active = path.startsWith(href);
