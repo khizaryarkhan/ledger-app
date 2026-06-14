@@ -94,11 +94,15 @@ function ManualModal({ open, onClose, onSaved, existing }: ManualModalProps) {
   const [err, setErr]                 = useState("");
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || existing) return;
     fetch("/api/admin/organisations")
       .then(r => r.ok ? r.json() : [])
-      .then(d => setOrgs((Array.isArray(d) ? d : (d?.organisations ?? [])).map((o: any) => ({ id: o.id, name: o.name }))));
-  }, [open]);
+      .then(d => setOrgs(
+        (Array.isArray(d) ? d : (d?.organisations ?? []))
+          .filter((o: any) => !o.subId)   // only orgs without an existing subscription
+          .map((o: any) => ({ id: o.id, name: o.name }))
+      ));
+  }, [open, existing]);
 
   const handleSubmit = async () => {
     setErr("");
@@ -174,14 +178,20 @@ function ManualModal({ open, onClose, onSaved, existing }: ManualModalProps) {
         {!existing && (
           <div>
             <label className="text-xs text-stone-400 block mb-1.5">Organisation <span className="text-rose-400">*</span></label>
-            <select
-              value={orgId}
-              onChange={e => setOrgId(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="">Select organisation…</option>
-              {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
+            {orgs.length === 0 ? (
+              <div className="px-3 py-2.5 rounded-lg border border-stone-700 bg-stone-800/40 text-xs text-stone-400">
+                All organisations already have a subscription. Edit an existing subscription instead.
+              </div>
+            ) : (
+              <select
+                value={orgId}
+                onChange={e => setOrgId(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                <option value="">Select organisation…</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            )}
           </div>
         )}
 
