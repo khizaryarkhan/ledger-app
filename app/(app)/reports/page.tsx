@@ -165,9 +165,16 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
   }, [salesInvoices]);
   const dso = net90d > 0 ? Math.round((openAR / net90d) * 90) : 0;
 
-  // Paid in period / regular invoices only (CNs don't have a paid status)
-  const paidInPeriod = periodInvoices.filter((i: any) => i.paymentStatus === "Paid").length;
-  const collRate = periodInvoices.length > 0 ? Math.round(paidInPeriod / periodInvoices.length * 100) : 0;
+  // Collection Rate: invoices whose DUE date fell in this period and have since been paid.
+  // Using dueDate (not invoiceDate) answers "how well did we collect on what was owed in this period?"
+  const dueInPeriod = useMemo(() =>
+    invoices.filter((i: any) => {
+      if (isCreditMemo(i) || i.paymentStatus === "Written Off") return false;
+      const d = new Date(i.dueDate);
+      return d >= from && d <= to;
+    }), [invoices, from, to]);
+  const paidFromDue = useMemo(() => dueInPeriod.filter((i: any) => i.paymentStatus === "Paid").length, [dueInPeriod]);
+  const collRate = dueInPeriod.length > 0 ? Math.round(paidFromDue / dueInPeriod.length * 100) : 0;
 
   // Per-currency breakdowns for aggregate KPI cells
   const grossByCcy = useMemo(() => {
@@ -345,7 +352,7 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
         <SalesKPI
           label="Collection Rate"
           value={`${collRate}%`}
-          sub={`${paidInPeriod} of ${periodInvoices.length} paid`}
+          sub={dueInPeriod.length > 0 ? `${paidFromDue} of ${dueInPeriod.length} due & paid` : "No invoices due"}
           highlight={collRate >= 80 ? "green" : collRate >= 50 ? "neutral" : "red"}
         />
         <SalesKPI
@@ -955,20 +962,27 @@ function ActivityReport({ communications }: any) {
   }, [communications]);
 
   const maxActivity = Math.max(1, ...activity.map(d => Math.max(d.sent, d.received)));
+  const actBarH = 160; // px — same fix as Monthly Net Revenue chart
 
   return (
     <Card>
       <h3 className="text-sm font-semibold text-white mb-4">Email activity (last 14 days)</h3>
-      <div className="flex items-end gap-1 h-48 mb-3">
-        {activity.map((d, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1">
-            <div className="flex-1 flex items-end gap-0.5 w-full justify-center">
-              <div className="bg-stone-400 rounded-t w-2.5" style={{ height: `${(d.sent / maxActivity) * 100}%` }} title={`${d.sent} sent`} />
-              <div className="bg-emerald-500 rounded-t w-2.5" style={{ height: `${(d.received / maxActivity) * 100}%` }} title={`${d.received} received`} />
-            </div>
-            <div className="text-[9px] text-stone-500">{new Date(d.date).getDate()}</div>
-          </div>
-        ))}
+      <div className="relative mb-3" style={{ height: "192px" }}>
+        <div className="flex items-end gap-1 h-full">
+          {activity.map((d, i) => {
+            const sentH = d.sent > 0 ? Math.max(Math.round((d.sent / maxActivity) * actBarH), 2) : 1;
+            const recvH = d.received > 0 ? Math.max(Math.round((d.received / maxActivity) * actBarH), 2) : 1;
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center group relative">
+                <div className="flex items-end gap-0.5 w-full justify-center" style={{ height: `${actBarH + 16}px` }}>
+                  <div className="bg-stone-400 rounded-t w-2.5 transition-all duration-300" style={{ height: `${sentH}px` }} title={`${d.sent} sent`} />
+                  <div className="bg-emerald-500 rounded-t w-2.5 transition-all duration-300" style={{ height: `${recvH}px` }} title={`${d.received} received`} />
+                </div>
+                <div className="text-[9px] text-stone-500 mt-0.5">{new Date(d.date).getDate()}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="flex items-center gap-4 text-xs text-stone-400 pt-3 border-t border-stone-800">
         <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded bg-stone-400" /> Sent ({activity.reduce((s, d) => s + d.sent, 0)})</div>
@@ -1327,339 +1341,6 @@ const AGING_COLORS_REG = [
   { key: "90+", color: "bg-rose-700" },
 ];
 
-// AR Health has been moved to the Dashboard page — this stub keeps the file compilable.
-function _arHealthPlaceholder() {
-  const ccy = "USD"; // stub — function is never called
-  const filteredInvoices = useMemo(() => {
-    if (!regionFilter) return invoices;
-    return invoices.filter((i: any) => {
-      const c = customers.find((c: any) => c.id === i.customerId);
-      if (c?.regionId === regionFilter) return true;
-      const p = projects.find((p: any) => p.id === i.projectId);
-      return p?.regionId === regionFilter;
-    });
-  }, [invoices, customers, projects, regionFilter]);
-
-  const metrics = useMemo(() => {
-    // "Open" = unpaid, not written off, not a credit memo.
-    // collectionStage is NOT a payment status — never exclude on it.
-    const open = filteredInvoices.filter((i: any) =>
-      i.paymentStatus !== "Paid" &&
-      i.paymentStatus !== "Written Off" &&
-      i.txnType !== "CreditMemo"
-    );
-    // Outstanding balance — qboBalance is authoritative; fall back to total-paid
-    const bal = (i: any) => i.qboBalance != null ? Number(i.qboBalance) : Math.max(0, Number(i.total || 0) - Number(i.paid || 0));
-    const totalAR = open.reduce((s: number, i: any) => s + bal(i), 0);
-
-    // ── Aging buckets — based purely on due date vs today ──────
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + bal(i), 0);
-    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + bal(i), 0);
-    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + bal(i), 0);
-
-    const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
-    const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
-    const overdueRate = totalAR > 0 ? ((totalAR - current) / totalAR) * 100 : 0;
-
-    // ── Dimension 2 — Risk ─────────────────────────────────────
-    const disputedAR = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + bal(i), 0);
-    const disputeRate = totalAR > 0 ? (disputedAR / totalAR) * 100 : 0;
-    const highRiskAR = open.filter((i: any) => {
-      const c = customers.find((c: any) => c.id === i.customerId);
-      return c?.riskRating === "High";
-    }).reduce((s: number, i: any) => s + bal(i), 0);
-    const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
-
-    // ── Dimension 3 — Quality (no payment-date metrics) ────────
-    // Broken promises: promise stage set, promise date passed, still open
-    const brokenPromises = open.filter((i: any) =>
-      (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
-      i.promiseDate && daysOverdue(i.promiseDate) > 0
-    ).length;
-    // Never contacted: overdue but no follow-up on record
-    const neverContacted = open.filter((i: any) => daysOverdue(i.dueDate) > 0 && !i.lastFollowupDate).length;
-
-    // ── Dimension 4 — Activity ─────────────────────────────────
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const emails30d  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
-    const replies30d = communications.filter((c: any) => c.direction === "Inbound"  && new Date(c.sentAt).getTime() > thirtyDaysAgo).length;
-    const replyRate  = emails30d > 0 ? Math.round((replies30d / emails30d) * 100) : 0;
-
-    // ── Dimension 5 — Concentration ────────────────────────────
-    const byCust: Record<string, number> = {};
-    open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + bal(i); });
-    const concentrationRows = Object.entries(byCust)
-      .map(([cid, amt]) => ({ customer: customers.find((c: any) => c.id === cid), amount: amt as number, pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0 }))
-      .filter(x => x.customer)
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 10);
-    const top5Pct = concentrationRows.slice(0, 5).reduce((s, x) => s + x.pct, 0);
-
-    // ── Rep portfolio ───────────────────────────────────────────
-    const repPortfolio = (reps ?? []).map((rep: any) => {
-      const repInvs = open.filter((i: any) => {
-        const c = customers.find((c: any) => c.id === i.customerId);
-        const p = projects.find((p: any) => p.id === i.projectId);
-        return c?.repId === rep.id || p?.repId === rep.id;
-      });
-      const repOpen    = repInvs.reduce((s: number, i: any) => s + bal(i), 0);
-      const repOverdue = repInvs.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + bal(i), 0);
-      const custIds    = new Set(repInvs.map((i: any) => i.customerId));
-      const repEmails  = communications.filter((c: any) => c.direction === "Outbound" && c.channel === "Email" && new Date(c.sentAt).getTime() > thirtyDaysAgo && custIds.has(c.customerId)).length;
-      return { rep, openAR: repOpen, overdueAR: repOverdue, emails30d: repEmails, custCount: custIds.size };
-    }).filter((r: any) => r.openAR > 0 || r.overdueAR > 0);
-
-    return {
-      totalAR, current, b1_30, b31_60, b61_90, b90plus,
-      currentPct, over90Pct, overdueRate,
-      disputeRate, highRiskPct,
-      brokenPromises, neverContacted,
-      concentrationRows, repPortfolio,
-      openCount: open.length,
-    };
-  }, [filteredInvoices, customers, projects, reps, communications]);
-
-  const {
-    totalAR, current, b1_30, b31_60, b61_90, b90plus,
-    currentPct, over90Pct, overdueRate,
-    disputeRate, highRiskPct,
-    brokenPromises, neverContacted,
-    concentrationRows, repPortfolio,
-    openCount,
-  } = metrics;
-
-  // ── Scores ─────────────────────────────────────────────────────────────────
-  const overdueCount = filteredInvoices.filter((i: any) =>
-    i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
-    i.txnType !== "CreditMemo" &&
-    daysOverdue(i.dueDate) > 0
-  ).length;
-
-  // Aging: weighted average — each bucket has a "quality" value (100 = current, 5 = 90+d)
-  // Avoids additive stacking; score degrades gracefully with AR age
-  const agingScore = totalAR > 0
-    ? Math.round(
-        (current  * 100   // current = full marks
-        + b1_30   * 70    // 1-30d overdue = still mostly healthy
-        + b31_60  * 40    // 31-60d = moderate concern
-        + b61_90  * 20    // 61-90d = significant concern
-        + b90plus * 5)    // 90+ = worst, but not zero
-        / totalAR
-      )
-    : 100;
-
-  // Risk: disputes + high-risk customer exposure, each capped so one factor can't hit 0 alone
-  const riskScore = Math.round(Math.max(10,
-    100
-    - Math.min(disputeRate * 3,  50)   // dispute rate — max 50pt deduction
-    - Math.min(highRiskPct * 1, 40)    // high-risk AR — max 40pt deduction
-  ));
-
-  // Collection: % of overdue never contacted + broken promise rate, individually capped
-  const brokenPromiseRate  = openCount    > 0 ? (brokenPromises / openCount)    * 100 : 0;
-  const neverContactedRate = overdueCount > 0 ? (neverContacted / overdueCount) * 100 : 0;
-  const collectionScore = Math.round(Math.max(10,
-    100
-    - Math.min(neverContactedRate * 0.5, 45)  // max 45pt — never contacting everyone is bad but not fatal
-    - Math.min(brokenPromiseRate  * 1.5, 35)  // max 35pt for broken promises
-    - Math.min(over90Pct          * 0.4, 20)  // max 20pt for very aged AR
-  ));
-
-  const scores = { aging: agingScore, risk: riskScore, collection: collectionScore };
-  const overallScore = Math.round((scores.aging + scores.risk + scores.collection) / 3);
-
-  const maxBucket = Math.max(current, b1_30, b31_60, b61_90, b90plus, 1);
-
-  return (
-    <div className="space-y-6 p-6">
-      {/* Overall Health Score */}
-      <div className="bg-gradient-to-r from-stone-900 to-stone-800 rounded-xl p-5 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-stone-400 mb-1">AR Health Score</div>
-            <div className="text-5xl font-bold tabular-nums">{overallScore}<span className="text-2xl text-stone-400">/100</span></div>
-            <div className="text-sm text-stone-400 mt-2">
-              {overallScore >= 80 ? "Excellent — AR management is best-in-class" :
-               overallScore >= 60 ? "Good — room for improvement in a few areas" :
-               overallScore >= 40 ? "Fair — significant collection issues present" :
-               "Needs attention — multiple AR health risks identified"}
-            </div>
-          </div>
-          <div className="flex gap-5">
-            {([
-              { label: "Aging",      score: scores.aging,      tip: "Weighted by bucket age — older overdue = heavier penalty" },
-              { label: "Risk",       score: scores.risk,       tip: "Disputed AR + high-risk customer exposure" },
-              { label: "Collection", score: scores.collection, tip: "Broken promises + uncontacted overdue + 90d+ AR" },
-            ] as { label: string; score: number; tip: string }[]).map(({ label, score, tip }) => (
-              <div key={label} className="text-center group relative">
-                <div className="relative w-16 h-16 mx-auto mb-1">
-                  <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#44403c" strokeWidth="3" />
-                    <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3"
-                      stroke={score >= 70 ? "#34d399" : score >= 40 ? "#fbbf24" : "#f87171"}
-                      strokeDasharray={`${score} 100`} strokeLinecap="round" />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center text-sm font-bold">{score}</div>
-                </div>
-                <div className="text-[11px] text-stone-400">{label}</div>
-                {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-700 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap">
-                  {tip}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Aging overview + distribution + quality */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR Overdue Overview</div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-stone-50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-stone-900 tabular-nums">{fmt.money(totalAR, ccy)}</div>
-              <div className="text-[10px] text-stone-500 mt-0.5">Total Open AR</div>
-            </div>
-            <div className={`rounded-lg p-3 text-center ${overdueRate > 50 ? "bg-rose-50" : overdueRate > 25 ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <div className={`text-2xl font-bold tabular-nums ${overdueRate > 50 ? "text-rose-700" : overdueRate > 25 ? "text-amber-700" : "text-emerald-700"}`}>
-                {overdueRate.toFixed(0)}%
-              </div>
-              <div className="text-[10px] text-stone-500 mt-0.5">Overdue Rate</div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {[
-              { label: "Current (not due)", value: current, pct: currentPct, color: "bg-emerald-500" },
-              { label: "Overdue 1–30d",     value: b1_30,   pct: totalAR > 0 ? (b1_30  / totalAR) * 100 : 0, color: "bg-amber-400" },
-              { label: "Overdue 31–90d",    value: b31_60 + b61_90, pct: totalAR > 0 ? ((b31_60 + b61_90) / totalAR) * 100 : 0, color: "bg-orange-500" },
-              { label: "Overdue 90+ days",  value: b90plus, pct: over90Pct, color: "bg-rose-600" },
-            ].map(({ label, value, pct, color }) => (
-              <div key={label} className="flex items-center gap-2 text-[11px]">
-                <div className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
-                <div className="flex-1 text-stone-600">{label}</div>
-                <div className="font-semibold text-stone-800 tabular-nums">{fmt.money(value, ccy)}</div>
-                <div className="w-9 text-right text-stone-400">{pct.toFixed(0)}%</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Aging Distribution</div>
-          <div className="space-y-2.5">
-            {[
-              { label: "Current",    value: current, color: "bg-emerald-500", pct: totalAR > 0 ? (current / totalAR) * 100 : 0 },
-              { label: "1-30d",      value: b1_30,   color: "bg-amber-400",   pct: totalAR > 0 ? (b1_30 / totalAR) * 100 : 0 },
-              { label: "31-60d",     value: b31_60,  color: "bg-orange-500",  pct: totalAR > 0 ? (b31_60 / totalAR) * 100 : 0 },
-              { label: "61-90d",     value: b61_90,  color: "bg-rose-500",    pct: totalAR > 0 ? (b61_90 / totalAR) * 100 : 0 },
-              { label: "90+ days",   value: b90plus, color: "bg-rose-800",    pct: totalAR > 0 ? (b90plus / totalAR) * 100 : 0 },
-            ].map(({ label, value, color, pct }) => (
-              <div key={label} className="flex items-center gap-2">
-                <div className="w-14 text-[11px] text-stone-500 font-medium">{label}</div>
-                <div className="flex-1 h-5 bg-stone-100 rounded overflow-hidden">
-                  <div className={`h-full ${color}`} style={{ width: `${(value / maxBucket) * 100}%` }} />
-                </div>
-                <div className="w-10 text-right text-[11px] font-semibold text-stone-600 tabular-nums">{pct.toFixed(0)}%</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Health Indicators</div>
-          <div className="space-y-3">
-            {[
-              { label: "Current AR", value: `${currentPct.toFixed(1)}%`, sub: "% of total AR not yet due", good: currentPct > 60, warn: currentPct < 40 },
-              { label: "90+ days overdue", value: `${over90Pct.toFixed(1)}%`, sub: "% in oldest aging bucket", good: over90Pct < 5, warn: over90Pct > 15 },
-              { label: "Dispute rate", value: `${disputeRate.toFixed(1)}%`, sub: "AR value in Disputed stage", good: disputeRate < 2, warn: disputeRate > 5 },
-              { label: "High-risk customer AR", value: `${highRiskPct.toFixed(1)}%`, sub: "AR held by High risk customers", good: highRiskPct < 10, warn: highRiskPct > 25 },
-              { label: "No contact (overdue)", value: String(neverContacted), sub: "Overdue invoices with zero follow-up", good: neverContacted === 0, warn: neverContacted > 5 },
-              { label: "Broken promises", value: String(brokenPromises), sub: "Promise date passed, still open", good: brokenPromises === 0, warn: brokenPromises > 2 },
-            ].map(({ label, value, sub, good, warn }) => (
-              <div key={label} className="flex items-center justify-between">
-                <div>
-                  <div className="text-[12px] font-medium text-stone-800">{label}</div>
-                  <div className="text-[10px] text-stone-400">{sub}</div>
-                </div>
-                <div className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded ${good ? "text-emerald-700 bg-emerald-50" : warn ? "text-rose-700 bg-rose-50" : "text-amber-700 bg-amber-50"}`}>
-                  {value}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* Largest debtors + Rep breakdown */}
-      <div className="grid grid-cols-2 gap-4">
-        <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Largest Open Balances</div>
-          <div className="space-y-2">
-            {concentrationRows.length === 0 ? (
-              <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
-            ) : concentrationRows.map(({ customer, amount, pct }, idx) => (
-              <div key={customer.id} className="flex items-center gap-2">
-                <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[12px] font-medium text-stone-800 truncate">{customer.name}</span>
-                    <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-700 font-semibold">{fmt.money(amount, ccy)}</span>
-                      <span className="text-[11px] text-stone-400 w-9 text-right">{pct.toFixed(0)}%</span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(pct, 100)}%` }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        {repPortfolio.length > 0 ? (
-          <Card>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">AR by Rep</div>
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-stone-100">
-                  <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500">% Overdue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {repPortfolio.map(({ rep, openAR, overdueAR }: any) => {
-                  const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
-                  return (
-                    <tr key={rep.id} className="border-b border-stone-50 last:border-0">
-                      <td className="py-2 font-medium text-stone-800 pr-3">{rep.name}</td>
-                      <td className="py-2 text-right tabular-nums text-stone-700 pr-3">{fmt.money(openAR, ccy)}</td>
-                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.money(overdueAR, ccy)}</td>
-                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-600" : overdPct > 25 ? "text-amber-600" : "text-stone-500"}`}>
-                        {overdPct.toFixed(0)}%
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Card>
-        ) : (
-          <Card>
-            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">AR by Rep</div>
-            <div className="py-6 text-center text-sm text-stone-400">No reps assigned</div>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ============================================================
 // MAIN PAGE — QBO-style sidebar layout
 // ============================================================
@@ -1725,19 +1406,22 @@ export default function ReportsPage() {
   // numbers reconcile across tabs.
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotError, setSnapshotError] = useState(false);
   const isHistorical = asAtDate !== todayIso;
 
   useEffect(() => {
     setSnapshotLoading(true);
+    setSnapshotError(false);
     fetch(`/api/reports/ar-snapshot?asOf=${asAtDate}`)
-      .then(r => r.ok ? r.json() : [])
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => setSnapshotInvoices(Array.isArray(data) ? data : []))
-      .catch(() => setSnapshotInvoices([]))
+      .catch(() => { setSnapshotError(true); setSnapshotInvoices(null); })
       .finally(() => setSnapshotLoading(false));
   }, [asAtDate]);
 
   // Always use the snapshot — keeps every aging tab on the same data source.
-  const effectiveInvoices = snapshotInvoices ?? invoices;
+  // Falls back to live invoices only if the snapshot request itself failed.
+  const effectiveInvoices = snapshotError ? invoices : (snapshotInvoices ?? invoices);
 
   // Detect multi-currency data so we can warn users that totals are approximate.
   // Summing EUR + GBP without FX conversion produces a meaningless single number.
@@ -1899,6 +1583,16 @@ export default function ReportsPage() {
               {snapshotLoading && (
                 <div className="px-4 py-8 text-center text-sm text-stone-400">
                   Computing AR snapshot as at {asAtDate}…
+                </div>
+              )}
+              {!snapshotLoading && snapshotError && (
+                <div className="mx-4 mt-3 mb-1 flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3">
+                  <span className="text-rose-400 mt-0.5 shrink-0">⚠</span>
+                  <div className="text-[12px] text-rose-300 leading-relaxed">
+                    <span className="font-semibold">Failed to load AR snapshot for {asAtDate}.</span>
+                    {" "}Showing live invoice data instead — figures may differ from a point-in-time view.
+                    <button onClick={() => setAsAtDate(asAtDate)} className="ml-2 underline hover:text-rose-100">Retry</button>
+                  </div>
                 </div>
               )}
               {!snapshotLoading && report === "aging-customer" && (
