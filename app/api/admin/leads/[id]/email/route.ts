@@ -10,7 +10,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  const { subject, body } = await req.json().catch(() => ({}));
+  const { subject, body, to: toOverride, cc } = await req.json().catch(() => ({}));
   if (!subject?.trim()) return bad("Subject is required");
   if (!body?.trim())    return bad("Body is required");
 
@@ -22,6 +22,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (!lead) return bad("Lead not found", 404);
 
+  const toAddress = (toOverride as string)?.trim() || lead.email;
+  const ccList: string[] = Array.isArray(cc) ? cc.filter(Boolean) : [];
+
   const html = body
     .trim()
     .replace(/&/g, "&amp;")
@@ -30,9 +33,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .replace(/\n/g, "<br>");
 
   await sendSystemEmail({
-    to:      lead.email,
+    to:      toAddress,
     subject: subject.trim(),
     html,
+    cc:      ccList.length > 0 ? ccList : undefined,
   });
 
   // Log the email as an activity note so it appears in the activity panel
@@ -47,6 +51,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       body: JSON.stringify({
         _type:   "email",
         subject: subject.trim(),
+        to:      toAddress,
+        cc:      ccList.length > 0 ? ccList : undefined,
         preview: body.trim().slice(0, 400),
       }),
     });

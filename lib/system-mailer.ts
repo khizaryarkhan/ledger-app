@@ -18,6 +18,7 @@ export interface SystemMailOptions {
   to: string;
   subject: string;
   html: string;
+  cc?: string[];
 }
 
 function getSystemTransport() {
@@ -58,6 +59,7 @@ export async function sendSystemEmail(opts: SystemMailOptions): Promise<void> {
   await transport.sendMail({
     from:    getSystemFrom(),
     to:      opts.to,
+    ...(opts.cc && opts.cc.length > 0 ? { cc: opts.cc.join(", ") } : {}),
     subject: opts.subject,
     html:    opts.html,
   });

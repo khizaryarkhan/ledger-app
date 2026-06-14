@@ -310,6 +310,9 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
   const firstName   = lead.fullName?.split(" ")[0] ?? "";
   const companyName = lead.companyName ?? "";
 
+  const [to,        setTo]        = useState(lead.email ?? "");
+  const [ccTags,    setCcTags]    = useState<string[]>([]);
+  const [ccInput,   setCcInput]   = useState("");
   const [subject,   setSubject]   = useState("Prime Accountax — Following up");
   const [body,      setBody]      = useState(`Hi ${firstName},\n\nThank you for your interest in Prime Accountax.\n\n`);
   const [sending,   setSending]   = useState(false);
@@ -346,15 +349,34 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
     setPickerOpen(false);
   };
 
+  // CC tag input — add on Enter or comma
+  const addCcTag = (raw: string) => {
+    const email = raw.trim().replace(/,+$/, "");
+    if (email && !ccTags.includes(email)) setCcTags(prev => [...prev, email]);
+    setCcInput("");
+  };
+
+  const onCcKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addCcTag(ccInput);
+    } else if (e.key === "Backspace" && !ccInput && ccTags.length > 0) {
+      setCcTags(prev => prev.slice(0, -1));
+    }
+  };
+
+  const onCcBlur = () => { if (ccInput.trim()) addCcTag(ccInput); };
+
   const send = async () => {
     if (sending) return;
     setErrMsg("");
+    if (!to.trim()) { setErrMsg("To address is required"); return; }
     setSending(true);
     try {
       const r = await fetch(`/api/admin/leads/${lead.id}/email`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subject, body }),
+        body: JSON.stringify({ subject, body, to: to.trim(), cc: ccTags }),
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) setSent(true);
@@ -387,7 +409,9 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
               <CheckCircle size={22} className="text-emerald-400" />
             </div>
             <p className="text-sm font-semibold text-white mb-1">Email sent</p>
-            <p className="text-xs text-stone-500">Your message was delivered to {lead.email}</p>
+            <p className="text-xs text-stone-500">
+              Delivered to {to}{ccTags.length > 0 ? ` + ${ccTags.length} CC` : ""}
+            </p>
             <button onClick={onClose}
               className="mt-5 h-8 px-4 text-xs font-medium rounded-lg bg-stone-800 text-stone-200 hover:bg-stone-700 transition-colors">
               Close
@@ -435,11 +459,49 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
                 </div>
               </div>
 
-              {/* To — read-only */}
+              {/* To — editable */}
               <div>
                 <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
-                <div className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800/40 text-stone-400 flex items-center select-none">
-                  {lead.email}
+                <input
+                  type="email"
+                  value={to}
+                  onChange={e => setTo(e.target.value)}
+                  className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* CC — tag input */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                  CC
+                  <span className="ml-1.5 text-stone-600 normal-case tracking-normal font-normal">press Enter or comma to add</span>
+                </label>
+                <div
+                  className="min-h-8 px-2 py-1 flex flex-wrap gap-1 items-center rounded-md ring-1 ring-stone-700 bg-stone-800 focus-within:ring-blue-500 cursor-text"
+                  onClick={() => document.getElementById("cc-input")?.focus()}
+                >
+                  {ccTags.map(tag => (
+                    <span key={tag} className="inline-flex items-center gap-1 text-[11px] bg-stone-700 text-stone-200 rounded px-2 py-0.5">
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setCcTags(prev => prev.filter(t => t !== tag)); }}
+                        className="text-stone-500 hover:text-stone-200 leading-none"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    id="cc-input"
+                    type="email"
+                    value={ccInput}
+                    onChange={e => setCcInput(e.target.value)}
+                    onKeyDown={onCcKey}
+                    onBlur={onCcBlur}
+                    placeholder={ccTags.length === 0 ? "Add email addresses…" : ""}
+                    className="flex-1 min-w-24 text-xs bg-transparent text-stone-200 placeholder-stone-600 outline-none py-0.5"
+                  />
                 </div>
               </div>
 
@@ -453,7 +515,7 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
               {/* Body */}
               <div>
                 <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
-                <textarea value={body} onChange={e => setBody(e.target.value)} rows={9}
+                <textarea value={body} onChange={e => setBody(e.target.value)} rows={8}
                   className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-blue-500 focus:outline-none leading-relaxed" />
               </div>
 
@@ -467,7 +529,7 @@ function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
                 className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
                 Cancel
               </button>
-              <button onClick={send} disabled={sending || !subject.trim() || !body.trim()}
+              <button onClick={send} disabled={sending || !to.trim() || !subject.trim() || !body.trim()}
                 className="h-8 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
                 {sending ? <Loader size={11} className="animate-spin" /> : <Send size={11} />}
                 Send email
@@ -637,7 +699,7 @@ function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: 
           const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
           // Detect email-log entries (stored as JSON by the email API)
-          let emailData: { subject: string; preview: string } | null = null;
+          let emailData: { subject: string; preview: string; to?: string; cc?: string[] } | null = null;
           try {
             const parsed = JSON.parse(n.body);
             if (parsed._type === "email") emailData = parsed;
@@ -653,6 +715,14 @@ function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: 
                   </div>
                   <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
                 </div>
+                {emailData.to && (
+                  <div className="text-[10px] text-stone-500 mb-0.5">
+                    <span className="text-stone-600">To: </span>{emailData.to}
+                    {emailData.cc && emailData.cc.length > 0 && (
+                      <span> · <span className="text-stone-600">CC: </span>{emailData.cc.join(", ")}</span>
+                    )}
+                  </div>
+                )}
                 <div className="text-[11px] font-medium text-stone-300 mb-1">{emailData.subject}</div>
                 <div className="text-[12px] text-stone-400 whitespace-pre-wrap leading-relaxed line-clamp-3">{emailData.preview}</div>
               </div>
