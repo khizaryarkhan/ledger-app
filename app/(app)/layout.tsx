@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import AuthProvider from "@/components/auth-provider";
 import { DataProvider, useData } from "@/components/data-provider";
@@ -12,11 +13,23 @@ import { SubscriptionGate } from "@/components/subscription-gate";
 function AppShell({ children }: { children: React.ReactNode }) {
   const { loaded, toastState, clearToast } = useData();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const pathname = usePathname();
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
 
   if (!loaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-950">
         <div className="text-stone-500 text-sm">Loading…</div>
+      </div>
+    );
+  }
+
+  // Admin portal gets its own clean shell — no app sidebar or org-switcher
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen bg-stone-950 text-stone-100">
+        {children}
+        <Toast toast={toastState} onClose={clearToast} />
       </div>
     );
   }

@@ -35,7 +35,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex gap-0 min-h-screen -m-6">
+    <div className="flex gap-0 min-h-screen">
       {/* Sidebar */}
       <aside className="w-56 shrink-0 flex flex-col border-r border-stone-800 bg-stone-950 pt-6 pb-4">
         {/* Brand */}
