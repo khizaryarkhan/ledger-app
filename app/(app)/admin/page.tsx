@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Card, Button, Badge, Input } from "@/components/ui";
-import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight, ArrowUpRight } from "lucide-react";
+import { Button, Badge, Input } from "@/components/ui";
+import { Building2, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight, ArrowUpRight, Users } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { useRouter } from "next/navigation";
 
@@ -890,21 +890,11 @@ export default function AdminPage() {
   const isAdmin = ["super_admin", "company_admin"].includes(role);
 
   const [orgs, setOrgs] = useState<any[]>([]);
-  const [orgUsers, setOrgUsers] = useState<any[]>([]);
-  const [orgReps, setOrgReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
-  const [showCreateUser, setShowCreateUser] = useState(false);
   const [editingOrg, setEditingOrg] = useState<any | null>(null);
   const [deletingOrg, setDeletingOrg] = useState<any | null>(null);
   const [orgSearch, setOrgSearch] = useState("");
-  const [tab, setTab] = useState<"orgs" | "users">(isSuperAdmin ? "orgs" : "users");
-
-  // Inline role editing for users tab
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editUserForm, setEditUserForm] = useState({ role: "", managerId: "" });
-  const [savingUserEdit, setSavingUserEdit] = useState(false);
-  const [userEditError, setUserEditError] = useState("");
 
   useEffect(() => {
     if (!isAdmin) { router.push("/dashboard"); return; }
@@ -918,87 +908,34 @@ export default function AdminPage() {
         const r = await fetch("/api/admin/organisations");
         if (r.ok) setOrgs(await r.json());
       }
-      const [r2, r3] = await Promise.all([
-        fetch("/api/admin/users"),
-        fetch("/api/reps"),
-      ]);
-      if (r2.ok) setOrgUsers(await r2.json());
-      if (r3.ok) setOrgReps(await r3.json());
     } finally { setLoading(false); }
-  };
-
-  const toggleUserStatus = async (userId: string, currentStatus: string) => {
-    const newStatus = currentStatus === "Active" ? "Inactive" : "Active";
-    await fetch("/api/admin/users", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, status: newStatus }),
-    });
-    setOrgUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
-  };
-
-  const startEditUser = (u: any) => {
-    const virtualRole = u.repTier === "ed" ? "ed" : u.repTier === "rd" ? "rd" : u.repTier === "rep" ? "rep" : u.role;
-    setEditingUserId(u.id);
-    setEditUserForm({ role: virtualRole, managerId: u.repManagerId || "" });
-    setUserEditError("");
-  };
-
-  const saveUserEdit = async (userId: string) => {
-    setSavingUserEdit(true); setUserEditError("");
-    try {
-      const body: any = { userId, role: editUserForm.role };
-      if (editUserForm.managerId) body.managerId = editUserForm.managerId;
-      const res = await fetch("/api/admin/users", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) { setUserEditError(data.error || "Failed to update role"); return; }
-      setEditingUserId(null);
-      loadData();
-    } finally { setSavingUserEdit(false); }
   };
 
   if (!isAdmin) return null;
 
   return (
-    <div className="p-6 max-w-[1100px] mx-auto">
+    <div className="max-w-[1100px]">
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-stone-900 flex items-center justify-center">
-            <Shield size={18} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-white">
-              {isSuperAdmin ? "Super Admin Portal" : "Team Management"}
-            </h1>
-            <p className="text-xs text-stone-500 mt-0.5">
-              {isSuperAdmin ? "Manage all organisations and users" : "Manage users in your organisation"}
-            </p>
-          </div>
+        <div>
+          <h1 className="text-base font-semibold text-white">Overview</h1>
+          <p className="text-xs text-stone-500 mt-0.5">Platform health · organisations · billing</p>
         </div>
         <Button variant="ghost" size="sm" onClick={loadData} icon={RefreshCw}>Refresh</Button>
       </div>
 
-      {/* Dashboard overview — super admin only */}
+      {/* Dashboard KPIs */}
       {isSuperAdmin && <AdminDashboard />}
 
-      {/* Tabs */}
-      <div id="orgs" className="flex items-center gap-1 border-b border-stone-800 mb-5">
-        {isSuperAdmin && (
-          <button onClick={() => setTab("orgs")}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "orgs" ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
-            <Building2 size={13} /> Organisations ({orgs.length})
-          </button>
-        )}
-        <button id="users" onClick={() => setTab("users")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === "users" ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
-          <Users size={13} /> {isSuperAdmin ? "This org's users" : "Team members"} ({orgUsers.length})
-        </button>
-      </div>
+      {/* Org section header */}
+      {isSuperAdmin && (
+        <div id="orgs" className="flex items-center gap-2 mb-4">
+          <Building2 size={14} className="text-stone-500" />
+          <span className="text-sm font-medium text-stone-300">Organisations ({orgs.length})</span>
+        </div>
+      )}
 
-      {/* ORGANISATIONS tab — super admin only */}
-      {tab === "orgs" && isSuperAdmin && (
+      {/* Organisations table — super admin only */}
+      {isSuperAdmin && (
         <div>
           <div className="flex items-center gap-3 mb-3">
             {/* Search */}
@@ -1135,123 +1072,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* USERS tab */}
-      {tab === "users" && (
-        <div>
-          <div className="flex justify-end mb-3">
-            <Button icon={Plus} onClick={() => setShowCreateUser(true)}>Add team member</Button>
-          </div>
-          <Card padding="none">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                  <th className="text-left font-semibold px-4 py-3">Name</th>
-                  <th className="text-left font-semibold px-4 py-3">Email</th>
-                  <th className="text-left font-semibold px-4 py-3">Role</th>
-                  <th className="text-left font-semibold px-4 py-3">Manager</th>
-                  <th className="text-left font-semibold px-4 py-3">Status</th>
-                  <th className="text-left font-semibold px-4 py-3">Joined</th>
-                  <th className="px-4 py-3 w-28"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orgUsers.map(user => {
-                  const managerRep = user.repManagerId
-                    ? orgReps.find((r: any) => r.id === user.repManagerId)
-                    : null;
-                  const isEditingThis = editingUserId === user.id;
-                  const isSelf = user.id === (session?.user as any)?.id;
-                  return (
-                    <tr key={user.id} className="border-b border-stone-800">
-                      {isEditingThis ? (
-                        <td colSpan={7} className="px-4 py-3">
-                          <div className="flex flex-wrap items-end gap-3">
-                            <div>
-                              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Role</label>
-                              <select
-                                value={editUserForm.role}
-                                onChange={e => setEditUserForm(p => ({ ...p, role: e.target.value, managerId: "" }))}
-                                className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300">
-                                <option value="company_user">User</option>
-                                <option value="company_admin">Company Admin</option>
-                                <option value="rep">Rep / PM</option>
-                                <option value="rd">RD</option>
-                                <option value="ed">ED / RM</option>
-                              </select>
-                            </div>
-                            {(editUserForm.role === "rep" || editUserForm.role === "rd") && (
-                              <div>
-                                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Reports to (Manager)</label>
-                                <select
-                                  value={editUserForm.managerId}
-                                  onChange={e => setEditUserForm(p => ({ ...p, managerId: e.target.value }))}
-                                  className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 focus:ring-emerald-500 focus:outline-none bg-stone-800 text-stone-300 min-w-[180px]">
-                                  <option value="">— No manager —</option>
-                                  {orgReps
-                                    .filter((r: any) => r.tier === "ed" || r.tier === "rd")
-                                    .filter((r: any) => r.id !== user.repId) // can't report to self
-                                    .map((r: any) => (
-                                      <option key={r.id} value={r.id}>{r.name} ({r.tier.toUpperCase()})</option>
-                                    ))}
-                                </select>
-                              </div>
-                            )}
-                            {userEditError && (
-                              <div className="text-xs text-rose-400 bg-rose-500/10 px-2 py-1.5 rounded ring-1 ring-rose-500/30 self-center">{userEditError}</div>
-                            )}
-                            <div className="flex gap-2 ml-auto self-end">
-                              <Button variant="secondary" size="sm" onClick={() => { setEditingUserId(null); setUserEditError(""); }}>Cancel</Button>
-                              <Button size="sm" onClick={() => saveUserEdit(user.id)} disabled={savingUserEdit}>
-                                {savingUserEdit ? "Saving…" : "Save"}
-                              </Button>
-                            </div>
-                          </div>
-                        </td>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3 font-medium text-white">{user.name}</td>
-                          <td className="px-4 py-3 text-stone-400 text-[12px]">{user.email}</td>
-                          <td className="px-4 py-3"><RoleBadge role={user.role} repTier={user.repTier} /></td>
-                          <td className="px-4 py-3 text-[12px] text-stone-500">
-                            {managerRep ? managerRep.name : <span className="text-stone-300">—</span>}
-                          </td>
-                          <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
-                          <td className="px-4 py-3 text-stone-500 text-[12px]">
-                            {new Date(user.createdAt).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 justify-end">
-                              {!isSelf && (
-                                <button onClick={() => startEditUser(user)}
-                                  className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
-                                  title="Edit role / rep assignment">
-                                  <Pencil size={13} />
-                                </button>
-                              )}
-                              {!isSelf && (
-                                <button onClick={() => toggleUserStatus(user.id, user.status)}
-                                  className={`text-[11px] px-2 py-1 rounded font-medium transition-colors ${user.status === "Active" ? "bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"}`}>
-                                  {user.status === "Active" ? "Deactivate" : "Activate"}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {orgUsers.length === 0 && !loading && (
-              <div className="text-sm text-stone-500 text-center py-8">No team members yet.</div>
-            )}
-          </Card>
-        </div>
-      )}
-
       {showCreateOrg && <CreateOrgModal onClose={() => setShowCreateOrg(false)} onCreated={loadData} />}
-      {showCreateUser && <CreateUserModal onClose={() => setShowCreateUser(false)} onCreated={loadData} />}
       {editingOrg && (
         <EditOrgModal
           org={editingOrg}

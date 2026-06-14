@@ -9,14 +9,21 @@ export default auth((req) => {
   const host = req.headers.get("host") || "";
 
   // ── admin.primeaccountax.com → admin portal subdomain ───────────────────────
-  // Any path on admin.primeaccountax.com is internally rewritten to /admin/*
-  // so the URL stays clean (admin.primeaccountax.com/leads, not …/admin/leads).
+  // Clean URLs: admin.primeaccountax.com/leads → internal /admin/leads.
+  // Unauthenticated users get a dedicated admin login page (not the main app login).
   if (host === "admin.primeaccountax.com" && !path.startsWith("/api/") && !path.startsWith("/_next/")) {
+    // Allow the admin login page itself (don't auth-gate it)
+    if (path === "/login" || path === "/admin-login") {
+      const url = req.nextUrl.clone();
+      url.pathname = "/admin-login";
+      return NextResponse.rewrite(url);
+    }
     if (!isAuth) {
-      return NextResponse.redirect(new URL("/login", "https://primeaccountax.com"));
+      return NextResponse.redirect(new URL("/login", "https://admin.primeaccountax.com"));
     }
     if (role !== "platform_admin" && role !== "super_admin") {
-      return NextResponse.redirect(new URL("/dashboard", "https://primeaccountax.com"));
+      // Non-admin authenticated users: show a clear rejection page
+      return NextResponse.redirect(new URL("/login", "https://admin.primeaccountax.com"));
     }
     // / → /admin, /leads → /admin/leads, /admin/leads stays as-is
     const url = req.nextUrl.clone();
@@ -71,7 +78,7 @@ export default auth((req) => {
     path === "/alternatives" ||
     path.endsWith("-alternative") ||
     MARKETING_PATHS.has(path);
-  const isPublic = isHome || isMarketing || path === "/login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || isPortal || isLegal;
+  const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
