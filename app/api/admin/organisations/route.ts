@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { organisations, users, userOrganisations } from "@/db/schema";
+import { organisations, users, userOrganisations, subscriptions } from "@/db/schema";
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, desc, sql, and } from "drizzle-orm";
@@ -19,13 +19,47 @@ export async function GET() {
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  const orgs = await db.select().from(organisations).orderBy(desc(organisations.createdAt));
-  // Count via junction table — includes users linked from other orgs
   const userCounts = await db
     .select({ orgId: userOrganisations.orgId, count: sql<number>`count(*)::int` })
     .from(userOrganisations)
     .groupBy(userOrganisations.orgId);
   const countMap = Object.fromEntries(userCounts.map(r => [r.orgId, r.count]));
+
+  // Left-join subscriptions so every org row carries its billing state
+  const rows = await db
+    .select({
+      id:               organisations.id,
+      name:             organisations.name,
+      slug:             organisations.slug,
+      status:           organisations.status,
+      createdAt:        organisations.createdAt,
+      updatedAt:        organisations.updatedAt,
+      subId:            subscriptions.id,
+      subStatus:        subscriptions.status,
+      subSource:        subscriptions.source,
+      planName:         subscriptions.planName,
+      planAmount:       subscriptions.planAmount,
+      planCurrency:     subscriptions.planCurrency,
+      planInterval:     subscriptions.planInterval,
+      currentPeriodEnd: subscriptions.currentPeriodEnd,
+      cancelAtPeriodEnd:subscriptions.cancelAtPeriodEnd,
+      cancelAt:         subscriptions.cancelAt,
+      trialEnd:         subscriptions.trialEnd,
+      lastPaymentStatus:subscriptions.lastPaymentStatus,
+      lastPaymentDate:  subscriptions.lastPaymentDate,
+      manualExpiresAt:  subscriptions.manualExpiresAt,
+      paymentMethodBrand:subscriptions.paymentMethodBrand,
+      paymentMethodLast4:subscriptions.paymentMethodLast4,
+      billingEmail:     subscriptions.billingEmail,
+    })
+    .from(organisations)
+    .leftJoin(subscriptions, eq(subscriptions.orgId, organisations.id))
+    .orderBy(desc(organisations.createdAt), desc(subscriptions.createdAt));
+
+  // Deduplicate: one row per org (latest subscription wins)
+  const seen = new Set<string>();
+  const orgs = rows.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+
   return ok(orgs.map(org => ({ ...org, userCount: countMap[org.id] || 0 })));
 }
 

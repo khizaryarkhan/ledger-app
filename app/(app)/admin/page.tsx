@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, Button, Badge, Input } from "@/components/ui";
-import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight } from "lucide-react";
+import { Building2, Users, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight, ArrowUpRight } from "lucide-react";
+import { fmt } from "@/lib/format";
 import { useRouter } from "next/navigation";
 
 function StatusBadge({ status }: { status: string }) {
@@ -24,6 +25,126 @@ function RoleBadge({ role, repTier }: { role: string; repTier?: string | null })
   };
   const cfg = map[effective] || { variant: "neutral", label: effective };
   return <Badge variant={cfg.variant} size="sm">{cfg.label}</Badge>;
+}
+
+// ── Subscription helpers ──────────────────────────────────────────────────
+
+function daysUntil(date: string | Date | null): number | null {
+  if (!date) return null;
+  return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
+}
+
+function fmtPlan(org: any): string | null {
+  if (!org.planAmount || !org.planCurrency) return org.planName ?? null;
+  const money = fmt.money(org.planAmount / 100, org.planCurrency.toUpperCase());
+  const interval = org.planInterval ? `/${org.planInterval === "month" ? "mo" : org.planInterval}` : "";
+  return org.planName ? `${org.planName} · ${money}${interval}` : `${money}${interval}`;
+}
+
+type SubRisk = "none" | "warning" | "critical";
+
+function getSubRisk(org: any): SubRisk {
+  if (!org.subId) return "critical";
+  if (org.subStatus === "past_due" || org.subStatus === "unpaid" || org.subStatus === "incomplete") return "critical";
+  if (org.subStatus === "cancelled") return "warning";
+  if (org.cancelAtPeriodEnd) return "warning";
+  if (org.lastPaymentStatus === "failed") return "critical";
+  if (org.subStatus === "trialing") {
+    const d = daysUntil(org.trialEnd);
+    return d !== null && d <= 7 ? "warning" : "none";
+  }
+  if (org.subSource === "manual" && org.manualExpiresAt) {
+    const d = daysUntil(org.manualExpiresAt);
+    if (d === null) return "none";
+    return d <= 0 ? "critical" : d <= 7 ? "warning" : "none";
+  }
+  return "none";
+}
+
+function SubStatusBadge({ org }: { org: any }) {
+  if (!org.subId) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/20">
+        <AlertTriangle size={9} /> No subscription
+      </span>
+    );
+  }
+  const s = org.subStatus;
+  if (s === "past_due" || s === "unpaid" || s === "incomplete") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/15 px-2 py-0.5 rounded-full border border-rose-500/20">
+        <AlertTriangle size={9} /> Past due
+      </span>
+    );
+  }
+  if (org.lastPaymentStatus === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/15 px-2 py-0.5 rounded-full border border-rose-500/20">
+        <XCircle size={9} /> Payment failed
+      </span>
+    );
+  }
+  if (s === "cancelled") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-400 bg-stone-700/60 px-2 py-0.5 rounded-full border border-stone-600/30">
+        <XCircle size={9} /> Cancelled
+      </span>
+    );
+  }
+  if (org.cancelAtPeriodEnd) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/20">
+        <Clock size={9} /> Cancelling
+      </span>
+    );
+  }
+  if (s === "trialing") {
+    const d = daysUntil(org.trialEnd);
+    const warn = d !== null && d <= 7;
+    return (
+      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${warn ? "text-amber-400 bg-amber-500/15 border-amber-500/20" : "text-blue-400 bg-blue-500/15 border-blue-500/20"}`}>
+        <Clock size={9} /> Trial{d !== null ? ` · ${d}d left` : ""}
+      </span>
+    );
+  }
+  if (s === "active") {
+    if (org.subSource === "manual" && org.manualExpiresAt) {
+      const d = daysUntil(org.manualExpiresAt);
+      if (d !== null && d <= 0) return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/15 px-2 py-0.5 rounded-full border border-rose-500/20">
+          <AlertTriangle size={9} /> Expired
+        </span>
+      );
+      if (d !== null && d <= 7) return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/20">
+          <Clock size={9} /> Expires {d}d
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/20">
+        <CheckCircle2 size={9} /> Active
+      </span>
+    );
+  }
+  return <span className="text-[11px] text-stone-500 capitalize">{s ?? "Unknown"}</span>;
+}
+
+function NextBillingCell({ org }: { org: any }) {
+  if (!org.subId) return <span className="text-stone-600 text-xs">—</span>;
+  const isManual = org.subSource === "manual";
+  const date = isManual ? org.manualExpiresAt : org.currentPeriodEnd;
+  if (!date) return <span className="text-stone-600 text-xs">—</span>;
+  const d = daysUntil(date);
+  const label = new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+  const color = d === null ? "text-stone-400" : d < 0 ? "text-rose-400" : d <= 7 ? "text-amber-400" : "text-stone-400";
+  return (
+    <span className={`text-xs ${color}`}>
+      {label}
+      {d !== null && d >= 0 && d <= 14 && <span className="ml-1 text-[10px]">({d}d)</span>}
+      {d !== null && d < 0 && <span className="ml-1 text-[10px]">(expired)</span>}
+    </span>
+  );
 }
 
 // ============================================================
@@ -339,6 +460,64 @@ function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () => void
                 {saving ? "Saving…" : "Save organisation"}
               </Button>
             </div>
+          </div>
+
+          {/* Billing summary */}
+          <div className="border-t border-stone-800 px-5 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Billing</div>
+              <Link href="/admin/subscriptions"
+                className="text-[11px] text-stone-500 hover:text-stone-200 flex items-center gap-1 transition-colors">
+                Manage <ArrowUpRight size={10} />
+              </Link>
+            </div>
+            {org.subId ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <div>
+                  <p className="text-[10px] text-stone-600 uppercase tracking-wider mb-1">Status</p>
+                  <SubStatusBadge org={org} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-stone-600 uppercase tracking-wider mb-1">Plan</p>
+                  <p className="text-xs text-stone-300">{fmtPlan(org) ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-stone-600 uppercase tracking-wider mb-1">
+                    {org.cancelAtPeriodEnd ? "Cancels on" : org.subSource === "manual" ? "Expires" : "Next billing"}
+                  </p>
+                  <NextBillingCell org={org} />
+                </div>
+                {(org.paymentMethodBrand || org.paymentMethodLast4) && (
+                  <div>
+                    <p className="text-[10px] text-stone-600 uppercase tracking-wider mb-1">Payment method</p>
+                    <p className="text-xs text-stone-300 capitalize">{org.paymentMethodBrand} ••{org.paymentMethodLast4}</p>
+                  </div>
+                )}
+                {org.lastPaymentStatus === "failed" && (
+                  <div className="col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300">
+                    <AlertTriangle size={12} className="shrink-0" /> Last payment failed — customer needs to update payment method
+                  </div>
+                )}
+                {org.billingEmail && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] text-stone-600 uppercase tracking-wider mb-1">Billing email</p>
+                    <p className="text-xs text-stone-400">{org.billingEmail}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 px-3 py-3 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-amber-300">No subscription set up</p>
+                  <p className="text-[11px] text-stone-500 mt-0.5">This organisation has no billing configured. Set it up in the subscriptions page.</p>
+                </div>
+                <Link href="/admin/subscriptions"
+                  className="text-[11px] font-medium text-amber-400 hover:text-amber-200 flex items-center gap-1 shrink-0 transition-colors">
+                  Set up <ArrowUpRight size={10} />
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Users section */}
@@ -836,49 +1015,122 @@ export default function AdminPage() {
               <Button icon={Plus} onClick={() => setShowCreateOrg(true)}>New organisation</Button>
             </div>
           </div>
-          <div className="space-y-2">
-            {orgs
-              .filter(org =>
-                !orgSearch ||
-                org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
-                org.slug.toLowerCase().includes(orgSearch.toLowerCase())
-              )
-              .map(org => (
-                <Card key={org.id} className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
-                    {org.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-white">{org.name}</div>
-                    <div className="text-xs text-stone-500 font-mono mt-0.5">/{org.slug}</div>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-stone-500">
-                    <span>{org.userCount} users</span>
-                    <StatusBadge status={org.status} />
-                    <button onClick={() => setEditingOrg(org)}
-                      className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
-                      title="Edit organisation">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => setDeletingOrg(org)}
-                      className="p-1.5 hover:bg-rose-500/15 rounded text-stone-500 hover:text-rose-400 transition-colors"
-                      title="Delete organisation">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </Card>
-              ))}
-            {orgs.filter(org =>
+          {/* Revenue gap alert */}
+          {(() => {
+            const filtered = orgs.filter(org =>
               !orgSearch ||
               org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
               org.slug.toLowerCase().includes(orgSearch.toLowerCase())
-            ).length === 0 && !loading && (
-              <Card>
-                <div className="text-sm text-stone-500 text-center py-4">
-                  {orgSearch ? `No organisations matching "${orgSearch}"` : "No organisations yet. Create the first one."}
-                </div>
-              </Card>
-            )}
+            );
+            const critical = filtered.filter(o => getSubRisk(o) === "critical");
+            const warnings = filtered.filter(o => getSubRisk(o) === "warning");
+            if (!critical.length && !warnings.length) return null;
+            return (
+              <div className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border mb-3 ${critical.length ? "border-rose-500/30 bg-rose-500/8" : "border-amber-500/30 bg-amber-500/8"}`}>
+                <AlertTriangle size={13} className={critical.length ? "text-rose-400 shrink-0" : "text-amber-400 shrink-0"} />
+                <span className={`text-xs font-medium flex-1 ${critical.length ? "text-rose-300" : "text-amber-300"}`}>
+                  {critical.length > 0 && `${critical.length} org${critical.length !== 1 ? "s" : ""} with critical billing issues (no subscription, past due, or expired)`}
+                  {critical.length > 0 && warnings.length > 0 && "  ·  "}
+                  {warnings.length > 0 && `${warnings.length} org${warnings.length !== 1 ? "s" : ""} with warnings (cancelling, trial ending soon)`}
+                </span>
+                <Link href="/admin/subscriptions" className={`text-[11px] font-medium shrink-0 flex items-center gap-1 transition-colors ${critical.length ? "text-rose-400 hover:text-rose-200" : "text-amber-400 hover:text-amber-200"}`}>
+                  Review billing <ArrowUpRight size={10} />
+                </Link>
+              </div>
+            );
+          })()}
+
+          {/* Org table */}
+          <div className="rounded-xl border border-stone-800 overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-stone-800 bg-stone-900/60">
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Organisation</th>
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Users</th>
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Subscription</th>
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Plan</th>
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Next billing</th>
+                  <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-stone-500 px-4 py-2.5">Payment</th>
+                  <th className="px-4 py-2.5 w-28"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-800/60">
+                {orgs
+                  .filter(org =>
+                    !orgSearch ||
+                    org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
+                    org.slug.toLowerCase().includes(orgSearch.toLowerCase())
+                  )
+                  .map(org => {
+                    const risk = getSubRisk(org);
+                    return (
+                      <tr key={org.id}
+                        className={`group transition-colors ${
+                          risk === "critical" ? "bg-rose-500/3 hover:bg-rose-500/6" :
+                          risk === "warning"  ? "bg-amber-500/3 hover:bg-amber-500/6" :
+                          "hover:bg-stone-800/20"
+                        }`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-stone-800 flex items-center justify-center text-stone-300 text-xs font-bold shrink-0">
+                              {org.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-white text-sm leading-tight">{org.name}</div>
+                              <div className="text-[11px] text-stone-500 font-mono">/{org.slug}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-stone-400 tabular-nums">{org.userCount}</td>
+                        <td className="px-4 py-3"><SubStatusBadge org={org} /></td>
+                        <td className="px-4 py-3">
+                          {fmtPlan(org)
+                            ? <span className="text-xs text-stone-300">{fmtPlan(org)}</span>
+                            : <span className="text-stone-600 text-xs">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-3"><NextBillingCell org={org} /></td>
+                        <td className="px-4 py-3">
+                          {org.paymentMethodBrand
+                            ? <span className="text-xs text-stone-400 capitalize">{org.paymentMethodBrand} ••{org.paymentMethodLast4}</span>
+                            : <span className="text-stone-600 text-xs">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <Link href="/admin/subscriptions" title="Manage billing"
+                              className="p-1.5 hover:bg-stone-800 rounded text-stone-500 hover:text-stone-200 transition-colors"
+                              onClick={e => e.stopPropagation()}>
+                              <CreditCard size={13} />
+                            </Link>
+                            <button onClick={() => setEditingOrg(org)}
+                              className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"
+                              title="Edit organisation">
+                              <Pencil size={14} />
+                            </button>
+                            <button onClick={() => setDeletingOrg(org)}
+                              className="p-1.5 hover:bg-rose-500/15 rounded text-stone-500 hover:text-rose-400 transition-colors"
+                              title="Delete organisation">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {orgs.filter(org =>
+                  !orgSearch ||
+                  org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
+                  org.slug.toLowerCase().includes(orgSearch.toLowerCase())
+                ).length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-stone-500">
+                      {orgSearch ? `No organisations matching "${orgSearch}"` : "No organisations yet. Create the first one."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
