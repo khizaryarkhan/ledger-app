@@ -4,9 +4,26 @@ import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Button, Badge, Input } from "@/components/ui";
-import { Building2, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight, ArrowUpRight, Users } from "lucide-react";
+import { Building2, Plus, Check, X, Eye, EyeOff, Shield, RefreshCw, Pencil, Loader2, Trash2, Search, AlertTriangle, CreditCard, XCircle, FileText, Clock, CheckCircle2, ChevronRight, ArrowUpRight, Users, Copy, CheckCheck } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { useRouter } from "next/navigation";
+
+function CopyId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button onClick={copy} title={copied ? "Copied!" : `Copy org ID: ${id}`}
+      className="ml-1 p-0.5 rounded text-stone-700 hover:text-stone-400 transition-colors">
+      {copied ? <CheckCheck size={10} className="text-emerald-400" /> : <Copy size={10} />}
+    </button>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   return <Badge variant={status === "Active" ? "green" : "neutral"} size="sm">{status}</Badge>;
@@ -1014,7 +1031,10 @@ export default function AdminPage() {
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-white text-sm leading-tight">{org.name}</div>
-                              <div className="text-[11px] text-stone-500 font-mono">/{org.slug}</div>
+                              <div className="flex items-center gap-0.5 text-[11px] text-stone-500 font-mono">
+                                /{org.slug}
+                                <CopyId id={org.id} />
+                              </div>
                             </div>
                           </div>
                         </td>
