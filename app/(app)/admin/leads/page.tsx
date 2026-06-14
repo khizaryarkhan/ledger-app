@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send, MessageSquare } from "lucide-react";
-import { Card, Badge, Button, Toast } from "@/components/ui";
+import { Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send, MessageSquare, CheckCircle } from "lucide-react";
+import { Card, Badge, Toast } from "@/components/ui";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
 type LeadStatus = typeof STATUS_OPTIONS[number];
@@ -172,12 +172,134 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
   );
 }
 
+// ── Email compose modal ────────────────────────────────────────────────────
+function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
+  const firstName = lead.fullName?.split(" ")[0] ?? "";
+  const [subject, setSubject] = useState("Prime Accountax — Following up");
+  const [body, setBody]       = useState(`Hi ${firstName},\n\nThank you for your interest in Prime Accountax.\n\n`);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent]       = useState(false);
+  const [errMsg, setErrMsg]   = useState("");
+
+  const send = async () => {
+    if (sending) return;
+    setErrMsg("");
+    setSending(true);
+    try {
+      const r = await fetch(`/api/admin/leads/${lead.id}/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject, body }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setSent(true);
+      } else {
+        setErrMsg(d.error ?? "Failed to send email");
+      }
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-lg shadow-2xl ring-1 ring-stone-800">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Mail size={13} className="text-blue-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">Send email</h2>
+              <p className="text-[10px] text-stone-500 mt-0.5">to {lead.fullName} · {lead.email}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
+            <X size={15} />
+          </button>
+        </div>
+
+        {sent ? (
+          <div className="p-10 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
+              <CheckCircle size={22} className="text-emerald-400" />
+            </div>
+            <p className="text-sm font-semibold text-white mb-1">Email sent</p>
+            <p className="text-xs text-stone-500">Your message was delivered to {lead.email}</p>
+            <button onClick={onClose}
+              className="mt-5 h-8 px-4 text-xs font-medium rounded-lg bg-stone-800 text-stone-200 hover:bg-stone-700 transition-colors">
+              Close
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="p-5 space-y-3">
+              {errMsg && (
+                <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{errMsg}</div>
+              )}
+
+              {/* To — read-only */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
+                <div className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800/40 text-stone-400 flex items-center select-none">
+                  {lead.email}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+                <input
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
+                <textarea
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  rows={9}
+                  className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-blue-500 focus:outline-none leading-relaxed"
+                />
+              </div>
+
+              <p className="text-[10px] text-stone-600">
+                Sent from your platform system email (support@primeaccountax.com)
+              </p>
+            </div>
+
+            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+              <button onClick={onClose}
+                className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={send}
+                disabled={sending || !subject.trim() || !body.trim()}
+                className="h-8 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5"
+              >
+                {sending ? <Loader size={11} className="animate-spin" /> : <Send size={11} />}
+                Send email
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Lead chat / notes thread ───────────────────────────────────────────────
 function LeadNotes({ leadId }: { leadId: string }) {
-  const [notes, setNotes]   = useState<any[]>([]);
+  const [notes, setNotes]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [body, setBody]     = useState("");
+  const [body, setBody]       = useState("");
   const [sending, setSending] = useState(false);
+  const [error, setError]     = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
@@ -191,6 +313,7 @@ function LeadNotes({ leadId }: { leadId: string }) {
 
   const send = async () => {
     if (!body.trim() || sending) return;
+    setError("");
     setSending(true);
     const res = await fetch(`/api/admin/leads/${leadId}/notes`, {
       method: "POST",
@@ -201,6 +324,9 @@ function LeadNotes({ leadId }: { leadId: string }) {
       const note = await res.json();
       setNotes(p => [...p, note]);
       setBody("");
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error ?? "Failed to save note");
     }
     setSending(false);
   };
@@ -249,6 +375,7 @@ function LeadNotes({ leadId }: { leadId: string }) {
 
       {/* Compose */}
       <div className="px-4 pb-3 pt-2 border-t border-stone-800 shrink-0">
+        {error && <p className="text-[10px] text-rose-400 mb-1.5">{error}</p>}
         <div className="flex gap-2 items-end">
           <textarea
             value={body}
@@ -270,7 +397,7 @@ function LeadNotes({ leadId }: { leadId: string }) {
 }
 
 // ── Lead detail modal ──────────────────────────────────────────────────────
-function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
+function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
   const [status, setStatus] = useState<LeadStatus>(lead?.status ?? "new");
   const [saving, setSaving] = useState(false);
   const [tab, setTab]       = useState<"details" | "notes">("details");
@@ -283,9 +410,6 @@ function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
     setSaving(false);
   };
 
-  const firstName  = lead.fullName?.split(" ")[0] ?? "";
-  const mailtoHref = `mailto:${lead.email}?subject=${encodeURIComponent("Prime Accountax — Following up")}&body=${encodeURIComponent(`Hi ${firstName},\n\n`)}`;
-
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ height: "min(90vh, 680px)" }}>
@@ -296,10 +420,12 @@ function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
             <p className="text-[11px] text-stone-500 mt-0.5">{lead.companyName ? `${lead.companyName} · ` : ""}{lead.email}</p>
           </div>
           <div className="flex items-center gap-2">
-            <a href={mailtoHref}
-              className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors">
+            <button
+              onClick={() => onEmail(lead)}
+              className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors"
+            >
               <Mail size={11} /> Email
-            </a>
+            </button>
             <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={15} /></button>
           </div>
         </div>
@@ -386,13 +512,14 @@ function LeadModal({ lead, onClose, onSave, onStatusChange }: any) {
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function LeadsPage() {
-  const [leads, setLeads]       = useState<any[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [active, setActive]     = useState<any>(null);
-  const [toast, setToast]       = useState<any>(null);
-  const [search, setSearch]     = useState("");
+  const [leads, setLeads]         = useState<any[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [active, setActive]       = useState<any>(null);
+  const [emailTarget, setEmailTarget] = useState<any>(null);
+  const [toast, setToast]         = useState<any>(null);
+  const [search, setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [showAdd, setShowAdd]   = useState(false);
+  const [showAdd, setShowAdd]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -526,55 +653,54 @@ export default function LeadsPage() {
               </tr>
             </thead>
             <tbody>
-              {leads.map((l: any) => {
-                const mailtoHref = `mailto:${l.email}?subject=${encodeURIComponent("Prime Accountax — Following up")}&body=${encodeURIComponent(`Hi ${l.fullName?.split(" ")[0] ?? ""},\n\n`)}`;
-                return (
-                  <tr key={l.id} className="border-b border-stone-800/50 hover:bg-stone-800/20 transition-colors group">
-                    <td className="px-4 py-3 cursor-pointer" onClick={() => setActive(l)}>
-                      <p className="text-white text-xs font-medium">{l.fullName ?? "—"}</p>
-                      {l.companyName && <p className="text-[11px] text-stone-500 mt-0.5">{l.companyName}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-stone-300 max-w-[160px]">
-                      <span className="truncate block">{l.email}</span>
-                      {l.phone && <span className="text-[11px] text-stone-500">{l.phone}</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-stone-400 max-w-[120px] truncate">{l.interestedService ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <StatusCell lead={l} onChange={handleInlineStatusChange} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {l.source === "manual"
-                        ? <span className="inline-flex items-center gap-1 text-[10px] font-medium text-stone-500 bg-stone-800 px-1.5 py-0.5 rounded"><UserPlus size={9} /> Manual</span>
-                        : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded"><Globe size={9} /> Website</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3 text-xs text-stone-500 whitespace-nowrap">
-                      {new Date(l.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <a href={mailtoHref}
-                          onClick={e => e.stopPropagation()}
-                          title="Email this lead"
-                          className="p-1.5 rounded hover:bg-blue-500/15 text-stone-500 hover:text-blue-400 transition-colors">
-                          <Mail size={13} />
-                        </a>
-                        <button onClick={() => setActive(l)}
-                          className="text-[10px] px-2 py-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors font-medium">
-                          View
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {leads.map((l: any) => (
+                <tr key={l.id} className="border-b border-stone-800/50 hover:bg-stone-800/20 transition-colors group">
+                  <td className="px-4 py-3 cursor-pointer" onClick={() => setActive(l)}>
+                    <p className="text-white text-xs font-medium">{l.fullName ?? "—"}</p>
+                    {l.companyName && <p className="text-[11px] text-stone-500 mt-0.5">{l.companyName}</p>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-stone-300 max-w-[160px]">
+                    <span className="truncate block">{l.email}</span>
+                    {l.phone && <span className="text-[11px] text-stone-500">{l.phone}</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-stone-400 max-w-[120px] truncate">{l.interestedService ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <StatusCell lead={l} onChange={handleInlineStatusChange} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {l.source === "manual"
+                      ? <span className="inline-flex items-center gap-1 text-[10px] font-medium text-stone-500 bg-stone-800 px-1.5 py-0.5 rounded"><UserPlus size={9} /> Manual</span>
+                      : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded"><Globe size={9} /> Website</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-xs text-stone-500 whitespace-nowrap">
+                    {new Date(l.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={e => { e.stopPropagation(); setEmailTarget(l); }}
+                        title="Email this lead"
+                        className="p-1.5 rounded hover:bg-blue-500/15 text-stone-500 hover:text-blue-400 transition-colors"
+                      >
+                        <Mail size={13} />
+                      </button>
+                      <button onClick={() => setActive(l)}
+                        className="text-[10px] px-2 py-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors font-medium">
+                        View
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
       </Card>
 
-      {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
-      {active  && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} />}
+      {showAdd    && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
+      {active     && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} onEmail={setEmailTarget} />}
+      {emailTarget && <LeadEmailModal lead={emailTarget} onClose={() => setEmailTarget(null)} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
