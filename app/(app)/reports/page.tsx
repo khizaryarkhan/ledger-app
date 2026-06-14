@@ -361,33 +361,42 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-sm font-semibold text-white">Monthly Net Revenue</div>
-            <div className="text-[11px] text-stone-400 mt-0.5">Last 12 months vs prior year</div>
+            <div className="text-[11px] text-stone-400 mt-0.5">Last 12 months vs prior year — always full view regardless of period filter</div>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-stone-400">
             <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /> This year</div>
             <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-stone-600" /> Prior year</div>
           </div>
         </div>
-        <div className="flex items-end gap-1.5 h-48">
-          {monthlyTrend.map((m, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
-              {/* Tooltip */}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 bg-stone-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap border border-stone-700">
-                <div className="font-semibold">{m.label}</div>
-                <div>This yr: {fmt.money(m.net)}</div>
-                <div>Prior yr: {fmt.money(m.prior)}</div>
-              </div>
-              <div className="flex-1 flex items-end gap-0.5 w-full justify-center">
-                {/* Prior year bar */}
-                <div className="bg-stone-600 rounded-t w-2.5 transition-all"
-                  style={{ height: m.prior > 0 ? `${(m.prior / maxBar) * 100}%` : "2px" }} />
-                {/* Current year bar */}
-                <div className={`rounded-t w-2.5 transition-all ${m.net >= m.prior ? "bg-emerald-500" : "bg-rose-400"}`}
-                  style={{ height: m.net > 0 ? `${(m.net / maxBar) * 100}%` : "2px" }} />
-              </div>
-              <div className="text-[9px] text-stone-400 font-medium">{m.label}</div>
-            </div>
+        {/* Grid lines */}
+        <div className="relative" style={{ height: "180px" }}>
+          {[0, 25, 50, 75, 100].map(pct => (
+            <div key={pct} className="absolute w-full border-t border-stone-800/60" style={{ bottom: `${pct * 1.4}px` }} />
           ))}
+          <div className="flex items-end gap-1 h-full pt-2">
+            {monthlyTrend.map((m, idx) => {
+              const barAreaH = 140; // px available for bars (leaves 20px for label + 20px top padding)
+              const priorH = m.prior > 0 ? Math.max(Math.round((m.prior / maxBar) * barAreaH), 3) : 2;
+              const netH   = m.net   > 0 ? Math.max(Math.round((m.net   / maxBar) * barAreaH), 3) : 2;
+              const dominantCcy = netByCcy ? Object.keys(netByCcy)[0] || "EUR" : "EUR";
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center group relative" style={{ height: "100%" }}>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col z-10 bg-stone-800 text-white text-[10px] rounded px-2 py-1.5 whitespace-nowrap border border-stone-700 shadow-lg gap-0.5 pointer-events-none">
+                    <div className="font-semibold text-stone-200">{m.label}</div>
+                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500 shrink-0" />This yr: {fmt.money(m.net, dominantCcy)}</div>
+                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-stone-500 shrink-0" />Prior yr: {fmt.money(m.prior, dominantCcy)}</div>
+                  </div>
+                  {/* Bars — pixel heights fix percentage-in-flex-1 bug */}
+                  <div className="flex items-end gap-0.5 w-full justify-center" style={{ height: `${barAreaH + 20}px` }}>
+                    <div className="bg-stone-600 rounded-t w-2 transition-all duration-300" style={{ height: `${priorH}px` }} />
+                    <div className={`rounded-t w-2 transition-all duration-300 ${m.net >= m.prior ? "bg-emerald-500" : "bg-rose-400"}`} style={{ height: `${netH}px` }} />
+                  </div>
+                  <div className="text-[9px] text-stone-500 font-medium mt-0.5">{m.label}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1204,8 +1213,8 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
               onClick={() => toggle(r.rep.id)}>
               <div className="flex items-start justify-between mb-2">
                 <div className="text-sm font-semibold text-white">{r.rep.name}</div>
-                {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">High risk</span>}
-                {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">Watch</span>}
+                {overduePct > 50 && <span className="text-[10px] px-1.5 py-0.5 bg-rose-500/15 text-rose-400 border border-rose-500/20 rounded font-medium">High risk</span>}
+                {overduePct > 20 && overduePct <= 50 && <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded font-medium">Watch</span>}
               </div>
               <div className="text-xl font-bold text-white tabular-nums mb-1">
                 <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
@@ -1234,7 +1243,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
           <div className="px-4 py-3 bg-stone-800/60 border-b border-stone-800 flex items-center justify-between">
             <div className="font-semibold text-white">{r.rep.name} — Detailed Aging</div>
             <div className="font-bold text-white tabular-nums">
-            <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+            <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
           </div>
           </div>
           <table className="w-full text-sm">
@@ -1251,7 +1260,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 const cust = customers.find((c: any) => c.id === inv.customerId);
                 const proj = projects.find((p: any) => p.id === inv.projectId);
                 const ib = invBuckets(inv, asAtDate);
-                const invCcy: string = inv.currency || "USD";
+                const invCcy: string = inv.currency || "EUR";
                 return (
                   <tr key={inv.id} className="border-b border-stone-800 hover:bg-stone-800/50">
                     <td className="px-4 py-2 text-[12px] text-stone-300">{cust?.name}</td>
@@ -1288,7 +1297,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 <td className="px-3 py-2.5 text-right tabular-nums">{r.invoices.length}</td>
                 {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={r.invoices} bucket={b} asAtDate={asAtDate} />)}
                 <td className="px-4 py-2.5 text-right font-bold tabular-nums">
-                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; r.invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
                 </td>
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
@@ -1299,7 +1308,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
               <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
               {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} highlight />)}
               <td className="px-4 py-3 text-right font-bold tabular-nums">
-                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "USD"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
               </td>
               <td className="px-4 py-3 text-right font-bold">100%</td>
             </tr>
