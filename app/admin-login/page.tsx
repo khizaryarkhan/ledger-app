@@ -1,13 +1,12 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
-import { signIn, useSession } from "next-auth/react";
+import { useRef, useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck, Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function AdminLoginPage() {
-  const router   = useRouter();
-  const { data: session, status } = useSession();
+  const router      = useRouter();
   const emailRef    = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const mfaRef      = useRef<HTMLInputElement>(null);
@@ -15,17 +14,6 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPw,  setShowPw]  = useState(false);
   const [showMfa, setShowMfa] = useState(false);
-
-  // Already signed in as admin — bounce to admin portal
-  useEffect(() => {
-    if (status !== "authenticated") return;
-    const role = (session?.user as any)?.role;
-    if (role === "super_admin" || role === "platform_admin") {
-      router.replace("/admin");
-    } else {
-      setError("Your account does not have admin access.");
-    }
-  }, [status, session, router]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +29,8 @@ export default function AdminLoginPage() {
           ? "Invalid email, password, or authentication code"
           : "Invalid email or password");
       } else {
-        // Let the session load — useEffect above handles the redirect
+        // Middleware will validate the role and redirect non-admins back to /login
+        router.push("/admin");
         router.refresh();
       }
     } catch {
