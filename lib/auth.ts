@@ -9,11 +9,19 @@ import { logEvent } from "@/lib/audit";
 import { verifyTotp, consumeRecoveryCode } from "@/lib/mfa";
 import { decryptSecret } from "@/lib/crypto";
 
+const isProd = process.env.VERCEL_ENV === "production";
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   trustHost: true,
   session: { strategy: "jwt", maxAge: 8 * 60 * 60 }, // 8 hours — re-login required after inactivity
   pages: { signIn: "/login" },
+  cookies: isProd ? {
+    sessionToken: {
+      name: "__Secure-next-auth.session-token",
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: true, domain: ".primeaccountax.com" },
+    },
+  } : undefined,
   providers: [
     Credentials({
       credentials: {

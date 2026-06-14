@@ -6,11 +6,20 @@
 import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 
+const isProd = process.env.VERCEL_ENV === "production";
+
 const config: NextAuthConfig = {
   secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   trustHost: true,
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: { signIn: "/login" },
+  // Share the session cookie across all subdomains (e.g. admin.primeaccountax.com)
+  cookies: isProd ? {
+    sessionToken: {
+      name: "__Secure-next-auth.session-token",
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: true, domain: ".primeaccountax.com" },
+    },
+  } : undefined,
   providers: [], // credentials can't run in Edge — login goes through /api/auth directly
   callbacks: {
     jwt({ token, user }) {
