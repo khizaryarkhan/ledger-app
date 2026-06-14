@@ -558,7 +558,7 @@ function invBuckets(inv: any, asAt: Date) {
   // For today's view: skip paid invoices (collectionStage is NOT a payment status — never filter on it)
   const isHistorical = asAt.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10);
   if (!isHistorical) {
-    if (inv.paymentStatus === "Paid") return b;
+    if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return b;
   }
   // Outstanding as-at: if paid after asAt, full balance was open; otherwise use qboBalance
   // (authoritative open balance from QBO) falling back to total-paid for local-only rows.
@@ -630,7 +630,7 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
         // If paidAt is null but paymentStatus is Paid/Written Off → already paid, exclude
         // (fallback for invoices without a recorded paidAt — conservative: show as open)
       } else {
-        if (inv.paymentStatus === "Paid") continue;
+        if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
       }
       // For current view: skip zero-balance invoices; skip fully-applied CMs
       if (!asAt) {
@@ -820,7 +820,7 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid") continue;
+        if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
       }
       if (!asAt) {
         if (inv.txnType === "CreditMemo") {
@@ -1016,7 +1016,7 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid") continue;
+        if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
       }
       // Use invBuckets as the single source of truth for open balance — it
       // handles CreditMemos (negative balance) correctly. The old Math.max(0,…)
@@ -1187,7 +1187,7 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
       if (asAt) {
         if (inv.paidAt && inv.paidAt <= asAt) continue;
       } else {
-        if (inv.paymentStatus === "Paid") continue;
+        if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") continue;
       }
       // Use invBuckets as the single source of truth — handles CMs (negative
       // balance) correctly. The old Math.max(0,…) guard silently dropped CMs.

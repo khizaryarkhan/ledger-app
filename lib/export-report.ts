@@ -24,7 +24,7 @@ function openBalance(inv: any, asAt: Date, asAtStr: string, todayStr: string): n
     return bal < 0 ? bal : 0; // only unapplied credits (negative) count
   }
 
-  if (!isHistorical && inv.paymentStatus === "Paid") return 0;
+  if (!isHistorical && (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off")) return 0;
   if (isHistorical && inv.paidAt && inv.paidAt <= asAtStr) return 0;
 
   if (isHistorical && inv.paidAt && inv.paidAt > asAtStr) {
@@ -106,7 +106,7 @@ export function exportArReport(opts: ArExportInput) {
   const filtered = invoices.filter(inv => {
     if (asAtDate < todayStr && inv.invoiceDate > asAtDate) return false;
     if (asAtDate < todayStr && inv.paidAt && inv.paidAt <= asAtDate) return false;
-    if (asAtDate === todayStr && inv.paymentStatus === "Paid") return false;
+    if (asAtDate === todayStr && (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off")) return false;
     if (isCreditMemo(inv) && (inv.qboBalance ?? 0) >= 0) return false;
     if (!isCreditMemo(inv)) {
       const bal = inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
