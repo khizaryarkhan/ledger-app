@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send, MessageSquare, CheckCircle } from "lucide-react";
+import {
+  Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
+  MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown,
+} from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
@@ -33,7 +36,9 @@ function StatusCell({ lead, onChange }: { lead: any; onChange: (id: string, stat
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
@@ -60,7 +65,9 @@ function StatusCell({ lead, onChange }: { lead: any; onChange: (id: string, stat
       >
         {saving
           ? <Loader size={12} className="animate-spin text-stone-400" />
-          : <Badge variant={STATUS_COLOR[lead.status as LeadStatus] as any} size="sm" className="cursor-pointer hover:opacity-80 transition-opacity">{STATUS_LABEL[lead.status as LeadStatus] ?? lead.status}</Badge>
+          : <Badge variant={STATUS_COLOR[lead.status as LeadStatus] as any} size="sm" className="cursor-pointer hover:opacity-80 transition-opacity">
+              {STATUS_LABEL[lead.status as LeadStatus] ?? lead.status}
+            </Badge>
         }
       </button>
       {open && (
@@ -75,6 +82,398 @@ function StatusCell({ lead, onChange }: { lead: any; onChange: (id: string, stat
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Template form (shared by create + edit) ────────────────────────────────
+function TemplateForm({
+  initial, onSave, onCancel, saving,
+}: {
+  initial?: any;
+  onSave: (data: { name: string; subject: string; body: string }) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  const [name,    setName]    = useState(initial?.name    ?? "");
+  const [subject, setSubject] = useState(initial?.subject ?? "");
+  const [body,    setBody]    = useState(initial?.body    ?? "");
+
+  const canSave = !saving && !!name.trim() && !!subject.trim() && !!body.trim();
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Template name</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Initial follow-up"
+          className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+      </div>
+      <div>
+        <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Prime Accountax — Following up"
+          className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+      </div>
+      <div>
+        <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+          Body
+          <span className="ml-2 text-stone-600 normal-case tracking-normal font-normal">
+            Use {'{{firstName}}'}, {'{{companyName}}'} as placeholders
+          </span>
+        </label>
+        <textarea value={body} onChange={e => setBody(e.target.value)} rows={8}
+          placeholder={"Hi {{firstName}},\n\nThank you for your interest in Prime Accountax.\n\n"}
+          className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-emerald-500 focus:outline-none leading-relaxed" />
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel}
+          className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+          Cancel
+        </button>
+        <button onClick={() => onSave({ name, subject, body })} disabled={!canSave}
+          className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+          {saving && <Loader size={11} className="animate-spin" />}
+          {initial ? "Save changes" : "Create template"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Templates management modal ─────────────────────────────────────────────
+function TemplatesModal({ onClose }: { onClose: () => void }) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [view,      setView]      = useState<"list" | "create" | "edit">("list");
+  const [editing,   setEditing]   = useState<any>(null);
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState("");
+  const [deleting,  setDeleting]  = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const r = await fetch("/api/admin/email-templates");
+    if (r.ok) setTemplates(await r.json());
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async (data: any) => {
+    setError("");
+    setSaving(true);
+    const r = await fetch("/api/admin/email-templates", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const d = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (r.ok) { setView("list"); load(); }
+    else setError(d.error ?? "Failed to create template");
+  };
+
+  const handleEdit = async (data: any) => {
+    setError("");
+    setSaving(true);
+    const r = await fetch(`/api/admin/email-templates/${editing.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const d = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (r.ok) { setView("list"); setEditing(null); load(); }
+    else setError(d.error ?? "Failed to update template");
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeleting(id);
+    await fetch(`/api/admin/email-templates/${id}`, { method: "DELETE" });
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    setDeleting(null);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ maxHeight: "min(90vh, 680px)" }}>
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-violet-500/15 flex items-center justify-center">
+              <BookTemplate size={13} className="text-violet-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">
+                {view === "create" ? "New template" : view === "edit" ? "Edit template" : "Email templates"}
+              </h2>
+              {view === "list" && (
+                <p className="text-[10px] text-stone-500 mt-0.5">{templates.length} template{templates.length !== 1 ? "s" : ""}</p>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 min-h-0">
+          {error && (
+            <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30 mb-3">{error}</div>
+          )}
+
+          {view === "create" && (
+            <TemplateForm
+              saving={saving}
+              onSave={handleCreate}
+              onCancel={() => { setView("list"); setError(""); }}
+            />
+          )}
+
+          {view === "edit" && editing && (
+            <TemplateForm
+              initial={editing}
+              saving={saving}
+              onSave={handleEdit}
+              onCancel={() => { setView("list"); setEditing(null); setError(""); }}
+            />
+          )}
+
+          {view === "list" && (
+            <>
+              {loading ? (
+                <div className="space-y-2">
+                  {[1,2,3].map(i => <div key={i} className="h-16 bg-stone-800 rounded-lg animate-pulse" />)}
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-10">
+                  <BookTemplate size={24} className="text-stone-700 mx-auto mb-2" />
+                  <p className="text-sm text-stone-500 font-medium">No templates yet</p>
+                  <p className="text-xs text-stone-600 mt-1">Create reusable email templates for faster outreach</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map(t => (
+                    <div key={t.id} className="flex items-start gap-3 p-3.5 rounded-lg border border-stone-800 bg-stone-800/30 hover:bg-stone-800/60 transition-colors group">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-white">{t.name}</p>
+                        <p className="text-[11px] text-stone-500 mt-0.5 truncate">{t.subject}</p>
+                        <p className="text-[11px] text-stone-600 mt-1 line-clamp-2 leading-relaxed">{t.body}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => { setEditing(t); setView("edit"); setError(""); }}
+                          className="p-1.5 rounded hover:bg-stone-700 text-stone-500 hover:text-stone-200 transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(t.id)}
+                          disabled={deleting === t.id}
+                          className="p-1.5 rounded hover:bg-rose-500/15 text-stone-500 hover:text-rose-400 transition-colors"
+                          title="Delete"
+                        >
+                          {deleting === t.id ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {view === "list" && (
+          <div className="px-5 py-3 border-t border-stone-800 flex justify-between items-center shrink-0">
+            <button onClick={onClose}
+              className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+              Close
+            </button>
+            <button
+              onClick={() => { setView("create"); setError(""); }}
+              className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+            >
+              <Plus size={12} /> New template
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Email compose modal ────────────────────────────────────────────────────
+function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
+  const firstName   = lead.fullName?.split(" ")[0] ?? "";
+  const companyName = lead.companyName ?? "";
+
+  const [subject,   setSubject]   = useState("Prime Accountax — Following up");
+  const [body,      setBody]      = useState(`Hi ${firstName},\n\nThank you for your interest in Prime Accountax.\n\n`);
+  const [sending,   setSending]   = useState(false);
+  const [sent,      setSent]      = useState(false);
+  const [errMsg,    setErrMsg]    = useState("");
+
+  // Template picker
+  const [templates,       setTemplates]       = useState<any[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [pickerOpen,      setPickerOpen]      = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  const loadTemplates = async () => {
+    if (templatesLoaded) return;
+    const r = await fetch("/api/admin/email-templates");
+    if (r.ok) setTemplates(await r.json());
+    setTemplatesLoaded(true);
+  };
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [pickerOpen]);
+
+  const applyTemplate = (tpl: any) => {
+    const filled = (str: string) =>
+      str.replace(/\{\{firstName\}\}/g, firstName).replace(/\{\{companyName\}\}/g, companyName);
+    setSubject(filled(tpl.subject));
+    setBody(filled(tpl.body));
+    setPickerOpen(false);
+  };
+
+  const send = async () => {
+    if (sending) return;
+    setErrMsg("");
+    setSending(true);
+    try {
+      const r = await fetch(`/api/admin/leads/${lead.id}/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject, body }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setSent(true);
+      else setErrMsg(d.error ?? "Failed to send email");
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-lg shadow-2xl ring-1 ring-stone-800">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Mail size={13} className="text-blue-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">Send email</h2>
+              <p className="text-[10px] text-stone-500 mt-0.5">to {lead.fullName} · {lead.email}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
+            <X size={15} />
+          </button>
+        </div>
+
+        {sent ? (
+          <div className="p-10 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
+              <CheckCircle size={22} className="text-emerald-400" />
+            </div>
+            <p className="text-sm font-semibold text-white mb-1">Email sent</p>
+            <p className="text-xs text-stone-500">Your message was delivered to {lead.email}</p>
+            <button onClick={onClose}
+              className="mt-5 h-8 px-4 text-xs font-medium rounded-lg bg-stone-800 text-stone-200 hover:bg-stone-700 transition-colors">
+              Close
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="p-5 space-y-3">
+              {errMsg && (
+                <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{errMsg}</div>
+              )}
+
+              {/* Template picker */}
+              <div className="flex justify-end" ref={pickerRef}>
+                <div className="relative">
+                  <button
+                    onClick={() => { loadTemplates(); setPickerOpen(v => !v); }}
+                    className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-600 transition-colors"
+                  >
+                    <BookTemplate size={11} className="text-violet-400" />
+                    Use template
+                    <ChevronDown size={10} className={`transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {pickerOpen && (
+                    <div className="absolute right-0 top-full mt-1.5 z-20 w-64 bg-stone-800 border border-stone-700 rounded-xl shadow-2xl overflow-hidden">
+                      {!templatesLoaded ? (
+                        <div className="px-4 py-3 flex items-center gap-2 text-xs text-stone-500">
+                          <Loader size={11} className="animate-spin" /> Loading…
+                        </div>
+                      ) : templates.length === 0 ? (
+                        <div className="px-4 py-3 text-xs text-stone-500">No templates yet — create one from the Templates button.</div>
+                      ) : (
+                        <div className="max-h-52 overflow-y-auto">
+                          {templates.map(t => (
+                            <button key={t.id} onClick={() => applyTemplate(t)}
+                              className="w-full text-left px-4 py-2.5 hover:bg-stone-700 transition-colors border-b border-stone-700/50 last:border-0">
+                              <p className="text-xs font-medium text-stone-200">{t.name}</p>
+                              <p className="text-[10px] text-stone-500 mt-0.5 truncate">{t.subject}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* To — read-only */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
+                <div className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800/40 text-stone-400 flex items-center select-none">
+                  {lead.email}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+                <input value={subject} onChange={e => setSubject(e.target.value)}
+                  className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-blue-500 focus:outline-none" />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
+                <textarea value={body} onChange={e => setBody(e.target.value)} rows={9}
+                  className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-blue-500 focus:outline-none leading-relaxed" />
+              </div>
+
+              <p className="text-[10px] text-stone-600">
+                Sent from your platform system email (support@primeaccountax.com)
+              </p>
+            </div>
+
+            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+              <button onClick={onClose}
+                className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+                Cancel
+              </button>
+              <button onClick={send} disabled={sending || !subject.trim() || !body.trim()}
+                className="h-8 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+                {sending ? <Loader size={11} className="animate-spin" /> : <Send size={11} />}
+                Send email
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -172,134 +571,13 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
   );
 }
 
-// ── Email compose modal ────────────────────────────────────────────────────
-function LeadEmailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
-  const firstName = lead.fullName?.split(" ")[0] ?? "";
-  const [subject, setSubject] = useState("Prime Accountax — Following up");
-  const [body, setBody]       = useState(`Hi ${firstName},\n\nThank you for your interest in Prime Accountax.\n\n`);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent]       = useState(false);
-  const [errMsg, setErrMsg]   = useState("");
-
-  const send = async () => {
-    if (sending) return;
-    setErrMsg("");
-    setSending(true);
-    try {
-      const r = await fetch(`/api/admin/leads/${lead.id}/email`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subject, body }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) {
-        setSent(true);
-      } else {
-        setErrMsg(d.error ?? "Failed to send email");
-      }
-    } finally { setSending(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-lg shadow-2xl ring-1 ring-stone-800">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center">
-              <Mail size={13} className="text-blue-400" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-white text-sm">Send email</h2>
-              <p className="text-[10px] text-stone-500 mt-0.5">to {lead.fullName} · {lead.email}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
-            <X size={15} />
-          </button>
-        </div>
-
-        {sent ? (
-          <div className="p-10 text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
-              <CheckCircle size={22} className="text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-white mb-1">Email sent</p>
-            <p className="text-xs text-stone-500">Your message was delivered to {lead.email}</p>
-            <button onClick={onClose}
-              className="mt-5 h-8 px-4 text-xs font-medium rounded-lg bg-stone-800 text-stone-200 hover:bg-stone-700 transition-colors">
-              Close
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="p-5 space-y-3">
-              {errMsg && (
-                <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{errMsg}</div>
-              )}
-
-              {/* To — read-only */}
-              <div>
-                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
-                <div className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800/40 text-stone-400 flex items-center select-none">
-                  {lead.email}
-                </div>
-              </div>
-
-              {/* Subject */}
-              <div>
-                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
-                <input
-                  value={subject}
-                  onChange={e => setSubject(e.target.value)}
-                  className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Body */}
-              <div>
-                <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
-                <textarea
-                  value={body}
-                  onChange={e => setBody(e.target.value)}
-                  rows={9}
-                  className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-blue-500 focus:outline-none leading-relaxed"
-                />
-              </div>
-
-              <p className="text-[10px] text-stone-600">
-                Sent from your platform system email (support@primeaccountax.com)
-              </p>
-            </div>
-
-            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-              <button onClick={onClose}
-                className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={send}
-                disabled={sending || !subject.trim() || !body.trim()}
-                className="h-8 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5"
-              >
-                {sending ? <Loader size={11} className="animate-spin" /> : <Send size={11} />}
-                Send email
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Lead chat / notes thread ───────────────────────────────────────────────
 function LeadNotes({ leadId }: { leadId: string }) {
-  const [notes, setNotes]     = useState<any[]>([]);
+  const [notes,   setNotes]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [body, setBody]       = useState("");
+  const [body,    setBody]    = useState("");
   const [sending, setSending] = useState(false);
-  const [error, setError]     = useState("");
+  const [error,   setError]   = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
@@ -337,7 +615,6 @@ function LeadNotes({ leadId }: { leadId: string }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Thread */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
         {loading && (
           <div className="flex items-center gap-2 text-xs text-stone-500 py-2">
@@ -373,7 +650,6 @@ function LeadNotes({ leadId }: { leadId: string }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Compose */}
       <div className="px-4 pb-3 pt-2 border-t border-stone-800 shrink-0">
         {error && <p className="text-[10px] text-rose-400 mb-1.5">{error}</p>}
         <div className="flex gap-2 items-end">
@@ -400,7 +676,7 @@ function LeadNotes({ leadId }: { leadId: string }) {
 function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
   const [status, setStatus] = useState<LeadStatus>(lead?.status ?? "new");
   const [saving, setSaving] = useState(false);
-  const [tab, setTab]       = useState<"details" | "notes">("details");
+  const [tab,    setTab]    = useState<"details" | "notes">("details");
 
   if (!lead) return null;
 
@@ -426,7 +702,9 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
             >
               <Mail size={11} /> Email
             </button>
-            <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={15} /></button>
+            <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
+              <X size={15} />
+            </button>
           </div>
         </div>
 
@@ -477,7 +755,6 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
               </div>
             )}
 
-            {/* Status */}
             <div>
               <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">Status</label>
               <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)}
@@ -512,14 +789,15 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function LeadsPage() {
-  const [leads, setLeads]         = useState<any[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [active, setActive]       = useState<any>(null);
+  const [leads, setLeads]             = useState<any[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [active, setActive]           = useState<any>(null);
   const [emailTarget, setEmailTarget] = useState<any>(null);
-  const [toast, setToast]         = useState<any>(null);
-  const [search, setSearch]       = useState("");
+  const [toast, setToast]             = useState<any>(null);
+  const [search, setSearch]           = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [showAdd, setShowAdd]     = useState(false);
+  const [showAdd, setShowAdd]         = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -559,12 +837,11 @@ export default function LeadsPage() {
     setToast({ type: "success", message: `${lead.fullName} added as a lead` });
   };
 
-  // Pipeline stats from current result set
   const stats = {
-    total:     leads.length,
-    new:       leads.filter(l => l.status === "new").length,
+    total:      leads.length,
+    new:        leads.filter(l => l.status === "new").length,
     inProgress: leads.filter(l => l.status === "contacted" || l.status === "qualified").length,
-    converted: leads.filter(l => l.status === "converted").length,
+    converted:  leads.filter(l => l.status === "converted").length,
   };
 
   return (
@@ -575,10 +852,19 @@ export default function LeadsPage() {
           <h1 className="text-base font-semibold text-white">Leads</h1>
           <p className="text-xs text-stone-500 mt-0.5">Prospects and enquiries — landing page &amp; manually added</p>
         </div>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
-          <Plus size={13} /> Add lead
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTemplates(true)}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-violet-300 hover:border-violet-700/50 hover:bg-violet-500/5 transition-colors"
+          >
+            <BookTemplate size={13} className="text-violet-400" />
+            Templates
+          </button>
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+            <Plus size={13} /> Add lead
+          </button>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -698,9 +984,10 @@ export default function LeadsPage() {
         )}
       </Card>
 
-      {showAdd    && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
-      {active     && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} onEmail={setEmailTarget} />}
-      {emailTarget && <LeadEmailModal lead={emailTarget} onClose={() => setEmailTarget(null)} />}
+      {showTemplates && <TemplatesModal onClose={() => setShowTemplates(false)} />}
+      {showAdd       && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
+      {active        && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} onEmail={setEmailTarget} />}
+      {emailTarget   && <LeadEmailModal lead={emailTarget} onClose={() => setEmailTarget(null)} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
