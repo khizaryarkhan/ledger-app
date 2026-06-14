@@ -6,11 +6,30 @@ export default auth((req) => {
   const path = req.nextUrl.pathname;
   const role = (req.auth?.user as any)?.role;
 
+  const host = req.headers.get("host") || "";
+
+  // ── admin.primeaccountax.com → admin portal subdomain ───────────────────────
+  // Any path on admin.primeaccountax.com is internally rewritten to /admin/*
+  // so the URL stays clean (admin.primeaccountax.com/leads, not …/admin/leads).
+  if (host === "admin.primeaccountax.com" && !path.startsWith("/api/") && !path.startsWith("/_next/")) {
+    if (!isAuth) {
+      return NextResponse.redirect(new URL("/login", "https://primeaccountax.com"));
+    }
+    if (role !== "platform_admin" && role !== "super_admin") {
+      return NextResponse.redirect(new URL("/dashboard", "https://primeaccountax.com"));
+    }
+    // / → /admin, /leads → /admin/leads, /admin/leads stays as-is
+    const url = req.nextUrl.clone();
+    url.pathname = path === "/"
+      ? "/admin"
+      : path.startsWith("/admin") ? path : `/admin${path}`;
+    return NextResponse.rewrite(url);
+  }
+
   // ── *.vercel.app → "under development in Foodready" placeholder ─────────────
   // The auto-generated Vercel URL shows a coming-soon page so the app isn't
   // browsable there. The real domain (primeaccountax.com) serves the app
   // normally. /api/* is left alone so webhooks, cron, and OAuth callbacks work.
-  const host = req.headers.get("host") || "";
   if (
     process.env.VERCEL_ENV === "production" &&
     host.endsWith(".vercel.app") &&
