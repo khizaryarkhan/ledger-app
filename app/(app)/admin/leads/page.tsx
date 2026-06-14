@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
-  MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown,
+  MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown, StickyNote,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
@@ -573,102 +573,106 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
   );
 }
 
-// ── Lead chat / notes thread ───────────────────────────────────────────────
-function LeadNotes({ leadId }: { leadId: string }) {
+// ── Lead activity / notes thread ──────────────────────────────────────────
+function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: (n: number) => void }) {
   const [notes,   setNotes]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [body,    setBody]    = useState("");
-  const [sending, setSending] = useState(false);
+  const [text,    setText]    = useState("");
+  const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     const r = await fetch(`/api/admin/leads/${leadId}/notes`);
-    if (r.ok) setNotes(await r.json());
+    if (r.ok) {
+      const data = await r.json();
+      setNotes(data);
+      onCountChange?.(data.length);
+    }
     setLoading(false);
   };
 
   useEffect(() => { load(); }, [leadId]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [notes]);
 
-  const send = async () => {
-    if (!body.trim() || sending) return;
+  const add = async () => {
+    if (!text.trim() || saving) return;
     setError("");
-    setSending(true);
+    setSaving(true);
     const res = await fetch(`/api/admin/leads/${leadId}/notes`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body: text }),
     });
     if (res.ok) {
       const note = await res.json();
-      setNotes(p => [...p, note]);
-      setBody("");
+      const updated = [...notes, note];
+      setNotes(updated);
+      onCountChange?.(updated.length);
+      setText("");
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error ?? "Failed to save note");
     }
-    setSending(false);
+    setSaving(false);
   };
 
-  const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
-  };
+  const sorted = [...notes].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+      {/* Feed */}
+      <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
         {loading && (
-          <div className="flex items-center gap-2 text-xs text-stone-500 py-2">
-            <Loader size={11} className="animate-spin" /> Loading…
+          <div className="text-[12px] text-stone-600 text-center py-6 flex items-center justify-center gap-2">
+            <Loader size={12} className="animate-spin" /> Loading…
           </div>
         )}
-        {!loading && notes.length === 0 && (
-          <div className="text-center py-6">
-            <MessageSquare size={20} className="text-stone-700 mx-auto mb-2" />
-            <p className="text-xs text-stone-600">No notes yet. Add the first one below.</p>
-          </div>
+        {!loading && sorted.length === 0 && (
+          <div className="text-[12px] text-stone-600 text-center py-6">No activity yet</div>
         )}
-        {notes.map(n => (
-          <div key={n.id} className="flex gap-2.5">
-            <div className="w-6 h-6 rounded-full bg-stone-700 flex items-center justify-center text-[10px] font-bold text-stone-300 shrink-0 mt-0.5">
-              {n.authorName.slice(0, 2).toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-[11px] font-semibold text-stone-300">{n.authorName}</span>
-                <span className="text-[10px] text-stone-600">
-                  {new Date(n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                  {" "}
-                  {new Date(n.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+        {sorted.map(n => {
+          const ts      = new Date(n.createdAt);
+          const dateStr = ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+          const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          return (
+            <div key={n.id} className="rounded-lg px-3 py-2 border-l-2 border-stone-600">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-400">
+                  <StickyNote size={11} />
+                  <span>{n.authorName}</span>
+                </div>
+                <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">
+                  {dateStr} {timeStr}
                 </span>
               </div>
-              <p className="text-xs text-stone-200 whitespace-pre-wrap leading-relaxed bg-stone-800/60 rounded-lg px-3 py-2">
-                {n.body}
-              </p>
+              <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 
-      <div className="px-4 pb-3 pt-2 border-t border-stone-800 shrink-0">
-        {error && <p className="text-[10px] text-rose-400 mb-1.5">{error}</p>}
-        <div className="flex gap-2 items-end">
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            onKeyDown={onKey}
-            rows={2}
-            placeholder="Add a note… (⌘↵ to send)"
-            className="flex-1 px-3 py-2 text-xs rounded-lg border border-stone-700 bg-stone-800/60 text-white placeholder-stone-600 resize-none focus:border-emerald-500 focus:outline-none leading-relaxed"
+      {/* Input */}
+      <div className="p-2.5 border-t border-stone-800 flex-shrink-0">
+        {error && <p className="text-[10px] text-rose-400 mb-1.5 px-1">{error}</p>}
+        <div className="text-[10px] text-stone-600 font-medium mb-1.5 px-1">Internal note</div>
+        <div className="flex items-center gap-1.5">
+          <input
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); add(); } }}
+            placeholder="Write a note…"
+            className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500"
           />
-          <button onClick={send} disabled={!body.trim() || sending}
-            className="h-9 w-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 flex items-center justify-center transition-colors shrink-0">
-            {sending ? <Loader size={13} className="animate-spin text-white" /> : <Send size={13} className="text-white" />}
+          <button
+            onClick={add}
+            disabled={saving || !text.trim()}
+            className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors flex items-center"
+          >
+            {saving ? <Loader size={11} className="animate-spin" /> : "Add"}
           </button>
         </div>
-        <p className="text-[10px] text-stone-700 mt-1">Internal only — not visible to the lead</p>
       </div>
     </div>
   );
@@ -676,9 +680,10 @@ function LeadNotes({ leadId }: { leadId: string }) {
 
 // ── Lead detail modal ──────────────────────────────────────────────────────
 function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
-  const [status, setStatus] = useState<LeadStatus>(lead?.status ?? "new");
-  const [saving, setSaving] = useState(false);
-  const [tab,    setTab]    = useState<"details" | "notes">("details");
+  const [status,     setStatus]     = useState<LeadStatus>(lead?.status ?? "new");
+  const [saving,     setSaving]     = useState(false);
+  const [tab,        setTab]        = useState<"details" | "notes">("details");
+  const [noteCount,  setNoteCount]  = useState(0);
 
   if (!lead) return null;
 
@@ -718,7 +723,10 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
                 tab === t ? "border-emerald-500 text-emerald-400" : "border-transparent text-stone-500 hover:text-stone-300"
               }`}>
               {t === "notes" && <MessageSquare size={11} />}
-              {t === "details" ? "Details" : "Notes"}
+              {t === "details" ? "Details" : "Activity"}
+              {t === "notes" && noteCount > 0 && (
+                <span className="text-[10px] text-stone-500 font-normal">{noteCount}</span>
+              )}
             </button>
           ))}
         </div>
@@ -767,10 +775,10 @@ function LeadModal({ lead, onClose, onSave, onStatusChange, onEmail }: any) {
           </div>
         )}
 
-        {/* Notes tab */}
+        {/* Activity tab */}
         {tab === "notes" && (
           <div className="flex-1 flex flex-col min-h-0">
-            <LeadNotes leadId={lead.id} />
+            <LeadNotes leadId={lead.id} onCountChange={setNoteCount} />
           </div>
         )}
 
