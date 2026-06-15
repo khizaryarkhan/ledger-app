@@ -1,6 +1,6 @@
 import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
 import { db } from "@/db";
-import { apSuppliers, apSupplierContacts, apBills, purchaseOrders } from "@/db/schema";
+import { apSuppliers, apBills, purchaseOrders, apSupplierQueries } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -29,20 +29,38 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .limit(1);
   if (!supplier) return bad("Supplier not found", 404);
 
-  const contacts = await db.select().from(apSupplierContacts)
-    .where(and(eq(apSupplierContacts.supplierId, params.id), eq(apSupplierContacts.orgId, orgId!)));
-
-  const recentBills = await db.select().from(apBills)
+  const allBills = await db.select().from(apBills)
     .where(and(eq(apBills.supplierId, params.id), eq(apBills.orgId, orgId!)))
-    .orderBy(desc(apBills.createdAt))
-    .limit(10);
+    .orderBy(desc(apBills.dueDate));
 
-  const recentPOs = await db.select().from(purchaseOrders)
+  const allPOs = await db.select().from(purchaseOrders)
     .where(and(eq(purchaseOrders.supplierId, params.id), eq(purchaseOrders.orgId, orgId!)))
-    .orderBy(desc(purchaseOrders.createdAt))
-    .limit(10);
+    .orderBy(desc(purchaseOrders.createdAt));
 
-  return ok({ ...supplier, contacts, recentBills, recentPOs });
+  const allQueries = await db.select().from(apSupplierQueries)
+    .where(and(eq(apSupplierQueries.supplierId, params.id), eq(apSupplierQueries.orgId, orgId!)))
+    .orderBy(desc(apSupplierQueries.createdAt));
+
+  const totalOutstanding = allBills.reduce((sum, b) => sum + Math.max(0, b.balance ?? 0), 0);
+  const openBillsCount = allBills.filter(b => (b.balance ?? 0) > 0).length;
+  const openQueriesCount = allQueries.filter(q => q.status !== "Resolved" && q.status !== "Closed").length;
+
+  return ok({
+    ...supplier,
+    lastSynced: supplier.lastSyncedAt,
+    totalOutstanding,
+    openBillsCount,
+    openQueriesCount,
+    bills: allBills,
+    purchaseOrders: allPOs,
+    queries: allQueries.map(q => ({
+      id: q.id,
+      subject: q.category + (q.reason ? `: ${(q.reason).slice(0, 80)}` : ""),
+      createdAt: q.createdAt,
+      status: q.status,
+      resolvedAt: q.resolvedAt,
+    })),
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {

@@ -1,7 +1,7 @@
 import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
 import { db } from "@/db";
-import { apSuppliers } from "@/db/schema";
-import { eq, and, ilike, or } from "drizzle-orm";
+import { apSuppliers, apBills } from "@/db/schema";
+import { eq, and, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const CreateSchema = z.object({
@@ -28,8 +28,6 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
   const search = searchParams.get("search");
 
-  let query = db.select().from(apSuppliers).where(eq(apSuppliers.orgId, orgId!)).$dynamic();
-
   const conditions = [eq(apSuppliers.orgId, orgId!)];
   if (status) conditions.push(eq(apSuppliers.status, status));
   if (search) {
@@ -43,7 +41,40 @@ export async function GET(req: Request) {
     );
   }
 
-  const rows = await db.select().from(apSuppliers).where(and(...conditions));
+  const rows = await db
+    .select({
+      id:           apSuppliers.id,
+      orgId:        apSuppliers.orgId,
+      name:         apSuppliers.name,
+      displayName:  apSuppliers.displayName,
+      code:         apSuppliers.code,
+      email:        apSuppliers.email,
+      phone:        apSuppliers.phone,
+      address:      apSuppliers.address,
+      country:      apSuppliers.country,
+      currency:     apSuppliers.currency,
+      paymentTerms: apSuppliers.paymentTerms,
+      taxNumber:    apSuppliers.taxNumber,
+      status:       apSuppliers.status,
+      riskRating:   apSuppliers.riskRating,
+      notes:        apSuppliers.notes,
+      qboId:        apSuppliers.qboId,
+      xeroId:       apSuppliers.xeroId,
+      source:       apSuppliers.source,
+      lastSyncedAt: apSuppliers.lastSyncedAt,
+      createdAt:    apSuppliers.createdAt,
+      updatedAt:    apSuppliers.updatedAt,
+      lastSynced:   apSuppliers.lastSyncedAt,
+      totalOutstanding: sql<number>`COALESCE(SUM(CASE WHEN ${apBills.balance} > 0 THEN ${apBills.balance} ELSE 0 END), 0)`,
+      openBillsCount:   sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 THEN 1 ELSE NULL END)::int`,
+      overdueCount:     sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 AND ${apBills.dueDate} IS NOT NULL AND ${apBills.dueDate} < to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN 1 ELSE NULL END)::int`,
+    })
+    .from(apSuppliers)
+    .leftJoin(apBills, and(eq(apBills.supplierId, apSuppliers.id), eq(apBills.orgId, apSuppliers.orgId)))
+    .where(and(...conditions))
+    .groupBy(apSuppliers.id)
+    .orderBy(apSuppliers.name);
+
   return ok(rows);
 }
 

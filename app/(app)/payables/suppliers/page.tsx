@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -8,14 +8,15 @@ import {
   Users,
   AlertCircle,
   X,
-  RefreshCw,
 } from "lucide-react";
 import { Card, Badge, Button, Input, Select, Modal, EmptyState } from "@/components/ui";
+import { fmt } from "@/lib/format";
+import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SupplierStatus = "Active" | "Inactive";
-type SupplierSource = "QBO" | "Xero" | "Manual";
+type SupplierStatus = "Active" | "Inactive" | "Suspended";
+type SupplierSource = "qbo" | "xero" | "manual";
 
 interface Supplier {
   id: string;
@@ -27,37 +28,40 @@ interface Supplier {
   currency: string;
   paymentTerms?: number;
   status: SupplierStatus;
-  source: SupplierSource;
+  source: SupplierSource | string;
   lastSynced?: string;
   country?: string;
   taxNumber?: string;
+  riskRating?: string;
+  totalOutstanding: number;
+  overdueCount: number;
+  openBillsCount: number;
 }
 
-type StatusFilter = "All" | "Active" | "Inactive";
+type StatusFilter = "All" | "Active" | "Inactive" | "Suspended";
 type SourceFilter = "All" | "QBO" | "Xero" | "Manual";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtDate(dateStr?: string) {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+function normalizeSource(source: string | undefined | null): string {
+  if (!source) return "Manual";
+  const map: Record<string, string> = { qbo: "QBO", xero: "Xero", manual: "Manual" };
+  return map[source.toLowerCase()] ?? source;
+}
+
+function sourceBadgeVariant(source: string): string {
+  const normalized = normalizeSource(source);
+  const map: Record<string, string> = { QBO: "blue", Xero: "purple", Manual: "neutral" };
+  return map[normalized] ?? "neutral";
 }
 
 function statusBadgeVariant(status: SupplierStatus) {
   return status === "Active" ? "green" : "neutral";
 }
 
-function sourceBadgeVariant(source: SupplierSource) {
-  const map: Record<SupplierSource, string> = {
-    QBO: "blue",
-    Xero: "purple",
-    Manual: "neutral",
-  };
-  return map[source] || "neutral";
+function riskBadgeVariant(risk: string | undefined | null): string {
+  const map: Record<string, string> = { Low: "green", Medium: "yellow", High: "red" };
+  return (risk && map[risk]) ?? "neutral";
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -298,6 +302,20 @@ function AddSupplierModal({
   );
 }
 
+// ── Column definitions ────────────────────────────────────────────────────────
+
+const SUPPLIER_COLS: ColDef[] = [
+  { key: "name",             label: "Supplier",      sortValue: (r) => r.name,              filterLabel: (r) => r.name },
+  { key: "code",             label: "Code",           sortValue: (r) => r.code ?? "",        filterLabel: (r) => r.code ?? "(None)" },
+  { key: "country",          label: "Country",        sortValue: (r) => r.country ?? "",     filterLabel: (r) => r.country ?? "(None)" },
+  { key: "riskRating",       label: "Risk",           sortValue: (r) => r.riskRating ?? "",  filterLabel: (r) => r.riskRating ?? "" },
+  { key: "status",           label: "Status",         sortValue: (r) => r.status ?? "",      filterLabel: (r) => r.status ?? "" },
+  { key: "source",           label: "Source",         sortValue: (r) => normalizeSource(r.source), filterLabel: (r) => normalizeSource(r.source) },
+  { key: "totalOutstanding", label: "Outstanding",    sortValue: (r) => r.totalOutstanding ?? 0, align: "right" as const, noFilter: true },
+  { key: "overdueCount",     label: "Overdue",        sortValue: (r) => r.overdueCount ?? 0,     align: "right" as const, noFilter: true },
+  { key: "openBillsCount",   label: "Open Bills",     sortValue: (r) => r.openBillsCount ?? 0,   align: "right" as const, noFilter: true },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SuppliersPage() {
@@ -309,6 +327,7 @@ export default function SuppliersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("All");
   const [showAdd, setShowAdd] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   async function load() {
     setLoading(true);
@@ -344,13 +363,28 @@ export default function SuppliersPage() {
       rows = rows.filter((s) => s.status === statusFilter);
     }
     if (sourceFilter !== "All") {
-      rows = rows.filter((s) => s.source === sourceFilter);
+      rows = rows.filter((s) => normalizeSource(s.source) === sourceFilter);
     }
     return rows;
   }, [suppliers, search, statusFilter, sourceFilter]);
 
-  const hasFilters =
-    search || statusFilter !== "All" || sourceFilter !== "All";
+  const dt = useDataTable(filtered, SUPPLIER_COLS, { defaultSort: "totalOutstanding", defaultDir: "desc" });
+
+  const hasFilters = search || statusFilter !== "All" || sourceFilter !== "All";
+
+  const allSelected = dt.rows.length > 0 && dt.rows.every((r: any) => selected.has(r.id));
+  const toggleAll = useCallback(() => {
+    allSelected
+      ? setSelected(new Set())
+      : setSelected(new Set(dt.rows.map((r: any) => r.id)));
+  }, [allSelected, dt.rows]);
+  const toggleOne = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
@@ -388,57 +422,57 @@ export default function SuppliersPage() {
       )}
 
       {/* Filters */}
-      <Card padding="none" className="mb-0">
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input
-            value={search}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearch(e.target.value)
-            }
-            placeholder="Search name, code, email…"
-            icon={Search}
-            className="w-72"
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setStatusFilter(e.target.value as StatusFilter)
-            }
-            options={["All", "Active", "Inactive"]}
-            className="w-36"
-          />
-          <Select
-            value={sourceFilter}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setSourceFilter(e.target.value as SourceFilter)
-            }
-            options={["All", "QBO", "Xero", "Manual"]}
-            className="w-36"
-          />
-          {hasFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={X}
-              onClick={() => {
-                setSearch("");
-                setStatusFilter("All");
-                setSourceFilter("All");
-              }}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Input
+          value={search}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setSearch(e.target.value)
+          }
+          placeholder="Search name, code, email…"
+          icon={Search}
+          className="w-72"
+        />
+        <Select
+          value={statusFilter}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+            setStatusFilter(e.target.value as StatusFilter)
+          }
+          options={["All", "Active", "Inactive", "Suspended"]}
+          className="w-36"
+        />
+        <Select
+          value={sourceFilter}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+            setSourceFilter(e.target.value as SourceFilter)
+          }
+          options={["All", "QBO", "Xero", "Manual"]}
+          className="w-36"
+        />
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={X}
+            onClick={() => {
+              setSearch("");
+              setStatusFilter("All");
+              setSourceFilter("All");
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
 
-        {/* Table */}
-        {loading ? (
-          <div className="p-5 space-y-3">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
+      {/* Table */}
+      {loading ? (
+        <div className="p-5 space-y-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card>
           <EmptyState
             icon={Users}
             title="No suppliers found"
@@ -459,72 +493,104 @@ export default function SuppliersPage() {
               ) : undefined
             }
           />
-        ) : (
+        </Card>
+      ) : (
+        <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
+          <ActiveFiltersBar dt={dt} cols={SUPPLIER_COLS} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-800 bg-stone-900/60">
-                  {[
-                    "Name",
-                    "Code",
-                    "Email",
-                    "Currency",
-                    "Terms",
-                    "Status",
-                    "Source",
-                    "Last Synced",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wider text-stone-500 font-semibold"
-                    >
-                      {h}
-                    </th>
+                  <th className="px-3 py-2.5 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="rounded border-stone-600 cursor-pointer"
+                    />
+                  </th>
+                  {SUPPLIER_COLS.map((col) => (
+                    <ColHeader
+                      key={col.key}
+                      col={col}
+                      dt={dt}
+                      className={col.align === "right" ? "text-right" : "text-left"}
+                    />
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((sup) => (
+                {dt.rows.map((sup: any) => (
                   <tr
                     key={sup.id}
                     onClick={() => router.push(`/payables/suppliers/${sup.id}`)}
-                    className="border-b border-stone-800 hover:bg-stone-800/50 cursor-pointer transition-colors"
+                    className={`border-b border-stone-800 hover:bg-stone-800/50 cursor-pointer transition-colors ${selected.has(sup.id) ? "bg-violet-500/10" : ""}`}
                   >
-                    <td className="px-4 py-3 font-medium text-white whitespace-nowrap">
+                    <td className="px-3 py-2.5 w-10" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(sup.id)}
+                        onChange={() => toggleOne(sup.id)}
+                        className="rounded border-stone-600 cursor-pointer"
+                      />
+                    </td>
+                    {/* Supplier */}
+                    <td className="px-3 py-2.5 font-medium text-white whitespace-nowrap">
                       {sup.name}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-stone-400">
+                    {/* Code */}
+                    <td className="px-3 py-2.5 font-mono text-[12px] text-stone-400">
                       {sup.code || "—"}
                     </td>
-                    <td className="px-4 py-3 text-stone-300 text-xs max-w-[200px] truncate">
-                      {sup.email || "—"}
+                    {/* Country */}
+                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">
+                      {sup.country || "—"}
                     </td>
-                    <td className="px-4 py-3 text-stone-300 text-xs">
-                      {sup.currency}
+                    {/* Risk */}
+                    <td className="px-3 py-2.5">
+                      {sup.riskRating ? (
+                        <Badge variant={riskBadgeVariant(sup.riskRating)} size="sm">
+                          {sup.riskRating}
+                        </Badge>
+                      ) : (
+                        <span className="text-stone-600 text-[12px]">—</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-stone-300 text-xs">
-                      {sup.paymentTerms != null ? `Net ${sup.paymentTerms}` : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={statusBadgeVariant(sup.status)}>
+                    {/* Status */}
+                    <td className="px-3 py-2.5">
+                      <Badge variant={statusBadgeVariant(sup.status)} size="sm">
                         {sup.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={sourceBadgeVariant(sup.source)}>
-                        {sup.source}
+                    {/* Source */}
+                    <td className="px-3 py-2.5">
+                      <Badge variant={sourceBadgeVariant(sup.source)} size="sm">
+                        {normalizeSource(sup.source)}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-stone-400 text-xs whitespace-nowrap">
-                      {fmtDate(sup.lastSynced)}
+                    {/* Outstanding */}
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      <span className={sup.totalOutstanding > 0 ? "font-semibold text-white" : "text-stone-500"}>
+                        {fmt.money(sup.totalOutstanding, sup.currency)}
+                      </span>
+                    </td>
+                    {/* Overdue */}
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      <span className={sup.overdueCount > 0 ? "font-semibold text-rose-400" : "text-stone-500"}>
+                        {sup.overdueCount > 0 ? sup.overdueCount : "—"}
+                      </span>
+                    </td>
+                    {/* Open Bills */}
+                    <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums">
+                      {sup.openBillsCount}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
 
       <AddSupplierModal
         open={showAdd}
