@@ -130,7 +130,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.rep && r.repName !== cf.rep) return false;
       if (cf.stage && r.stageLabel !== cf.stage) return false;
       if (cf.response) {
-        const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Promised" : "None";
+        const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
         if (resp !== cf.response) return false;
       }
       if (cf.email === "has" && !r.email) return false;
@@ -215,7 +215,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     const lines = [headers.join(",")];
     src.forEach(r => {
       const resp = r.inv.hasOpenDispute ? `Disputed${r.inv.disputeReason ? ": " + r.inv.disputeReason : ""}`
-        : r.inv.promiseDate ? `Promised ${r.inv.promiseDate}` : "";
+        : r.inv.promiseDate ? `Committed ${r.inv.promiseDate}` : "";
       lines.push([
         r.inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
         r.stageLabel, resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
@@ -318,7 +318,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </th>
                 <th className="px-2 py-1.5">
                   <select value={cf.response ?? ""} onChange={e => setFilter("response", e.target.value)} className={inputCls}>
-                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Promised">Committed</option><option value="None">No response</option>
+                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Committed">Committed</option><option value="None">No response</option>
                   </select>
                 </th>
                 <th className="px-2 py-1.5">

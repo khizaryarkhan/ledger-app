@@ -2,10 +2,11 @@ import { db } from "@/db";
 import { organisations, invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
-import { DEFAULT_STAGES, Stage } from "@/lib/stages";
+import { DEFAULT_STAGES, ensureLockedStages, Stage } from "@/lib/stages";
 
 function getStages(org: any): Stage[] {
-  return (org?.stages as Stage[] | null) ?? DEFAULT_STAGES;
+  const raw = (org?.stages as Stage[] | null) ?? DEFAULT_STAGES;
+  return ensureLockedStages(raw);
 }
 
 export async function GET() {
