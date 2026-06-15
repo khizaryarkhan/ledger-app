@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
   MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown, StickyNote,
+  Upload, Download, Square, ListTodo,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
@@ -93,22 +94,36 @@ function TemplateForm({
   initial, onSave, onCancel, saving,
 }: {
   initial?: any;
-  onSave: (data: { name: string; subject: string; body: string }) => void;
+  onSave: (data: { name: string; subject: string; body: string; stage?: string }) => void;
   onCancel: () => void;
   saving: boolean;
 }) {
   const [name,    setName]    = useState(initial?.name    ?? "");
   const [subject, setSubject] = useState(initial?.subject ?? "");
   const [body,    setBody]    = useState(initial?.body    ?? "");
+  const [stage,   setStage]   = useState(initial?.stage   ?? "");
 
   const canSave = !saving && !!name.trim() && !!subject.trim() && !!body.trim();
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Template name</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Initial follow-up"
-          className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="col-span-2">
+          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Template name</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Initial follow-up"
+            className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-emerald-500 focus:outline-none" />
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+            Stage
+            <span className="ml-1.5 text-stone-600 normal-case tracking-normal font-normal">auto-selected in batch email</span>
+          </label>
+          <select value={stage} onChange={e => setStage(e.target.value)}
+            className="w-full h-8 px-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-emerald-500 focus:outline-none">
+            <option value="">Any stage</option>
+            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+          </select>
+        </div>
       </div>
       <div>
         <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
@@ -131,7 +146,7 @@ function TemplateForm({
           className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
           Cancel
         </button>
-        <button onClick={() => onSave({ name, subject, body })} disabled={!canSave}
+        <button onClick={() => onSave({ name, subject, body, stage: stage || undefined })} disabled={!canSave}
           className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
           {saving && <Loader size={11} className="animate-spin" />}
           {initial ? "Save changes" : "Create template"}
@@ -257,7 +272,12 @@ function TemplatesModal({ onClose }: { onClose: () => void }) {
                   {templates.map(t => (
                     <div key={t.id} className="flex items-start gap-3 p-3.5 rounded-lg border border-stone-800 bg-stone-800/30 hover:bg-stone-800/60 transition-colors group">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-white">{t.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold text-white">{t.name}</p>
+                          {t.stage && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-stone-700 text-stone-400">{t.stage}</span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-stone-500 mt-0.5 truncate">{t.subject}</p>
                         <p className="text-[11px] text-stone-600 mt-1 line-clamp-2 leading-relaxed">{t.body}</p>
                       </div>
@@ -635,6 +655,555 @@ function AddLeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (lea
   );
 }
 
+// ── Excel import modal ────────────────────────────────────────────────────
+function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: (n: number) => void }) {
+  const [step,      setStep]      = useState<"upload" | "preview" | "importing" | "done">("upload");
+  const [preview,   setPreview]   = useState<any[]>([]);
+  const [error,     setError]     = useState("");
+  const [results,   setResults]   = useState<{ inserted: number; skipped: number } | null>(null);
+  const [isDragging,setIsDragging]= useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadTemplate = async () => {
+    const XLSX = await import("xlsx");
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Full Name","Email","Company","Phone","Country","Interested Service","Stage","Message"],
+      ["Jane Smith","jane@company.com","Acme Ltd","+44 7700 900000","United Kingdom","AR Automation","new","Interested in automating AR"],
+      ["John Doe","john@startup.io","Startup IO","+353 87 123 4567","Ireland","Invoice Management","contacted","Spoke at conference"],
+    ]);
+    ws["!cols"] = [{wch:20},{wch:28},{wch:20},{wch:18},{wch:15},{wch:22},{wch:12},{wch:35}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+    XLSX.writeFile(wb, "leads-import-template.xlsx");
+  };
+
+  const parseFile = async (file: File) => {
+    setError("");
+    const XLSX = await import("xlsx");
+    const buf = await file.arrayBuffer();
+    try {
+      const wb   = XLSX.read(new Uint8Array(buf), { type: "array" });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
+      if (rows.length < 2) { setError("File appears to be empty"); return; }
+
+      const headers = rows[0].map((h: any) => String(h).toLowerCase().trim());
+      const fieldMap: Record<string,string> = {
+        "full name":"fullName","name":"fullName",
+        "email":"email","e-mail":"email",
+        "company":"companyName","company name":"companyName",
+        "phone":"phone","telephone":"phone",
+        "country":"country",
+        "interested service":"interestedService","service":"interestedService","interested in":"interestedService",
+        "stage":"status","status":"status",
+        "message":"message","notes":"message",
+      };
+      const parsed = rows.slice(1)
+        .filter(row => row.some((c: any) => String(c).trim()))
+        .map(row => {
+          const obj: Record<string,string> = {};
+          headers.forEach((h, i) => { const f = fieldMap[h]; if (f && row[i] != null) obj[f] = String(row[i]).trim(); });
+          return obj;
+        })
+        .filter(r => r.fullName && r.email);
+
+      if (parsed.length === 0) { setError("No valid rows — make sure columns are 'Full Name' and 'Email'"); return; }
+      setPreview(parsed);
+      setStep("preview");
+    } catch { setError("Could not read file — use a valid .xlsx or .csv"); }
+  };
+
+  const confirmImport = async () => {
+    setStep("importing");
+    const r = await fetch("/api/admin/leads/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rows: preview }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setResults(d); setStep("done"); onImported(d.inserted ?? 0); }
+    else      { setError(d.error ?? "Import failed"); setStep("preview"); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-2xl shadow-2xl ring-1 ring-stone-800 flex flex-col" style={{ maxHeight: "min(90vh, 700px)" }}>
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+              <Upload size={13} className="text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">Import leads</h2>
+              <p className="text-[10px] text-stone-500 mt-0.5">
+                {step === "upload"    && "Upload an Excel or CSV file"}
+                {step === "preview"   && `${preview.length} leads ready to import`}
+                {step === "importing" && "Importing…"}
+                {step === "done"      && "Import complete"}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 min-h-0">
+          {error && <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30 mb-4">{error}</div>}
+
+          {step === "upload" && (
+            <div className="space-y-4">
+              <button onClick={downloadTemplate}
+                className="w-full flex items-center gap-3 p-4 rounded-xl border border-stone-700 hover:border-emerald-600/50 hover:bg-emerald-500/5 transition-colors group">
+                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/20 transition-colors">
+                  <Download size={15} className="text-emerald-400" />
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-semibold text-stone-200">Download Excel template</p>
+                  <p className="text-[11px] text-stone-500 mt-0.5">Fill in your leads then upload the file below</p>
+                </div>
+              </button>
+
+              <div
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f); }}
+                onClick={() => fileRef.current?.click()}
+                className={`flex flex-col items-center justify-center gap-3 p-10 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
+                  isDragging ? "border-emerald-500 bg-emerald-500/10" : "border-stone-700 hover:border-stone-600 hover:bg-stone-800/30"
+                }`}
+              >
+                <Upload size={24} className="text-stone-600" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-stone-400">Drop your file here or click to browse</p>
+                  <p className="text-[11px] text-stone-600 mt-1">Supports .xlsx and .csv</p>
+                </div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f); e.target.value = ""; }} />
+              </div>
+
+              <div className="bg-stone-800/50 rounded-lg p-3">
+                <p className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Expected columns</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Full Name *","Email *","Company","Phone","Country","Interested Service","Stage","Message"].map(c => (
+                    <span key={c} className={`text-[10px] px-2 py-0.5 rounded font-mono ${c.includes("*") ? "bg-emerald-500/10 text-emerald-400" : "bg-stone-700 text-stone-400"}`}>{c}</span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-stone-600 mt-2">* Required. Stage values: new · contacted · qualified · converted · rejected · archived</p>
+              </div>
+            </div>
+          )}
+
+          {step === "preview" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-stone-400">Reviewing <span className="font-semibold text-white">{preview.length}</span> lead{preview.length !== 1 ? "s" : ""}</p>
+                <button onClick={() => setStep("upload")} className="text-[11px] text-stone-500 hover:text-stone-300">← Back</button>
+              </div>
+              <div className="overflow-auto rounded-lg ring-1 ring-stone-700 max-h-80">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-stone-700 bg-stone-800">
+                      {["Name","Email","Company","Phone","Stage"].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-[10px] text-stone-500 font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((row, i) => (
+                      <tr key={i} className="border-b border-stone-800 last:border-0">
+                        <td className="px-3 py-2 text-stone-200 font-medium">{row.fullName}</td>
+                        <td className="px-3 py-2 text-stone-400">{row.email}</td>
+                        <td className="px-3 py-2 text-stone-400">{row.companyName ?? "—"}</td>
+                        <td className="px-3 py-2 text-stone-400">{row.phone ?? "—"}</td>
+                        <td className="px-3 py-2"><span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-700 text-stone-400 font-mono">{row.status ?? "new"}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {step === "importing" && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader size={28} className="animate-spin text-emerald-400" />
+              <p className="text-sm font-medium text-stone-300">Importing {preview.length} leads…</p>
+            </div>
+          )}
+
+          {step === "done" && results && (
+            <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
+              <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center">
+                <CheckCircle size={26} className="text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Import complete</p>
+                <p className="text-xs text-stone-500 mt-1">
+                  <span className="text-emerald-400 font-semibold">{results.inserted}</span> leads imported
+                  {results.skipped > 0 && <span> · <span className="text-amber-400">{results.skipped}</span> skipped (missing name or email)</span>}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-between items-center shrink-0">
+          <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+            {step === "done" ? "Close" : "Cancel"}
+          </button>
+          {step === "preview" && (
+            <button onClick={confirmImport}
+              className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center gap-1.5">
+              <Upload size={11} /> Import {preview.length} leads
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch email modal ──────────────────────────────────────────────────────
+function BatchEmailModal({ leads, onClose, onSent }: { leads: any[]; onClose: () => void; onSent: () => void }) {
+  const [templates,       setTemplates]       = useState<any[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [subject,         setSubject]         = useState("");
+  const [body,            setBody]            = useState("");
+  const [ccTags,          setCcTags]          = useState<string[]>([]);
+  const [ccInput,         setCcInput]         = useState("");
+  const [sending,         setSending]         = useState(false);
+  const [progress,        setProgress]        = useState(0);
+  const [results,         setResults]         = useState<{ ok: number; fail: number } | null>(null);
+  const [errMsg,          setErrMsg]          = useState("");
+  const [pickerOpen,      setPickerOpen]      = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/email-templates").then(r => r.ok ? r.json() : []).then((data: any[]) => {
+      setTemplates(data);
+      setTemplatesLoaded(true);
+      if (data.length > 0) {
+        const stageCounts = leads.reduce((acc: Record<string,number>, l) => { acc[l.status] = (acc[l.status] ?? 0) + 1; return acc; }, {});
+        const dominant    = Object.entries(stageCounts).sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0];
+        const tpl         = data.find((t: any) => t.stage === dominant) ?? data[0];
+        if (tpl) { setSubject(tpl.subject); setBody(tpl.body); }
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const h = (e: MouseEvent) => { if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [pickerOpen]);
+
+  const addCcTag = (raw: string) => {
+    const email = raw.trim().replace(/,+$/, "");
+    if (email && !ccTags.includes(email)) setCcTags(prev => [...prev, email]);
+    setCcInput("");
+  };
+
+  const fill = (str: string, lead: any) =>
+    str.replace(/\{\{firstName\}\}/g, lead.fullName?.split(" ")[0] ?? "")
+       .replace(/\{\{companyName\}\}/g, lead.companyName ?? "");
+
+  const sendBatch = async () => {
+    if (sending) return;
+    setSending(true);
+    let ok = 0; let fail = 0;
+    for (let i = 0; i < leads.length; i++) {
+      const lead = leads[i];
+      try {
+        const r = await fetch(`/api/admin/leads/${lead.id}/email`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to: lead.email, subject: fill(subject, lead), body: fill(body, lead), cc: ccTags }),
+        });
+        if (r.ok) ok++; else fail++;
+      } catch { fail++; }
+      setProgress(i + 1);
+    }
+    setResults({ ok, fail });
+    setSending(false);
+    onSent();
+  };
+
+  if (results) return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-2xl ring-1 ring-stone-800 p-10 text-center">
+        <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4">
+          <CheckCircle size={26} className="text-emerald-400" />
+        </div>
+        <p className="text-sm font-semibold text-white mb-1">Batch email sent</p>
+        <p className="text-xs text-stone-500">
+          <span className="text-emerald-400 font-semibold">{results.ok}</span> delivered
+          {results.fail > 0 && <span> · <span className="text-rose-400 font-semibold">{results.fail}</span> failed</span>}
+        </p>
+        <button onClick={onClose} className="mt-6 h-8 px-5 text-xs font-medium rounded-lg bg-stone-800 text-stone-200 hover:bg-stone-700 transition-colors">Close</button>
+      </div>
+    </div>
+  );
+
+  const previewLeads = leads.slice(0, 3);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-lg shadow-2xl ring-1 ring-stone-800 flex flex-col" style={{ maxHeight: "min(90vh, 720px)" }}>
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Mail size={13} className="text-blue-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">Batch email</h2>
+              <p className="text-[10px] text-stone-500 mt-0.5">Sending to {leads.length} lead{leads.length !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={15} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-0">
+          {errMsg && <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{errMsg}</div>}
+
+          {/* Recipients */}
+          <div className="flex flex-wrap gap-1.5">
+            {previewLeads.map(l => (
+              <span key={l.id} className="text-[10px] bg-stone-800 text-stone-400 rounded px-2 py-0.5">{l.fullName}</span>
+            ))}
+            {leads.length > 3 && <span className="text-[10px] bg-stone-800 text-stone-500 rounded px-2 py-0.5">+{leads.length - 3} more</span>}
+          </div>
+
+          {/* Template picker */}
+          <div className="flex justify-between items-center" ref={pickerRef}>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Template</label>
+            <div className="relative">
+              <button onClick={() => setPickerOpen(v => !v)}
+                className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-600 transition-colors">
+                <BookTemplate size={11} className="text-violet-400" />
+                {!templatesLoaded ? "Loading…" : "Change template"}
+                <ChevronDown size={10} className={`transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
+              </button>
+              {pickerOpen && (
+                <div className="absolute right-0 top-full mt-1.5 z-20 w-64 bg-stone-800 border border-stone-700 rounded-xl shadow-2xl overflow-hidden">
+                  {templates.length === 0 ? (
+                    <div className="px-4 py-3 text-xs text-stone-500">No templates yet</div>
+                  ) : (
+                    <div className="max-h-52 overflow-y-auto">
+                      {templates.map((t: any) => (
+                        <button key={t.id} onClick={() => { setSubject(t.subject); setBody(t.body); setPickerOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 hover:bg-stone-700 transition-colors border-b border-stone-700/50 last:border-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-medium text-stone-200">{t.name}</p>
+                            {t.stage && <span className="text-[9px] bg-stone-600 text-stone-400 rounded px-1 font-mono">{t.stage}</span>}
+                          </div>
+                          <p className="text-[10px] text-stone-500 mt-0.5 truncate">{t.subject}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CC */}
+          <div>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+              CC <span className="ml-1 text-stone-600 normal-case font-normal tracking-normal">press Enter to add</span>
+            </label>
+            <div className="min-h-8 px-2 py-1 flex flex-wrap gap-1 items-center rounded-md ring-1 ring-stone-700 bg-stone-800 focus-within:ring-blue-500 cursor-text"
+              onClick={() => document.getElementById("bcc-input")?.focus()}>
+              {ccTags.map(tag => (
+                <span key={tag} className="inline-flex items-center gap-1 text-[11px] bg-stone-700 text-stone-200 rounded px-2 py-0.5">
+                  {tag}
+                  <button type="button" onClick={e => { e.stopPropagation(); setCcTags(p => p.filter(t => t !== tag)); }} className="text-stone-500 hover:text-stone-200 leading-none">×</button>
+                </span>
+              ))}
+              <input id="bcc-input" type="email" value={ccInput} onChange={e => setCcInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addCcTag(ccInput); } }}
+                onBlur={() => { if (ccInput.trim()) addCcTag(ccInput); }}
+                placeholder={ccTags.length === 0 ? "Add CC addresses…" : ""}
+                className="flex-1 min-w-24 text-xs bg-transparent text-stone-200 placeholder-stone-600 outline-none py-0.5" />
+            </div>
+          </div>
+
+          {/* Subject */}
+          <div>
+            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Your subject line"
+              className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-blue-500 focus:outline-none" />
+          </div>
+
+          {/* Body */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Message</label>
+              <span className="text-[10px] text-stone-600">{'{{firstName}}'} and {'{{companyName}}'} personalised per lead</span>
+            </div>
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={6}
+              placeholder={"Hi {{firstName}},\n\nThank you for your interest…"}
+              className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-blue-500 focus:outline-none leading-relaxed" />
+          </div>
+
+          {/* First-lead preview */}
+          {subject && body && previewLeads[0] && (
+            <div className="rounded-lg p-3 bg-stone-800/50 ring-1 ring-stone-700/50">
+              <p className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1.5">Preview · {previewLeads[0].fullName}</p>
+              <p className="text-[11px] font-medium text-stone-300">{fill(subject, previewLeads[0])}</p>
+              <p className="text-[11px] text-stone-500 mt-1 line-clamp-2 whitespace-pre-wrap">{fill(body, previewLeads[0])}</p>
+            </div>
+          )}
+
+          {/* Progress bar */}
+          {sending && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-stone-400">
+                <span>Sending…</span><span>{progress}/{leads.length}</span>
+              </div>
+              <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full transition-all duration-200" style={{ width: `${(progress / leads.length) * 100}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2 shrink-0">
+          <button onClick={onClose} disabled={sending}
+            className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 disabled:opacity-40 transition-colors">
+            Cancel
+          </button>
+          <button onClick={sendBatch} disabled={sending || !subject.trim() || !body.trim()}
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            {sending ? <Loader size={11} className="animate-spin" /> : <Send size={11} />}
+            {sending ? `Sending ${progress}/${leads.length}…` : `Send to ${leads.length} leads`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Follow-up tasks panel ──────────────────────────────────────────────────
+function LeadTasks({ leadId }: { leadId: string }) {
+  const [tasks,   setTasks]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title,   setTitle]   = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState("");
+
+  useEffect(() => {
+    fetch(`/api/admin/leads/${leadId}/tasks`).then(r => r.ok ? r.json() : [])
+      .then(data => { setTasks(data); setLoading(false); });
+  }, [leadId]);
+
+  const addTask = async () => {
+    if (!title.trim() || saving) return;
+    setError("");
+    setSaving(true);
+    const r = await fetch(`/api/admin/leads/${leadId}/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: title.trim(), dueDate: dueDate || null }),
+    });
+    if (r.ok) { const t = await r.json(); setTasks(prev => [...prev, t]); setTitle(""); setDueDate(""); }
+    else      { const d = await r.json().catch(() => ({})); setError(d.error ?? "Failed to create task"); }
+    setSaving(false);
+  };
+
+  const toggleTask = async (taskId: string, completed: boolean) => {
+    const r = await fetch(`/api/admin/leads/${leadId}/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ completed }),
+    });
+    if (r.ok) setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completedAt: completed ? new Date().toISOString() : null } : t));
+  };
+
+  const pending   = tasks.filter(t => !t.completedAt);
+  const completed = tasks.filter(t =>  t.completedAt);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
+        {loading && <div className="text-[12px] text-stone-600 text-center py-6 flex items-center justify-center gap-2"><Loader size={12} className="animate-spin" /> Loading…</div>}
+        {!loading && tasks.length === 0 && <div className="text-[12px] text-stone-600 text-center py-6">No tasks yet</div>}
+        {pending.map(t => {
+          const overdue = t.dueDate && new Date(t.dueDate) < new Date();
+          return (
+            <div key={t.id} className="rounded-lg px-3 py-2 border-l-2 border-amber-500 bg-amber-950/20 flex items-start gap-2.5">
+              <button onClick={() => toggleTask(t.id, true)} className="mt-0.5 shrink-0 text-amber-500 hover:text-emerald-400 transition-colors">
+                <Square size={13} />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] text-stone-200">{t.title}</p>
+                {t.dueDate && (
+                  <p className={`text-[10px] mt-0.5 ${overdue ? "text-rose-400" : "text-stone-500"}`}>
+                    {overdue ? "Overdue · " : "Due "}
+                    {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {completed.length > 0 && (
+          <>
+            <p className="text-[10px] text-stone-600 px-1 pt-1">Completed</p>
+            {completed.map(t => (
+              <div key={t.id} className="rounded-lg px-3 py-2 border-l-2 border-stone-700 flex items-start gap-2.5 opacity-50">
+                <button onClick={() => toggleTask(t.id, false)} className="mt-0.5 shrink-0 text-emerald-600 hover:text-amber-500 transition-colors">
+                  <CheckCircle size={13} />
+                </button>
+                <p className="text-[12px] text-stone-500 line-through">{t.title}</p>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      <div className="p-2.5 border-t border-stone-800 flex-shrink-0">
+        {error && <p className="text-[10px] text-rose-400 mb-1.5 px-1">{error}</p>}
+        <div className="text-[10px] text-stone-600 font-medium mb-1.5 px-1">New task</div>
+        <div className="flex items-center gap-1.5">
+          <input value={title} onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTask(); } }}
+            placeholder="Task description…"
+            className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
+          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+            className="text-[11px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-900 text-stone-400 outline-none focus:ring-1 focus:ring-amber-500 w-28" />
+          <button onClick={addTask} disabled={saving || !title.trim()}
+            className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors flex items-center">
+            {saving ? <Loader size={11} className="animate-spin" /> : "Add"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Activity panel (notes + tasks tabs) ────────────────────────────────────
+function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChange?: (n: number) => void }) {
+  const [tab, setTab] = useState<"activity" | "tasks">("activity");
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex border-b border-stone-800 shrink-0">
+        <button onClick={() => setTab("activity")}
+          className={`flex-1 py-2 text-[11px] font-medium transition-colors flex items-center justify-center gap-1.5 ${tab === "activity" ? "text-stone-200 border-b-2 border-emerald-500 -mb-px" : "text-stone-500 hover:text-stone-300"}`}>
+          <MessageSquare size={11} /> Activity
+        </button>
+        <button onClick={() => setTab("tasks")}
+          className={`flex-1 py-2 text-[11px] font-medium transition-colors flex items-center justify-center gap-1.5 ${tab === "tasks" ? "text-stone-200 border-b-2 border-amber-500 -mb-px" : "text-stone-500 hover:text-stone-300"}`}>
+          <ListTodo size={11} /> Tasks
+        </button>
+      </div>
+      {tab === "activity"
+        ? <LeadNotes leadId={leadId} onCountChange={onCountChange} />
+        : <LeadTasks leadId={leadId} />
+      }
+    </div>
+  );
+}
+
 // ── Lead activity / notes thread ──────────────────────────────────────────
 function LeadNotes({ leadId, onCountChange }: { leadId: string; onCountChange?: (n: number) => void }) {
   const [notes,   setNotes]   = useState<any[]>([]);
@@ -875,6 +1444,9 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showAdd, setShowAdd]         = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showImport, setShowImport]   = useState(false);
+  const [selected, setSelected]       = useState<Set<string>>(new Set());
+  const [showBatchEmail, setShowBatchEmail] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -914,6 +1486,12 @@ export default function LeadsPage() {
     setToast({ type: "success", message: `${lead.fullName} added as a lead` });
   };
 
+  const toggleSelect = (id: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const selectAll = () => setSelected(new Set(leads.map(l => l.id)));
+  const clearSelect = () => setSelected(new Set());
+
   const stats = {
     total:      leads.length,
     new:        leads.filter(l => l.status === "new").length,
@@ -936,6 +1514,13 @@ export default function LeadsPage() {
           >
             <BookTemplate size={13} className="text-violet-400" />
             Templates
+          </button>
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-emerald-300 hover:border-emerald-700/50 hover:bg-emerald-500/5 transition-colors"
+          >
+            <Upload size={13} className="text-emerald-400" />
+            Import
           </button>
           <button onClick={() => setShowAdd(true)}
             className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
@@ -1010,6 +1595,13 @@ export default function LeadsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-800">
+                <th className="pl-4 py-2.5 w-8">
+                  <input type="checkbox"
+                    checked={selected.size === leads.length && leads.length > 0}
+                    onChange={e => e.target.checked ? selectAll() : clearSelect()}
+                    className="rounded border-stone-600 bg-stone-800 accent-emerald-500 cursor-pointer"
+                  />
+                </th>
                 {["Name / Company", "Email", "Service", "Status", "Source", "Received", ""].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">{h}</th>
                 ))}
@@ -1017,7 +1609,14 @@ export default function LeadsPage() {
             </thead>
             <tbody>
               {leads.map((l: any) => (
-                <tr key={l.id} className="border-b border-stone-800/50 hover:bg-stone-800/20 transition-colors group">
+                <tr key={l.id} className={`border-b border-stone-800/50 hover:bg-stone-800/20 transition-colors group ${selected.has(l.id) ? "bg-stone-800/30" : ""}`}>
+                  <td className="pl-4 py-3 w-8" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox"
+                      checked={selected.has(l.id)}
+                      onChange={() => toggleSelect(l.id)}
+                      className="rounded border-stone-600 bg-stone-800 accent-emerald-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-4 py-3 cursor-pointer" onClick={() => setActive(l)}>
                     <p className="text-white text-xs font-medium">{l.fullName ?? "—"}</p>
                     {l.companyName && <p className="text-[11px] text-stone-500 mt-0.5">{l.companyName}</p>}
@@ -1098,8 +1697,7 @@ export default function LeadsPage() {
                           </button>
                         </div>
 
-                        {/* Notes feed */}
-                        <LeadNotes
+                        <ActivityPanel
                           leadId={l.id}
                           onCountChange={count => setNoteCounts(prev => ({ ...prev, [l.id]: count }))}
                         />
@@ -1113,11 +1711,44 @@ export default function LeadsPage() {
         )}
       </Card>
 
-      {showTemplates && <TemplatesModal onClose={() => setShowTemplates(false)} />}
-      {showAdd       && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
-      {active        && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} onEmail={setEmailTarget} />}
-      {emailTarget   && <LeadEmailModal lead={emailTarget} onClose={() => setEmailTarget(null)} />}
+      {showTemplates  && <TemplatesModal onClose={() => setShowTemplates(false)} />}
+      {showAdd        && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
+      {showImport     && <ImportModal onClose={() => setShowImport(false)} onImported={n => { setToast({ type: "success", message: `${n} lead${n !== 1 ? "s" : ""} imported` }); load(); }} />}
+      {showBatchEmail && (
+        <BatchEmailModal
+          leads={leads.filter(l => selected.has(l.id))}
+          onClose={() => setShowBatchEmail(false)}
+          onSent={() => { setToast({ type: "success", message: `Batch email sent to ${selected.size} leads` }); clearSelect(); }}
+        />
+      )}
+      {active         && <LeadModal lead={active} onClose={() => setActive(null)} onSave={handleSave} onStatusChange={handleInlineStatusChange} onEmail={setEmailTarget} />}
+      {emailTarget    && <LeadEmailModal lead={emailTarget} onClose={() => setEmailTarget(null)} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
+
+      {/* Floating batch action bar */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 bg-stone-900 border border-stone-700 rounded-2xl px-5 py-3 shadow-2xl">
+            <span className="text-xs font-semibold text-stone-200">
+              {selected.size} lead{selected.size !== 1 ? "s" : ""} selected
+            </span>
+            <div className="w-px h-4 bg-stone-700" />
+            <button
+              onClick={() => setShowBatchEmail(true)}
+              className="flex items-center gap-1.5 h-7 px-3 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+            >
+              <Mail size={11} /> Send email
+            </button>
+            <button
+              onClick={clearSelect}
+              className="h-7 w-7 flex items-center justify-center rounded-lg text-stone-500 hover:text-stone-300 hover:bg-stone-800 transition-colors"
+              title="Clear selection"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  const { name, subject, body } = await req.json().catch(() => ({}));
+  const { name, subject, body, stage } = await req.json().catch(() => ({}));
   if (!name?.trim())    return bad("Name is required");
   if (!subject?.trim()) return bad("Subject is required");
   if (!body?.trim())    return bad("Body is required");
@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       name:      name.trim(),
       subject:   subject.trim(),
       body:      body.trim(),
+      stage:     stage?.trim() || null,
       createdBy,
     }).returning();
     return ok(tpl);

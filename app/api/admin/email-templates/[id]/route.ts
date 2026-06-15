@@ -9,14 +9,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  const { name, subject, body } = await req.json().catch(() => ({}));
+  const { name, subject, body, stage } = await req.json().catch(() => ({}));
   if (!name?.trim())    return bad("Name is required");
   if (!subject?.trim()) return bad("Subject is required");
   if (!body?.trim())    return bad("Body is required");
 
   const [tpl] = await db
     .update(leadEmailTemplates)
-    .set({ name: name.trim(), subject: subject.trim(), body: body.trim(), updatedAt: new Date() })
+    .set({ name: name.trim(), subject: subject.trim(), body: body.trim(), stage: stage?.trim() || null, updatedAt: new Date() })
     .where(eq(leadEmailTemplates.id, params.id))
     .returning();
 

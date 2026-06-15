@@ -227,11 +227,27 @@ export const leadEmailTemplates = pgTable("lead_email_templates", {
   name:      varchar("name", { length: 255 }).notNull(),
   subject:   varchar("subject", { length: 500 }).notNull(),
   body:      text("body").notNull(),
+  stage:     varchar("stage", { length: 32 }),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type LeadEmailTemplate = typeof leadEmailTemplates.$inferSelect;
+
+// =========================================================================
+// LEAD TASKS (follow-up tasks per lead — platform admin only)
+// =========================================================================
+export const leadTasks = pgTable("lead_tasks", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  leadId:      uuid("lead_id").notNull().references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  title:       varchar("title", { length: 500 }).notNull(),
+  dueDate:     timestamp("due_date"),
+  assignedTo:  uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  completedAt: timestamp("completed_at"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+});
+export type LeadTask = typeof leadTasks.$inferSelect;
 
 // =========================================================================
 // BILLING AUDIT LOG
