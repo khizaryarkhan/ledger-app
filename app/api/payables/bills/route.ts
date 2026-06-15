@@ -1,6 +1,6 @@
 import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
 import { db } from "@/db";
-import { apBills } from "@/db/schema";
+import { apBills, apSuppliers } from "@/db/schema";
 import { eq, and, ilike, lte, gte, desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -35,9 +35,37 @@ export async function GET(req: Request) {
   if (dueBefore)      conditions.push(lte(apBills.dueDate, dueBefore));
   if (dueAfter)       conditions.push(gte(apBills.dueDate, dueAfter));
 
-  const rows = await db.select().from(apBills)
+  const rows = await db
+    .select({
+      id:              apBills.id,
+      billNumber:      apBills.billNumber,
+      supplierId:      apBills.supplierId,
+      supplierName:    apSuppliers.name,
+      billDate:        apBills.billDate,
+      dueDate:         apBills.dueDate,
+      currency:        apBills.currency,
+      subtotal:        apBills.subtotal,
+      taxTotal:        apBills.taxTotal,
+      total:           apBills.total,
+      amountPaid:      apBills.amountPaid,
+      balance:         apBills.balance,
+      accountingStatus: apBills.accountingPaymentStatus,
+      workflowStatus:  apBills.workflowStatus,
+      approvalStatus:  apBills.approvalStatus,
+      purchaseOrderId: apBills.purchaseOrderId,
+      qboId:           apBills.qboId,
+      xeroId:          apBills.xeroId,
+      source:          apBills.source,
+      assignedApproverId: apBills.assignedApproverId,
+      privateNote:     apBills.privateNote,
+      createdAt:       apBills.createdAt,
+      updatedAt:       apBills.updatedAt,
+    })
+    .from(apBills)
+    .leftJoin(apSuppliers, eq(apBills.supplierId, apSuppliers.id))
     .where(and(...conditions))
     .orderBy(desc(apBills.dueDate));
+
   return ok(rows);
 }
 
