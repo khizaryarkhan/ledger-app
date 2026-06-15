@@ -250,6 +250,52 @@ export const leadTasks = pgTable("lead_tasks", {
 export type LeadTask = typeof leadTasks.$inferSelect;
 
 // =========================================================================
+// EMAIL SEQUENCES (drip campaigns for leads — platform admin only)
+// =========================================================================
+export const leadSequences = pgTable("lead_sequences", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  name:        varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  isActive:    boolean("is_active").notNull().default(true),
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+});
+export type LeadSequence = typeof leadSequences.$inferSelect;
+
+export const leadSequenceSteps = pgTable("lead_sequence_steps", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  sequenceId: uuid("sequence_id").notNull().references(() => leadSequences.id, { onDelete: "cascade" }),
+  stepNumber: integer("step_number").notNull(),
+  delayDays:  integer("delay_days").notNull().default(1),
+  subject:    varchar("subject", { length: 500 }).notNull(),
+  body:       text("body").notNull(),
+});
+export type LeadSequenceStep = typeof leadSequenceSteps.$inferSelect;
+
+export const leadSequenceEnrollments = pgTable("lead_sequence_enrollments", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  leadId:      uuid("lead_id").notNull().references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  sequenceId:  uuid("sequence_id").notNull().references(() => leadSequences.id, { onDelete: "cascade" }),
+  status:      varchar("status", { length: 50 }).notNull().default("active"),
+  enrolledAt:  timestamp("enrolled_at").notNull().defaultNow(),
+  enrolledBy:  uuid("enrolled_by").references(() => users.id, { onDelete: "set null" }),
+  completedAt: timestamp("completed_at"),
+});
+export type LeadSequenceEnrollment = typeof leadSequenceEnrollments.$inferSelect;
+
+export const leadSequenceSends = pgTable("lead_sequence_sends", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  enrollmentId: uuid("enrollment_id").notNull().references(() => leadSequenceEnrollments.id, { onDelete: "cascade" }),
+  stepId:       uuid("step_id").notNull().references(() => leadSequenceSteps.id, { onDelete: "cascade" }),
+  scheduledAt:  timestamp("scheduled_at").notNull(),
+  sentAt:       timestamp("sent_at"),
+  status:       varchar("status", { length: 50 }).notNull().default("pending"),
+  errorMessage: text("error_message"),
+});
+export type LeadSequenceSend = typeof leadSequenceSends.$inferSelect;
+
+// =========================================================================
 // BILLING AUDIT LOG
 // =========================================================================
 export const billingAuditLogs = pgTable("billing_audit_logs", {

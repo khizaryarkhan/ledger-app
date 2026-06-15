@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
   MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown, StickyNote,
-  Upload, Download, Square, ListTodo,
+  Upload, Download, Square, ListTodo, Zap, Play, Pause,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
@@ -1181,11 +1181,80 @@ function LeadTasks({ leadId }: { leadId: string }) {
   );
 }
 
-// ── Activity panel (notes + tasks tabs) ────────────────────────────────────
+// ── Activity panel (notes + tasks + enrolment) ────────────────────────────
 function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChange?: (n: number) => void }) {
-  const [tab, setTab] = useState<"activity" | "tasks">("activity");
+  const [tab,         setTab]         = useState<"activity" | "tasks">("activity");
+  const [enrollments, setEnrollments] = useState<any[]>([]);
+  const [sequences,   setSequences]   = useState<any[]>([]);
+  const [enrollOpen,  setEnrollOpen]  = useState(false);
+  const enrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch(`/api/admin/leads/${leadId}/enrollments`).then(r => r.ok ? r.json() : []).then(setEnrollments);
+    fetch("/api/admin/sequences").then(r => r.ok ? r.json() : [])
+      .then((data: any[]) => setSequences(data.filter(s => s.isActive)));
+  }, [leadId]);
+
+  useEffect(() => {
+    if (!enrollOpen) return;
+    const h = (e: MouseEvent) => { if (enrollRef.current && !enrollRef.current.contains(e.target as Node)) setEnrollOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [enrollOpen]);
+
+  const enroll = async (sequenceId: string) => {
+    setEnrollOpen(false);
+    const r = await fetch(`/api/admin/leads/${leadId}/enrollments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sequenceId }),
+    });
+    if (r.ok) setEnrollments(prev => [...prev, await r.json()]);
+  };
+
+  const cancelEnrollment = async (enrollmentId: string) => {
+    const r = await fetch(`/api/admin/leads/${leadId}/enrollments/${enrollmentId}`, { method: "DELETE" });
+    if (r.ok) setEnrollments(prev => prev.map(e => e.id === enrollmentId ? { ...e, status: "cancelled" } : e));
+  };
+
+  const activeEnrollments = enrollments.filter(e => e.status === "active");
+  const canEnroll = sequences.filter(s => !activeEnrollments.some(e => e.sequenceId === s.id));
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {/* Sequence enrolment bar */}
+      {(activeEnrollments.length > 0 || sequences.length > 0) && (
+        <div className="px-3 py-2 border-b border-stone-800 flex items-center gap-2 flex-wrap shrink-0" ref={enrollRef}>
+          {activeEnrollments.map(e => (
+            <div key={e.id} className="flex items-center gap-1 text-[10px] bg-purple-500/10 text-purple-300 rounded-full px-2 py-0.5 border border-purple-500/20">
+              <Zap size={9} />
+              <span className="max-w-[90px] truncate">{e.sequenceName}</span>
+              <button onClick={() => cancelEnrollment(e.id)} className="text-purple-400 hover:text-rose-400 leading-none ml-0.5" title="Cancel">×</button>
+            </div>
+          ))}
+          {canEnroll.length > 0 && (
+            <div className="relative">
+              <button onClick={() => setEnrollOpen(v => !v)}
+                className="flex items-center gap-1 text-[10px] text-stone-500 hover:text-purple-400 transition-colors">
+                <Zap size={10} /> Enroll in sequence
+              </button>
+              {enrollOpen && (
+                <div className="absolute left-0 top-full mt-1 z-30 w-52 bg-stone-800 border border-stone-700 rounded-lg shadow-xl overflow-hidden">
+                  {canEnroll.map((s: any) => (
+                    <button key={s.id} onClick={() => enroll(s.id)}
+                      className="w-full text-left px-3 py-2.5 text-xs hover:bg-stone-700 transition-colors border-b border-stone-700/50 last:border-0">
+                      <p className="font-medium text-stone-200">{s.name}</p>
+                      <p className="text-[10px] text-stone-500 mt-0.5">{s.stepCount} step{s.stepCount !== 1 ? "s" : ""}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
       <div className="flex border-b border-stone-800 shrink-0">
         <button onClick={() => setTab("activity")}
           className={`flex-1 py-2 text-[11px] font-medium transition-colors flex items-center justify-center gap-1.5 ${tab === "activity" ? "text-stone-200 border-b-2 border-emerald-500 -mb-px" : "text-stone-500 hover:text-stone-300"}`}>
@@ -1200,6 +1269,304 @@ function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChang
         ? <LeadNotes leadId={leadId} onCountChange={onCountChange} />
         : <LeadTasks leadId={leadId} />
       }
+    </div>
+  );
+}
+
+// ── Sequences management modal ─────────────────────────────────────────────
+function SequencesModal({ onClose }: { onClose: () => void }) {
+  const [sequences, setSequences] = useState<any[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [view,      setView]      = useState<"list" | "edit">("list");
+  const [editing,   setEditing]   = useState<any>(null);
+  const [steps,     setSteps]     = useState<any[]>([]);
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState("");
+
+  // Sequence form
+  const [seqName, setSeqName]           = useState("");
+  const [seqDesc, setSeqDesc]           = useState("");
+  const [seqActive, setSeqActive]       = useState(true);
+
+  // Step form
+  const [addingStep,    setAddingStep]  = useState(false);
+  const [stepDelay,     setStepDelay]   = useState(1);
+  const [stepSubject,   setStepSubject] = useState("");
+  const [stepBody,      setStepBody]    = useState("");
+  const [stepSaving,    setStepSaving]  = useState(false);
+
+  const loadSequences = async () => {
+    setLoading(true);
+    const r = await fetch("/api/admin/sequences");
+    if (r.ok) setSequences(await r.json());
+    setLoading(false);
+  };
+
+  useEffect(() => { loadSequences(); }, []);
+
+  const openEdit = async (seq: any | null) => {
+    setEditing(seq);
+    setSeqName(seq?.name ?? "");
+    setSeqDesc(seq?.description ?? "");
+    setSeqActive(seq?.isActive ?? true);
+    setSteps([]);
+    setAddingStep(false);
+    setError("");
+    if (seq) {
+      const r = await fetch(`/api/admin/sequences/${seq.id}/steps`);
+      if (r.ok) setSteps(await r.json());
+    }
+    setView("edit");
+  };
+
+  const saveSequence = async () => {
+    if (!seqName.trim()) { setError("Name is required"); return; }
+    setSaving(true); setError("");
+    const url    = editing ? `/api/admin/sequences/${editing.id}` : "/api/admin/sequences";
+    const method = editing ? "PATCH" : "POST";
+    const r = await fetch(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: seqName.trim(), description: seqDesc.trim(), isActive: seqActive }),
+    });
+    const d = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (r.ok) {
+      if (!editing) { setEditing(d); loadSequences(); }
+      else          { setSequences(prev => prev.map(s => s.id === d.id ? { ...d, stepCount: s.stepCount } : s)); setEditing(d); }
+    } else { setError(d.error ?? "Failed to save"); }
+  };
+
+  const deleteSequence = async (id: string) => {
+    await fetch(`/api/admin/sequences/${id}`, { method: "DELETE" });
+    setSequences(prev => prev.filter(s => s.id !== id));
+    if (editing?.id === id) { setView("list"); setEditing(null); }
+  };
+
+  const toggleActive = async (seq: any) => {
+    const r = await fetch(`/api/admin/sequences/${seq.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isActive: !seq.isActive }),
+    });
+    if (r.ok) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, isActive: !s.isActive } : s));
+  };
+
+  const addStep = async () => {
+    if (!stepSubject.trim() || !stepBody.trim() || !editing) return;
+    setStepSaving(true);
+    const r = await fetch(`/api/admin/sequences/${editing.id}/steps`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ delayDays: stepDelay, subject: stepSubject.trim(), body: stepBody.trim() }),
+    });
+    if (r.ok) {
+      setSteps(prev => [...prev, await r.json()]);
+      setStepSubject(""); setStepBody(""); setStepDelay(1); setAddingStep(false);
+      setSequences(prev => prev.map(s => s.id === editing.id ? { ...s, stepCount: (s.stepCount ?? 0) + 1 } : s));
+    }
+    setStepSaving(false);
+  };
+
+  const deleteStep = async (stepId: string) => {
+    await fetch(`/api/admin/sequences/${editing.id}/steps/${stepId}`, { method: "DELETE" });
+    setSteps(prev => prev.filter(s => s.id !== stepId));
+    setSequences(prev => prev.map(s => s.id === editing!.id ? { ...s, stepCount: Math.max(0, (s.stepCount ?? 1) - 1) } : s));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-stone-900 rounded-xl w-full max-w-2xl shadow-xl ring-1 ring-stone-800 flex flex-col" style={{ maxHeight: "min(90vh, 720px)" }}>
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-purple-500/15 flex items-center justify-center">
+              <Zap size={13} className="text-purple-400" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white text-sm">
+                {view === "list" ? "Email sequences" : editing ? `Editing: ${editing.name}` : "New sequence"}
+              </h2>
+              {view === "list" && <p className="text-[10px] text-stone-500 mt-0.5">{sequences.length} sequence{sequences.length !== 1 ? "s" : ""}</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {view === "edit" && (
+              <button onClick={() => { setView("list"); setEditing(null); }}
+                className="h-7 px-3 text-[11px] text-stone-400 hover:text-stone-200 hover:bg-stone-800 rounded-lg transition-colors">
+                ← Back
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={15} /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 min-h-0">
+          {error && <div className="text-xs text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30 mb-3">{error}</div>}
+
+          {/* LIST */}
+          {view === "list" && (
+            loading ? (
+              <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-20 bg-stone-800 rounded-lg animate-pulse" />)}</div>
+            ) : sequences.length === 0 ? (
+              <div className="text-center py-12">
+                <Zap size={24} className="text-stone-700 mx-auto mb-2" />
+                <p className="text-sm text-stone-500 font-medium">No sequences yet</p>
+                <p className="text-xs text-stone-600 mt-1">Automate follow-ups — enrol leads and emails send on schedule</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sequences.map(s => (
+                  <div key={s.id} className="flex items-center gap-3 p-3.5 rounded-lg border border-stone-800 bg-stone-800/30 hover:bg-stone-800/60 transition-colors group">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-semibold text-white">{s.name}</p>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${s.isActive ? "bg-emerald-500/15 text-emerald-400" : "bg-stone-700 text-stone-500"}`}>
+                          {s.isActive ? "active" : "paused"}
+                        </span>
+                        <span className="text-[10px] text-stone-600">{s.stepCount ?? 0} step{s.stepCount !== 1 ? "s" : ""}</span>
+                      </div>
+                      {s.description && <p className="text-[11px] text-stone-500 mt-0.5 truncate">{s.description}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={() => toggleActive(s)} title={s.isActive ? "Pause" : "Activate"}
+                        className="p-1.5 rounded hover:bg-stone-700 text-stone-500 hover:text-stone-200 transition-colors">
+                        {s.isActive ? <Pause size={12} /> : <Play size={12} />}
+                      </button>
+                      <button onClick={() => openEdit(s)}
+                        className="p-1.5 rounded hover:bg-stone-700 text-stone-500 hover:text-stone-200 transition-colors">
+                        <Pencil size={12} />
+                      </button>
+                      <button onClick={() => deleteSequence(s.id)}
+                        className="p-1.5 rounded hover:bg-rose-500/15 text-stone-500 hover:text-rose-400 transition-colors">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+
+          {/* EDIT / CREATE */}
+          {view === "edit" && (
+            <div className="space-y-5">
+              {/* Sequence details */}
+              <div className="p-4 rounded-lg bg-stone-800/30 ring-1 ring-stone-800 space-y-3">
+                <div>
+                  <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Sequence name</label>
+                  <input value={seqName} onChange={e => setSeqName(e.target.value)} placeholder="e.g. New lead nurture"
+                    className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-purple-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Description</label>
+                  <input value={seqDesc} onChange={e => setSeqDesc(e.target.value)} placeholder="Optional description"
+                    className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-purple-500 focus:outline-none" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={seqActive} onChange={e => setSeqActive(e.target.checked)} className="rounded accent-emerald-500" />
+                    <span className="text-xs text-stone-300">Active — new enrolments will send automatically</span>
+                  </label>
+                  <button onClick={saveSequence} disabled={saving || !seqName.trim()}
+                    className="h-8 px-4 text-xs font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+                    {saving && <Loader size={11} className="animate-spin" />}
+                    {editing ? "Save" : "Create sequence"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Steps — only show once the sequence exists */}
+              {editing && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Steps ({steps.length})</p>
+                    {!addingStep && (
+                      <button onClick={() => setAddingStep(true)}
+                        className="flex items-center gap-1 h-6 px-2.5 text-[11px] font-medium rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-400 hover:text-stone-200 transition-colors">
+                        <Plus size={10} /> Add step
+                      </button>
+                    )}
+                  </div>
+
+                  {steps.length === 0 && !addingStep && (
+                    <div className="text-center py-6 rounded-lg border border-dashed border-stone-700">
+                      <p className="text-xs text-stone-600">No steps yet — add the first email in this sequence</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {steps.map((step, idx) => (
+                      <div key={step.id} className="rounded-lg p-3.5 bg-stone-800/30 ring-1 ring-stone-800 group">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">Step {idx + 1}</span>
+                            <span className="text-[10px] text-stone-500">
+                              {step.delayDays === 0 ? "Immediately on enrolment" : `${step.delayDays} day${step.delayDays !== 1 ? "s" : ""} after ${idx === 0 ? "enrolment" : "previous step"}`}
+                            </span>
+                          </div>
+                          <button onClick={() => deleteStep(step.id)}
+                            className="p-1 rounded hover:bg-rose-500/15 text-stone-600 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100">
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                        <p className="text-[11px] font-medium text-stone-300">{step.subject}</p>
+                        <p className="text-[11px] text-stone-500 mt-0.5 line-clamp-2 whitespace-pre-wrap">{step.body}</p>
+                      </div>
+                    ))}
+
+                    {addingStep && (
+                      <div className="rounded-lg p-4 ring-1 ring-purple-500/30 bg-purple-500/5 space-y-3">
+                        <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider">Step {steps.length + 1}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                              Delay (days after {steps.length === 0 ? "enrolment" : "previous step"})
+                            </label>
+                            <input type="number" min={0} value={stepDelay} onChange={e => setStepDelay(Number(e.target.value))}
+                              className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-purple-500 focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+                            <input value={stepSubject} onChange={e => setStepSubject(e.target.value)} placeholder="Email subject"
+                              className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-purple-500 focus:outline-none" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                            Body <span className="ml-1.5 text-stone-600 normal-case font-normal tracking-normal">{'{{firstName}}'}, {'{{companyName}}'} supported</span>
+                          </label>
+                          <textarea value={stepBody} onChange={e => setStepBody(e.target.value)} rows={5}
+                            placeholder={"Hi {{firstName}},\n\n"}
+                            className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 resize-none focus:ring-purple-500 focus:outline-none leading-relaxed" />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setAddingStep(false)}
+                            className="h-7 px-3 text-[11px] text-stone-400 hover:text-stone-200 hover:bg-stone-800 rounded-lg transition-colors">Cancel</button>
+                          <button onClick={addStep} disabled={stepSaving || !stepSubject.trim() || !stepBody.trim()}
+                            className="h-7 px-3 text-[11px] font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1">
+                            {stepSaving && <Loader size={10} className="animate-spin" />} Add step
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {view === "list" && (
+          <div className="px-5 py-3 border-t border-stone-800 flex justify-between items-center shrink-0">
+            <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">Close</button>
+            <button onClick={() => openEdit(null)}
+              className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors">
+              <Plus size={12} /> New sequence
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1444,8 +1811,9 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showAdd, setShowAdd]         = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [showImport, setShowImport]   = useState(false);
-  const [selected, setSelected]       = useState<Set<string>>(new Set());
+  const [showImport, setShowImport]         = useState(false);
+  const [showSequences, setShowSequences]   = useState(false);
+  const [selected, setSelected]             = useState<Set<string>>(new Set());
   const [showBatchEmail, setShowBatchEmail] = useState(false);
 
   const load = useCallback(async () => {
@@ -1514,6 +1882,13 @@ export default function LeadsPage() {
           >
             <BookTemplate size={13} className="text-violet-400" />
             Templates
+          </button>
+          <button
+            onClick={() => setShowSequences(true)}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-purple-300 hover:border-purple-700/50 hover:bg-purple-500/5 transition-colors"
+          >
+            <Zap size={13} className="text-purple-400" />
+            Sequences
           </button>
           <button
             onClick={() => setShowImport(true)}
@@ -1711,6 +2086,7 @@ export default function LeadsPage() {
         )}
       </Card>
 
+      {showSequences  && <SequencesModal onClose={() => setShowSequences(false)} />}
       {showTemplates  && <TemplatesModal onClose={() => setShowTemplates(false)} />}
       {showAdd        && <AddLeadModal onClose={() => setShowAdd(false)} onSaved={handleLeadAdded} />}
       {showImport     && <ImportModal onClose={() => setShowImport(false)} onImported={n => { setToast({ type: "success", message: `${n} lead${n !== 1 ? "s" : ""} imported` }); load(); }} />}
