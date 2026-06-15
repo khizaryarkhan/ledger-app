@@ -90,7 +90,7 @@ export default function TeamSettingsPage() {
   const loadMembers = async () => {
     setLoadingMembers(true);
     try {
-      const res = await fetch("/api/admin/users");
+      const res = await fetch("/api/org/users");
       if (res.ok) setMembers(await res.json());
     } finally { setLoadingMembers(false); }
   };
@@ -114,7 +114,7 @@ export default function TeamSettingsPage() {
     if (newUser.password.length < 8)      { setCreateError("Password must be 8+ characters"); return; }
     setAddingUser(true);
     try {
-      const res  = await fetch("/api/admin/users", {
+      const res  = await fetch("/api/org/users", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newUser),
       });
@@ -133,7 +133,7 @@ export default function TeamSettingsPage() {
   const [managerSaving, setManagerSaving] = useState<string | null>(null);
 
   const toggleStatus = async (m: TeamUser) => {
-    await fetch("/api/admin/users", {
+    await fetch("/api/org/users", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: m.id, status: m.status === "Active" ? "Inactive" : "Active" }),
     });
@@ -143,7 +143,7 @@ export default function TeamSettingsPage() {
   const changeRole = async (m: TeamUser, newVirtualRole: string) => {
     setRoleSaving(m.id);
     try {
-      await fetch("/api/admin/users", {
+      await fetch("/api/org/users", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: m.id, role: newVirtualRole }),
       });
@@ -156,7 +156,7 @@ export default function TeamSettingsPage() {
   };
 
   const deleteUser = async (userId: string) => {
-    await fetch(`/api/admin/users?userId=${userId}`, { method: "DELETE" });
+    await fetch(`/api/org/users?userId=${userId}`, { method: "DELETE" });
     setConfirmDelete(null);
     await loadMembers();
   };
