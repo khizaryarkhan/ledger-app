@@ -1209,7 +1209,7 @@ function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChang
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ sequenceId }),
     });
-    if (r.ok) setEnrollments(prev => [...prev, await r.json()]);
+    if (r.ok) { const data = await r.json(); setEnrollments(prev => [...prev, data]); }
   };
 
   const cancelEnrollment = async (enrollmentId: string) => {
@@ -1361,7 +1361,7 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
       body: JSON.stringify({ delayDays: stepDelay, subject: stepSubject.trim(), body: stepBody.trim() }),
     });
     if (r.ok) {
-      setSteps(prev => [...prev, await r.json()]);
+      const newStep = await r.json(); setSteps(prev => [...prev, newStep]);
       setStepSubject(""); setStepBody(""); setStepDelay(1); setAddingStep(false);
       setSequences(prev => prev.map(s => s.id === editing.id ? { ...s, stepCount: (s.stepCount ?? 0) + 1 } : s));
     }
