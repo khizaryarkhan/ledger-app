@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
   MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown, StickyNote,
-  Upload, Download, Square, ListTodo, Zap, Play, Pause,
+  Upload, Download, Square, ListTodo, Zap, Play, Pause, Sparkles,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
@@ -1815,6 +1815,31 @@ export default function LeadsPage() {
   const [showSequences, setShowSequences]   = useState(false);
   const [selected, setSelected]             = useState<Set<string>>(new Set());
   const [showBatchEmail, setShowBatchEmail] = useState(false);
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
+
+  const seedDefaults = async () => {
+    setSeedingDefaults(true);
+    try {
+      const r = await fetch("/api/admin/leads/seed-defaults", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const { templatesCreated, sequencesCreated } = d;
+        const parts = [];
+        if (templatesCreated > 0) parts.push(`${templatesCreated} template${templatesCreated !== 1 ? "s" : ""}`);
+        if (sequencesCreated > 0) parts.push(`${sequencesCreated} sequence${sequencesCreated !== 1 ? "s" : ""}`);
+        setToast({
+          type: "success",
+          message: parts.length > 0
+            ? `Loaded ${parts.join(" and ")} — open Templates & Sequences to see them`
+            : "Defaults already loaded — nothing new to add",
+        });
+      } else {
+        setToast({ type: "error", message: d.error ?? "Failed to load defaults" });
+      }
+    } finally {
+      setSeedingDefaults(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1896,6 +1921,17 @@ export default function LeadsPage() {
           >
             <Upload size={13} className="text-emerald-400" />
             Import
+          </button>
+          <button
+            onClick={seedDefaults}
+            disabled={seedingDefaults}
+            title="Load default stage templates + a 6-step nurture sequence"
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-amber-300 hover:border-amber-700/50 hover:bg-amber-500/5 transition-colors disabled:opacity-50"
+          >
+            {seedingDefaults
+              ? <Loader size={13} className="animate-spin text-amber-400" />
+              : <Sparkles size={13} className="text-amber-400" />}
+            Seed defaults
           </button>
           <button onClick={() => setShowAdd(true)}
             className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
