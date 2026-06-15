@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
   MessageSquare, CheckCircle, BookTemplate, Pencil, Trash2, ChevronDown, StickyNote,
-  Upload, Download, Square, ListTodo, Zap, Play, Pause, Sparkles,
+  Upload, Download, Square, ListTodo, Zap, Play, Pause, Sparkles, Reply,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 
@@ -1182,7 +1182,7 @@ function LeadTasks({ leadId }: { leadId: string }) {
 }
 
 // ── Activity panel (notes + tasks + enrolment) ────────────────────────────
-function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChange?: (n: number) => void }) {
+function ActivityPanel({ leadId, onCountChange, onReplied }: { leadId: string; onCountChange?: (n: number) => void; onReplied?: () => void }) {
   const [tab,         setTab]         = useState<"activity" | "tasks">("activity");
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [sequences,   setSequences]   = useState<any[]>([]);
@@ -1217,6 +1217,18 @@ function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChang
     if (r.ok) setEnrollments(prev => prev.map(e => e.id === enrollmentId ? { ...e, status: "cancelled" } : e));
   };
 
+  const [markingReplied, setMarkingReplied] = useState(false);
+  const handleMarkReplied = async () => {
+    setMarkingReplied(true);
+    try {
+      const r = await fetch(`/api/admin/leads/${leadId}/mark-replied`, { method: "POST" });
+      if (r.ok) {
+        setEnrollments(prev => prev.map(e => ({ ...e, status: "cancelled" })));
+        onReplied?.();
+      }
+    } finally { setMarkingReplied(false); }
+  };
+
   const activeEnrollments = enrollments.filter(e => e.status === "active");
   const canEnroll = sequences.filter(s => !activeEnrollments.some(e => e.sequenceId === s.id));
 
@@ -1232,6 +1244,17 @@ function ActivityPanel({ leadId, onCountChange }: { leadId: string; onCountChang
               <button onClick={() => cancelEnrollment(e.id)} className="text-purple-400 hover:text-rose-400 leading-none ml-0.5" title="Cancel">×</button>
             </div>
           ))}
+          {activeEnrollments.length > 0 && (
+            <button
+              onClick={handleMarkReplied}
+              disabled={markingReplied}
+              title="Stop all sequences — lead has replied"
+              className="flex items-center gap-1 text-[10px] font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-full px-2 py-0.5 transition-colors disabled:opacity-50"
+            >
+              {markingReplied ? <Loader size={9} className="animate-spin" /> : <Reply size={9} />}
+              {markingReplied ? "Stopping…" : "Client replied →"}
+            </button>
+          )}
           {canEnroll.length > 0 && (
             <div className="relative">
               <button onClick={() => setEnrollOpen(v => !v)}
@@ -1879,6 +1902,20 @@ export default function LeadsPage() {
     setToast({ type: "success", message: `${lead.fullName} added as a lead` });
   };
 
+  const markReplied = async (leadId: string) => {
+    const r = await fetch(`/api/admin/leads/${leadId}/mark-replied`, { method: "POST" });
+    if (r.ok) {
+      const d = await r.json();
+      handleInlineStatusChange(leadId, "contacted");
+      setToast({
+        type: "success",
+        message: d.sequencesCancelled > 0
+          ? `Replied — ${d.sequencesCancelled} sequence${d.sequencesCancelled !== 1 ? "s" : ""} stopped automatically`
+          : "Marked as replied",
+      });
+    }
+  };
+
   const toggleSelect = (id: string) =>
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -2060,6 +2097,13 @@ export default function LeadsPage() {
                       >
                         <Mail size={13} />
                       </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); markReplied(l.id); }}
+                        title="Mark as replied — stops all active sequences"
+                        className="p-1.5 rounded hover:bg-emerald-500/15 text-stone-500 hover:text-emerald-400 transition-colors"
+                      >
+                        <Reply size={13} />
+                      </button>
                       {/* Notes icon — shows count badge if notes exist */}
                       <button
                         onClick={e => { e.stopPropagation(); setNotesOpenId(notesOpenId === l.id ? null : l.id); }}
@@ -2111,6 +2155,10 @@ export default function LeadsPage() {
                         <ActivityPanel
                           leadId={l.id}
                           onCountChange={count => setNoteCounts(prev => ({ ...prev, [l.id]: count }))}
+                          onReplied={() => {
+                            handleInlineStatusChange(l.id, "contacted");
+                            setToast({ type: "success", message: "Marked as replied — sequences stopped" });
+                          }}
                         />
                       </div>
                     )}
