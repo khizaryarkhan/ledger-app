@@ -14,7 +14,7 @@ export interface Stage {
 // Mandatory, system-managed stages. These cannot be renamed, deleted, or
 // hidden because core logic depends on their exact keys:
 //   New      — default landing stage for new invoices
-//   Promised — set automatically when a customer/staff logs a promise-to-pay
+//   Promised — set automatically when a customer/staff logs a commitment to pay (displayed as "Committed")
 //   Disputed — set automatically when a dispute is raised (pauses automations)
 //   Closed   — end-of-lifecycle stage
 export const LOCKED_STAGE_KEYS = ["New", "Promised", "Disputed", "Closed"] as const;
@@ -22,7 +22,8 @@ export function isLockedStage(key: string): boolean {
   return (LOCKED_STAGE_KEYS as readonly string[]).includes(key);
 }
 
-/** Ensure all mandatory stages exist in a stage list (injects any missing). */
+/** Ensure all mandatory stages exist in a stage list (injects any missing).
+ *  Also migrates existing orgs: "Promised" label → "Committed". */
 export function ensureLockedStages(stages: Stage[]): Stage[] {
   const byKey = new Map(stages.map(s => [s.key, s]));
   const result = [...stages];
@@ -30,6 +31,12 @@ export function ensureLockedStages(stages: Stage[]): Stage[] {
     if (!byKey.has(key)) {
       const fallback = DEFAULT_STAGES.find(s => s.key === key)!;
       result.push({ ...fallback });
+    } else if (key === "Promised") {
+      // Migrate orgs that still have the old "Promised" label
+      const idx = result.findIndex(s => s.key === "Promised");
+      if (idx !== -1 && result[idx].label === "Promised") {
+        result[idx] = { ...result[idx], label: "Committed" };
+      }
     }
   }
   return result;
@@ -42,7 +49,7 @@ export const DEFAULT_STAGES: Stage[] = [
   { key: "Second Notice", label: "Second Notice", color: "violet",  isDefault: false, isClosed: false, visible: true },
   { key: "Final Notice",  label: "Final Notice",  color: "violet",  isDefault: false, isClosed: false, visible: true },
   { key: "Awaiting",      label: "Awaiting",      color: "amber",   isDefault: false, isClosed: false, visible: true },
-  { key: "Promised",      label: "Promised",      color: "amber",   isDefault: false, isClosed: false, visible: true },
+  { key: "Promised",      label: "Committed",     color: "amber",   isDefault: false, isClosed: false, visible: true },
   { key: "Disputed",      label: "Disputed",      color: "rose",    isDefault: false, isClosed: false, visible: true },
   { key: "Escalated",     label: "Escalated",     color: "rose",    isDefault: false, isClosed: false, visible: true },
   { key: "On Hold",       label: "On Hold",       color: "orange",  isDefault: false, isClosed: false, visible: true },

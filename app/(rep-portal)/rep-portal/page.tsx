@@ -234,7 +234,7 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
                 {dueStatus}
               </span>
               {inv.hasOpenDispute && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-900/50 text-rose-300">⚠ Disputed</span>}
-              {!inv.hasOpenDispute && inv.promiseDate && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-900/50 text-sky-300">📅 Promised</span>}
+              {!inv.hasOpenDispute && inv.promiseDate && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-900/50 text-sky-300">📅 Committed</span>}
             </div>
             <div className="text-[11px] text-stone-500 mt-0.5">
               Due {formatDate(inv.dueDate, df)}
@@ -287,7 +287,7 @@ function InvoiceRow({ inv, df, onDownload, downloading, nested = false, onChange
             <div className="flex items-start gap-2 rounded-lg bg-sky-950/40 ring-1 ring-sky-800/50 px-3 py-2">
               <span className="text-sm">📅</span>
               <div className="text-[12px] text-sky-200">
-                <span className="font-semibold">Promised payment by {formatDate(inv.promiseDate, df)}</span>
+                <span className="font-semibold">Committed to pay by {formatDate(inv.promiseDate, df)}</span>
                 {inv.promiseAmount != null && <span> · {fmt.money(inv.promiseAmount, inv.currency)}</span>}
                 {inv.promiseSource && <span className="text-sky-400"> · via {inv.promiseSource}</span>}
               </div>

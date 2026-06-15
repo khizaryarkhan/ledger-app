@@ -191,7 +191,7 @@ export default function InvoiceDetailPage() {
           )}
           <Button variant="secondary" icon={CheckSquare} onClick={() => setShowTask(true)}>Task</Button>
           <Button variant="secondary" icon={CalendarClock} onClick={() => setShowPromise(true)}
-            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — no promise needed" : undefined}>Promise</Button>
+            disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — no commitment needed" : undefined}>Commit to Pay</Button>
           <Button variant="secondary" icon={AlertOctagon} onClick={() => setShowDispute(true)}
             disabled={isPaidOrClosed} title={isPaidOrClosed ? "Invoice is settled — cannot dispute" : undefined}>Dispute</Button>
           <Button variant="secondary" icon={CreditCard} onClick={() => setShowPay(true)}>Record payment</Button>

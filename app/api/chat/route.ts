@@ -1145,8 +1145,8 @@ TOOL SELECTION GUIDE:
 - "send / email / forward invoices to [email]" → send_invoices
 
 AR DOMAIN KNOWLEDGE:
-- Collection stages: New → In Progress → Promised → Disputed → Escalated → Written Off
-- "Promised" means the customer has committed to a payment date — always set a promiseDate
+- Collection stages: New → In Progress → Committed → Disputed → Escalated → Written Off
+- "Committed" means the customer has committed to a payment date — always set a promiseDate
 - "Disputed" means there is a disagreement about the invoice — no chasing until resolved
 - 90+ days overdue = high risk, prioritise immediately
 - Best practice: chase at 7 days before due, 1 day after due, 7 days overdue, 30 days overdue

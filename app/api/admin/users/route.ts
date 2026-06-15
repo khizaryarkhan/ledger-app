@@ -62,23 +62,20 @@ export async function GET(req: Request) {
     return ok(rows);
   }
 
-  // Default: list all users for this org, joined with reps for tier info
-  const withReps = {
-    id: users.id, orgId: users.orgId, name: users.name,
-    email: users.email, role: users.role, status: users.status,
-    createdAt: users.createdAt, repId: users.repId,
-    repTier: reps.tier,
-    repManagerId: reps.managerId,
-  };
-
-  // Always scope to the active org — even super admins should only see users
-  // for the org they are currently operating in. Cross-org user lookups must
-  // use the explicit ?orgId= param above (admin portal only).
+  // Default: list all members of this org via the junction table.
+  // Querying users.orgId directly misses users whose primary org differs
+  // (e.g. added via org-switch or belonging to multiple orgs).
   const rows = await db
-    .select(withReps)
-    .from(users)
-    .leftJoin(reps, eq(reps.id, users.repId))
-    .where(eq(users.orgId, orgId!));
+    .select({
+      id: users.id, orgId: users.orgId, name: users.name,
+      email: users.email, role: userOrganisations.role,
+      status: users.status, createdAt: users.createdAt, repId: users.repId,
+      repTier: reps.tier, repManagerId: reps.managerId,
+    })
+    .from(userOrganisations)
+    .innerJoin(users, eq(users.id, userOrganisations.userId))
+    .leftJoin(reps, and(eq(reps.id, users.repId), eq(reps.orgId, orgId!)))
+    .where(eq(userOrganisations.orgId, orgId!));
   return ok(rows);
 }
 

@@ -15,7 +15,7 @@ const EVENT_LABELS: Record<string, string> = {
   note_added:        "Internal Note",
   stage_changed:     "Stage Changed",
   payment_recorded:  "Payment Recorded",
-  promise_to_pay:    "Promise to Pay",
+  promise_to_pay:    "Committed to Pay",
   dispute_raised:    "Dispute Raised",
   programme_toggled: "Collection Programme",
   chase_mode_changed:"Chase Mode Changed",
@@ -46,7 +46,7 @@ function metaLines(meta: any): string {
   if (meta.invoiceNo)   lines.push(`Invoice: ${meta.invoiceNo}`);
   if (meta.fromStage)   lines.push(`Stage: ${meta.fromStage} → ${meta.toStage ?? "?"}`);
   if (meta.amount != null)    lines.push(`Amount: ${meta.currency ?? ""}${Number(meta.amount).toFixed(2)}`);
-  if (meta.promiseDate) lines.push(`Promise date: ${meta.promiseDate}`);
+  if (meta.promiseDate) lines.push(`Commitment date: ${meta.promiseDate}`);
   if (meta.reason)      lines.push(`Reason: ${meta.reason}`);
   if (meta.mode)        lines.push(`Mode: ${meta.mode}`);
   if (meta.enabled != null)   lines.push(`Programme: ${meta.enabled ? "Enabled" : "Disabled"}`);

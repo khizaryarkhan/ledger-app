@@ -134,7 +134,7 @@ export default function StagesSettingsPage() {
           Renaming a stage automatically updates all invoices using that stage.
           One stage must be set as <strong>Default</strong> (where new invoices land) and one as <strong>Closed</strong> (end of lifecycle).
           You cannot delete the Default or Closed stage, or a stage that has active invoices.
-          <br /><strong>New, Promised, Disputed and Closed</strong> are mandatory system stages (🔒) — they can be recoloured but not renamed, hidden, or deleted, because automations and customer responses depend on them.
+          <br /><strong>New, Committed, Disputed and Closed</strong> are mandatory system stages (🔒) — they can be recoloured but not renamed, hidden, or deleted, because automations and customer responses depend on them.
         </span>
       </div>
 
