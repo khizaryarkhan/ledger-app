@@ -116,7 +116,7 @@ export default function BillsPage() {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
-  const [period, setPeriod] = useState<PeriodId>("last-month");
+  const [period, setPeriod] = useState<PeriodId>("all");
   const [customFrom, setCustomFrom] = useState(lastMonthStart);
   const [customTo, setCustomTo] = useState(todayStr);
 
