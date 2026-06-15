@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
   CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X,
-  MessageSquare
+  MessageSquare, ShoppingCart, Receipt, Building2, CreditCard, ClipboardList,
+  ChevronDown, ArrowLeftRight, Bell, Workflow, Package
 } from "lucide-react";
 import { useData } from "./data-provider";
 
@@ -18,11 +19,16 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const { invoices, communications, tasks, orgSettings } = useData();
 
   const role = (session?.user as any)?.role;
   const isAdmin = role === "super_admin" || role === "company_admin";
+
+  // Determine active department from URL
+  const isPayables = pathname.startsWith("/payables");
+  const department: "ar" | "ap" = isPayables ? "ap" : "ar";
 
   const [responsesCount, setResponsesCount] = useState(0);
   useEffect(() => {
@@ -39,7 +45,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     responses: responsesCount,
   };
 
-  const sections = [
+  const arSections = [
     {
       items: [
         { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -76,10 +82,52 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       items: [
         { href: "/imports", label: "Imports", icon: Upload },
         { href: "/settings", label: "Settings", icon: Settings },
-        // Admin Portal is accessed directly at /admin — not surfaced in the app sidebar
       ],
     },
   ];
+
+  const apSections = [
+    {
+      items: [
+        { href: "/payables/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: "PAYABLES MANAGEMENT",
+      items: [
+        { href: "/payables/purchase-requests", label: "Purchase Requests", icon: ClipboardList },
+        { href: "/payables/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+        { href: "/payables/bills", label: "Bills", icon: Receipt },
+        { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },
+        { href: "/payables/workspace", label: "Payables Workspace", icon: Kanban },
+        { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
+      ],
+    },
+    {
+      label: "APPROVALS & CONTROL",
+      items: [
+        { href: "/payables/approval-inbox", label: "Approval Inbox", icon: Bell },
+        { href: "/payables/supplier-queries", label: "Supplier Queries", icon: MessageSquare },
+        { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
+        { href: "/payables/tasks", label: "Tasks", icon: CheckSquare },
+      ],
+    },
+    {
+      label: "INSIGHTS & REPORTING",
+      items: [
+        { href: "/payables/reports", label: "Reports", icon: BarChart3 },
+      ],
+    },
+    {
+      label: "ADMINISTRATION",
+      items: [
+        { href: "/payables/imports", label: "Imports", icon: Upload },
+        { href: "/payables/settings", label: "Settings", icon: Settings },
+      ],
+    },
+  ];
+
+  const sections = department === "ap" ? apSections : arSections;
 
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
@@ -124,6 +172,35 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </button>
       </div>
 
+      {/* Department switcher */}
+      <div className="px-3 py-2 border-b border-stone-800">
+        <div className="flex rounded-md overflow-hidden border border-stone-700">
+          <button
+            onClick={() => { router.push("/dashboard"); onClose?.(); }}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              department === "ar"
+                ? "bg-emerald-500/20 text-emerald-400"
+                : "text-stone-500 hover:text-stone-300 hover:bg-stone-800"
+            }`}
+          >
+            <ArrowLeftRight size={11} />
+            Receivables
+          </button>
+          <div className="w-px bg-stone-700" />
+          <button
+            onClick={() => { router.push("/payables/dashboard"); onClose?.(); }}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              department === "ap"
+                ? "bg-violet-500/20 text-violet-400"
+                : "text-stone-500 hover:text-stone-300 hover:bg-stone-800"
+            }`}
+          >
+            <Package size={11} />
+            Payables
+          </button>
+        </div>
+      </div>
+
       <nav className="flex-1 overflow-y-auto py-3 px-2">
         {sections.map((sec, si) => (
           <div key={si} className="mb-4">
@@ -142,14 +219,18 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                   onClick={onClose}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     isActive
-                      ? "bg-emerald-500/15 text-emerald-400"
+                      ? department === "ap"
+                        ? "bg-violet-500/15 text-violet-400"
+                        : "bg-emerald-500/15 text-emerald-400"
                       : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
                   }`}
                 >
                   <Icon
                     size={15}
                     strokeWidth={isActive ? 2.25 : 2}
-                    className={isActive ? "text-emerald-400" : "text-stone-500"}
+                    className={isActive
+                      ? department === "ap" ? "text-violet-400" : "text-emerald-400"
+                      : "text-stone-500"}
                   />
                   <span className="flex-1">{item.label}</span>
                   {item.count != null && item.count > 0 && (
@@ -157,7 +238,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                         (item as any).urgent
                           ? "bg-rose-500 text-white"
-                          : isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-stone-800 text-stone-400"
+                          : isActive
+                            ? department === "ap" ? "bg-violet-500/20 text-violet-400" : "bg-emerald-500/20 text-emerald-400"
+                            : "bg-stone-800 text-stone-400"
                       }`}
                     >
                       {item.count}

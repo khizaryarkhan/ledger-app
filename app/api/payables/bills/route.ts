@@ -1,0 +1,78 @@
+import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
+import { db } from "@/db";
+import { apBills } from "@/db/schema";
+import { eq, and, ilike, lte, gte, desc } from "drizzle-orm";
+import { z } from "zod";
+
+const CreateSchema = z.object({
+  supplierId:   z.string().uuid().optional().nullable(),
+  billNumber:   z.string().max(64).optional().nullable(),
+  reference:    z.string().max(128).optional().nullable(),
+  billDate:     z.string().optional().nullable(),
+  dueDate:      z.string().optional().nullable(),
+  currency:     z.string().max(8).default("EUR"),
+  subtotal:     z.number().default(0),
+  taxTotal:     z.number().default(0),
+  total:        z.number().default(0),
+  notes:        z.string().optional().nullable(),
+});
+
+export async function GET(req: Request) {
+  const { error, orgId } = await requireOrg();
+  if (error) return error;
+
+  const { searchParams } = new URL(req.url);
+  const workflowStatus = searchParams.get("workflowStatus");
+  const supplierId     = searchParams.get("supplierId");
+  const search         = searchParams.get("search");
+  const dueBefore      = searchParams.get("dueBefore");
+  const dueAfter       = searchParams.get("dueAfter");
+
+  const conditions: any[] = [eq(apBills.orgId, orgId!)];
+  if (workflowStatus) conditions.push(eq(apBills.workflowStatus, workflowStatus));
+  if (supplierId)     conditions.push(eq(apBills.supplierId, supplierId));
+  if (search)         conditions.push(ilike(apBills.billNumber, `%${search}%`));
+  if (dueBefore)      conditions.push(lte(apBills.dueDate, dueBefore));
+  if (dueAfter)       conditions.push(gte(apBills.dueDate, dueAfter));
+
+  const rows = await db.select().from(apBills)
+    .where(and(...conditions))
+    .orderBy(desc(apBills.dueDate));
+  return ok(rows);
+}
+
+export async function POST(req: Request) {
+  const { error, orgId, role, session } = await requireOrg();
+  if (error) return error;
+
+  if (role !== "company_admin" && !isSuperAdmin(session)) {
+    return bad("Forbidden", 403);
+  }
+
+  try {
+    const data = CreateSchema.parse(await req.json());
+    const balance = data.total - 0;
+
+    const [created] = await db.insert(apBills).values({
+      orgId:          orgId!,
+      supplierId:     data.supplierId ?? null,
+      billNumber:     data.billNumber ?? null,
+      reference:      data.reference ?? null,
+      billDate:       data.billDate ?? null,
+      dueDate:        data.dueDate ?? null,
+      currency:       data.currency,
+      subtotal:       data.subtotal,
+      taxTotal:       data.taxTotal,
+      total:          data.total,
+      amountPaid:     0,
+      balance,
+      workflowStatus: "Pending Review",
+      source:         "manual",
+    }).returning();
+    return ok(created);
+  } catch (e: any) {
+    if (e?.issues) return bad(e.issues[0].message);
+    console.error(e);
+    return bad("Failed to create bill", 500);
+  }
+}

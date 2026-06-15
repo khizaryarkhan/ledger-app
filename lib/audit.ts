@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { auditEvents } from "@/db/schema";
 
 export type EventType =
+  // ── Receivables ──────────────────────────────────────────────────────────
   | "email_sent"       // automated reminder email dispatched
   | "email_manual"     // manually composed email sent
   | "note_added"       // internal note added
@@ -22,7 +23,32 @@ export type EventType =
   | "user_role_changed"        // a user's role was changed
   | "integration_connected"    // QBO/Xero/Gmail/MS connection established
   | "integration_disconnected" // QBO/Xero/Gmail/MS connection removed
-  | "data_exported";           // audit trail / report exported
+  | "data_exported"            // audit trail / report exported
+  // ── Payables / Procurement ───────────────────────────────────────────────
+  | "purchase_request_created"
+  | "purchase_request_submitted"
+  | "purchase_request_approved"
+  | "purchase_request_rejected"
+  | "purchase_order_created"
+  | "purchase_order_submitted"
+  | "purchase_order_approved"
+  | "purchase_order_rejected"
+  | "purchase_order_pushed"
+  | "purchase_order_push_failed"
+  | "bill_synced"
+  | "bill_reviewed"
+  | "bill_approved"
+  | "bill_rejected"
+  | "bill_on_hold"
+  | "bill_ready_for_payment"
+  | "bill_approval_note_pushed"
+  | "supplier_query_created"
+  | "supplier_query_resolved"
+  | "payment_run_created"
+  | "payment_run_submitted"
+  | "payment_run_approved"
+  | "payment_run_scheduled"
+  | "payables_master_data_synced";
 
 export interface LogEventArgs {
   orgId: string;

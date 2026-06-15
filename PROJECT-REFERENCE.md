@@ -1044,4 +1044,189 @@ This section records every feature, fix, and change built across all sessions.
 
 ---
 
+---
+
+## 19. Procurement & Payables Module
+
+### Overview
+
+- **Department navigation:** The app sidebar includes a Receivables / Payables switcher. Payables uses a **violet accent color (`#8b5cf6`)**. Receivables uses emerald.
+- **URL structure:** All payables pages live under `/payables/*`.
+- **System of record principle:** Ledger owns workflow, approvals, and audit trail. QBO/Xero own the accounting records. Ledger does not duplicate accounting state — it decorates it.
+- **Core workflow:**
+
+```
+Purchase Request → Purchase Order (approved) → Push to QBO/Xero
+  → Bill synced back → Bill approved in Ledger
+  → Approval note pushed to QBO/Xero → Payment Run
+```
+
+---
+
+### New Database Tables
+
+All tables defined in `db/schema.ts`. Migration: `db/migrations/0005_payables_module.sql`.
+
+| Table | Description |
+|---|---|
+| `ap_suppliers` | Vendor/supplier master record (synced from QBO Vendors or Xero Contacts) |
+| `ap_supplier_contacts` | Individual contacts at a supplier |
+| `ap_accounts` | Chart of accounts entries relevant to AP (synced from QBO COA or Xero Accounts) |
+| `ap_items` | Products/services used on PO and bill lines (synced from QBO Items or Xero Items) |
+| `ap_tax_rates` | Tax rate definitions (synced from QBO TaxRates or Xero TaxRates) |
+| `ap_dimensions` | Cost dimensions for line-item allocation (QBO Class+Dept or Xero TrackingCategories) |
+| `purchase_requests` | Internal purchase requests raised by staff before a PO is created |
+| `purchase_orders` | Purchase orders sent to suppliers (has workflow lifecycle) |
+| `purchase_order_lines` | Individual line items on a purchase order |
+| `ap_bills` | Supplier bills synced from QBO/Xero; carry both `workflowStatus` (Ledger-owned) and `accountingPaymentStatus` (QBO/Xero-owned) |
+| `ap_bill_lines` | Individual line items on a bill |
+| `ap_approvals` | Approval decision records (approved/rejected) for POs and bills |
+| `ap_workflow_rules` | Configurable approval threshold rules (e.g. POs over £X require sign-off) |
+| `ap_supplier_queries` | Queries raised against a supplier/bill that pause payment readiness |
+| `payment_runs` | Grouped payment run batches |
+| `payment_run_items` | Individual bill-payment allocations within a payment run |
+
+---
+
+### AP Sync Libraries
+
+**`lib/qbo-ap-sync.ts`** — `runQboApSync(orgId, userId)`
+
+Syncs the following from QBO into the AP tables:
+- Vendors → `ap_suppliers`
+- Chart of Accounts → `ap_accounts`
+- Items → `ap_items`
+- TaxRates → `ap_tax_rates`
+- Class + Dept → `ap_dimensions`
+- Bills → `ap_bills` + `ap_bill_lines`
+
+**`lib/xero-ap-sync.ts`** — `runXeroApSync(orgId, userId)`
+
+Same sync for Xero:
+- Contacts → `ap_suppliers`
+- Accounts → `ap_accounts`
+- Items → `ap_items`
+- TaxRates → `ap_tax_rates`
+- TrackingCategories → `ap_dimensions`
+- ACCPAY invoices → `ap_bills` + `ap_bill_lines`
+
+**Trigger:** `POST /api/payables/sync`
+
+**State preservation rule:** Bills that already have a non-default `workflowStatus` are **NOT reset on re-sync**. Workflow state owned by Ledger is always preserved across sync runs.
+
+---
+
+### API Routes
+
+All routes are under `/api/payables/`. All routes call `requireOrg()`. Write operations require `company_admin` or `super_admin`.
+
+| Route | Methods | Description |
+|---|---|---|
+| `/api/payables/dashboard` | GET | AP stats, aging summary, pending approval tasks |
+| `/api/payables/sync` | POST | Trigger AP sync (QBO or Xero, whichever is connected) |
+| `/api/payables/import` | POST | CSV import for suppliers or POs |
+| `/api/payables/suppliers` | GET, POST | List / Create suppliers |
+| `/api/payables/suppliers/[id]` | GET, PATCH, DELETE | Supplier detail CRUD |
+| `/api/payables/purchase-requests` | GET, POST | List / Create purchase requests |
+| `/api/payables/purchase-requests/[id]` | GET, PATCH | PR detail; actions: submit, approve, reject, convert-to-po |
+| `/api/payables/purchase-orders` | GET, POST | List / Create purchase orders |
+| `/api/payables/purchase-orders/[id]` | GET, PATCH | PO detail with editable lines; actions: submit, approve, reject, push (to QBO/Xero) |
+| `/api/payables/bills` | GET, POST | List / Create bills |
+| `/api/payables/bills/[id]` | GET, PATCH | Bill detail; actions: approve, reject, hold, ready-for-payment, push-approval-note |
+| `/api/payables/approval-inbox` | GET | Pending approvals for the current authenticated user |
+| `/api/payables/supplier-queries` | GET, POST | List / Create supplier queries |
+| `/api/payables/supplier-queries/[id]` | GET, PATCH | Query detail (resolve/close query) |
+| `/api/payables/payment-runs` | GET, POST | List / Create payment runs |
+| `/api/payables/payment-runs/[id]` | GET, PATCH | Payment run detail; actions: approve, schedule |
+| `/api/payables/reports/ap-aging` | GET | AP aging report (by supplier, by bucket) |
+| `/api/payables/reports/cash-requirements` | GET | Upcoming cash requirements forecast |
+| `/api/payables/reports/supplier-performance` | GET | Supplier performance metrics (stub) |
+| `/api/payables/workflow-rules` | GET, POST | List / Create approval threshold rules |
+| `/api/payables/workflow-rules/[id]` | GET, PATCH, DELETE | Workflow rule CRUD |
+| `/api/payables/sync-master-data` | POST | Sync only master data (suppliers, accounts, items, taxes, dimensions) without re-syncing bills |
+
+---
+
+### Pages
+
+All pages are under `/payables/`.
+
+| Page | Route | Description |
+|---|---|---|
+| `dashboard` | `/payables/dashboard` | AP health stats, aging buckets, pending approval tasks widget |
+| `suppliers` | `/payables/suppliers` | Supplier list with search and filters |
+| `suppliers/[id]` | `/payables/suppliers/[id]` | Supplier detail (contacts, bills, POs, queries) |
+| `purchase-requests` | `/payables/purchase-requests` | Purchase request list with lifecycle status |
+| `purchase-requests/[id]` | `/payables/purchase-requests/[id]` | PR detail with approval actions and convert-to-PO |
+| `purchase-orders` | `/payables/purchase-orders` | Purchase order list |
+| `purchase-orders/[id]` | `/payables/purchase-orders/[id]` | PO detail with editable line items and push-to-accounting action |
+| `bills` | `/payables/bills` | Bill list with workflow status filters |
+| `bills/[id]` | `/payables/bills/[id]` | Bill approval workflow (approve, reject, hold, ready-for-payment, push note) |
+| `workspace` | `/payables/workspace` | Kanban board with 6 workflow status columns |
+| `approval-inbox` | `/payables/approval-inbox` | All pending approvals assigned to the current user |
+| `supplier-queries` | `/payables/supplier-queries` | Supplier query management (open queries pause payment readiness) |
+| `payment-runs` | `/payables/payment-runs` | Payment run list |
+| `payment-runs/[id]` | `/payables/payment-runs/[id]` | Payment run detail with bill allocations and approve/schedule actions |
+| `reports` | `/payables/reports` | AP aging, cash requirements, supplier performance |
+| `workflow-rules` | `/payables/workflow-rules` | Approval threshold rule configuration |
+| `tasks` | `/payables/tasks` | AP-specific action items |
+| `imports` | `/payables/imports` | CSV import for suppliers and POs |
+| `settings` | `/payables/settings` | AP settings, sync status, workflow rule overview |
+
+---
+
+### Key Business Rules
+
+- **Only APPROVED POs** can be pushed to QBO/Xero. Draft, rejected, and pending-approval POs cannot be pushed.
+- **Bills with open supplier queries CANNOT be marked Ready for Payment.** The query must be resolved first.
+- **Bills on hold CANNOT be added to payment runs.**
+- **Ledger does NOT perform PO-to-bill matching.** The accountant performs matching inside QBO/Xero. Ledger only approves the bill after it syncs back.
+- **Approval note pushed to QBO/Xero is a short reference only** (e.g. "Approved in Ledger by Jane Doe on 2026-06-15"). The full workflow history stays in Ledger.
+- **`workflowStatus` is owned by Ledger** — set and protected by Ledger's approval workflow. Re-sync never resets it.
+- **`accountingPaymentStatus` is owned by QBO/Xero** — reflects the payment state in the accounting system. Ledger reads but never writes this field.
+
+---
+
+### Audit Events Added
+
+All new event types are registered in `lib/audit.ts`:
+
+| Event Type | Description |
+|---|---|
+| `ap_supplier_created` | New supplier added |
+| `ap_supplier_updated` | Supplier record updated |
+| `ap_pr_created` | Purchase request created |
+| `ap_pr_submitted` | PR submitted for approval |
+| `ap_pr_approved` | PR approved |
+| `ap_pr_rejected` | PR rejected |
+| `ap_pr_converted` | PR converted to a purchase order |
+| `ap_po_created` | Purchase order created |
+| `ap_po_submitted` | PO submitted for approval |
+| `ap_po_approved` | PO approved |
+| `ap_po_rejected` | PO rejected |
+| `ap_po_pushed` | PO pushed to QBO/Xero |
+| `ap_bill_approved` | Bill approved in Ledger |
+| `ap_bill_rejected` | Bill rejected in Ledger |
+| `ap_bill_held` | Bill placed on hold |
+| `ap_bill_ready` | Bill marked ready for payment |
+| `ap_bill_note_pushed` | Approval note pushed to QBO/Xero |
+| `ap_query_created` | Supplier query raised |
+| `ap_query_resolved` | Supplier query resolved |
+| `ap_payment_run_created` | Payment run created |
+| `ap_payment_run_approved` | Payment run approved |
+| `ap_payment_run_scheduled` | Payment run scheduled |
+| `ap_sync_completed` | AP sync run completed |
+| `ap_workflow_rule_changed` | Approval threshold rule created or updated |
+
+---
+
+### Security
+
+- All AP tables include `orgId` as a required FK — all data is org-scoped.
+- `requireOrg()` is called on every AP API route without exception.
+- Write operations (POST, PATCH, DELETE) on AP routes require `company_admin` or `super_admin` role.
+- AP routes are under `/api/payables/` (not `/api/admin/`) so that `company_admin` users can access them directly without needing super admin privileges.
+
+---
+
 *Last updated: 2026-06-15*

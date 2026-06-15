@@ -1060,6 +1060,431 @@ export const rateLimits = pgTable("rate_limits", {
 });
 
 
+// =========================================================================
+// AP — SUPPLIERS
+// =========================================================================
+export const apSuppliers = pgTable("ap_suppliers", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:          varchar("name", { length: 255 }).notNull(),
+  displayName:   varchar("display_name", { length: 255 }),
+  code:          varchar("code", { length: 64 }),
+  email:         varchar("email", { length: 255 }),
+  phone:         varchar("phone", { length: 64 }),
+  address:       text("address"),
+  country:       varchar("country", { length: 64 }),
+  currency:      varchar("currency", { length: 8 }).notNull().default("EUR"),
+  paymentTerms:  integer("payment_terms").notNull().default(30),
+  taxNumber:     varchar("tax_number", { length: 64 }),
+  status:        varchar("status", { length: 32 }).notNull().default("Active"),
+  riskRating:    varchar("risk_rating", { length: 16 }).notNull().default("Low"),
+  notes:         text("notes"),
+  qboId:         varchar("qbo_id", { length: 64 }),
+  xeroId:        varchar("xero_id", { length: 64 }),
+  source:        varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'manual'
+  lastSyncedAt:  timestamp("last_synced_at"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_suppliers_org_id").on(t.orgId),
+]);
+export type ApSupplier = typeof apSuppliers.$inferSelect;
+
+// =========================================================================
+// AP — SUPPLIER CONTACTS
+// =========================================================================
+export const apSupplierContacts = pgTable("ap_supplier_contacts", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  supplierId:  uuid("supplier_id").notNull().references(() => apSuppliers.id, { onDelete: "cascade" }),
+  name:        varchar("name", { length: 255 }).notNull(),
+  title:       varchar("title", { length: 255 }),
+  email:       varchar("email", { length: 255 }),
+  phone:       varchar("phone", { length: 64 }),
+  type:        varchar("type", { length: 32 }).notNull().default("Primary"),
+  isPrimary:   boolean("is_primary").notNull().default(false),
+  status:      varchar("status", { length: 32 }).notNull().default("Active"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+});
+export type ApSupplierContact = typeof apSupplierContacts.$inferSelect;
+
+// =========================================================================
+// AP — CHART OF ACCOUNTS (synced from QBO/Xero)
+// =========================================================================
+export const apAccounts = pgTable("ap_accounts", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  externalId:   varchar("external_id", { length: 64 }).notNull(),
+  source:       varchar("source", { length: 16 }).notNull(),   // 'qbo' | 'xero'
+  code:         varchar("code", { length: 64 }),
+  name:         varchar("name", { length: 255 }).notNull(),
+  type:         varchar("type", { length: 64 }),
+  subtype:      varchar("subtype", { length: 64 }),
+  status:       varchar("status", { length: 32 }).notNull().default("Active"),
+  raw:          jsonb("raw"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ap_accounts_org_ext_unique").on(t.orgId, t.externalId, t.source),
+]);
+export type ApAccount = typeof apAccounts.$inferSelect;
+
+// =========================================================================
+// AP — ITEMS / PRODUCTS / SERVICES (synced from QBO/Xero)
+// =========================================================================
+export const apItems = pgTable("ap_items", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  externalId:        varchar("external_id", { length: 64 }).notNull(),
+  source:            varchar("source", { length: 16 }).notNull(),
+  code:              varchar("code", { length: 64 }),
+  name:              varchar("name", { length: 255 }).notNull(),
+  description:       text("description"),
+  purchaseAccountId: varchar("purchase_account_id", { length: 64 }),
+  expenseAccountId:  varchar("expense_account_id", { length: 64 }),
+  unitCost:          real("unit_cost"),
+  taxRateId:         varchar("tax_rate_id", { length: 64 }),
+  status:            varchar("status", { length: 32 }).notNull().default("Active"),
+  raw:               jsonb("raw"),
+  lastSyncedAt:      timestamp("last_synced_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ap_items_org_ext_unique").on(t.orgId, t.externalId, t.source),
+]);
+export type ApItem = typeof apItems.$inferSelect;
+
+// =========================================================================
+// AP — TAX RATES (synced from QBO/Xero)
+// =========================================================================
+export const apTaxRates = pgTable("ap_tax_rates", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  externalId:   varchar("external_id", { length: 64 }).notNull(),
+  source:       varchar("source", { length: 16 }).notNull(),
+  name:         varchar("name", { length: 255 }).notNull(),
+  rate:         real("rate"),
+  taxType:      varchar("tax_type", { length: 64 }),
+  status:       varchar("status", { length: 32 }).notNull().default("Active"),
+  raw:          jsonb("raw"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ap_tax_rates_org_ext_unique").on(t.orgId, t.externalId, t.source),
+]);
+export type ApTaxRate = typeof apTaxRates.$inferSelect;
+
+// =========================================================================
+// AP — DIMENSIONS (projects, customers, classes, depts, tracking categories…)
+// =========================================================================
+export const apDimensions = pgTable("ap_dimensions", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  externalId:    varchar("external_id", { length: 64 }).notNull(),
+  source:        varchar("source", { length: 16 }).notNull(),
+  dimensionType: varchar("dimension_type", { length: 64 }).notNull(),
+  // e.g. 'Project' | 'Customer' | 'Class' | 'Department' | 'Location' | 'TrackingCategory' | 'CostCentre'
+  name:          varchar("name", { length: 255 }).notNull(),
+  code:          varchar("code", { length: 64 }),
+  parentId:      varchar("parent_id", { length: 64 }),
+  status:        varchar("status", { length: 32 }).notNull().default("Active"),
+  raw:           jsonb("raw"),
+  lastSyncedAt:  timestamp("last_synced_at"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ap_dimensions_org_ext_type_unique").on(t.orgId, t.externalId, t.source, t.dimensionType),
+]);
+export type ApDimension = typeof apDimensions.$inferSelect;
+
+// =========================================================================
+// PURCHASE REQUESTS
+// =========================================================================
+export const purchaseRequests = pgTable("purchase_requests", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  orgId:               uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  requestNumber:       varchar("request_number", { length: 64 }).notNull(),
+  requesterId:         uuid("requester_id").references(() => users.id, { onDelete: "set null" }),
+  supplierId:          uuid("supplier_id").references(() => apSuppliers.id, { onDelete: "set null" }),
+  title:               varchar("title", { length: 500 }).notNull(),
+  description:         text("description"),
+  businessJustification: text("business_justification"),
+  requiredByDate:      varchar("required_by_date", { length: 16 }),
+  currency:            varchar("currency", { length: 8 }).notNull().default("EUR"),
+  estimatedTotal:      real("estimated_total"),
+  status:              varchar("status", { length: 32 }).notNull().default("Draft"),
+  // Draft | Submitted | Pending Review | Pending Approval | Approved | Rejected | Cancelled | Converted to PO
+  workflowStage:       varchar("workflow_stage", { length: 64 }),
+  assignedApproverId:  uuid("assigned_approver_id").references(() => users.id, { onDelete: "set null" }),
+  departmentId:        varchar("department_id", { length: 64 }),
+  projectId:           varchar("project_id", { length: 64 }),
+  customerId:          varchar("customer_id_ref", { length: 64 }),
+  costCentreId:        varchar("cost_centre_id", { length: 64 }),
+  notes:               text("notes"),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_purchase_requests_org_id").on(t.orgId),
+]);
+export type PurchaseRequest = typeof purchaseRequests.$inferSelect;
+
+// =========================================================================
+// PURCHASE ORDERS
+// =========================================================================
+export const purchaseOrders = pgTable("purchase_orders", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  orgId:               uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  poNumber:            varchar("po_number", { length: 64 }).notNull(),
+  requestId:           uuid("request_id").references(() => purchaseRequests.id, { onDelete: "set null" }),
+  supplierId:          uuid("supplier_id").references(() => apSuppliers.id, { onDelete: "set null" }),
+  poDate:              varchar("po_date", { length: 16 }),
+  expectedDeliveryDate: varchar("expected_delivery_date", { length: 16 }),
+  currency:            varchar("currency", { length: 8 }).notNull().default("EUR"),
+  subtotal:            real("subtotal").notNull().default(0),
+  taxTotal:            real("tax_total").notNull().default(0),
+  total:               real("total").notNull().default(0),
+  status:              varchar("status", { length: 32 }).notNull().default("Draft"),
+  // Draft | Pending Approval | Approved | Pushed to Accounting | Partially Billed | Fully Billed | Closed | Cancelled | Rejected
+  approvalStatus:      varchar("approval_status", { length: 32 }).notNull().default("Pending"),
+  workflowStage:       varchar("workflow_stage", { length: 64 }),
+  assignedApproverId:  uuid("assigned_approver_id").references(() => users.id, { onDelete: "set null" }),
+  notes:               text("notes"),
+  // QBO/Xero push
+  qboId:               varchar("qbo_id", { length: 64 }),
+  xeroId:              varchar("xero_id", { length: 64 }),
+  externalDocNumber:   varchar("external_doc_number", { length: 64 }),
+  pushedAt:            timestamp("pushed_at"),
+  pushStatus:          varchar("push_status", { length: 32 }),   // 'pending' | 'success' | 'failed'
+  lastPushError:       text("last_push_error"),
+  createdByUserId:     uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedByUserId:    uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedAt:          timestamp("approved_at"),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_purchase_orders_org_id").on(t.orgId),
+]);
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+
+// =========================================================================
+// PURCHASE ORDER LINES
+// =========================================================================
+export const purchaseOrderLines = pgTable("purchase_order_lines", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  orgId:               uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  purchaseOrderId:     uuid("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "cascade" }),
+  lineNumber:          integer("line_number").notNull().default(1),
+  itemId:              varchar("item_id", { length: 64 }),
+  description:         text("description"),
+  quantity:            real("quantity").notNull().default(1),
+  unitPrice:           real("unit_price").notNull().default(0),
+  accountId:           varchar("account_id", { length: 64 }),
+  taxRateId:           varchar("tax_rate_id", { length: 64 }),
+  projectId:           varchar("project_id", { length: 64 }),
+  customerId:          varchar("customer_id_ref", { length: 64 }),
+  costCentreId:        varchar("cost_centre_id", { length: 64 }),
+  trackingCategoryId:  varchar("tracking_category_id", { length: 64 }),
+  classId:             varchar("class_id", { length: 64 }),
+  departmentId:        varchar("department_id", { length: 64 }),
+  lineSubtotal:        real("line_subtotal").notNull().default(0),
+  lineTax:             real("line_tax").notNull().default(0),
+  lineTotal:           real("line_total").notNull().default(0),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+});
+export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
+
+// =========================================================================
+// AP BILLS (synced from QBO/Xero)
+// =========================================================================
+export const apBills = pgTable("ap_bills", {
+  id:                     uuid("id").defaultRandom().primaryKey(),
+  orgId:                  uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  supplierId:             uuid("supplier_id").references(() => apSuppliers.id, { onDelete: "set null" }),
+  billNumber:             varchar("bill_number", { length: 64 }),
+  reference:              varchar("reference", { length: 128 }),
+  billDate:               varchar("bill_date", { length: 16 }),
+  dueDate:                varchar("due_date", { length: 16 }),
+  currency:               varchar("currency", { length: 8 }).notNull().default("EUR"),
+  subtotal:               real("subtotal").notNull().default(0),
+  taxTotal:               real("tax_total").notNull().default(0),
+  total:                  real("total").notNull().default(0),
+  amountPaid:             real("amount_paid").notNull().default(0),
+  balance:                real("balance").notNull().default(0),
+  accountingPaymentStatus: varchar("accounting_payment_status", { length: 32 }).notNull().default("Unpaid"),
+  // Unpaid | Partially Paid | Paid | Voided
+  workflowStatus:         varchar("workflow_status", { length: 64 }).notNull().default("Synced from Accounting"),
+  // Synced from Accounting | Pending Review | Pending Approval | Approved | Rejected | On Hold | Ready for Payment | Scheduled | Paid
+  approvalStatus:         varchar("approval_status", { length: 32 }),
+  purchaseOrderId:        uuid("purchase_order_id").references(() => purchaseOrders.id, { onDelete: "set null" }),
+  externalPurchaseOrderRef: varchar("external_purchase_order_ref", { length: 128 }),
+  qboPurchaseOrderId:     varchar("qbo_purchase_order_id", { length: 64 }),
+  xeroPurchaseOrderId:    varchar("xero_purchase_order_id", { length: 64 }),
+  qboId:                  varchar("qbo_id", { length: 64 }),
+  xeroId:                 varchar("xero_id", { length: 64 }),
+  source:                 varchar("source", { length: 16 }),   // 'qbo' | 'xero'
+  assignedApproverId:     uuid("assigned_approver_id").references(() => users.id, { onDelete: "set null" }),
+  approvedByUserId:       uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedAt:             timestamp("approved_at"),
+  approvalNotePushedAt:   timestamp("approval_note_pushed_at"),
+  privateNote:            text("private_note"),
+  lastSyncAt:             timestamp("last_sync_at"),
+  createdAt:              timestamp("created_at").notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_bills_org_id").on(t.orgId),
+  uniqueIndex("ap_bills_org_qbo_unique").on(t.orgId, t.qboId).where(sql`${t.qboId} IS NOT NULL`),
+  uniqueIndex("ap_bills_org_xero_unique").on(t.orgId, t.xeroId).where(sql`${t.xeroId} IS NOT NULL`),
+]);
+export type ApBill = typeof apBills.$inferSelect;
+
+// =========================================================================
+// AP BILL LINES
+// =========================================================================
+export const apBillLines = pgTable("ap_bill_lines", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  orgId:               uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  billId:              uuid("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  lineNumber:          integer("line_number").notNull().default(1),
+  itemId:              varchar("item_id", { length: 64 }),
+  description:         text("description"),
+  quantity:            real("quantity").notNull().default(1),
+  unitPrice:           real("unit_price").notNull().default(0),
+  accountId:           varchar("account_id", { length: 64 }),
+  taxRateId:           varchar("tax_rate_id", { length: 64 }),
+  projectId:           varchar("project_id", { length: 64 }),
+  customerId:          varchar("customer_id_ref", { length: 64 }),
+  costCentreId:        varchar("cost_centre_id", { length: 64 }),
+  trackingCategoryId:  varchar("tracking_category_id", { length: 64 }),
+  classId:             varchar("class_id", { length: 64 }),
+  departmentId:        varchar("department_id", { length: 64 }),
+  lineSubtotal:        real("line_subtotal").notNull().default(0),
+  lineTax:             real("line_tax").notNull().default(0),
+  lineTotal:           real("line_total").notNull().default(0),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+});
+export type ApBillLine = typeof apBillLines.$inferSelect;
+
+// =========================================================================
+// AP APPROVALS (generic — covers PRs, POs, Bills, Payment Runs)
+// =========================================================================
+export const apApprovals = pgTable("ap_approvals", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  entityType:        varchar("entity_type", { length: 32 }).notNull(),
+  // 'purchase_request' | 'purchase_order' | 'bill' | 'payment_run'
+  entityId:          uuid("entity_id").notNull(),
+  workflowId:        uuid("workflow_id"),
+  stepNumber:        integer("step_number").notNull().default(1),
+  approverUserId:    uuid("approver_user_id").references(() => users.id, { onDelete: "set null" }),
+  approverRole:      varchar("approver_role", { length: 64 }),
+  status:            varchar("status", { length: 32 }).notNull().default("Pending"),
+  // Pending | Approved | Rejected | Delegated | Skipped | Cancelled
+  decision:          varchar("decision", { length: 32 }),
+  comments:          text("comments"),
+  approvedAt:        timestamp("approved_at"),
+  rejectedAt:        timestamp("rejected_at"),
+  delegatedToUserId: uuid("delegated_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_approvals_org_entity").on(t.orgId, t.entityType, t.entityId),
+]);
+export type ApApproval = typeof apApprovals.$inferSelect;
+
+// =========================================================================
+// AP WORKFLOW RULES
+// =========================================================================
+export const apWorkflowRules = pgTable("ap_workflow_rules", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:           varchar("name", { length: 255 }).notNull(),
+  entityType:     varchar("entity_type", { length: 32 }).notNull(),
+  // 'purchase_request' | 'purchase_order' | 'bill' | 'payment_run'
+  isActive:       boolean("is_active").notNull().default(true),
+  conditionsJson: jsonb("conditions_json").notNull().default({}),
+  stepsJson:      jsonb("steps_json").notNull().default([]),
+  priority:       integer("priority").notNull().default(0),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+});
+export type ApWorkflowRule = typeof apWorkflowRules.$inferSelect;
+
+// =========================================================================
+// AP SUPPLIER QUERIES (equivalent to AR disputes)
+// =========================================================================
+export const apSupplierQueries = pgTable("ap_supplier_queries", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  supplierId:      uuid("supplier_id").references(() => apSuppliers.id, { onDelete: "set null" }),
+  billId:          uuid("bill_id").references(() => apBills.id, { onDelete: "set null" }),
+  purchaseOrderId: uuid("purchase_order_id").references(() => purchaseOrders.id, { onDelete: "set null" }),
+  category:        varchar("category", { length: 64 }).notNull(),
+  // Missing PO | Incorrect Amount | Duplicate Bill | Wrong Tax | Goods Not Received
+  // Supplier Statement Mismatch | Bank Details Verification | Internal Coding Issue
+  // Approval Clarification | Other
+  reason:          text("reason"),
+  source:          varchar("source", { length: 32 }),
+  assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+  status:          varchar("status", { length: 32 }).notNull().default("Open"),
+  // Open | Under Review | Resolved | Rejected | Closed
+  resolution:      text("resolution"),
+  resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  resolvedAt:      timestamp("resolved_at"),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_supplier_queries_org_id").on(t.orgId),
+]);
+export type ApSupplierQuery = typeof apSupplierQueries.$inferSelect;
+
+// =========================================================================
+// PAYMENT RUNS
+// =========================================================================
+export const paymentRuns = pgTable("payment_runs", {
+  id:                   uuid("id").defaultRandom().primaryKey(),
+  orgId:                uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  runNumber:            varchar("run_number", { length: 64 }).notNull(),
+  currency:             varchar("currency", { length: 8 }).notNull().default("EUR"),
+  scheduledPaymentDate: varchar("scheduled_payment_date", { length: 16 }),
+  status:               varchar("status", { length: 32 }).notNull().default("Draft"),
+  // Draft | Pending Approval | Approved | Scheduled | Posted | Cancelled
+  totalAmount:          real("total_amount").notNull().default(0),
+  billCount:            integer("bill_count").notNull().default(0),
+  notes:                text("notes"),
+  createdByUserId:      uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedByUserId:     uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedAt:           timestamp("approved_at"),
+  postedAt:             timestamp("posted_at"),
+  createdAt:            timestamp("created_at").notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_payment_runs_org_id").on(t.orgId),
+]);
+export type PaymentRun = typeof paymentRuns.$inferSelect;
+
+// =========================================================================
+// PAYMENT RUN ITEMS
+// =========================================================================
+export const paymentRunItems = pgTable("payment_run_items", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  paymentRunId:  uuid("payment_run_id").notNull().references(() => paymentRuns.id, { onDelete: "cascade" }),
+  billId:        uuid("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  supplierId:    uuid("supplier_id").references(() => apSuppliers.id, { onDelete: "set null" }),
+  amount:        real("amount").notNull(),
+  currency:      varchar("currency", { length: 8 }).notNull().default("EUR"),
+  dueDate:       varchar("due_date", { length: 16 }),
+  status:        varchar("status", { length: 32 }).notNull().default("Pending"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+});
+export type PaymentRunItem = typeof paymentRunItems.$inferSelect;
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
