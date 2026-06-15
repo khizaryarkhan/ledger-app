@@ -94,8 +94,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       ].join(" ")}
     >
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-stone-800 flex items-center justify-between">
-        <div className="flex items-center gap-2.5 h-8 min-w-0">
+      <div className="px-4 py-4 border-b border-stone-800 flex items-start justify-between">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
           {orgSettings?.logoUrl ? (
             <img
               src={orgSettings.logoUrl}
@@ -103,13 +103,13 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               className="h-8 w-auto object-contain"
             />
           ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center shrink-0">
+            <div className="flex items-start gap-2">
+              <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center shrink-0 mt-0.5">
                 <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
               </div>
-              <span className="text-sm font-semibold text-white tracking-tight truncate">
+              <span className="text-sm font-semibold text-white tracking-tight leading-snug">
                 {orgSettings?.displayName || orgSettings?.name || "Prime Accountax"}
               </span>
             </div>
