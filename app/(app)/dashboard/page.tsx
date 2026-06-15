@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail, X, RefreshCw } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
 
@@ -422,6 +422,42 @@ export default function DashboardPage() {
 
   const setupLoading = emailConfigured === null || hasTemplates === null;
 
+  // ── Integration sync state ───────────────────────────────────────────────
+  const [syncSource, setSyncSource] = useState<"qbo" | "xero" | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncToast, setSyncToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/qbo/sync").then(r => r.json()).catch(() => ({ connected: false })),
+      fetch("/api/xero/sync").then(r => r.json()).catch(() => ({ connected: false })),
+    ]).then(([qbo, xero]) => {
+      if (qbo.connected) setSyncSource("qbo");
+      else if (xero.connected) setSyncSource("xero");
+    });
+  }, []);
+
+  const triggerSync = async () => {
+    if (!syncSource || syncing) return;
+    setSyncing(true);
+    setSyncToast(null);
+    try {
+      const res = await fetch(`/api/${syncSource}/sync`, { method: "POST" });
+      if (res.ok) {
+        setSyncToast({ type: "success", msg: `${syncSource === "qbo" ? "QuickBooks" : "Xero"} sync complete — refreshing data…` });
+        fetchSnapshot();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setSyncToast({ type: "error", msg: d.error ?? "Sync failed" });
+      }
+    } catch {
+      setSyncToast({ type: "error", msg: "Sync failed — check your connection" });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncToast(null), 5000);
+    }
+  };
+
   const setupSteps = useMemo(() => {
     const integrationsConnected = invoices.length > 0;
     const hasAutoContacts = (contacts ?? []).filter((c: any) => c.receivesAuto).length > 0;
@@ -663,10 +699,26 @@ export default function DashboardPage() {
           <p className="text-sm text-stone-400 mt-1">Overview of receivables, aging and collection activity</p>
         </div>
         <div className="flex items-center gap-3">
+          {syncToast && (
+            <span className={`text-xs px-3 py-1.5 rounded-lg font-medium ${syncToast.type === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+              {syncToast.msg}
+            </span>
+          )}
           <div className="text-xs text-stone-500 flex items-center gap-1.5">
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
           </div>
+          {syncSource && (
+            <button
+              onClick={triggerSync}
+              disabled={syncing}
+              title={`Sync ${syncSource === "qbo" ? "QuickBooks" : "Xero"} now`}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-emerald-300 hover:border-emerald-700/50 hover:bg-emerald-500/5 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={syncing ? "animate-spin text-emerald-400" : "text-stone-400"} />
+              {syncing ? "Syncing…" : `Sync ${syncSource === "qbo" ? "QuickBooks" : "Xero"}`}
+            </button>
+          )}
         </div>
       </div>
 

@@ -76,7 +76,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       items: [
         { href: "/imports", label: "Imports", icon: Upload },
         { href: "/settings", label: "Settings", icon: Settings },
-        ...(isAdmin ? [{ href: "/admin", label: "Admin Portal", icon: Shield }] : []),
+        // Admin Portal is accessed directly at /admin — not surfaced in the app sidebar
       ],
     },
   ];
