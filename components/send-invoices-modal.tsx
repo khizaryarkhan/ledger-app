@@ -45,9 +45,10 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(`Open Invoices — Ref ${emailRef}`);
   const [body, setBody] = useState(
-    `Hi,\n\nPlease find attached the statement of open invoices along with the invoice copies for your reference.\nKindly share the tentative payment dates at your earliest convenience.\nFeel free to reach out for any queries.`
+    `Hi,\n\nPlease find attached a statement of your open invoices along with copies of each invoice for your reference.\nCould you please share the expected payment dates at your earliest convenience?\nFeel free to reach out if you have any questions.`
   );
   const [attachPdf, setAttachPdf] = useState(true);
+  const [includePortal, setIncludePortal] = useState(true);
   const [sending, setSending] = useState(false);
 
   async function send() {
@@ -58,7 +59,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
       // Portal link — only when all invoices belong to one customer
       let portalUrl: string | null = null;
       const custIds = new Set(rows.map(r => r.custId));
-      if (custIds.size === 1) {
+      if (includePortal && custIds.size === 1) {
         try {
           const tk = await fetch("/api/portal/token", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -145,7 +146,23 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${attachPdf ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
-          <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table and the &ldquo;View &amp; Respond&rdquo; portal link. The text above is the intro message.</p>
+          {/* Include customer portal link toggle */}
+          <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
+            <div>
+              <div className="text-[13px] font-medium text-stone-200">Include customer portal link</div>
+              <div className="text-[11px] text-stone-500">{includePortal ? "A \"View & Respond\" button will be included in the email." : "No portal link — recipients reply by email only."}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includePortal}
+              onClick={() => setIncludePortal(v => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-emerald-600" : "bg-stone-600"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+          <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table. The text above is the intro message.</p>
         </div>
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
