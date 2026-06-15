@@ -40,100 +40,83 @@ export async function POST(req: Request) {
   try {
     const data = Schema.parse(await req.json());
 
-    // Fetch PDFs for any requested invoice attachments
+    // Fetch PDFs for any requested invoice attachments — all in parallel
     const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
     const attachmentErrors: string[] = [];
 
     if (data.attachInvoiceIds && data.attachInvoiceIds.length > 0) {
-      // Tokens are fetched lazily — only QBO invoices touch the QBO token,
-      // only Xero invoices touch the Xero token. This keeps the QBO path
-      // unchanged while adding Xero invoice-PDF support.
-      let qboToken: Awaited<ReturnType<typeof getOrgQboToken>> | undefined;
-      let qboChecked = false;
-      let xeroToken: Awaited<ReturnType<typeof getOrgXeroToken>> | undefined;
-      let xeroChecked = false;
+      // 1. Fetch all invoice DB rows in parallel
+      const invRows = await Promise.all(
+        data.attachInvoiceIds.map(id =>
+          db.select().from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.orgId, orgId!)))
+            .limit(1)
+            .then(r => r[0] ?? null)
+        )
+      );
 
-      for (const invId of data.attachInvoiceIds) {
-        const [inv] = await db
-          .select()
-          .from(invoices)
-          .where(and(eq(invoices.id, invId), eq(invoices.orgId, orgId!)))
-          .limit(1);
-        if (!inv) { attachmentErrors.push(`Invoice not found: ${invId}`); continue; }
+      // 2. Determine which tokens are actually needed, then fetch them in parallel
+      const needsXero = invRows.some(inv => inv && inv.xeroId && !inv.xeroId.startsWith("CN-") && !["Paid", "Written Off"].includes(inv.paymentStatus ?? "") && inv.collectionStage !== "Closed");
+      const needsQbo  = invRows.some(inv => inv && inv.qboId && !inv.qboId.startsWith("CM-") && !inv.xeroId && !["Paid", "Written Off"].includes(inv.paymentStatus ?? "") && inv.collectionStage !== "Closed");
 
-        // Paid / Written Off / Closed invoices return errors from the accounting
-        // APIs and don't need a chase PDF — skip silently.
-        const isClosedOrPaid =
-          ["Paid", "Written Off"].includes(inv.paymentStatus ?? "") ||
-          inv.collectionStage === "Closed";
+      const [xeroToken, qboToken] = await Promise.all([
+        needsXero ? getOrgXeroToken(orgId!).catch(() => null) : Promise.resolve(null),
+        needsQbo  ? getOrgQboToken(orgId!).catch(() => null)  : Promise.resolve(null),
+      ]);
 
-        // ── Xero invoice ──────────────────────────────────────────────
-        if (inv.xeroId && !inv.xeroId.startsWith("CN-")) {
-          if (isClosedOrPaid) continue;
-          if (!xeroChecked) {
-            try { xeroToken = await getOrgXeroToken(orgId!); }
-            catch (e: any) { attachmentErrors.push(`Xero PDF unavailable: ${e.message}`); }
-            xeroChecked = true;
-          }
-          if (!xeroToken) { attachmentErrors.push("Xero not connected — could not fetch PDF"); continue; }
-          try {
-            // Xero returns the invoice as a PDF when Accept: application/pdf
+      // 3. Fetch all PDFs in parallel
+      type PdfResult = { filename: string; content: Buffer; contentType: string } | null;
+
+      const pdfResults = await Promise.allSettled<PdfResult>(
+        invRows.map(async inv => {
+          if (!inv) return null;
+
+          const isClosedOrPaid =
+            ["Paid", "Written Off"].includes(inv.paymentStatus ?? "") ||
+            inv.collectionStage === "Closed";
+
+          // ── Xero ────────────────────────────────────────────────────
+          if (inv.xeroId && !inv.xeroId.startsWith("CN-")) {
+            if (isClosedOrPaid) return null;
+            if (!xeroToken) throw new Error("Xero not connected — could not fetch PDF");
             const pdfRes = await fetch(`${XERO_API}/Invoices/${inv.xeroId}`, {
               headers: {
-                Authorization: `Bearer ${xeroToken.accessToken}`,
+                Authorization:  `Bearer ${xeroToken.accessToken}`,
                 "Xero-Tenant-Id": xeroToken.tenantId,
                 Accept: "application/pdf",
               },
             });
-            if (pdfRes.ok) {
-              const buf = Buffer.from(await pdfRes.arrayBuffer());
-              if (buf.byteLength > 0) {
-                attachments.push({ filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" });
-              } else {
-                attachmentErrors.push(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-              }
-            } else {
+            if (!pdfRes.ok) {
               const errText = await pdfRes.text();
-              console.error(`Xero PDF fetch failed for invoice ${inv.invoiceNumber} (xeroId: ${inv.xeroId}): HTTP ${pdfRes.status} — ${errText}`);
-              attachmentErrors.push(`PDF unavailable for invoice ${inv.invoiceNumber} (Xero error ${pdfRes.status})`);
+              console.error(`Xero PDF fetch failed for ${inv.invoiceNumber}: HTTP ${pdfRes.status} — ${errText}`);
+              throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (Xero error ${pdfRes.status})`);
             }
-          } catch (e: any) {
-            console.error(`Xero PDF fetch exception for ${inv.invoiceNumber}:`, e);
-            attachmentErrors.push(`PDF fetch failed for invoice ${inv.invoiceNumber}: ${e.message}`);
+            const buf = Buffer.from(await pdfRes.arrayBuffer());
+            if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
+            return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" };
           }
-          continue;
-        }
 
-        // ── QuickBooks invoice (unchanged) ────────────────────────────
-        if (!inv.qboId || inv.qboId.startsWith("CM-")) continue; // credit memos have no PDF
-        if (isClosedOrPaid) continue;
-        if (!qboChecked) { qboToken = (await getOrgQboToken(orgId!)) ?? undefined; qboChecked = true; }
-        if (!qboToken) { attachmentErrors.push("QuickBooks not connected — could not fetch PDFs"); continue; }
-        try {
+          // ── QuickBooks ───────────────────────────────────────────────
+          if (!inv.qboId || inv.qboId.startsWith("CM-") || isClosedOrPaid) return null;
+          if (!qboToken) throw new Error("QuickBooks not connected — could not fetch PDFs");
           const pdfRes = await fetch(
             `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
             { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } },
           );
-          if (pdfRes.ok) {
-            const buf = Buffer.from(await pdfRes.arrayBuffer());
-            if (buf.byteLength > 0) {
-              attachments.push({
-                filename:    `Invoice-${inv.invoiceNumber}.pdf`,
-                content:     buf,
-                contentType: "application/pdf",
-              });
-            } else {
-              attachmentErrors.push(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-            }
-          } else {
+          if (!pdfRes.ok) {
             const errText = await pdfRes.text();
-            console.error(`QBO PDF fetch failed for invoice ${inv.invoiceNumber} (qboId: ${inv.qboId}): HTTP ${pdfRes.status} — ${errText}`);
-            attachmentErrors.push(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${pdfRes.status})`);
+            console.error(`QBO PDF fetch failed for ${inv.invoiceNumber}: HTTP ${pdfRes.status} — ${errText}`);
+            throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${pdfRes.status})`);
           }
-        } catch (e: any) {
-          console.error(`PDF fetch exception for ${inv.invoiceNumber}:`, e);
-          attachmentErrors.push(`PDF fetch failed for invoice ${inv.invoiceNumber}: ${e.message}`);
-        }
+          const buf = Buffer.from(await pdfRes.arrayBuffer());
+          if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
+          return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" };
+        })
+      );
+
+      for (const r of pdfResults) {
+        if (r.status === "fulfilled" && r.value) attachments.push(r.value);
+        else if (r.status === "rejected") attachmentErrors.push((r.reason as Error)?.message ?? "PDF fetch failed");
       }
     }
 

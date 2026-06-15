@@ -81,8 +81,8 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
         body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, attachInvoiceIds: attachPdf ? ids : undefined }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Send failed"); }
-      // Log a communication per invoice so it shows on each timeline
-      await Promise.all(rows.map(r => fetch("/api/communications", {
+      // Log communications in the background — don't block the success response
+      Promise.all(rows.map(r => fetch("/api/communications", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: r.custId, invoiceId: r.inv.id, projectId: r.inv.projectId ?? null,
