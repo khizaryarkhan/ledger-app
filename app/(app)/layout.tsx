@@ -7,6 +7,7 @@ import AuthProvider from "@/components/auth-provider";
 import { DataProvider, useData } from "@/components/data-provider";
 import { Sidebar } from "@/components/sidebar";
 import { OrgSwitcher } from "@/components/org-switcher";
+import { SyncButton } from "@/components/sync-button";
 import { Toast } from "@/components/ui";
 import { SubscriptionGate } from "@/components/subscription-gate";
 
@@ -57,7 +58,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu size={18} />
           </button>
-          <OrgSwitcher />
+          <div className="flex items-center gap-2">
+            <SyncButton />
+            <OrgSwitcher />
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto">
