@@ -3,7 +3,7 @@ import { users, userOrganisations, reps } from "@/db/schema";
 import { requireAuth, isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
 import { logEvent } from "@/lib/audit";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 // Virtual roles exposed to the UI:
@@ -62,20 +62,30 @@ export async function GET(req: Request) {
     return ok(rows);
   }
 
-  // Default: list all members of this org via the junction table.
-  // Querying users.orgId directly misses users whose primary org differs
-  // (e.g. added via org-switch or belonging to multiple orgs).
+  // List all members of this org.
+  // Covers two cases:
+  //   1. users.orgId = orgId (primary-org users, all existing accounts)
+  //   2. user_organisations.orgId = orgId (multi-org / invited users)
+  // The LEFT JOIN on user_organisations lets us pick up the org-specific role
+  // when present; falls back to users.role for single-org accounts.
   const rows = await db
     .select({
       id: users.id, orgId: users.orgId, name: users.name,
-      email: users.email, role: userOrganisations.role,
+      email: users.email,
+      role: sql<string>`COALESCE(${userOrganisations.role}, ${users.role})`,
       status: users.status, createdAt: users.createdAt, repId: users.repId,
       repTier: reps.tier, repManagerId: reps.managerId,
     })
-    .from(userOrganisations)
-    .innerJoin(users, eq(users.id, userOrganisations.userId))
+    .from(users)
+    .leftJoin(userOrganisations, and(
+      eq(userOrganisations.userId, users.id),
+      eq(userOrganisations.orgId, orgId!),
+    ))
     .leftJoin(reps, and(eq(reps.id, users.repId), eq(reps.orgId, orgId!)))
-    .where(eq(userOrganisations.orgId, orgId!));
+    .where(or(
+      eq(users.orgId, orgId!),
+      eq(userOrganisations.orgId, orgId!),
+    ));
   return ok(rows);
 }
 
