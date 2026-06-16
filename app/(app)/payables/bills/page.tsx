@@ -222,14 +222,6 @@ export default function BillsPage() {
             <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
           </p>
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing || loading}
-          className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-stone-800 hover:bg-stone-700 text-stone-200 ring-1 ring-stone-700 transition-colors disabled:opacity-50"
-        >
-          {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          Sync from Accounting
-        </button>
       </div>
 
       {error && (
@@ -384,15 +376,8 @@ export default function BillsPage() {
           {!loading && filtered.length === 0 && (
             <EmptyState icon={Receipt} title="No bills found"
               description={bills.length === 0
-                ? "Sync from your accounting system to import bills."
-                : "Try adjusting your filters."}
-              action={bills.length === 0 ? (
-                <button onClick={handleSync} disabled={syncing}
-                  className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-stone-800 hover:bg-stone-700 text-stone-200 ring-1 ring-stone-700 transition-colors disabled:opacity-50">
-                  {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                  Sync from Accounting
-                </button>
-              ) : undefined} />
+                ? "Use the Sync button in the top bar (or Settings → Integrations) to import bills."
+                : "Try adjusting your filters."} />
           )}
         </div>
       </Card>
