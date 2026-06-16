@@ -5,7 +5,16 @@ import Link from "next/link";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 import { fmt, formatDate } from "@/lib/format";
-import { Search, RefreshCw, Receipt, X, CalendarDays, Loader2, AlertCircle } from "lucide-react";
+import { Search, Receipt, X, CalendarDays, AlertCircle, Upload } from "lucide-react";
+
+const WORKFLOW_STATUSES = [
+  "Pending Review",
+  "Pending Approval",
+  "Approved",
+  "On Hold",
+  "Ready for Payment",
+  "Rejected",
+];
 
 // ── Date period helpers ────────────────────────────────────────────────────────
 type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
@@ -107,12 +116,12 @@ function daysOverdue(bill: Bill): number {
 export default function BillsPage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [workflowFilter, setWorkflowFilter] = useState("");
   const [accountingFilter, setAccountingFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkChanging, setBulkChanging] = useState(false);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
@@ -135,20 +144,25 @@ export default function BillsPage() {
     }
   }
 
-  async function handleSync() {
-    setSyncing(true);
-    setError(null);
+  async function handleBulkStatusChange(status: string) {
+    if (!status || selected.size === 0) return;
+    setBulkChanging(true);
     try {
-      const res = await fetch("/api/payables/sync", { method: "POST" });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "Sync failed");
-      }
+      await Promise.all(
+        Array.from(selected).map((id) =>
+          fetch(`/api/payables/bills/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workflowStatus: status }),
+          })
+        )
+      );
       await load();
+      setSelected(new Set());
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to update bills");
     } finally {
-      setSyncing(false);
+      setBulkChanging(false);
     }
   }
 
@@ -222,6 +236,9 @@ export default function BillsPage() {
             <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Link href="/payables/imports"><Button variant="secondary" icon={Upload}>Import CSV</Button></Link>
+        </div>
       </div>
 
       {error && (
@@ -237,6 +254,15 @@ export default function BillsPage() {
         <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg flex-wrap">
           <span className="text-sm font-medium">{selected.size} selected</span>
           <div className="flex-1" />
+          <select
+            value=""
+            disabled={bulkChanging}
+            onChange={(e) => { const s = e.target.value; e.target.value = ""; handleBulkStatusChange(s); }}
+            className="bg-stone-700 text-white text-xs rounded-md px-2.5 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-stone-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <option value="" disabled>{bulkChanging ? "Updating…" : "Change status…"}</option>
+            {WORKFLOW_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
           <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded">
             <X size={14} />
           </button>
