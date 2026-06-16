@@ -48,6 +48,34 @@ async function withRetry<T>(fn: () => Promise<T>, label = "db", attempts = 4): P
   throw lastErr;
 }
 
+/** Build ap_bill_lines rows from a Xero ACCPAY invoice. Shared by full + targeted sync. */
+function buildXeroBillLineRows(orgId: string, billId: string, xi: any) {
+  const lineItems: any[] = xi.LineItems ?? [];
+  return lineItems.map((line: any, idx: number) => {
+    const quantity = line.Quantity != null ? parseFloat(line.Quantity) : 1;
+    const unitPrice = line.UnitAmount != null ? parseFloat(line.UnitAmount) : 0;
+    const lineTotal = line.LineAmount != null ? parseFloat(line.LineAmount) : 0;
+    const taxAmount = line.TaxAmount != null ? parseFloat(line.TaxAmount) : 0;
+    const tracking: any[] = line.Tracking ?? [];
+    const trackingCategoryId = tracking[0]?.TrackingOptionID ?? null;
+    return {
+      orgId,
+      billId,
+      lineNumber: idx + 1,
+      itemId: line.ItemCode ?? null,
+      description: line.Description ?? null,
+      quantity,
+      unitPrice,
+      accountId: line.AccountCode ?? null,
+      taxRateId: line.TaxType ?? null,
+      trackingCategoryId,
+      lineSubtotal: lineTotal - taxAmount,
+      lineTax: taxAmount,
+      lineTotal,
+    };
+  });
+}
+
 // ─── result type ────────────────────────────────────────────────────────────
 
 export interface XeroApSyncResult {
@@ -827,39 +855,8 @@ export async function runXeroApSync(
             `delete-lines-${xi.InvoiceID}`
           );
 
-          const lineItems: any[] = xi.LineItems ?? [];
-          if (lineItems.length > 0) {
-            const lineRows = lineItems.map((line: any, idx: number) => {
-              const quantity =
-                line.Quantity != null ? parseFloat(line.Quantity) : 1;
-              const unitPrice =
-                line.UnitAmount != null ? parseFloat(line.UnitAmount) : 0;
-              const lineTotal =
-                line.LineAmount != null ? parseFloat(line.LineAmount) : 0;
-              const taxAmount =
-                line.TaxAmount != null ? parseFloat(line.TaxAmount) : 0;
-
-              // Tracking category references
-              const tracking: any[] = line.Tracking ?? [];
-              const trackingCategoryId = tracking[0]?.TrackingOptionID ?? null;
-
-              return {
-                orgId,
-                billId,
-                lineNumber: idx + 1,
-                itemId: line.ItemCode ?? null,
-                description: line.Description ?? null,
-                quantity,
-                unitPrice,
-                accountId: line.AccountCode ?? null,
-                taxRateId: line.TaxType ?? null,
-                trackingCategoryId,
-                lineSubtotal: lineTotal - taxAmount,
-                lineTax: taxAmount,
-                lineTotal,
-              };
-            });
-
+          const lineRows = buildXeroBillLineRows(orgId, billId, xi);
+          if (lineRows.length > 0) {
             await withRetry(
               () => db.insert(apBillLines).values(lineRows),
               `insert-lines-${xi.InvoiceID}`
@@ -886,4 +883,167 @@ export async function runXeroApSync(
   }
 
   return result;
+}
+
+// ─── targeted (webhook) bill sync ─────────────────────────────────────────────
+
+/**
+ * Pull specific Xero invoices (by id) and upsert any that are ACCPAY (bills).
+ * Used by the Xero webhook for real-time updates. Xero fires an INVOICE event
+ * when a bill is created and again when a payment changes its AmountDue/status,
+ * so this covers both "new bill" and "bill closed when paid". ACCREC invoices
+ * are ignored here (the receivables sync handles those).
+ */
+export async function syncXeroApBills(
+  orgId: string,
+  _userId: string,
+  invoiceIds: string[]
+): Promise<{ upserted: number; skipped: number; errors: string[] }> {
+  const errors: string[] = [];
+  let upserted = 0;
+  let skipped = 0;
+
+  const token = await getXeroValidToken(orgId);
+  if (!token) throw new Error("Xero not connected");
+  const { accessToken, tenantId } = token;
+
+  for (const invoiceId of invoiceIds) {
+    try {
+      const data = await xeroFetch(`Invoices/${invoiceId}`, accessToken, tenantId);
+      const xi: any = (data.Invoices ?? [])[0];
+      if (!xi?.InvoiceID) continue;
+      if (xi.Type !== "ACCPAY") {
+        skipped++;
+        continue; // sales invoice — not a bill
+      }
+
+      // Resolve supplier (auto-create from Contact if not yet synced)
+      let supplierId: string | null = null;
+      const contactId = xi.Contact?.ContactID;
+      if (contactId) {
+        const [sup] = await withRetry(
+          () =>
+            db
+              .select({ id: apSuppliers.id })
+              .from(apSuppliers)
+              .where(and(eq(apSuppliers.orgId, orgId), eq(apSuppliers.xeroId, contactId)))
+              .limit(1),
+          `wh-find-contact-${contactId}`
+        );
+        if (sup) {
+          supplierId = sup.id;
+        } else {
+          const [created] = await withRetry(
+            () =>
+              db
+                .insert(apSuppliers)
+                .values({
+                  orgId,
+                  name: xi.Contact?.Name ?? `Contact-${contactId}`,
+                  source: "xero",
+                  xeroId: contactId,
+                  status: "Active",
+                  riskRating: "Low",
+                  paymentTerms: 30,
+                  currency: "USD",
+                  lastSyncedAt: new Date(),
+                })
+                .returning({ id: apSuppliers.id }),
+            `wh-create-contact-${contactId}`
+          );
+          supplierId = created.id;
+        }
+      }
+
+      const total = parseFloat(xi.Total) || 0;
+      const amountPaid = parseFloat(xi.AmountPaid) || 0;
+      const balance = parseFloat(xi.AmountDue) || 0;
+      const subtotal = parseFloat(xi.SubTotal) || 0;
+      const taxTotal = parseFloat(xi.TotalTax) || 0;
+
+      const xeroStatus: string = xi.Status ?? "AUTHORISED";
+      let accountingPaymentStatus: string;
+      switch (xeroStatus) {
+        case "PAID":
+          accountingPaymentStatus = "Paid";
+          break;
+        case "VOIDED":
+        case "DELETED":
+          accountingPaymentStatus = "Voided";
+          break;
+        default:
+          accountingPaymentStatus = amountPaid > 0 ? "Partially Paid" : "Unpaid";
+      }
+
+      const billDate = parseXeroDate(xi.DateString ?? xi.Date) ?? null;
+      const dueDate = parseXeroDate(xi.DueDateString ?? xi.DueDate) ?? null;
+
+      const [existing] = await withRetry(
+        () =>
+          db
+            .select({ id: apBills.id, workflowStatus: apBills.workflowStatus })
+            .from(apBills)
+            .where(and(eq(apBills.orgId, orgId), eq(apBills.xeroId, xi.InvoiceID)))
+            .limit(1),
+        `wh-find-bill-${xi.InvoiceID}`
+      );
+      const workflowStatus =
+        existing && existing.workflowStatus !== "Synced from Accounting"
+          ? existing.workflowStatus
+          : "Synced from Accounting";
+
+      const billPayload = {
+        orgId,
+        supplierId,
+        billNumber: xi.InvoiceNumber ?? null,
+        reference: xi.Reference ?? xi.InvoiceNumber ?? null,
+        billDate,
+        dueDate,
+        currency: xi.CurrencyCode ?? "USD",
+        subtotal,
+        taxTotal,
+        total,
+        amountPaid,
+        balance,
+        accountingPaymentStatus,
+        workflowStatus,
+        xeroId: xi.InvoiceID,
+        source: "xero",
+        lastSyncAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      let billId: string;
+      if (existing) {
+        await withRetry(
+          () => db.update(apBills).set(billPayload).where(eq(apBills.id, existing.id)),
+          `wh-update-bill-${xi.InvoiceID}`
+        );
+        billId = existing.id;
+      } else {
+        const [inserted] = await withRetry(
+          () => db.insert(apBills).values(billPayload).returning({ id: apBills.id }),
+          `wh-insert-bill-${xi.InvoiceID}`
+        );
+        billId = inserted.id;
+      }
+
+      await withRetry(
+        () => db.delete(apBillLines).where(eq(apBillLines.billId, billId)),
+        `wh-delete-lines-${xi.InvoiceID}`
+      );
+      const lineRows = buildXeroBillLineRows(orgId, billId, xi);
+      if (lineRows.length > 0) {
+        await withRetry(
+          () => db.insert(apBillLines).values(lineRows),
+          `wh-insert-lines-${xi.InvoiceID}`
+        );
+      }
+      upserted++;
+    } catch (e: any) {
+      errors.push(`Invoice ${invoiceId}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  return { upserted, skipped, errors };
 }

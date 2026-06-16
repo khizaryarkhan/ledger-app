@@ -19,13 +19,17 @@ import { db } from "@/db";
 import { qboTokens, qboWebhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
+import { syncQboApBills, type QboBillChange } from "@/lib/qbo-ap-sync";
 
 // Extend function lifetime so background processing has room to finish.
 // Vercel Hobby: 60s max. Pro: 300s max. Set to 60 as a safe default.
 export const maxDuration = 60;
 
-// Entity types we care about — ignore everything else (Estimate, Bill, etc.)
+// AR entities handled by the receivables sync.
 const RELEVANT_ENTITIES = new Set(["Invoice", "Payment", "CreditMemo", "Customer", "RefundReceipt"]);
+// AP entities handled by the payables sync (real-time bill pull). A QBO Payment
+// against a bill also updates the Bill, so the "Bill" event covers paid/closed.
+const AP_ENTITIES = new Set(["Bill"]);
 
 export async function POST(req: Request) {
   // 1. Read raw body BEFORE any parsing (signature is over raw bytes)
@@ -79,9 +83,9 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  // 4. Build per-realmId work items
+  // 4. Build per-realmId work items (AR entities + AP bill changes)
   const eventNotifications: any[] = payload.eventNotifications ?? [];
-  const workItems: Array<{ realmId: string; changes: QboEntityChange[] }> = [];
+  const workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[] }> = [];
 
   for (const notification of eventNotifications) {
     const realmId: string = notification.realmId;
@@ -97,7 +101,17 @@ export async function POST(req: Request) {
         ...(e.deletedId ? { deletedId: e.deletedId } : {}),
       }));
 
-    if (relevant.length > 0) workItems.push({ realmId, changes: relevant });
+    const apChanges = entities
+      .filter((e: any) => AP_ENTITIES.has(e.name))
+      .map((e: any) => ({
+        id: e.id,
+        operation: e.operation,
+        ...(e.deletedId ? { deletedId: e.deletedId } : {}),
+      }));
+
+    if (relevant.length > 0 || apChanges.length > 0) {
+      workItems.push({ realmId, changes: relevant, apChanges });
+    }
   }
 
   // 5. Return 200 immediately — QBO retries if we don't respond fast enough.
@@ -111,10 +125,11 @@ export async function POST(req: Request) {
 }
 
 async function processWebhookEvents(
-  workItems: Array<{ realmId: string; changes: QboEntityChange[] }>
+  workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[] }>
 ) {
-  for (const { realmId, changes } of workItems) {
+  for (const { realmId, changes, apChanges } of workItems) {
     const startedAt = Date.now();
+    const totalCount = changes.length + apChanges.length;
 
     // Find the org that owns this QBO realm
     const [token] = await db
@@ -127,19 +142,24 @@ async function processWebhookEvents(
       console.warn(`QBO webhook: no org found for realmId ${realmId}`);
       await db.insert(qboWebhookEvents).values({
         realmId, status: "unknown_realm",
-        entityCount: changes.length, entities: changes as any,
+        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
         errorMessage: `No org connected to realmId ${realmId}`,
       }).catch(() => {});
       continue;
     }
 
     try {
-      await syncTargetedEntities(token.orgId, token.userId, changes);
+      if (changes.length > 0) {
+        await syncTargetedEntities(token.orgId, token.userId, changes);
+      }
+      if (apChanges.length > 0) {
+        await syncQboApBills(token.orgId, token.userId, apChanges);
+      }
       const ms = Date.now() - startedAt;
-      console.log(`QBO webhook: synced ${changes.length} change(s) for org ${token.orgId} in ${ms}ms`);
+      console.log(`QBO webhook: synced ${totalCount} change(s) for org ${token.orgId} in ${ms}ms`);
       await db.insert(qboWebhookEvents).values({
         realmId, orgId: token.orgId, status: "received",
-        entityCount: changes.length, entities: changes as any,
+        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
         processingMs: ms,
       }).catch(() => {});
     } catch (err: any) {
@@ -147,7 +167,7 @@ async function processWebhookEvents(
       console.error(`QBO webhook sync failed for org ${token.orgId}:`, err.message);
       await db.insert(qboWebhookEvents).values({
         realmId, orgId: token.orgId, status: "error",
-        entityCount: changes.length, entities: changes as any,
+        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
         errorMessage: err?.message || String(err), processingMs: ms,
       }).catch(() => {});
       // Don't throw — log and continue with other orgs

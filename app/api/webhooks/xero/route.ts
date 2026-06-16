@@ -24,6 +24,7 @@ import { db } from "@/db";
 import { xeroTokens, xeroWebhookEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { syncXeroTargetedEntities, type XeroEntityChange } from "@/lib/xero-sync";
+import { syncXeroApBills } from "@/lib/xero-ap-sync";
 
 // Extend function lifetime so background processing has room to finish.
 // Vercel Hobby: 60s max. Pro: 300s max. Set to 60 as a safe default.
@@ -105,31 +106,43 @@ export async function POST(req: Request) {
 
   // Group events by tenantId
   const byTenant = new Map<string, XeroEntityChange[]>();
+  // INVOICE events also feed the payables sync — a Xero "Invoice" is either a
+  // sales invoice (ACCREC) or a bill (ACCPAY); the AP handler keeps bills only.
+  const apInvoicesByTenant = new Map<string, string[]>();
   for (const ev of events) {
     const { tenantId, resourceId, eventType, eventCategory } = ev;
     if (!tenantId || !resourceId) continue;
-    if (!RELEVANT_CATEGORIES.has(eventCategory?.toUpperCase())) continue;
+    const cat = eventCategory?.toUpperCase();
+    if (!RELEVANT_CATEGORIES.has(cat)) continue;
 
     if (!byTenant.has(tenantId)) byTenant.set(tenantId, []);
     byTenant.get(tenantId)!.push({
       resourceId,
       eventType: eventType?.toUpperCase() ?? "UPDATE",
-      eventCategory: eventCategory?.toUpperCase() ?? "INVOICE",
+      eventCategory: cat ?? "INVOICE",
       tenantId,
     });
+
+    if (cat === "INVOICE") {
+      if (!apInvoicesByTenant.has(tenantId)) apInvoicesByTenant.set(tenantId, []);
+      apInvoicesByTenant.get(tenantId)!.push(resourceId);
+    }
   }
 
   // 6. Return 200 immediately — Xero requires a response within 5 seconds.
   //    waitUntil keeps the Vercel function alive to finish processing in the
   //    background, even after the response has been sent to Xero.
   if (byTenant.size > 0) {
-    waitUntil(processTenantChanges(byTenant));
+    waitUntil(processTenantChanges(byTenant, apInvoicesByTenant));
   }
 
   return new Response("OK", { status: 200 });
 }
 
-async function processTenantChanges(byTenant: Map<string, XeroEntityChange[]>) {
+async function processTenantChanges(
+  byTenant: Map<string, XeroEntityChange[]>,
+  apInvoicesByTenant: Map<string, string[]>
+) {
   const startedAt = Date.now();
 
   for (const [tenantId, changes] of byTenant.entries()) {
@@ -149,6 +162,10 @@ async function processTenantChanges(byTenant: Map<string, XeroEntityChange[]>) {
 
     try {
       await syncXeroTargetedEntities(token.orgId, token.userId, changes);
+      const apInvoiceIds = apInvoicesByTenant.get(tenantId) ?? [];
+      if (apInvoiceIds.length > 0) {
+        await syncXeroApBills(token.orgId, token.userId, apInvoiceIds);
+      }
       const ms = Date.now() - startedAt;
       console.log(
         `Xero webhook: synced ${changes.length} change(s) for org ${token.orgId} in ${ms}ms`

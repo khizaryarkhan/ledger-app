@@ -119,6 +119,38 @@ async function qboFetchAll(
   return all;
 }
 
+/** Build ap_bill_lines rows from a QBO Bill object. Shared by full + targeted sync. */
+function buildQboBillLineRows(orgId: string, billId: string, bill: any) {
+  const lines: any[] = (bill.Line ?? []).filter(
+    (l: any) =>
+      l.DetailType === "AccountBasedExpenseLineDetail" ||
+      l.DetailType === "ItemBasedExpenseLineDetail"
+  );
+  return lines.map((line: any, idx: number) => {
+    const acctDetail = line.AccountBasedExpenseLineDetail;
+    const itemDetail = line.ItemBasedExpenseLineDetail;
+    const detail = acctDetail ?? itemDetail;
+    const quantity = detail?.Qty != null ? parseFloat(detail.Qty) : 1;
+    const unitPrice =
+      detail?.UnitPrice != null ? parseFloat(detail.UnitPrice) : parseFloat(line.Amount) || 0;
+    const lineTotal = parseFloat(line.Amount) || 0;
+    const taxAmount = parseFloat(line.TaxAmount) || 0;
+    return {
+      orgId,
+      billId,
+      lineNumber: idx + 1,
+      itemId: itemDetail?.ItemRef?.value ?? null,
+      description: line.Description ?? null,
+      quantity,
+      unitPrice,
+      accountId: acctDetail?.AccountRef?.value ?? null,
+      lineSubtotal: lineTotal - taxAmount,
+      lineTax: taxAmount,
+      lineTotal,
+    };
+  });
+}
+
 // ─── upsert helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -702,42 +734,8 @@ export async function runQboApSync(
             `delete-lines-${bill.Id}`
           );
 
-          const lines: any[] = (bill.Line ?? []).filter(
-            (l: any) =>
-              l.DetailType === "AccountBasedExpenseLineDetail" ||
-              l.DetailType === "ItemBasedExpenseLineDetail"
-          );
-
-          if (lines.length > 0) {
-            const lineRows = lines.map((line: any, idx: number) => {
-              const acctDetail = line.AccountBasedExpenseLineDetail;
-              const itemDetail = line.ItemBasedExpenseLineDetail;
-              const detail = acctDetail ?? itemDetail;
-              const quantity =
-                detail?.Qty != null ? parseFloat(detail.Qty) : 1;
-              const unitPrice =
-                detail?.UnitPrice != null
-                  ? parseFloat(detail.UnitPrice)
-                  : parseFloat(line.Amount) || 0;
-              const lineTotal = parseFloat(line.Amount) || 0;
-              const taxAmount =
-                parseFloat(line.TaxAmount) || 0;
-
-              return {
-                orgId,
-                billId,
-                lineNumber: idx + 1,
-                itemId: itemDetail?.ItemRef?.value ?? null,
-                description: line.Description ?? null,
-                quantity,
-                unitPrice,
-                accountId: acctDetail?.AccountRef?.value ?? null,
-                lineSubtotal: lineTotal - taxAmount,
-                lineTax: taxAmount,
-                lineTotal,
-              };
-            });
-
+          const lineRows = buildQboBillLineRows(orgId, billId, bill);
+          if (lineRows.length > 0) {
             await withRetry(() => db.insert(apBillLines).values(lineRows), `insert-lines-${bill.Id}`);
           }
         } catch (e: any) {
@@ -759,4 +757,166 @@ export async function runQboApSync(
   }
 
   return result;
+}
+
+// ─── targeted (webhook) bill sync ─────────────────────────────────────────────
+
+export interface QboBillChange {
+  id: string;
+  operation?: string; // Create | Update | Delete | Merge | Void
+  deletedId?: string;
+}
+
+/**
+ * Pull a small set of specific QBO Bills (by id) and upsert them. Used by the
+ * QBO webhook for real-time updates — new bills appear and a bill flips to
+ * "Paid" (balance 0) the moment payment is recorded in QuickBooks.
+ */
+export async function syncQboApBills(
+  orgId: string,
+  _userId: string,
+  changes: QboBillChange[]
+): Promise<{ upserted: number; deleted: number; errors: string[] }> {
+  const errors: string[] = [];
+  let upserted = 0;
+  let deleted = 0;
+
+  const token = await getValidToken(orgId);
+  if (!token) throw new Error("QuickBooks not connected");
+  const [tok] = await db
+    .select({ realmId: qboTokens.realmId })
+    .from(qboTokens)
+    .where(eq(qboTokens.orgId, orgId))
+    .limit(1);
+  if (!tok?.realmId) throw new Error("QuickBooks realmId not found");
+  const { accessToken } = token;
+  const realmId = tok.realmId;
+
+  for (const change of changes) {
+    try {
+      // Deletes / voids: remove the local bill if present
+      if (change.operation === "Delete" || change.operation === "Void") {
+        const qboId = change.deletedId ?? change.id;
+        await withRetry(
+          () => db.delete(apBills).where(and(eq(apBills.orgId, orgId), eq(apBills.qboId, qboId))),
+          `delete-bill-${qboId}`
+        );
+        deleted++;
+        continue;
+      }
+
+      const data = await qboFetch(`bill/${change.id}`, accessToken, realmId);
+      const bill = data?.Bill;
+      if (!bill?.Id) continue;
+
+      // Resolve supplier (auto-create from VendorRef if not yet synced)
+      let supplierId: string | null = null;
+      const vId = bill.VendorRef?.value;
+      if (vId) {
+        const [sup] = await withRetry(
+          () =>
+            db
+              .select({ id: apSuppliers.id })
+              .from(apSuppliers)
+              .where(and(eq(apSuppliers.orgId, orgId), eq(apSuppliers.qboId, vId)))
+              .limit(1),
+          `wh-find-vendor-${vId}`
+        );
+        if (sup) {
+          supplierId = sup.id;
+        } else {
+          const [created] = await withRetry(
+            () =>
+              db
+                .insert(apSuppliers)
+                .values({
+                  orgId,
+                  name: bill.VendorRef?.name ?? `Vendor-${vId}`,
+                  source: "qbo",
+                  qboId: vId,
+                  status: "Active",
+                  riskRating: "Low",
+                  paymentTerms: 30,
+                  currency: "USD",
+                  lastSyncedAt: new Date(),
+                })
+                .returning({ id: apSuppliers.id }),
+            `wh-create-vendor-${vId}`
+          );
+          supplierId = created.id;
+        }
+      }
+
+      const total = parseFloat(bill.TotalAmt) || 0;
+      const balance = parseFloat(bill.Balance) || 0;
+      const amountPaid = Math.max(0, total - balance);
+      const accountingPaymentStatus =
+        balance === 0 ? "Paid" : balance < total ? "Partially Paid" : "Unpaid";
+
+      const [existing] = await withRetry(
+        () =>
+          db
+            .select({ id: apBills.id, workflowStatus: apBills.workflowStatus })
+            .from(apBills)
+            .where(and(eq(apBills.orgId, orgId), eq(apBills.qboId, bill.Id)))
+            .limit(1),
+        `wh-find-bill-${bill.Id}`
+      );
+      const workflowStatus =
+        existing && existing.workflowStatus !== "Synced from Accounting"
+          ? existing.workflowStatus
+          : "Synced from Accounting";
+
+      const billPayload = {
+        orgId,
+        supplierId,
+        billNumber: bill.DocNumber ?? null,
+        reference: bill.DocNumber ?? null,
+        billDate: bill.TxnDate ?? null,
+        dueDate: bill.DueDate ?? null,
+        currency: bill.CurrencyRef?.value ?? "USD",
+        subtotal: parseFloat(bill.SubTotalAmt) || 0,
+        taxTotal: parseFloat(bill.TxnTaxDetail?.TotalTax) || 0,
+        total,
+        amountPaid,
+        balance,
+        accountingPaymentStatus,
+        workflowStatus,
+        qboId: bill.Id,
+        source: "qbo",
+        privateNote: bill.PrivateNote ?? null,
+        lastSyncAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      let billId: string;
+      if (existing) {
+        await withRetry(
+          () => db.update(apBills).set(billPayload).where(eq(apBills.id, existing.id)),
+          `wh-update-bill-${bill.Id}`
+        );
+        billId = existing.id;
+      } else {
+        const [inserted] = await withRetry(
+          () => db.insert(apBills).values(billPayload).returning({ id: apBills.id }),
+          `wh-insert-bill-${bill.Id}`
+        );
+        billId = inserted.id;
+      }
+
+      await withRetry(
+        () => db.delete(apBillLines).where(eq(apBillLines.billId, billId)),
+        `wh-delete-lines-${bill.Id}`
+      );
+      const lineRows = buildQboBillLineRows(orgId, billId, bill);
+      if (lineRows.length > 0) {
+        await withRetry(() => db.insert(apBillLines).values(lineRows), `wh-insert-lines-${bill.Id}`);
+      }
+      upserted++;
+    } catch (e: any) {
+      errors.push(`Bill ${change.id}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  return { upserted, deleted, errors };
 }
