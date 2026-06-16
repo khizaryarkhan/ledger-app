@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -8,10 +9,63 @@ import {
   Users,
   AlertCircle,
   X,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { Card, Badge, Button, Input, Select, Modal, EmptyState } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+
+// ── Supplier card (grid view) — mirrors AR CustomerCard ────────────────────────
+const SupplierCard = memo(function SupplierCard({
+  s, isSelected, onToggle,
+}: { s: any; isSelected: boolean; onToggle: (id: string) => void }) {
+  return (
+    <div className={`relative rounded-lg ring-1 transition-colors ${isSelected ? "ring-violet-500 ring-2" : "ring-stone-700 hover:ring-stone-600"}`}>
+      <div className="absolute top-3 left-3 z-10">
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(s.id)}
+          className="rounded border-stone-600 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+      </div>
+      <Link href={`/payables/suppliers/${s.id}`}>
+        <Card className="cursor-pointer h-full ring-0 hover:ring-0">
+          <div className="flex items-start gap-3 mb-3 pl-5">
+            <div className="w-10 h-10 rounded-md bg-gradient-to-br from-stone-700 to-stone-800 flex items-center justify-center text-stone-300 text-sm font-semibold flex-shrink-0">
+              {(s.name || "?").split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-white truncate">{s.name}</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">
+                {s.code ? `${s.code} · ` : ""}{s.country || "—"}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <span className="text-[10px] bg-stone-800 text-stone-400 px-1.5 py-0.5 rounded font-medium">{normalizeSource(s.source)}</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 items-end">
+              {s.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
+              {s.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
+              {s.status !== "Active" && <Badge variant="orange" size="sm">{s.status}</Badge>}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-800">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{fmt.money(s.totalOutstanding, s.currency)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
+              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${s.overdueCount > 0 ? "text-rose-400" : "text-white"}`}>{s.overdueCount || 0}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open bills</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{s.openBillsCount}</div>
+            </div>
+          </div>
+        </Card>
+      </Link>
+    </div>
+  );
+});
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -348,10 +402,13 @@ export default function SuppliersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("All");
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 48;
   const [period, setPeriod] = useState<PeriodId>("all");
   const [customFrom, setCustomFrom] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); d.setDate(1); return d.toISOString().slice(0, 10); });
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
@@ -530,6 +587,17 @@ export default function SuppliersPage() {
             Clear
           </Button>
         )}
+        {/* View toggle */}
+        <div className="ml-auto flex items-center gap-1 bg-stone-800 rounded-lg p-1">
+          <button onClick={() => setViewMode("list")} title="List view"
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
+            <List size={14} />
+          </button>
+          <button onClick={() => setViewMode("grid")} title="Card view"
+            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
+            <LayoutGrid size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -562,7 +630,7 @@ export default function SuppliersPage() {
             }
           />
         </Card>
-      ) : (
+      ) : viewMode === "list" ? (
         <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
           <ActiveFiltersBar dt={dt} cols={SUPPLIER_COLS} />
           <div className="overflow-x-auto">
@@ -658,6 +726,32 @@ export default function SuppliersPage() {
             </table>
           </div>
         </div>
+      ) : (
+        /* ── GRID VIEW ── */
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            {dt.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((s: any) => (
+              <SupplierCard key={s.id} s={s} isSelected={selected.has(s.id)} onToggle={toggleOne} />
+            ))}
+          </div>
+          {Math.ceil(dt.rows.length / PAGE_SIZE) > 1 && (
+            <div className="flex items-center justify-between px-1 mt-4">
+              <span className="text-xs text-stone-500">
+                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, dt.rows.length)} of {dt.rows.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
+                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
+                {Array.from({ length: Math.ceil(dt.rows.length / PAGE_SIZE) }, (_, i) => (
+                  <button key={i} onClick={() => setPage(i)}
+                    className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
+                ))}
+                <button onClick={() => setPage((p) => Math.min(Math.ceil(dt.rows.length / PAGE_SIZE) - 1, p + 1))} disabled={page >= Math.ceil(dt.rows.length / PAGE_SIZE) - 1}
+                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <AddSupplierModal
