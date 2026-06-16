@@ -59,6 +59,7 @@ export interface QboApSyncResult {
   dimensionsUpserted: number;
   billsCreated: number;
   billsUpdated: number;
+  billsSkipped: number;
   errors: string[];
 }
 
@@ -187,6 +188,7 @@ export async function runQboApSync(
     dimensionsUpserted: 0,
     billsCreated: 0,
     billsUpdated: 0,
+    billsSkipped: 0,
     errors,
   };
 
@@ -576,14 +578,33 @@ export async function runQboApSync(
     const existingBillRows = await withRetry(
       () =>
         db
-          .select({ id: apBills.id, qboId: apBills.qboId, workflowStatus: apBills.workflowStatus })
+          .select({
+            id: apBills.id,
+            qboId: apBills.qboId,
+            workflowStatus: apBills.workflowStatus,
+            balance: apBills.balance,
+            total: apBills.total,
+            accountingPaymentStatus: apBills.accountingPaymentStatus,
+            supplierId: apBills.supplierId,
+          })
           .from(apBills)
           .where(eq(apBills.orgId, orgId)),
       "load-existing-bills"
     );
-    const existingByQbo = new Map<string, { id: string; workflowStatus: string }>();
+    const existingByQbo = new Map<
+      string,
+      { id: string; workflowStatus: string; balance: number; total: number; status: string; supplierId: string | null }
+    >();
     for (const b of existingBillRows) {
-      if (b.qboId) existingByQbo.set(b.qboId, { id: b.id, workflowStatus: b.workflowStatus });
+      if (b.qboId)
+        existingByQbo.set(b.qboId, {
+          id: b.id,
+          workflowStatus: b.workflowStatus,
+          balance: b.balance ?? 0,
+          total: b.total ?? 0,
+          status: b.accountingPaymentStatus,
+          supplierId: b.supplierId,
+        });
     }
 
     // Process bills in bounded batches so we don't saturate the connection pool
@@ -613,6 +634,21 @@ export async function runQboApSync(
 
           // Look up existing bill from the pre-built map (no per-bill query)
           const existing = existingByQbo.get(bill.Id);
+
+          // Skip bills that haven't changed (same balance/total/status and already
+          // linked to a supplier). On a steady-state sync nearly every bill is
+          // unchanged, so this avoids ~all DB writes — the cause of the timeout.
+          const cents = (n: number) => Math.round(n * 100);
+          if (
+            existing &&
+            existing.supplierId &&
+            cents(existing.balance) === cents(balance) &&
+            cents(existing.total) === cents(total) &&
+            existing.status === accountingPaymentStatus
+          ) {
+            result.billsSkipped++;
+            return;
+          }
 
           // Preserve non-default workflowStatus; reset only if it was the sync default
           const workflowStatus =

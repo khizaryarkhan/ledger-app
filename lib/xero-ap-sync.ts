@@ -59,6 +59,7 @@ export interface XeroApSyncResult {
   dimensionsUpserted: number;
   billsCreated: number;
   billsUpdated: number;
+  billsSkipped: number;
   errors: string[];
 }
 
@@ -220,6 +221,7 @@ export async function runXeroApSync(
     dimensionsUpserted: 0,
     billsCreated: 0,
     billsUpdated: 0,
+    billsSkipped: 0,
     errors,
   };
 
@@ -689,14 +691,33 @@ export async function runXeroApSync(
     const existingBillRows = await withRetry(
       () =>
         db
-          .select({ id: apBills.id, xeroId: apBills.xeroId, workflowStatus: apBills.workflowStatus })
+          .select({
+            id: apBills.id,
+            xeroId: apBills.xeroId,
+            workflowStatus: apBills.workflowStatus,
+            balance: apBills.balance,
+            total: apBills.total,
+            accountingPaymentStatus: apBills.accountingPaymentStatus,
+            supplierId: apBills.supplierId,
+          })
           .from(apBills)
           .where(eq(apBills.orgId, orgId)),
       "load-existing-bills"
     );
-    const existingByXero = new Map<string, { id: string; workflowStatus: string }>();
+    const existingByXero = new Map<
+      string,
+      { id: string; workflowStatus: string; balance: number; total: number; status: string; supplierId: string | null }
+    >();
     for (const b of existingBillRows) {
-      if (b.xeroId) existingByXero.set(b.xeroId, { id: b.id, workflowStatus: b.workflowStatus });
+      if (b.xeroId)
+        existingByXero.set(b.xeroId, {
+          id: b.id,
+          workflowStatus: b.workflowStatus,
+          balance: b.balance ?? 0,
+          total: b.total ?? 0,
+          status: b.accountingPaymentStatus,
+          supplierId: b.supplierId,
+        });
     }
 
     const BATCH = 8;
@@ -741,6 +762,20 @@ export async function runXeroApSync(
 
           // Look up existing bill from the pre-built map (no per-bill query)
           const existing = existingByXero.get(xi.InvoiceID);
+
+          // Skip unchanged bills (same balance/total/status, already linked) to
+          // avoid rewriting everything every sync — the cause of the timeout.
+          const cents = (n: number) => Math.round(n * 100);
+          if (
+            existing &&
+            existing.supplierId &&
+            cents(existing.balance) === cents(balance) &&
+            cents(existing.total) === cents(total) &&
+            existing.status === accountingPaymentStatus
+          ) {
+            result.billsSkipped++;
+            return;
+          }
 
           const workflowStatus =
             existing && existing.workflowStatus !== "Synced from Accounting"
