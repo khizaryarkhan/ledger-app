@@ -1,23 +1,20 @@
 /**
- * GET /api/payables/_diagnose
- * Read-only diagnostic for the "Unknown supplier" / missing-bills issue.
- * Reports DB link health and re-queries QBO for a few unlinked bills so we can
- * see their actual VendorRef. Admin-only. Writes nothing.
+ * GET /api/payables/diagnose
+ * Read-only diagnostic. Reports bill→supplier link health, payment-status
+ * breakdown + total outstanding (explains an all-€0 dashboard), and the last
+ * AP sync's recorded result/errors. Admin-only. Writes nothing.
  */
 import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
 import { db } from "@/db";
-import { apBills, apSuppliers, qboTokens } from "@/db/schema";
-import { getValidToken } from "@/lib/qbo-sync";
-import { eq, and, isNull, isNotNull, sql } from "drizzle-orm";
-
-const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
+import { apBills, apSuppliers, auditEvents } from "@/db/schema";
+import { eq, and, isNull, isNotNull, sql, desc } from "drizzle-orm";
 
 export async function GET() {
   const { error, orgId, role, session } = await requireOrg();
   if (error) return error;
   if (role !== "company_admin" && !isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  // ── DB health ──────────────────────────────────────────────────────────────
+  // ── Link health ────────────────────────────────────────────────────────────
   const [{ count: billsTotal }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(apBills)
@@ -38,82 +35,70 @@ export async function GET() {
     .from(apSuppliers)
     .where(and(eq(apSuppliers.orgId, orgId!), isNotNull(apSuppliers.qboId)));
 
-  // Sample of unlinked bills (their QBO ids)
-  const unlinkedSample = await db
-    .select({ id: apBills.id, billNumber: apBills.billNumber, qboId: apBills.qboId, source: apBills.source })
+  // ── Payment-status breakdown + outstanding (explains €0 dashboard) ──────────
+  const statusRows = await db
+    .select({
+      status: apBills.accountingPaymentStatus,
+      count: sql<number>`count(*)::int`,
+      sumBalance: sql<number>`COALESCE(SUM(${apBills.balance}), 0)`,
+      sumTotal: sql<number>`COALESCE(SUM(${apBills.total}), 0)`,
+    })
     .from(apBills)
-    .where(and(eq(apBills.orgId, orgId!), isNull(apBills.supplierId)))
+    .where(eq(apBills.orgId, orgId!))
+    .groupBy(apBills.accountingPaymentStatus);
+
+  const [{ outstanding }] = await db
+    .select({
+      outstanding: sql<number>`COALESCE(SUM(CASE WHEN ${apBills.balance} > 0 THEN ${apBills.balance} ELSE 0 END), 0)`,
+    })
+    .from(apBills)
+    .where(eq(apBills.orgId, orgId!));
+
+  const [{ count: billsWithBalance }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(apBills)
+    .where(and(eq(apBills.orgId, orgId!), sql`${apBills.balance} > 0`));
+
+  const sampleWithBalance = await db
+    .select({
+      billNumber: apBills.billNumber,
+      balance: apBills.balance,
+      total: apBills.total,
+      status: apBills.accountingPaymentStatus,
+      dueDate: apBills.dueDate,
+    })
+    .from(apBills)
+    .where(and(eq(apBills.orgId, orgId!), sql`${apBills.balance} > 0`))
+    .orderBy(desc(apBills.balance))
     .limit(10);
 
-  // ── Live QBO lookup for those bills ─────────────────────────────────────────
-  const qboBillProbe: any[] = [];
-  let qboError: string | null = null;
-  try {
-    const token = await getValidToken(orgId!);
-    const [tokRow] = await db
-      .select({ realmId: qboTokens.realmId })
-      .from(qboTokens)
-      .where(eq(qboTokens.orgId, orgId!))
-      .limit(1);
-
-    if (token && tokRow?.realmId) {
-      const realmId = tokRow.realmId;
-      for (const b of unlinkedSample) {
-        if (!b.qboId) {
-          qboBillProbe.push({ billNumber: b.billNumber, qboId: null, note: "bill has no qboId (likely not QBO-sourced)" });
-          continue;
-        }
-        const url = `${QBO_API}/${realmId}/bill/${b.qboId}?minorversion=65`;
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" },
-        });
-        if (!res.ok) {
-          qboBillProbe.push({ billNumber: b.billNumber, qboId: b.qboId, qboStatus: res.status });
-          continue;
-        }
-        const json = await res.json();
-        const vendorRef = json?.Bill?.VendorRef ?? null;
-
-        // Does a supplier with this vendor qboId exist in our DB?
-        let supplierExists = false;
-        if (vendorRef?.value) {
-          const [sup] = await db
-            .select({ id: apSuppliers.id })
-            .from(apSuppliers)
-            .where(and(eq(apSuppliers.orgId, orgId!), eq(apSuppliers.qboId, vendorRef.value)))
-            .limit(1);
-          supplierExists = !!sup;
-        }
-
-        qboBillProbe.push({
-          billNumber: b.billNumber,
-          qboId: b.qboId,
-          vendorRef: vendorRef ? { value: vendorRef.value, name: vendorRef.name } : null,
-          supplierWithThatQboIdExists: supplierExists,
-        });
-      }
-    } else {
-      qboError = "QBO not connected or realmId missing";
-    }
-  } catch (e: any) {
-    qboError = e?.message ?? String(e);
-  }
+  // ── Last AP sync result (errors recorded during the sync) ───────────────────
+  const [lastSync] = await db
+    .select({ occurredAt: auditEvents.occurredAt, meta: auditEvents.meta, actorName: auditEvents.actorName })
+    .from(auditEvents)
+    .where(and(eq(auditEvents.orgId, orgId!), eq(auditEvents.eventType, "payables_master_data_synced")))
+    .orderBy(desc(auditEvents.occurredAt))
+    .limit(1);
 
   return ok({
-    db: {
+    linkHealth: {
       billsTotal,
       billsUnlinked,
       billsLinked: billsTotal - billsUnlinked,
       suppliersTotal,
       suppliersWithQbo,
     },
-    unlinkedSample,
-    qboError,
-    qboBillProbe,
-    interpretation:
-      "If qboBillProbe rows have a vendorRef.value but supplierWithThatQboIdExists=false, " +
-      "the vendor was never synced (the auto-create fix handles this on next sync). " +
-      "If vendorRef is null, these bills carry no vendor in QBO. " +
-      "If qboId is null, the bills aren't QBO-sourced.",
+    payments: {
+      byStatus: statusRows,
+      totalOutstanding: outstanding,
+      billsWithBalance,
+      sampleWithBalance,
+      note:
+        "If totalOutstanding is 0 and billsWithBalance is 0, the dashboard showing €0 is CORRECT " +
+        "(all bills are fully paid). The dashboard only counts Unpaid/Partially Paid bills.",
+    },
+    lastSync: lastSync
+      ? { occurredAt: lastSync.occurredAt, actorName: lastSync.actorName, meta: lastSync.meta }
+      : null,
   });
 }

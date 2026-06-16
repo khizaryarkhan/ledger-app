@@ -190,8 +190,14 @@ export async function runQboApSync(
       await sleep(300);
     }
 
-    const vendorResults = await Promise.allSettled(
-      vendors.map(async (v: any) => {
+    // Batch the upserts (could be ~2k vendors incl. inactive) so we don't
+    // saturate the connection pool and trip the function timeout.
+    const VENDOR_BATCH = 25;
+    const vendorResults: PromiseSettledResult<void>[] = [];
+    for (let vi = 0; vi < vendors.length; vi += VENDOR_BATCH) {
+      const vchunk = vendors.slice(vi, vi + VENDOR_BATCH);
+      const vchunkResults = await Promise.allSettled(
+      vchunk.map(async (v: any) => {
         try {
           const address = [
             v.BillAddr?.Line1,
@@ -253,7 +259,9 @@ export async function runQboApSync(
           throw new Error(`Vendor ${v.Id}: ${e?.message ?? String(e)}`);
         }
       })
-    );
+      );
+      vendorResults.push(...vchunkResults);
+    }
 
     for (const r of vendorResults) {
       if (r.status === "rejected") {
