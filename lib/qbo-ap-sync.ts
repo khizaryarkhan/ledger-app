@@ -477,27 +477,66 @@ export async function runQboApSync(
     const bills = await qboFetchAll(accessToken, realmId, "Bill", "", 200);
     await sleep(300);
 
-    const billResults = await Promise.allSettled(
-      bills.map(async (bill: any) => {
-        try {
-          // Resolve supplier by qboId
-          let supplierId: string | null = null;
-          if (bill.VendorRef?.value) {
-            const [sup] = await db
-              .select({ id: apSuppliers.id })
-              .from(apSuppliers)
-              .where(
-                and(
-                  eq(apSuppliers.orgId, orgId),
-                  eq(apSuppliers.qboId, bill.VendorRef.value)
-                )
-              )
-              .limit(1);
-            supplierId = sup?.id ?? null;
-          }
+    // Resolve suppliers up-front. Build a qboId → supplierId map for the org,
+    // then auto-create a minimal supplier for any vendor a bill references that
+    // wasn't synced (e.g. vendors QBO marks inactive and omits from the Vendor
+    // query). Done sequentially BEFORE the concurrent bill loop so we never race
+    // two inserts for the same vendor (ap_suppliers has no unique qboId index).
+    const supplierRows = await db
+      .select({ id: apSuppliers.id, qboId: apSuppliers.qboId })
+      .from(apSuppliers)
+      .where(eq(apSuppliers.orgId, orgId));
+    const supplierByQbo = new Map<string, string>();
+    for (const s of supplierRows) {
+      if (s.qboId) supplierByQbo.set(s.qboId, s.id);
+    }
 
-          const total = parseFloat(bill.TotalAmt) ?? 0;
-          const balance = parseFloat(bill.Balance) ?? 0;
+    const missingVendors = new Map<string, string>(); // qboId → name
+    for (const bill of bills) {
+      const vId = bill.VendorRef?.value;
+      if (vId && !supplierByQbo.has(vId)) {
+        missingVendors.set(vId, bill.VendorRef?.name ?? `Vendor-${vId}`);
+      }
+    }
+    for (const [vId, name] of missingVendors) {
+      try {
+        const [created] = await db
+          .insert(apSuppliers)
+          .values({
+            orgId,
+            name,
+            source: "qbo",
+            qboId: vId,
+            status: "Active",
+            riskRating: "Low",
+            paymentTerms: 30,
+            currency: "USD",
+            lastSyncedAt: new Date(),
+          })
+          .returning({ id: apSuppliers.id });
+        supplierByQbo.set(vId, created.id);
+        result.vendorsCreated++;
+      } catch (e: any) {
+        errors.push(`Auto-create vendor ${vId}: ${e?.message ?? String(e)}`);
+      }
+    }
+
+    // Process bills in bounded batches so we don't saturate the connection pool
+    // (each bill does several round-trips); all-at-once risked timeouts/drops.
+    const BATCH = 20;
+    const billResults: PromiseSettledResult<void>[] = [];
+    for (let i = 0; i < bills.length; i += BATCH) {
+      const chunk = bills.slice(i, i + BATCH);
+      const chunkResults = await Promise.allSettled(
+      chunk.map(async (bill: any) => {
+        try {
+          // Resolve supplier from the pre-built map (no per-bill query)
+          const supplierId = bill.VendorRef?.value
+            ? supplierByQbo.get(bill.VendorRef.value) ?? null
+            : null;
+
+          const total = parseFloat(bill.TotalAmt) || 0;
+          const balance = parseFloat(bill.Balance) || 0;
           const amountPaid = Math.max(0, total - balance);
 
           const accountingPaymentStatus =
@@ -531,8 +570,8 @@ export async function runQboApSync(
             billDate: bill.TxnDate ?? null,
             dueDate: bill.DueDate ?? null,
             currency: bill.CurrencyRef?.value ?? "USD",
-            subtotal: parseFloat(bill.SubTotalAmt) ?? 0,
-            taxTotal: parseFloat(bill.TxnTaxDetail?.TotalTax) ?? 0,
+            subtotal: parseFloat(bill.SubTotalAmt) || 0,
+            taxTotal: parseFloat(bill.TxnTaxDetail?.TotalTax) || 0,
             total,
             amountPaid,
             balance,
@@ -584,10 +623,10 @@ export async function runQboApSync(
               const unitPrice =
                 detail?.UnitPrice != null
                   ? parseFloat(detail.UnitPrice)
-                  : parseFloat(line.Amount) ?? 0;
-              const lineTotal = parseFloat(line.Amount) ?? 0;
+                  : parseFloat(line.Amount) || 0;
+              const lineTotal = parseFloat(line.Amount) || 0;
               const taxAmount =
-                parseFloat(line.TaxAmount) ?? 0;
+                parseFloat(line.TaxAmount) || 0;
 
               return {
                 orgId,
@@ -610,7 +649,10 @@ export async function runQboApSync(
           throw new Error(`Bill ${bill.Id}: ${e?.message ?? String(e)}`);
         }
       })
-    );
+      );
+      billResults.push(...chunkResults);
+      await sleep(150);
+    }
 
     for (const r of billResults) {
       if (r.status === "rejected") {
