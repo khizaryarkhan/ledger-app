@@ -27,6 +27,27 @@ import { eq, and } from "drizzle-orm";
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Retry a DB op on transient Neon serverless errors ("fetch failed",
+ * connection terminated, etc.) which appear under high query volume.
+ */
+async function withRetry<T>(fn: () => Promise<T>, label = "db", attempts = 4): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      const msg = String(e?.message ?? e);
+      const transient =
+        /fetch failed|connection|terminat|ECONNRESET|ETIMEDOUT|socket|network/i.test(msg);
+      if (!transient || i === attempts - 1) throw e;
+      await sleep(250 * Math.pow(2, i));
+    }
+  }
+  throw lastErr;
+}
+
 // ─── result type ────────────────────────────────────────────────────────────
 
 export interface XeroApSyncResult {
@@ -268,29 +289,32 @@ export async function runXeroApSync(
           updatedAt: new Date(),
         };
 
-        const [existing] = await db
-          .select({ id: apSuppliers.id })
-          .from(apSuppliers)
-          .where(
-            and(
-              eq(apSuppliers.orgId, orgId),
-              eq(apSuppliers.xeroId, c.ContactID)
-            )
-          )
-          .limit(1);
+        const [existing] = await withRetry(
+          () =>
+            db
+              .select({ id: apSuppliers.id })
+              .from(apSuppliers)
+              .where(and(eq(apSuppliers.orgId, orgId), eq(apSuppliers.xeroId, c.ContactID)))
+              .limit(1),
+          `find-contact-${c.ContactID}`
+        );
 
         if (existing) {
-          await db
-            .update(apSuppliers)
-            .set(payload)
-            .where(eq(apSuppliers.id, existing.id));
+          await withRetry(
+            () => db.update(apSuppliers).set(payload).where(eq(apSuppliers.id, existing.id)),
+            `update-contact-${c.ContactID}`
+          );
           result.vendorsUpdated++;
         } else {
-          await db.insert(apSuppliers).values({
-            ...payload,
-            riskRating: "Low",
-            paymentTerms: c.PaymentTerms?.Bills?.Day ?? 30,
-          });
+          await withRetry(
+            () =>
+              db.insert(apSuppliers).values({
+                ...payload,
+                riskRating: "Low",
+                paymentTerms: c.PaymentTerms?.Bills?.Day ?? 30,
+              }),
+            `insert-contact-${c.ContactID}`
+          );
           result.vendorsCreated++;
         }
       })
@@ -611,33 +635,88 @@ export async function runXeroApSync(
     );
     await sleep(300);
 
-    const billResults = await Promise.allSettled(
-      bills.map(async (xi: any) => {
+    // Resolve suppliers up-front. Build a xeroId → supplierId map, then
+    // auto-create a minimal supplier for any contact a bill references that
+    // wasn't synced (e.g. a contact not flagged IsSupplier, or archived).
+    const supplierRows = await withRetry(
+      () =>
+        db
+          .select({ id: apSuppliers.id, xeroId: apSuppliers.xeroId })
+          .from(apSuppliers)
+          .where(eq(apSuppliers.orgId, orgId)),
+      "load-suppliers"
+    );
+    const supplierByXero = new Map<string, string>();
+    for (const s of supplierRows) {
+      if (s.xeroId) supplierByXero.set(s.xeroId, s.id);
+    }
+
+    const missingContacts = new Map<string, string>(); // xeroId → name
+    for (const xi of bills) {
+      const cid = xi.Contact?.ContactID;
+      if (cid && !supplierByXero.has(cid)) {
+        missingContacts.set(cid, xi.Contact?.Name ?? `Contact-${cid}`);
+      }
+    }
+    for (const [cid, name] of missingContacts) {
+      try {
+        const [created] = await withRetry(
+          () =>
+            db
+              .insert(apSuppliers)
+              .values({
+                orgId,
+                name,
+                source: "xero",
+                xeroId: cid,
+                status: "Active",
+                riskRating: "Low",
+                paymentTerms: 30,
+                currency: "USD",
+                lastSyncedAt: new Date(),
+              })
+              .returning({ id: apSuppliers.id }),
+          `auto-create-contact-${cid}`
+        );
+        supplierByXero.set(cid, created.id);
+        result.vendorsCreated++;
+      } catch (e: any) {
+        errors.push(`Auto-create contact ${cid}: ${e?.message ?? String(e)}`);
+      }
+    }
+
+    // Bulk-load existing bills ONCE (keyed by xeroId) instead of a per-bill SELECT.
+    const existingBillRows = await withRetry(
+      () =>
+        db
+          .select({ id: apBills.id, xeroId: apBills.xeroId, workflowStatus: apBills.workflowStatus })
+          .from(apBills)
+          .where(eq(apBills.orgId, orgId)),
+      "load-existing-bills"
+    );
+    const existingByXero = new Map<string, { id: string; workflowStatus: string }>();
+    for (const b of existingBillRows) {
+      if (b.xeroId) existingByXero.set(b.xeroId, { id: b.id, workflowStatus: b.workflowStatus });
+    }
+
+    const BATCH = 8;
+    const billResults: PromiseSettledResult<void>[] = [];
+    for (let bi = 0; bi < bills.length; bi += BATCH) {
+      const chunk = bills.slice(bi, bi + BATCH);
+      const chunkResults = await Promise.allSettled(
+      chunk.map(async (xi: any) => {
         if (!xi.InvoiceID) return;
 
         try {
-          // Resolve supplier by xeroId (Contact)
-          let supplierId: string | null = null;
+          // Resolve supplier from the pre-built map (no per-bill query)
           const contactId = xi.Contact?.ContactID;
-          if (contactId) {
-            const [sup] = await db
-              .select({ id: apSuppliers.id })
-              .from(apSuppliers)
-              .where(
-                and(
-                  eq(apSuppliers.orgId, orgId),
-                  eq(apSuppliers.xeroId, contactId)
-                )
-              )
-              .limit(1);
-            supplierId = sup?.id ?? null;
-          }
+          const supplierId = contactId ? supplierByXero.get(contactId) ?? null : null;
 
-          const total = parseFloat(xi.Total) ?? 0;
-          const amountPaid = parseFloat(xi.AmountPaid) ?? 0;
-          const balance = parseFloat(xi.AmountDue) ?? 0;
-          const subtotal = parseFloat(xi.SubTotal) ?? 0;
-          const taxTotal = parseFloat(xi.TotalTax) ?? 0;
+          const total = parseFloat(xi.Total) || 0;
+          const amountPaid = parseFloat(xi.AmountPaid) || 0;
+          const balance = parseFloat(xi.AmountDue) || 0;
+          const subtotal = parseFloat(xi.SubTotal) || 0;
+          const taxTotal = parseFloat(xi.TotalTax) || 0;
 
           const xeroStatus: string = xi.Status ?? "AUTHORISED";
           let accountingPaymentStatus: string;
@@ -660,17 +739,8 @@ export async function runXeroApSync(
           const billDate = parseXeroDate(xi.DateString ?? xi.Date) ?? null;
           const dueDate = parseXeroDate(xi.DueDateString ?? xi.DueDate) ?? null;
 
-          // Preserve non-default workflowStatus
-          const [existing] = await db
-            .select({
-              id: apBills.id,
-              workflowStatus: apBills.workflowStatus,
-            })
-            .from(apBills)
-            .where(
-              and(eq(apBills.orgId, orgId), eq(apBills.xeroId, xi.InvoiceID))
-            )
-            .limit(1);
+          // Look up existing bill from the pre-built map (no per-bill query)
+          const existing = existingByXero.get(xi.InvoiceID);
 
           const workflowStatus =
             existing && existing.workflowStatus !== "Synced from Accounting"
@@ -701,23 +771,26 @@ export async function runXeroApSync(
           let billId: string;
 
           if (existing) {
-            await db
-              .update(apBills)
-              .set(billPayload)
-              .where(eq(apBills.id, existing.id));
+            await withRetry(
+              () => db.update(apBills).set(billPayload).where(eq(apBills.id, existing.id)),
+              `update-bill-${xi.InvoiceID}`
+            );
             billId = existing.id;
             result.billsUpdated++;
           } else {
-            const [inserted] = await db
-              .insert(apBills)
-              .values(billPayload)
-              .returning({ id: apBills.id });
+            const [inserted] = await withRetry(
+              () => db.insert(apBills).values(billPayload).returning({ id: apBills.id }),
+              `insert-bill-${xi.InvoiceID}`
+            );
             billId = inserted.id;
             result.billsCreated++;
           }
 
           // Re-insert lines (delete + insert for idempotency)
-          await db.delete(apBillLines).where(eq(apBillLines.billId, billId));
+          await withRetry(
+            () => db.delete(apBillLines).where(eq(apBillLines.billId, billId)),
+            `delete-lines-${xi.InvoiceID}`
+          );
 
           const lineItems: any[] = xi.LineItems ?? [];
           if (lineItems.length > 0) {
@@ -752,7 +825,10 @@ export async function runXeroApSync(
               };
             });
 
-            await db.insert(apBillLines).values(lineRows);
+            await withRetry(
+              () => db.insert(apBillLines).values(lineRows),
+              `insert-lines-${xi.InvoiceID}`
+            );
           }
         } catch (e: any) {
           throw new Error(
@@ -760,7 +836,10 @@ export async function runXeroApSync(
           );
         }
       })
-    );
+      );
+      billResults.push(...chunkResults);
+      await sleep(150);
+    }
 
     for (const r of billResults) {
       if (r.status === "rejected") {
