@@ -26,6 +26,28 @@ import { eq, and, sql } from "drizzle-orm";
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Retry a DB operation on transient Neon serverless errors ("fetch failed",
+ * connection terminated, etc.). At this scale (thousands of bills) the HTTP
+ * driver intermittently drops connections under load; a short backoff recovers.
+ */
+async function withRetry<T>(fn: () => Promise<T>, label = "db", attempts = 4): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      const msg = String(e?.message ?? e);
+      const transient =
+        /fetch failed|connection|terminat|ECONNRESET|ETIMEDOUT|socket|network/i.test(msg);
+      if (!transient || i === attempts - 1) throw e;
+      await sleep(250 * Math.pow(2, i)); // 250ms, 500ms, 1s
+    }
+  }
+  throw lastErr;
+}
+
 // ─── result type ────────────────────────────────────────────────────────────
 
 export interface QboApSyncResult {
@@ -230,29 +252,27 @@ export async function runQboApSync(
           };
 
           // Check-then-insert/update because ap_suppliers has no unique index on (orgId, qboId)
-          const [existing] = await db
-            .select({ id: apSuppliers.id })
-            .from(apSuppliers)
-            .where(
-              and(
-                eq(apSuppliers.orgId, orgId),
-                eq(apSuppliers.qboId, v.Id)
-              )
-            )
-            .limit(1);
+          const [existing] = await withRetry(
+            () =>
+              db
+                .select({ id: apSuppliers.id })
+                .from(apSuppliers)
+                .where(and(eq(apSuppliers.orgId, orgId), eq(apSuppliers.qboId, v.Id)))
+                .limit(1),
+            `find-vendor-${v.Id}`
+          );
 
           if (existing) {
-            await db
-              .update(apSuppliers)
-              .set(payload)
-              .where(eq(apSuppliers.id, existing.id));
+            await withRetry(
+              () => db.update(apSuppliers).set(payload).where(eq(apSuppliers.id, existing.id)),
+              `update-vendor-${v.Id}`
+            );
             result.vendorsUpdated++;
           } else {
-            await db.insert(apSuppliers).values({
-              ...payload,
-              riskRating: "Low",
-              paymentTerms: 30,
-            });
+            await withRetry(
+              () => db.insert(apSuppliers).values({ ...payload, riskRating: "Low", paymentTerms: 30 }),
+              `insert-vendor-${v.Id}`
+            );
             result.vendorsCreated++;
           }
         } catch (e: any) {
@@ -525,20 +545,24 @@ export async function runQboApSync(
     }
     for (const [vId, name] of missingVendors) {
       try {
-        const [created] = await db
-          .insert(apSuppliers)
-          .values({
-            orgId,
-            name,
-            source: "qbo",
-            qboId: vId,
-            status: "Active",
-            riskRating: "Low",
-            paymentTerms: 30,
-            currency: "USD",
-            lastSyncedAt: new Date(),
-          })
-          .returning({ id: apSuppliers.id });
+        const [created] = await withRetry(
+          () =>
+            db
+              .insert(apSuppliers)
+              .values({
+                orgId,
+                name,
+                source: "qbo",
+                qboId: vId,
+                status: "Active",
+                riskRating: "Low",
+                paymentTerms: 30,
+                currency: "USD",
+                lastSyncedAt: new Date(),
+              })
+              .returning({ id: apSuppliers.id }),
+          `auto-create-vendor-${vId}`
+        );
         supplierByQbo.set(vId, created.id);
         result.vendorsCreated++;
       } catch (e: any) {
@@ -546,9 +570,25 @@ export async function runQboApSync(
       }
     }
 
+    // Bulk-load existing bills ONCE into a map (id + workflowStatus keyed by
+    // qboId) instead of a per-bill SELECT. At ~8k bills that removes ~8k HTTP
+    // round-trips per sync — the main cause of Neon "fetch failed" exhaustion.
+    const existingBillRows = await withRetry(
+      () =>
+        db
+          .select({ id: apBills.id, qboId: apBills.qboId, workflowStatus: apBills.workflowStatus })
+          .from(apBills)
+          .where(eq(apBills.orgId, orgId)),
+      "load-existing-bills"
+    );
+    const existingByQbo = new Map<string, { id: string; workflowStatus: string }>();
+    for (const b of existingBillRows) {
+      if (b.qboId) existingByQbo.set(b.qboId, { id: b.id, workflowStatus: b.workflowStatus });
+    }
+
     // Process bills in bounded batches so we don't saturate the connection pool
     // (each bill does several round-trips); all-at-once risked timeouts/drops.
-    const BATCH = 20;
+    const BATCH = 8;
     const billResults: PromiseSettledResult<void>[] = [];
     for (let i = 0; i < bills.length; i += BATCH) {
       const chunk = bills.slice(i, i + BATCH);
@@ -571,15 +611,8 @@ export async function runQboApSync(
               ? "Partially Paid"
               : "Unpaid";
 
-          // Check for existing bill to preserve workflowStatus
-          const [existing] = await db
-            .select({
-              id: apBills.id,
-              workflowStatus: apBills.workflowStatus,
-            })
-            .from(apBills)
-            .where(and(eq(apBills.orgId, orgId), eq(apBills.qboId, bill.Id)))
-            .limit(1);
+          // Look up existing bill from the pre-built map (no per-bill query)
+          const existing = existingByQbo.get(bill.Id);
 
           // Preserve non-default workflowStatus; reset only if it was the sync default
           const workflowStatus =
@@ -612,25 +645,26 @@ export async function runQboApSync(
           let billId: string;
 
           if (existing) {
-            await db
-              .update(apBills)
-              .set(billPayload)
-              .where(eq(apBills.id, existing.id));
+            await withRetry(
+              () => db.update(apBills).set(billPayload).where(eq(apBills.id, existing.id)),
+              `update-bill-${bill.Id}`
+            );
             billId = existing.id;
             result.billsUpdated++;
           } else {
-            const [inserted] = await db
-              .insert(apBills)
-              .values(billPayload)
-              .returning({ id: apBills.id });
+            const [inserted] = await withRetry(
+              () => db.insert(apBills).values(billPayload).returning({ id: apBills.id }),
+              `insert-bill-${bill.Id}`
+            );
             billId = inserted.id;
             result.billsCreated++;
           }
 
           // Re-insert all lines (delete + insert for idempotency)
-          await db
-            .delete(apBillLines)
-            .where(eq(apBillLines.billId, billId));
+          await withRetry(
+            () => db.delete(apBillLines).where(eq(apBillLines.billId, billId)),
+            `delete-lines-${bill.Id}`
+          );
 
           const lines: any[] = (bill.Line ?? []).filter(
             (l: any) =>
@@ -668,7 +702,7 @@ export async function runQboApSync(
               };
             });
 
-            await db.insert(apBillLines).values(lineRows);
+            await withRetry(() => db.insert(apBillLines).values(lineRows), `insert-lines-${bill.Id}`);
           }
         } catch (e: any) {
           throw new Error(`Bill ${bill.Id}: ${e?.message ?? String(e)}`);
