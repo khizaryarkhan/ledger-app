@@ -14,6 +14,7 @@ import {
   Activity,
 } from "lucide-react";
 import { Card, Badge, Button } from "@/components/ui";
+import { fmt, formatDate } from "@/lib/format";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,24 +70,6 @@ interface DashboardData {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtMoney(amount: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
-function fmtDate(dateStr: string) {
-  if (!dateStr) return "—";
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -258,7 +241,7 @@ export default function PayablesDashboardPage() {
                 <Banknote size={16} className="text-violet-500" />
               </div>
               <div className="text-2xl font-semibold text-white tabular-nums">
-                {stats ? fmtMoney(stats.totalPayables, stats.currency) : "—"}
+                {stats ? fmt.money(stats.totalPayables, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">Outstanding balance</p>
             </Card>
@@ -272,7 +255,7 @@ export default function PayablesDashboardPage() {
                 <CalendarClock size={16} className="text-amber-500" />
               </div>
               <div className="text-2xl font-semibold text-white tabular-nums">
-                {stats ? fmtMoney(stats.dueThisWeek, stats.currency) : "—"}
+                {stats ? fmt.money(stats.dueThisWeek, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">
                 {stats?.dueThisWeekCount ?? 0} bill
@@ -289,7 +272,7 @@ export default function PayablesDashboardPage() {
                 <AlertCircle size={16} className="text-rose-500" />
               </div>
               <div className="text-2xl font-semibold text-rose-400 tabular-nums">
-                {stats ? fmtMoney(stats.overdueBills, stats.currency) : "—"}
+                {stats ? fmt.money(stats.overdueBills, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">
                 {stats?.overdueBillsCount ?? 0} bill
@@ -306,7 +289,7 @@ export default function PayablesDashboardPage() {
                 <Clock size={16} className="text-blue-500" />
               </div>
               <div className="text-2xl font-semibold text-white tabular-nums">
-                {stats ? fmtMoney(stats.pendingApproval, stats.currency) : "—"}
+                {stats ? fmt.money(stats.pendingApproval, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">
                 {stats?.pendingApprovalCount ?? 0} awaiting review
@@ -322,7 +305,7 @@ export default function PayablesDashboardPage() {
                 <PauseCircle size={16} className="text-orange-500" />
               </div>
               <div className="text-2xl font-semibold text-white tabular-nums">
-                {stats ? fmtMoney(stats.billsOnHold, stats.currency) : "—"}
+                {stats ? fmt.money(stats.billsOnHold, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">
                 {stats?.billsOnHoldCount ?? 0} bill
@@ -339,7 +322,7 @@ export default function PayablesDashboardPage() {
                 <CheckCircle2 size={16} className="text-emerald-500" />
               </div>
               <div className="text-2xl font-semibold text-emerald-400 tabular-nums">
-                {stats ? fmtMoney(stats.readyForPayment, stats.currency) : "—"}
+                {stats ? fmt.money(stats.readyForPayment, stats.currency) : "—"}
               </div>
               <p className="text-xs text-stone-500 mt-1">
                 {stats?.readyForPaymentCount ?? 0} approved &amp; ready
@@ -407,10 +390,10 @@ export default function PayablesDashboardPage() {
                       {row.billNumber}
                     </td>
                     <td className="px-4 py-3 text-stone-300 text-xs whitespace-nowrap">
-                      {fmtDate(row.dueDate)}
+                      {formatDate(row.dueDate)}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-white tabular-nums">
-                      {fmtMoney(row.balance, row.currency)}
+                      {fmt.money(row.balance, row.currency)}
                     </td>
                     <td className="px-4 py-3">
                       {row.agingBucket === "90+" ? (
@@ -478,12 +461,12 @@ export default function PayablesDashboardPage() {
                     <div className="flex items-center gap-2 text-xs text-stone-400">
                       <span className="font-mono">{task.billNumber}</span>
                       <span>·</span>
-                      <span>Due {fmtDate(task.dueDate)}</span>
+                      <span>Due {formatDate(task.dueDate)}</span>
                     </div>
                   </div>
                   <div className="text-right ml-4 shrink-0">
                     <div className="font-semibold text-white tabular-nums text-sm">
-                      {fmtMoney(task.amount, task.currency)}
+                      {fmt.money(task.amount, task.currency)}
                     </div>
                     <div className="text-[11px] text-stone-500 mt-0.5">
                       Assigned {timeAgo(task.assignedAt)}

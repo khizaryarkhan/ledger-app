@@ -21,6 +21,8 @@ import {
   Modal,
   EmptyState,
 } from "@/components/ui";
+import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { formatDate } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,15 +70,6 @@ interface UserOption {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtDate(d?: string) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 function categoryBadgeColor(cat: QueryCategory): string {
   const map: Record<QueryCategory, string> = {
@@ -392,7 +385,7 @@ function DetailDrawer({ query, onClose, onResolve }: DetailDrawerProps) {
                   Created
                 </p>
                 <p className="text-sm text-stone-300">
-                  {fmtDate(query.createdAt)}
+                  {formatDate(query.createdAt)}
                 </p>
               </div>
               {query.resolvedAt && (
@@ -401,7 +394,7 @@ function DetailDrawer({ query, onClose, onResolve }: DetailDrawerProps) {
                     Resolved
                   </p>
                   <p className="text-sm text-emerald-400">
-                    {fmtDate(query.resolvedAt)}
+                    {formatDate(query.resolvedAt)}
                   </p>
                 </div>
               )}
@@ -453,7 +446,7 @@ function DetailDrawer({ query, onClose, onResolve }: DetailDrawerProps) {
                         <span className="text-white font-medium">
                           {entry.user}
                         </span>{" "}
-                        · {fmtDate(entry.createdAt)}
+                        · {formatDate(entry.createdAt)}
                       </p>
                       <p className="text-sm text-stone-300 mt-0.5">
                         {entry.message}
@@ -470,6 +463,41 @@ function DetailDrawer({ query, onClose, onResolve }: DetailDrawerProps) {
   );
 }
 
+// ── Period helpers ─────────────────────────────────────────────────────────────
+
+type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
+
+const PERIODS: { id: PeriodId; label: string }[] = [
+  { id: "this-month", label: "This Month" },
+  { id: "last-month", label: "Last Month" },
+  { id: "last-3m",    label: "Last 3M" },
+  { id: "last-6m",    label: "Last 6M" },
+  { id: "all",        label: "All Time" },
+  { id: "custom",     label: "Custom" },
+];
+
+function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
+  const now = new Date();
+  if (id === "this-month") return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
+  if (id === "last-month") return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
+  if (id === "last-3m")   return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
+  if (id === "last-6m")   return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
+  return { from: new Date(2000, 0, 1), to: now };
+}
+
+// ── Column definitions ─────────────────────────────────────────────────────────
+
+const QUERY_COLS: ColDef[] = [
+  { key: "category",          label: "Category",        sortValue: (r) => r.category ?? "", filterLabel: (r) => r.category ?? "" },
+  { key: "supplierName",      label: "Supplier",        sortValue: (r) => r.supplierName ?? "", filterLabel: (r) => r.supplierName ?? "" },
+  { key: "relatedRef",        label: "Related Bill / PO", sortValue: (r) => r.relatedBillNumber ?? r.relatedPoNumber ?? "", noFilter: true },
+  { key: "reason",            label: "Reason",          sortValue: (r) => r.reason ?? "", noFilter: true },
+  { key: "assignedToName",    label: "Assigned To",     sortValue: (r) => r.assignedToName ?? "", filterLabel: (r) => r.assignedToName ?? "" },
+  { key: "status",            label: "Status",          sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
+  { key: "createdAt",         label: "Created",         sortValue: (r) => r.createdAt ?? "", noFilter: true },
+  { key: "resolvedAt",        label: "Resolved",        sortValue: (r) => r.resolvedAt ?? "", noFilter: true },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SupplierQueriesPage() {
@@ -483,9 +511,14 @@ export default function SupplierQueriesPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [supplierFilter, setSupplierFilter] = useState("");
   const [raiseOpen, setRaiseOpen] = useState(false);
-  const [selectedQuery, setSelectedQuery] = useState<SupplierQuery | null>(
-    null
-  );
+  const [selectedQuery, setSelectedQuery] = useState<SupplierQuery | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
+  const [period, setPeriod] = useState<PeriodId>("all");
+  const [customFrom, setCustomFrom] = useState(lastMonthStart);
+  const [customTo, setCustomTo]   = useState(todayStr);
 
   async function load() {
     setLoading(true);
@@ -521,8 +554,21 @@ export default function SupplierQueriesPage() {
     load();
   }, []);
 
+  const { from: periodFrom, to: periodTo } = useMemo(() => {
+    if (period === "custom") return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
+    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
+    return getPeriodRange(period);
+  }, [period, customFrom, customTo]);
+
   const filtered = useMemo(() => {
     let rows = queries;
+
+    rows = rows.filter((q) => {
+      if (!q.createdAt) return true;
+      const d = new Date(q.createdAt);
+      return d >= periodFrom && d <= periodTo;
+    });
+
     if (search) {
       const s = search.toLowerCase();
       rows = rows.filter(
@@ -538,7 +584,9 @@ export default function SupplierQueriesPage() {
     if (supplierFilter)
       rows = rows.filter((q) => q.supplierId === supplierFilter);
     return rows;
-  }, [queries, search, statusFilter, categoryFilter, supplierFilter]);
+  }, [queries, search, statusFilter, categoryFilter, supplierFilter, periodFrom, periodTo]);
+
+  const dt = useDataTable(filtered, QUERY_COLS, { defaultSort: "createdAt", defaultDir: "desc" });
 
   const stats = useMemo(
     () => ({
@@ -583,9 +631,13 @@ export default function SupplierQueriesPage() {
     <div className="p-6 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-white tracking-tight">
-          Supplier Queries
-        </h1>
+        <div>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Supplier Queries</h1>
+          <p className="text-sm text-stone-500 mt-1">
+            {loading ? "Loading…" : `${dt.rows.length} quer${dt.rows.length !== 1 ? "ies" : "y"}`}
+            <span className="text-stone-400"> · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</span>
+          </p>
+        </div>
         <button
           onClick={() => setRaiseOpen(true)}
           className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
@@ -637,6 +689,32 @@ export default function SupplierQueriesPage() {
       )}
 
       <Card padding="none">
+        {/* Period tabs */}
+        <div className="flex items-center gap-0 border-b border-stone-800 px-3 pt-1">
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPeriod(p.id)}
+              className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
+                period === p.id
+                  ? "border-violet-500 text-violet-400"
+                  : "border-transparent text-stone-500 hover:text-stone-300"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          {period === "custom" && (
+            <div className="ml-3 flex items-center gap-2">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
+              <span className="text-stone-600 text-xs">→</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
+            </div>
+          )}
+        </div>
+
         {/* Filters */}
         <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-2 flex-wrap">
           <Input
@@ -681,6 +759,8 @@ export default function SupplierQueriesPage() {
           )}
         </div>
 
+        <ActiveFiltersBar dt={dt} cols={QUERY_COLS} />
+
         {/* Table */}
         <div className="overflow-x-auto">
           {loading ? (
@@ -689,7 +769,7 @@ export default function SupplierQueriesPage() {
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : dt.rows.length === 0 ? (
             <EmptyState
               icon={HelpCircle}
               title="No queries found"
@@ -714,73 +794,65 @@ export default function SupplierQueriesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Category
+                  <th className="px-4 py-2.5 w-10">
+                    <input
+                      type="checkbox"
+                      checked={dt.rows.length > 0 && dt.rows.every((r) => selected.has(r.id))}
+                      onChange={() => {
+                        const allSel = dt.rows.every((r) => selected.has(r.id));
+                        setSelected(allSel ? new Set() : new Set(dt.rows.map((r) => r.id)));
+                      }}
+                      className="rounded border-stone-600 text-violet-500 focus:ring-violet-500"
+                    />
                   </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Supplier
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Related Bill / PO
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Reason
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Assigned To
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Created
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                    Resolved
-                  </th>
+                  {QUERY_COLS.map((col) => (
+                    <ColHeader key={col.key} col={col} dt={dt} />
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((q) => (
+                {dt.rows.map((q) => (
                   <tr
                     key={q.id}
                     onClick={() => setSelectedQuery(q)}
-                    className="border-b border-stone-800 hover:bg-stone-800/50 cursor-pointer transition-colors"
+                    className={`border-b border-stone-800 cursor-pointer transition-colors ${
+                      selected.has(q.id) ? "bg-violet-500/10" : "hover:bg-stone-800/50"
+                    }`}
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); setSelected((prev) => { const n = new Set(prev); n.has(q.id) ? n.delete(q.id) : n.add(q.id); return n; }); }}>
+                      <input type="checkbox" checked={selected.has(q.id)} onChange={() => {}}
+                        className="rounded border-stone-600 text-violet-500 focus:ring-violet-500" />
+                    </td>
+                    <td className="px-3 py-3">
                       <Badge variant={categoryBadgeColor(q.category)}>
                         {q.category}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 font-medium text-white max-w-[140px] truncate">
+                    <td className="px-3 py-3 font-medium text-white max-w-[140px] truncate">
                       {q.supplierName}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[12px] text-violet-400">
+                    <td className="px-3 py-3 font-mono text-[12px] text-violet-400">
                       {q.relatedBillNumber || q.relatedPoNumber || (
-                        <span className="text-stone-600 font-sans not-italic">
-                          —
-                        </span>
+                        <span className="text-stone-600 font-sans not-italic">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-stone-400 text-[13px] max-w-[200px] truncate">
+                    <td className="px-3 py-3 text-stone-400 text-[13px] max-w-[200px] truncate">
                       {q.reason}
                     </td>
-                    <td className="px-4 py-3 text-stone-300 text-[13px]">
+                    <td className="px-3 py-3 text-stone-300 text-[13px]">
                       {q.assignedToName}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       <Badge variant={statusBadgeColor(q.status)}>
                         {q.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-stone-400 text-[13px] whitespace-nowrap">
-                      {fmtDate(q.createdAt)}
+                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">
+                      {formatDate(q.createdAt)}
                     </td>
-                    <td className="px-4 py-3 text-stone-400 text-[13px] whitespace-nowrap">
+                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">
                       {q.resolvedAt ? (
-                        <span className="text-emerald-400">
-                          {fmtDate(q.resolvedAt)}
-                        </span>
+                        <span className="text-emerald-400">{formatDate(q.resolvedAt)}</span>
                       ) : (
                         "—"
                       )}

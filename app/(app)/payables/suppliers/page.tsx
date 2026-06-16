@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, Badge, Button, Input, Select, Modal, EmptyState } from "@/components/ui";
-import { fmt } from "@/lib/format";
+import { fmt, formatDate } from "@/lib/format";
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -36,6 +36,7 @@ interface Supplier {
   totalOutstanding: number;
   overdueCount: number;
   openBillsCount: number;
+  createdAt?: string;
 }
 
 type StatusFilter = "All" | "Active" | "Inactive" | "Suspended";
@@ -302,6 +303,29 @@ function AddSupplierModal({
   );
 }
 
+// ── Period helpers ────────────────────────────────────────────────────────────
+
+type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
+const PERIODS: { id: PeriodId; label: string }[] = [
+  { id: "this-month", label: "This Month" },
+  { id: "last-month", label: "Last Month" },
+  { id: "last-3m",    label: "Last 3M" },
+  { id: "last-6m",    label: "Last 6M" },
+  { id: "all",        label: "All Time" },
+  { id: "custom",     label: "Custom" },
+];
+function getPeriodRange(p: PeriodId, from: string, to: string): { from: string; to: string } | null {
+  if (p === "all") return null;
+  if (p === "custom") return { from, to };
+  const today = new Date();
+  const toStr = today.toISOString().slice(0, 10);
+  if (p === "this-month") return { from: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10), to: toStr };
+  if (p === "last-month") return { from: new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10), to: new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0, 10) };
+  if (p === "last-3m") return { from: new Date(today.getFullYear(), today.getMonth() - 3, today.getDate()).toISOString().slice(0, 10), to: toStr };
+  if (p === "last-6m") return { from: new Date(today.getFullYear(), today.getMonth() - 6, today.getDate()).toISOString().slice(0, 10), to: toStr };
+  return null;
+}
+
 // ── Column definitions ────────────────────────────────────────────────────────
 
 const SUPPLIER_COLS: ColDef[] = [
@@ -328,6 +352,9 @@ export default function SuppliersPage() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("All");
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [period, setPeriod] = useState<PeriodId>("all");
+  const [customFrom, setCustomFrom] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); d.setDate(1); return d.toISOString().slice(0, 10); });
+  const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
 
   async function load() {
     setLoading(true);
@@ -350,6 +377,13 @@ export default function SuppliersPage() {
 
   const filtered = useMemo(() => {
     let rows = suppliers;
+    const range = getPeriodRange(period, customFrom, customTo);
+    if (range) {
+      rows = rows.filter((sup) => {
+        const d = (sup.createdAt ?? "").slice(0, 10);
+        return d >= range.from && d <= range.to;
+      });
+    }
     if (search) {
       const s = search.toLowerCase();
       rows = rows.filter(
@@ -366,7 +400,7 @@ export default function SuppliersPage() {
       rows = rows.filter((s) => normalizeSource(s.source) === sourceFilter);
     }
     return rows;
-  }, [suppliers, search, statusFilter, sourceFilter]);
+  }, [suppliers, search, statusFilter, sourceFilter, period, customFrom, customTo]);
 
   const dt = useDataTable(filtered, SUPPLIER_COLS, { defaultSort: "totalOutstanding", defaultDir: "desc" });
 
@@ -395,7 +429,7 @@ export default function SuppliersPage() {
             Suppliers
           </h1>
           <p className="text-sm text-stone-500 mt-1">
-            {loading ? "Loading…" : `${filtered.length} supplier${filtered.length !== 1 ? "s" : ""}`}
+            {loading ? "Loading…" : `${dt.rows.length} supplier${dt.rows.length !== 1 ? "s" : ""} · ${PERIODS.find((p) => p.id === period)?.label ?? "All Time"}`}
           </p>
         </div>
         <button
@@ -420,6 +454,40 @@ export default function SuppliersPage() {
           </button>
         </div>
       )}
+
+      {/* Period Tabs */}
+      <div className="flex items-center gap-1 mb-3 overflow-x-auto">
+        {PERIODS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPeriod(p.id)}
+            className={`h-7 px-3 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${
+              period === p.id
+                ? "bg-violet-600/20 text-violet-400 ring-1 ring-violet-600/40"
+                : "text-stone-400 hover:text-white hover:bg-stone-800"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+        {period === "custom" && (
+          <div className="flex items-center gap-1.5 ml-2">
+            <Input
+              type="date"
+              value={customFrom}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomFrom(e.target.value)}
+              className="h-7 text-xs w-36"
+            />
+            <span className="text-stone-500 text-xs">–</span>
+            <Input
+              type="date"
+              value={customTo}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomTo(e.target.value)}
+              className="h-7 text-xs w-36"
+            />
+          </div>
+        )}
+      </div>
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">

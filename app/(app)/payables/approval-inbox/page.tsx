@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Badge, Button, Card, Modal, EmptyState } from "@/components/ui";
+import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,14 +35,6 @@ interface ApprovalItem {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtMoney(amount: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
-}
 
 function daysWaiting(createdAt: string): number {
   const diff = Date.now() - new Date(createdAt).getTime();
@@ -141,7 +134,7 @@ function ConfirmModal({ open, action, item, onClose, onConfirm }: ConfirmModalPr
           <p className="text-stone-300 font-medium">{item.referenceNumber}</p>
           <p className="text-stone-400 mt-0.5">{item.title}</p>
           <p className="text-white font-semibold mt-1">
-            {fmtMoney(item.amount, item.currency)}
+            {fmt.money(item.amount, item.currency)}
           </p>
         </div>
         <div>
@@ -384,7 +377,7 @@ export default function ApprovalInboxPage() {
 
                   {/* Amount */}
                   <span className="text-sm font-semibold text-white tabular-nums whitespace-nowrap">
-                    {fmtMoney(item.amount, item.currency)}
+                    {fmt.money(item.amount, item.currency)}
                   </span>
 
                   {/* Actions */}
