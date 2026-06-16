@@ -169,9 +169,26 @@ export async function runQboApSync(
   };
 
   // ── 2. Vendors → ap_suppliers ─────────────────────────────────────────────
+  // IMPORTANT: QBO's default Vendor query returns ACTIVE vendors only. Many
+  // bills reference vendors that have since been made inactive/merged, so we
+  // must explicitly include inactive vendors or those bills can never link to a
+  // supplier (they'd show "Unknown"). Fetch both and merge.
   try {
-    const vendors = await qboFetchAll(accessToken, realmId, "Vendor");
+    let vendors = await qboFetchAll(accessToken, realmId, "Vendor", "Active IN (true, false)");
     await sleep(300);
+    // Fallback for QBO accounts that reject the combined Active filter
+    if (vendors.length === 0) {
+      const active = await qboFetchAll(accessToken, realmId, "Vendor");
+      await sleep(200);
+      let inactive: any[] = [];
+      try {
+        inactive = await qboFetchAll(accessToken, realmId, "Vendor", "Active = false");
+      } catch (e: any) {
+        errors.push(`Inactive vendors fetch failed: ${e?.message ?? String(e)}`);
+      }
+      vendors = [...active, ...inactive];
+      await sleep(300);
+    }
 
     const vendorResults = await Promise.allSettled(
       vendors.map(async (v: any) => {
