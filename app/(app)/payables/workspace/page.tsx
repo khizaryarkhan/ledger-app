@@ -172,16 +172,19 @@ function SendApprovalModal({
   onClose: () => void;
   onSent: (billId: string, email: string) => void;
 }) {
-  const [email, setEmail] = useState("");
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [includePortal, setIncludePortal] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (open && bill) {
-      setEmail(bill.approverEmail ?? "");
+      setTo(bill.approverEmail ?? "");
+      setSubject(`[Action Required] Approve Bill${bill.billNumber ? ` ${bill.billNumber}` : ""}`);
       setMessage(
-        `Hi,\n\nPlease review and approve the attached bill${bill.billNumber ? ` (${bill.billNumber})` : ""}.\n\nThank you.`
+        `Hi,\n\nPlease review and approve the bill${bill.billNumber ? ` (${bill.billNumber})` : ""}${bill.supplierName ? ` from ${bill.supplierName}` : ""} for ${fmt.money(bill.total, bill.currency)}.\n\nClick the link in this email to review the line items and submit your decision.\n\nThank you.`
       );
       setError("");
     }
@@ -190,18 +193,18 @@ function SendApprovalModal({
   if (!open || !bill) return null;
 
   async function send() {
-    if (!email.trim()) { setError("Approver email is required."); return; }
+    if (!to.trim()) { setError("Approver email is required."); return; }
     setSending(true);
     setError("");
     try {
       const res = await fetch(`/api/payables/bills/${bill!.id}/send-for-approval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approverEmail: email.trim(), message }),
+        body: JSON.stringify({ approverEmail: to.trim(), subject, message, includePortal }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Failed to send");
-      onSent(bill!.id, email.trim());
+      onSent(bill!.id, to.trim());
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -211,56 +214,91 @@ function SendApprovalModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
-          <h3 className="text-base font-semibold text-white">Send for Approval</h3>
-          <button onClick={onClose} className="p-1 rounded text-stone-500 hover:text-white hover:bg-stone-800">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="px-3 py-2 bg-stone-800/60 rounded-lg text-sm text-stone-300">
-            <span className="text-stone-500 text-xs">Bill </span>
-            <span className="font-mono font-semibold">{bill.billNumber ?? bill.id.slice(0, 8)}</span>
-            <span className="text-stone-500 mx-2">·</span>
-            <span className="font-semibold">{fmt.money(bill.total, bill.currency)}</span>
-            {bill.supplierName && (
-              <><span className="text-stone-500 mx-2">·</span><span>{bill.supplierName}</span></>
-            )}
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
-            <label className="block text-xs font-medium text-stone-400 mb-1.5">
-              Approver Email <span className="text-rose-400">*</span>
-            </label>
+            <h3 className="font-semibold text-white">Send for Approval</h3>
+            <div className="text-[11px] text-stone-400 mt-0.5">
+              <span className="font-mono text-violet-400">{bill.billNumber ?? bill.id.slice(0, 8)}</span>
+              <span className="mx-1.5 text-stone-600">·</span>
+              <span className="font-semibold text-stone-300">{fmt.money(bill.total, bill.currency)}</span>
+              {bill.supplierName && <><span className="mx-1.5 text-stone-600">·</span><span>{bill.supplierName}</span></>}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+        </div>
+
+        {/* Fields */}
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-[11px] font-medium text-stone-400">To</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
               placeholder="approver@company.com"
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none"
+              className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-violet-500"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-stone-400 mb-1.5">Message</label>
+            <label className="text-[11px] font-medium text-stone-400">Subject</label>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-stone-400">Message</label>
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none resize-none"
+              rows={8}
+              className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 outline-none focus:ring-1 focus:ring-violet-500 resize-none"
             />
           </div>
+
+          {/* Portal link toggle */}
+          <div className="flex items-center justify-between rounded-lg border border-stone-800 bg-stone-800/40 px-3 py-2.5">
+            <div>
+              <div className="text-[13px] font-medium text-stone-200">Include approval portal link</div>
+              <div className="text-[11px] text-stone-500">
+                {includePortal
+                  ? "A \"Review & Approve\" button will be included in the email."
+                  : "No portal link — approver replies by email only."}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includePortal}
+              onClick={() => setIncludePortal((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${includePortal ? "bg-violet-600" : "bg-stone-600"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${includePortal ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+
+          <p className="text-[11px] text-stone-500">
+            Sent in a branded format with bill details and line items. The text above is the intro message.
+          </p>
+
           {error && <p className="text-xs text-rose-400">{error}</p>}
         </div>
-        <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={sending}>Cancel</Button>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
           <button
             onClick={send}
-            disabled={sending || !email.trim()}
-            className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+            disabled={sending || !to.trim()}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-lg hover:bg-violet-700 disabled:opacity-50"
           >
-            {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            Send for Approval
+            {sending
+              ? <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              : <Send size={14} />}
+            {sending ? "Sending…" : "Send for Approval"}
           </button>
         </div>
       </div>
