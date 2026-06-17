@@ -84,10 +84,9 @@ export async function POST(req: Request, { params }: { params: { token: string }
     `;
 
     await sendEmail(tokenRow.orgId, {
-      to: tokenRow.approverEmail, // send to approver's own email as copy; org needs real recipient lookup
+      to: tokenRow.approverEmail,
       subject: `Bill ${action === "approve" ? "Approved" : "Rejected"}: ${billLabel} — ${orgName}`,
-      html: htmlBody,
-      text: `${approverLabel} has ${newStatus.toLowerCase()} ${billLabel}${comment ? `\n\n${comment}` : ""}`,
+      body: htmlBody,
     });
   } catch { /* non-critical */ }
 
