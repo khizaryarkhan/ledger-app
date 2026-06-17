@@ -1,7 +1,7 @@
 import { requireOrg, ok, bad, isSuperAdmin } from "@/lib/api";
 import { db } from "@/db";
-import { apApprovals, purchaseRequests, purchaseOrders, apBills, paymentRuns, apSuppliers, users } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { apApprovals, purchaseOrders, apBills, paymentRuns, apSuppliers, users } from "@/db/schema";
+import { eq, and, ne, desc } from "drizzle-orm";
 
 export async function GET(_req: Request) {
   const { error, orgId, role, session } = await requireOrg();
@@ -13,6 +13,7 @@ export async function GET(_req: Request) {
   const conditions: any[] = [
     eq(apApprovals.orgId, orgId!),
     eq(apApprovals.status, "Pending"),
+    ne(apApprovals.entityType, "purchase_request"),
   ];
 
   if (!isAdmin && actorId) {
@@ -32,17 +33,7 @@ export async function GET(_req: Request) {
     let supplierId: string | null = null;
     let entityDetailUrl = "";
 
-    if (approval.entityType === "purchase_request") {
-      const [pr] = await db.select().from(purchaseRequests)
-        .where(eq(purchaseRequests.id, approval.entityId)).limit(1);
-      if (pr) {
-        entityRef   = pr.requestNumber;
-        entityTitle = pr.title;
-        amount      = pr.estimatedTotal ?? null;
-        supplierId  = pr.supplierId ?? null;
-        entityDetailUrl = `/payables/purchase-requests/${pr.id}`;
-      }
-    } else if (approval.entityType === "purchase_order") {
+    if (approval.entityType === "purchase_order") {
       const [po] = await db.select().from(purchaseOrders)
         .where(eq(purchaseOrders.id, approval.entityId)).limit(1);
       if (po) {

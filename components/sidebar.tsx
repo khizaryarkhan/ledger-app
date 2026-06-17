@@ -7,7 +7,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
   CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X,
-  MessageSquare, ShoppingCart, Receipt, Building2, CreditCard, ClipboardList,
+  MessageSquare, ShoppingCart, Receipt, Building2, CreditCard,
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package
 } from "lucide-react";
 import { useData } from "./data-provider";
@@ -95,7 +95,6 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     {
       label: "PAYABLES MANAGEMENT",
       items: [
-        { href: "/payables/purchase-requests", label: "Purchase Requests", icon: ClipboardList },
         { href: "/payables/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
         { href: "/payables/bills", label: "Bills", icon: Receipt },
         { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },

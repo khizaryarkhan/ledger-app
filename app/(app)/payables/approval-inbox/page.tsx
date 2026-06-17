@@ -18,7 +18,7 @@ import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type EntityType = "PR" | "PO" | "Bill" | "PaymentRun";
+type EntityType = "PO" | "Bill" | "PaymentRun";
 type ApprovalStatus = "Pending" | "Approved" | "Rejected";
 
 interface ApprovalItem {
@@ -43,7 +43,6 @@ function daysWaiting(createdAt: string): number {
 
 function entityColor(type: EntityType): string {
   const map: Record<EntityType, string> = {
-    PR: "blue",
     PO: "purple",
     Bill: "orange",
     PaymentRun: "green",
@@ -53,7 +52,6 @@ function entityColor(type: EntityType): string {
 
 function detailPath(item: ApprovalItem): string {
   const paths: Record<EntityType, string> = {
-    PR: `/payables/purchase-requests/${item.id}`,
     PO: `/payables/purchase-orders/${item.id}`,
     Bill: `/payables/bills/${item.id}`,
     PaymentRun: `/payables/payment-runs/${item.id}`,
@@ -67,7 +65,6 @@ function Skeleton({ className = "" }: { className?: string }) {
 
 const TABS: { label: string; filter: EntityType | "All" }[] = [
   { label: "All", filter: "All" },
-  { label: "Purchase Requests", filter: "PR" },
   { label: "Purchase Orders", filter: "PO" },
   { label: "Bills", filter: "Bill" },
   { label: "Payment Runs", filter: "PaymentRun" },
@@ -201,7 +198,6 @@ export default function ApprovalInboxPage() {
     const pending = items.filter((i) => i.status === "Pending");
     return {
       All: pending.length,
-      PR: pending.filter((i) => i.entityType === "PR").length,
       PO: pending.filter((i) => i.entityType === "PO").length,
       Bill: pending.filter((i) => i.entityType === "Bill").length,
       PaymentRun: pending.filter((i) => i.entityType === "PaymentRun").length,

@@ -17,7 +17,6 @@ import {
   Building2,
   Calendar,
   FileText,
-  ArrowRightLeft,
   X,
 } from "lucide-react";
 import { Card, Badge, Button } from "@/components/ui";
@@ -607,20 +606,6 @@ export default function PurchaseOrderDetailPage() {
             <InfoRow label="Delivery Date" value={fmtDate(po.deliveryDate)} />
             <InfoRow label="Created" value={fmtDate(po.createdAt)} />
           </Card>
-
-          {/* Linked PR */}
-          {po.linkedPrId && (
-            <Card>
-              <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-2">Linked PR</h3>
-              <Link
-                href={`/payables/purchase-requests/${po.linkedPrId}`}
-                className="flex items-center gap-2 text-sm text-violet-400 hover:text-violet-300 transition-colors"
-              >
-                <ArrowRightLeft size={13} />
-                {po.linkedPrNumber || "View PR"}
-              </Link>
-            </Card>
-          )}
 
           {/* Linked Bills */}
           {po.linkedBillNumbers && po.linkedBillNumbers.length > 0 && (
