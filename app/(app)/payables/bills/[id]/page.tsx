@@ -18,11 +18,11 @@ interface LineItem {
   description?: string;
   quantity: number;
   unitPrice: number;
-  accountCode?: string;
-  taxRate: number;
-  subtotal: number;
-  taxAmount: number;
-  total: number;
+  accountId?: string;
+  taxRateId?: string;
+  lineSubtotal: number;
+  lineTax: number;
+  lineTotal: number;
 }
 
 interface Supplier {
@@ -573,7 +573,7 @@ export default function BillDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-800 bg-stone-900/60">
-                  {["Description", "Qty", "Unit Price", "Account", "Tax %", "Subtotal", "Tax", "Total"].map((h, i) => (
+                  {["Description", "Qty", "Unit Price", "Account", "Subtotal", "Tax", "Total"].map((h, i) => (
                     <th key={h} className={`px-4 py-2 text-xs font-semibold text-stone-400 uppercase tracking-wide ${i === 0 || i === 3 ? "text-left" : i === 1 ? "text-center" : "text-right"}`}>{h}</th>
                   ))}
                 </tr>
@@ -581,7 +581,7 @@ export default function BillDetailPage() {
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm italic">No line items available.</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-stone-500 text-sm italic">No line items available.</td>
                   </tr>
                 ) : (
                   lines.map(item => (
@@ -589,11 +589,10 @@ export default function BillDetailPage() {
                       <td className="px-4 py-2.5 text-stone-200">{item.description || "—"}</td>
                       <td className="px-4 py-2.5 text-center text-stone-300 tabular-nums">{item.quantity}</td>
                       <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.unitPrice, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-stone-400">{item.accountCode || "—"}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{item.taxRate ?? 0}%</td>
-                      <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.subtotal, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(item.taxAmount, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(item.total, bill.currency)}</td>
+                      <td className="px-4 py-2.5 text-stone-400 text-xs">{item.accountId || "—"}</td>
+                      <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.lineSubtotal, bill.currency)}</td>
+                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(item.lineTax, bill.currency)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(item.lineTotal, bill.currency)}</td>
                     </tr>
                   ))
                 )}
@@ -601,12 +600,12 @@ export default function BillDetailPage() {
               {lines.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-stone-700 bg-stone-900/80">
-                    <td colSpan={5} className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Total</td>
+                    <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Total</td>
                     <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums font-semibold">
-                      {fmt.money(lines.reduce((a, l) => a + (l.subtotal ?? 0), 0), bill.currency)}
+                      {fmt.money(lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0), bill.currency)}
                     </td>
                     <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">
-                      {fmt.money(lines.reduce((a, l) => a + (l.taxAmount ?? 0), 0), bill.currency)}
+                      {fmt.money(lines.reduce((a, l) => a + (l.lineTax ?? 0), 0), bill.currency)}
                     </td>
                     <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">
                       {fmt.money(bill.total, bill.currency)}
