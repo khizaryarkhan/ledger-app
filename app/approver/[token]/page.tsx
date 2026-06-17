@@ -498,7 +498,8 @@ export default function ApproverPortalPage() {
         body: JSON.stringify({ body: commentBody.trim() }),
       });
       if (res.ok) {
-        setComments(prev => [...prev, await res.json()]);
+        const c = await res.json();
+        setComments(prev => [...prev, c]);
         setCommentBody("");
       }
     } finally { setPosting(false); }
