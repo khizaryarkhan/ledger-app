@@ -634,6 +634,8 @@ export default function PayablesWorkspacePage() {
 
   const filtered = useMemo(() => {
     let rows = bills;
+    // Only show bills with an open balance (or explicitly marked Paid in workflow)
+    rows = rows.filter((b) => (b.balance ?? b.total ?? 0) > 0 || b.workflowStatus === "Paid");
     if (search) {
       const s = search.toLowerCase();
       rows = rows.filter(

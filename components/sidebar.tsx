@@ -93,33 +93,28 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       ],
     },
     {
-      label: "PAYABLES MANAGEMENT",
+      label: "PAYABLES",
       items: [
         { href: "/payables/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
         { href: "/payables/bills", label: "Bills", icon: Receipt },
         { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },
-        { href: "/payables/workspace", label: "Payables Workspace", icon: Kanban },
-        { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
       ],
     },
     {
-      label: "APPROVALS & CONTROL",
+      label: "OPERATIONS",
       items: [
+        { href: "/payables/workspace", label: "Payables Workspace", icon: Kanban },
         { href: "/payables/approval-inbox", label: "Approval Inbox", icon: Bell },
         { href: "/payables/supplier-queries", label: "Supplier Queries", icon: MessageSquare },
-        { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
+        { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
         { href: "/payables/tasks", label: "Tasks", icon: CheckSquare },
       ],
     },
     {
-      label: "INSIGHTS & REPORTING",
+      label: "CONFIGURE",
       items: [
+        { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
         { href: "/payables/reports", label: "Reports", icon: BarChart3 },
-      ],
-    },
-    {
-      label: "ADMINISTRATION",
-      items: [
         { href: "/payables/imports", label: "Imports", icon: Upload },
         { href: "/payables/settings", label: "Settings", icon: Settings },
       ],
