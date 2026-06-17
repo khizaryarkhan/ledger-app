@@ -311,6 +311,12 @@ export default function BillDetailPage() {
   const daysDiff = daysUntilDue(bill.dueDate);
   const isOverdue = daysDiff < 0 && bill.accountingPaymentStatus !== "Paid" && bill.accountingPaymentStatus !== "Voided";
 
+  const lines = bill.lines ?? [];
+  const queries = bill.openQueries ?? [];
+  const history = bill.approvalHistory ?? [];
+  const wf = bill.workflowStatus;
+  const canDownloadPdf = !!(bill.qboId || bill.xeroId);
+
   // Per-line tax: QBO stores tax at bill level (bill.taxTotal), not per line.
   // Prorate it across lines by each line's share of subtotal.
   const totalSubtotal = lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0);
@@ -320,11 +326,6 @@ export default function BillDetailPage() {
     return bill.taxTotal * ((item.lineSubtotal ?? 0) / totalSubtotal);
   };
   const getLineIncTax = (item: LineItem) => (item.lineSubtotal ?? 0) + getLineTax(item);
-  const canDownloadPdf = !!(bill.qboId || bill.xeroId);
-  const wf = bill.workflowStatus;
-  const lines = bill.lines ?? [];
-  const queries = bill.openQueries ?? [];
-  const history = bill.approvalHistory ?? [];
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
