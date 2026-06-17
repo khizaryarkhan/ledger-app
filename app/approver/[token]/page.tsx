@@ -193,7 +193,7 @@ function BillDecisionCard({
           <div className="px-5 py-3 grid grid-cols-3 gap-4 bg-stone-50/60 text-sm">
             <div>
               <div className="text-xs text-stone-400 mb-0.5">Subtotal</div>
-              <div className="font-medium text-stone-700 tabular-nums">{money(bill.subtotal, ccy)}</div>
+              <div className="font-medium text-stone-700 tabular-nums">{money(totalSub || (bill.total - (bill.taxTotal ?? 0)), ccy)}</div>
             </div>
             <div>
               <div className="text-xs text-stone-400 mb-0.5">Tax</div>
