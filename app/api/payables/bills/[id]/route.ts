@@ -7,6 +7,7 @@ import { z } from "zod";
 const UpdateSchema = z.object({
   workflowStatus:      z.string().max(64).optional(),
   assignedApproverId:  z.string().uuid().optional().nullable(),
+  approverEmail:       z.string().email().max(256).optional().nullable(),
   notes:               z.string().optional().nullable(),
 });
 

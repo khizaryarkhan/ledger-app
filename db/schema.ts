@@ -1330,6 +1330,8 @@ export const apBills = pgTable("ap_bills", {
   approvedByUserId:       uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   approvedAt:             timestamp("approved_at"),
   approvalNotePushedAt:   timestamp("approval_note_pushed_at"),
+  approverEmail:          varchar("approver_email", { length: 256 }),  // cached external approver email
+  lastApprovalSentAt:     timestamp("last_approval_sent_at"),
   privateNote:            text("private_note"),
   lastSyncAt:             timestamp("last_sync_at"),
   createdAt:              timestamp("created_at").notNull().defaultNow(),
@@ -1484,6 +1486,46 @@ export const paymentRunItems = pgTable("payment_run_items", {
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
 });
 export type PaymentRunItem = typeof paymentRunItems.$inferSelect;
+
+// =========================================================================
+// AP APPROVAL TOKENS (external approver portal — like customerPortalTokens)
+// =========================================================================
+export const apApprovalTokens = pgTable("ap_approval_tokens", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  billId:         uuid("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  token:          text("token").notNull().unique(),
+  approverEmail:  text("approver_email").notNull(),
+  approverName:   text("approver_name"),
+  sentByUserId:   uuid("sent_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  status:         varchar("status", { length: 32 }).notNull().default("Pending"),
+  // Pending | Approved | Rejected | Expired
+  decision:       text("decision"),           // rejection reason or approval note
+  submittedAt:    timestamp("submitted_at"),
+  expiresAt:      timestamp("expires_at").notNull(),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_approval_tokens_bill").on(t.billId),
+]);
+export type ApApprovalToken = typeof apApprovalTokens.$inferSelect;
+
+// =========================================================================
+// AP BILL COMMENTS (chat log per bill — internal + approver + system)
+// =========================================================================
+export const apBillComments = pgTable("ap_bill_comments", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  billId:      uuid("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  body:        text("body").notNull(),
+  authorId:    uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+  authorName:  text("author_name").notNull(),
+  channel:     varchar("channel", { length: 32 }).notNull().default("internal"),
+  // internal | approver | system | email
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ap_bill_comments_bill").on(t.billId),
+]);
+export type ApBillComment = typeof apBillComments.$inferSelect;
 
 // Type exports
 export type User = typeof users.$inferSelect;
