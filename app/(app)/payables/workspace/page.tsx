@@ -676,6 +676,8 @@ function ColumnSkeleton() {
 export default function PayablesWorkspacePage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "list">("cards");
   const [search, setSearch] = useState("");
@@ -694,6 +696,22 @@ export default function PayablesWorkspacePage() {
       setError(e.message);
     } finally { setLoading(false); }
   }, []);
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true); setSyncMsg(null);
+    try {
+      const res = await fetch("/api/payables/sync", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `Error ${res.status}`);
+      const qbo = json.qbo;
+      setSyncMsg(qbo
+        ? `Synced: ${qbo.billsCreated ?? 0} new, ${qbo.billsUpdated ?? 0} updated`
+        : "Sync complete");
+      await load();
+    } catch (e: any) {
+      setSyncMsg(`Sync failed: ${e.message}`);
+    } finally { setSyncing(false); }
+  }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -796,8 +814,19 @@ export default function PayablesWorkspacePage() {
           </p>
         </div>
 
-        {/* View toggle + refresh */}
-        <div className="flex items-center gap-2">
+        {/* View toggle + sync + refresh */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {syncMsg && (
+            <span className="text-xs text-stone-400">{syncMsg}</span>
+          )}
+          <button
+            onClick={handleSync}
+            disabled={syncing || loading}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-300 hover:text-white px-3 py-1.5 rounded-md bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing…" : "Sync from QBO"}
+          </button>
           <div className="flex rounded-md overflow-hidden border border-stone-700">
             {(["cards", "list"] as const).map((v) => (
               <button
