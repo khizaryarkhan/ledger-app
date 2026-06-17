@@ -3,6 +3,7 @@ import { apBills, apApprovalTokens, apBillComments, organisations } from "@/db/s
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
+import { getAppUrl } from "@/lib/portal";
 import { randomBytes } from "crypto";
 
 // POST /api/payables/bills/[id]/send-for-approval
@@ -51,12 +52,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })
     .where(and(eq(apBills.id, params.id), eq(apBills.orgId, orgId!)));
 
-  // Build portal URL — prefer explicit NEXTAUTH_URL, fall back to Vercel deployment URL
-  const rawBase = process.env.NEXTAUTH_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-    ?? "https://primeaccountax.com";
-  const baseUrl = rawBase.replace(/\/$/, "");
-  const portalUrl = `${baseUrl}/approver/${token}`;
+  // Build portal URL — use live request host (same pattern as customer portal)
+  const portalUrl = `${getAppUrl()}/approver/${token}`;
 
   // Send email
   const billLabel = bill.billNumber ?? `Bill ${params.id.slice(0, 8)}`;

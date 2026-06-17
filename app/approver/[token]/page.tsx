@@ -177,7 +177,7 @@ export default function ApproverPortalPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Failed");
-      setDone(action);
+      setDone(action === "approve" ? "approved" : "rejected");
     } catch (e: any) {
       setSubmitError(e.message);
     } finally {
@@ -407,15 +407,16 @@ export default function ApproverPortalPage() {
           </div>
         )}
 
-        {/* Comments / Activity */}
-        {comments.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-stone-100">
-              <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
-                <MessageCircle size={15} className="text-stone-400" /> Activity
-              </h3>
-            </div>
-            <div className="px-6 py-4 space-y-3 max-h-64 overflow-y-auto">
+        {/* Comments / Activity — always visible so approver can ask questions */}
+        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm">
+          <div className="px-6 py-4 border-b border-stone-100">
+            <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
+              <MessageCircle size={15} className="text-stone-400" /> Activity
+            </h3>
+          </div>
+
+          {comments.length > 0 && (
+            <div className="px-6 py-4 space-y-3 max-h-64 overflow-y-auto border-b border-stone-100">
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-3">
                   <div className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${CHANNEL_DOT[c.channel] ?? "bg-stone-300"}`} />
@@ -430,28 +431,28 @@ export default function ApproverPortalPage() {
               ))}
               <div ref={bottomRef} />
             </div>
+          )}
 
-            {/* Add comment (approver) */}
-            <div className="px-6 pb-5">
-              <div className="flex gap-2">
-                <textarea
-                  value={commentBody}
-                  onChange={(e) => setCommentBody(e.target.value)}
-                  rows={2}
-                  placeholder="Add a comment or question…"
-                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:border-violet-500 focus:outline-none resize-none"
-                />
-                <button
-                  onClick={postComment}
-                  disabled={posting || !commentBody.trim()}
-                  className="self-end h-9 w-9 flex items-center justify-center rounded-xl bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
-                >
-                  {posting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                </button>
-              </div>
+          {/* Add comment — always shown */}
+          <div className="px-6 py-4">
+            <div className="flex gap-2">
+              <textarea
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                rows={2}
+                placeholder="Add a comment or question for the finance team…"
+                className="flex-1 px-3 py-2 text-sm rounded-xl border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:border-violet-500 focus:outline-none resize-none"
+              />
+              <button
+                onClick={postComment}
+                disabled={posting || !commentBody.trim()}
+                className="self-end h-9 w-9 flex items-center justify-center rounded-xl bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
+              >
+                {posting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              </button>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Submit error */}
         {submitError && (
