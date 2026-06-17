@@ -152,16 +152,25 @@ async function generateBillPdf(
   }
   y -= rowH;
 
-  // Data rows
+  // Data rows — QBO stores tax at bill level not per line; prorate across lines
   const ccy = bill.currency || "GBP";
+  const totalSub = lines.reduce((a: number, l: any) => a + (l.lineSubtotal ?? 0), 0);
+  const billTaxTotal = bill.taxTotal ?? 0;
+  const getLineTax = (l: any) => {
+    if ((l.lineTax ?? 0) > 0) return l.lineTax;
+    if (!billTaxTotal || totalSub === 0) return 0;
+    return billTaxTotal * ((l.lineSubtotal ?? 0) / totalSub);
+  };
+
   for (const line of lines) {
-    const desc  = truncate(line.description || "—", 36);
-    const qty   = String(line.quantity ?? 1);
-    const up    = money(line.unitPrice, ccy);
-    const acct  = truncate(line.accountId || "—", 14);
-    const exTax = money(line.lineSubtotal, ccy);
-    const tax   = money(line.lineTax, ccy);
-    const incTax = money(line.lineTotal, ccy);
+    const desc   = truncate(line.description || "—", 36);
+    const qty    = String(line.quantity ?? 1);
+    const up     = money(line.unitPrice, ccy);
+    const acct   = truncate(line.accountId || "—", 14);
+    const exTax  = money(line.lineSubtotal, ccy);
+    const lineTax = getLineTax(line);
+    const tax    = money(lineTax, ccy);
+    const incTax = money((line.lineSubtotal ?? 0) + lineTax, ccy);
 
     const cells = [
       { text: desc,   col: cols[0] },
@@ -199,10 +208,10 @@ async function generateBillPdf(
   const totW  = 200;
   const totX  = width - margin - totW;
   const totRows: [string, string, boolean?][] = [
-    ["Subtotal", money(lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0), ccy)],
-    ["Tax",      money(lines.reduce((a, l) => a + (l.lineTax ?? 0), 0), ccy)],
+    ["Subtotal", money(bill.subtotal, ccy)],
+    ["Tax",      money(bill.taxTotal, ccy)],
     ["Total",    money(bill.total, ccy), true],
-    ["Paid",     money(Math.max(0, (bill.total ?? 0) - (bill.balance ?? 0)), ccy)],
+    ["Paid",     money(bill.amountPaid ?? 0, ccy)],
     ["Balance",  money(bill.balance, ccy), true],
   ];
 

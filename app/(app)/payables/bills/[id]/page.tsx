@@ -56,15 +56,17 @@ interface Bill {
   billDate?: string;
   dueDate?: string;
   currency: string;
-  accountingStatus: string;
+  accountingPaymentStatus: string; // Unpaid | Partially Paid | Paid | Voided
   workflowStatus: string;
+  subtotal: number;
+  taxTotal: number;
   total: number;
+  amountPaid: number;
   balance: number;
   source?: string;
   qboId?: string;
   xeroId?: string;
-  externalId?: string;
-  notes?: string;
+  privateNote?: string;
   createdAt: string;
   lines: LineItem[];
   supplier: Supplier | null;
@@ -76,8 +78,9 @@ interface Bill {
 
 function acctBadge(s: string) {
   const m: Record<string, string> = {
+    Unpaid: "yellow", "Partially Paid": "orange", Paid: "green", Voided: "neutral",
+    // legacy QBO/Xero values
     Draft: "neutral", Submitted: "blue", Authorised: "green",
-    Unpaid: "yellow", Paid: "green", Voided: "neutral",
   };
   return m[s] ?? "neutral";
 }
@@ -305,9 +308,18 @@ export default function BillDetailPage() {
     );
   }
 
-  const paid = Math.max(0, (bill.total ?? 0) - (bill.balance ?? 0));
   const daysDiff = daysUntilDue(bill.dueDate);
-  const isOverdue = daysDiff < 0 && bill.accountingStatus !== "Paid" && bill.accountingStatus !== "Voided";
+  const isOverdue = daysDiff < 0 && bill.accountingPaymentStatus !== "Paid" && bill.accountingPaymentStatus !== "Voided";
+
+  // Per-line tax: QBO stores tax at bill level (bill.taxTotal), not per line.
+  // Prorate it across lines by each line's share of subtotal.
+  const totalSubtotal = lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0);
+  const getLineTax = (item: LineItem) => {
+    if ((item.lineTax ?? 0) > 0) return item.lineTax;
+    if (!bill.taxTotal || totalSubtotal === 0) return 0;
+    return bill.taxTotal * ((item.lineSubtotal ?? 0) / totalSubtotal);
+  };
+  const getLineIncTax = (item: LineItem) => (item.lineSubtotal ?? 0) + getLineTax(item);
   const canDownloadPdf = !!(bill.qboId || bill.xeroId);
   const wf = bill.workflowStatus;
   const lines = bill.lines ?? [];
@@ -328,7 +340,7 @@ export default function BillDetailPage() {
             <h1 className="text-2xl font-semibold text-white tracking-tight font-mono">
               {bill.billNumber || "No #"}
             </h1>
-            <Badge variant={acctBadge(bill.accountingStatus)} size="md">{bill.accountingStatus}</Badge>
+            <Badge variant={acctBadge(bill.accountingPaymentStatus)} size="md">{bill.accountingPaymentStatus}</Badge>
             <Badge variant={wfBadge(bill.workflowStatus)} size="md">{bill.workflowStatus}</Badge>
           </div>
           <div className="flex items-center gap-2 text-sm text-stone-400">
@@ -437,7 +449,7 @@ export default function BillDetailPage() {
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Paid</div>
-          <div className="text-xl font-semibold text-emerald-400 tabular-nums">{fmt.money(paid, bill.currency)}</div>
+          <div className="text-xl font-semibold text-emerald-400 tabular-nums">{fmt.money(bill.amountPaid ?? 0, bill.currency)}</div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Balance</div>
@@ -595,8 +607,8 @@ export default function BillDetailPage() {
                       <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.unitPrice, bill.currency)}</td>
                       <td className="px-4 py-2.5 text-stone-400 text-xs font-mono">{item.accountId || "—"}</td>
                       <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.lineSubtotal, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(item.lineTax, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(item.lineTotal, bill.currency)}</td>
+                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(getLineTax(item), bill.currency)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(getLineIncTax(item), bill.currency)}</td>
                     </tr>
                   ))
                 )}
@@ -606,10 +618,10 @@ export default function BillDetailPage() {
                   <tr className="border-t border-stone-700 bg-stone-900/80">
                     <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Totals</td>
                     <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums font-semibold">
-                      {fmt.money(lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0), bill.currency)}
+                      {fmt.money(bill.subtotal, bill.currency)}
                     </td>
-                    <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">
-                      {fmt.money(lines.reduce((a, l) => a + (l.lineTax ?? 0), 0), bill.currency)}
+                    <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums font-semibold">
+                      {fmt.money(bill.taxTotal, bill.currency)}
                     </td>
                     <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">
                       {fmt.money(bill.total, bill.currency)}
