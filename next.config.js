@@ -1,4 +1,20 @@
 /** @type {import('next').NextConfig} */
+
+const securityHeaders = [
+  // HSTS — force HTTPS for 2 years, covers all subdomains
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  // Clickjacking protection
+  { key: "X-Frame-Options", value: "DENY" },
+  // Prevent MIME-type sniffing
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Don't send full referrer to third-party sites
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Lock down browser features we don't use
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+  // DNS prefetch for performance
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+];
+
 const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
@@ -7,9 +23,27 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   experimental: {
-    serverActions: { allowedOrigins: ["*"] }
+    // Restrict Server Actions to our own domains only — prevents CSRF from
+    // third-party sites calling our mutations directly.
+    serverActions: {
+      allowedOrigins: [
+        "primeaccountax.com",
+        "app.primeaccountax.com",
+        "admin.primeaccountax.com",
+        "localhost:3000",
+      ],
+    },
   },
   serverExternalPackages: ["openai"],
+  async headers() {
+    return [
+      {
+        // Apply security headers to every route
+        source: "/(.*)",
+        headers: securityHeaders,
+      },
+    ];
+  },
 };
 
 // Only wrap with Sentry's build plugin when a DSN is configured, so the build

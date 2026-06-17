@@ -170,6 +170,19 @@ export async function sendEmail(
   return { transport: "smtp", from: config.fromEmail };
 }
 
+/** Strip HTML tags + collapse whitespace to produce a readable plain-text fallback. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Send an email via SMTP. Throws on failure.
  */
@@ -191,8 +204,8 @@ export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<v
     bcc:         config.fromEmail, // BCC-to-self so every sent email lands in your inbox
     replyTo:     opts.replyTo || config.fromEmail,
     subject:     opts.subject,
-    text:        opts.body,
-    html:        opts.body.replace(/\n/g, "<br>"),
+    text:        htmlToText(opts.body),
+    html:        opts.body,
     attachments: opts.attachments?.map((a) => ({
       filename:    a.filename,
       content:     a.content,

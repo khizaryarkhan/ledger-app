@@ -162,15 +162,15 @@ function currencyTotals(bills: Bill[]) {
 // ── Send for Approval Modal ───────────────────────────────────────────────────
 
 function SendApprovalModal({
-  bill,
+  bills,
   open,
   onClose,
   onSent,
 }: {
-  bill: Bill | null;
+  bills: Bill[] | null;
   open: boolean;
   onClose: () => void;
-  onSent: (billId: string, email: string) => void;
+  onSent: (billIds: string[], email: string) => void;
 }) {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
@@ -179,32 +179,47 @@ function SendApprovalModal({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  const isBatch = (bills?.length ?? 0) > 1;
+  const primary = bills?.[0] ?? null;
+
   useEffect(() => {
-    if (open && bill) {
-      setTo(bill.approverEmail ?? "");
-      setSubject(`[Action Required] Approve Bill${bill.billNumber ? ` ${bill.billNumber}` : ""}`);
-      setMessage(
-        `Hi,\n\nPlease review and approve the bill${bill.billNumber ? ` (${bill.billNumber})` : ""}${bill.supplierName ? ` from ${bill.supplierName}` : ""} for ${fmt.money(bill.total, bill.currency)}.\n\nClick the link in this email to review the line items and submit your decision.\n\nThank you.`
-      );
+    if (open && primary) {
+      setTo(primary.approverEmail ?? "");
+      if (isBatch) {
+        const totalAmt = bills!.reduce((s, b) => s + (b.total ?? 0), 0);
+        setSubject(`[Action Required] ${bills!.length} Bills Awaiting Approval`);
+        setMessage(
+          `Hi,\n\nPlease review and approve the following ${bills!.length} bills totalling ${fmt.money(totalAmt, primary.currency)}.\n\nClick the link in this email to review each bill's line items and submit your decision.\n\nThank you.`
+        );
+      } else {
+        setSubject(`[Action Required] Approve Bill${primary.billNumber ? ` ${primary.billNumber}` : ""}`);
+        setMessage(
+          `Hi,\n\nPlease review and approve the bill${primary.billNumber ? ` (${primary.billNumber})` : ""}${primary.supplierName ? ` from ${primary.supplierName}` : ""} for ${fmt.money(primary.total, primary.currency)}.\n\nClick the link in this email to review the line items and submit your decision.\n\nThank you.`
+        );
+      }
       setError("");
     }
-  }, [open, bill]);
+  }, [open, bills]);
 
-  if (!open || !bill) return null;
+  if (!open || !primary) return null;
 
   async function send() {
     if (!to.trim()) { setError("Approver email is required."); return; }
     setSending(true);
     setError("");
     try {
-      const res = await fetch(`/api/payables/bills/${bill!.id}/send-for-approval`, {
+      const extraIds = bills!.slice(1).map(b => b.id);
+      const res = await fetch(`/api/payables/bills/${primary!.id}/send-for-approval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approverEmail: to.trim(), subject, message, includePortal }),
+        body: JSON.stringify({
+          approverEmail: to.trim(), subject, message, includePortal,
+          ...(extraIds.length > 0 ? { billIds: extraIds } : {}),
+        }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Failed to send");
-      onSent(bill!.id, to.trim());
+      onSent(bills!.map(b => b.id), to.trim());
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -212,6 +227,8 @@ function SendApprovalModal({
       setSending(false);
     }
   }
+
+  const totalAmt = bills!.reduce((s, b) => s + (b.total ?? 0), 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -221,10 +238,20 @@ function SendApprovalModal({
           <div>
             <h3 className="font-semibold text-white">Send for Approval</h3>
             <div className="text-[11px] text-stone-400 mt-0.5">
-              <span className="font-mono text-violet-400">{bill.billNumber ?? bill.id.slice(0, 8)}</span>
-              <span className="mx-1.5 text-stone-600">·</span>
-              <span className="font-semibold text-stone-300">{fmt.money(bill.total, bill.currency)}</span>
-              {bill.supplierName && <><span className="mx-1.5 text-stone-600">·</span><span>{bill.supplierName}</span></>}
+              {isBatch ? (
+                <>
+                  <span className="font-semibold text-violet-400">{bills!.length} bills</span>
+                  <span className="mx-1.5 text-stone-600">·</span>
+                  <span className="font-semibold text-stone-300">{fmt.money(totalAmt, primary.currency)}</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-mono text-violet-400">{primary.billNumber ?? primary.id.slice(0, 8)}</span>
+                  <span className="mx-1.5 text-stone-600">·</span>
+                  <span className="font-semibold text-stone-300">{fmt.money(primary.total, primary.currency)}</span>
+                  {primary.supplierName && <><span className="mx-1.5 text-stone-600">·</span><span>{primary.supplierName}</span></>}
+                </>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
@@ -405,7 +432,7 @@ function SupplierCard({
   onSendApproval,
 }: {
   group: SupplierGroup;
-  onSendApproval: (bill: Bill) => void;
+  onSendApproval: (bills: Bill[]) => void;
 }) {
   const overdue = group.bills.filter((b) => daysOverdue(b.dueDate) > 0);
   const buckets = agingBuckets(group.bills);
@@ -504,7 +531,7 @@ function BillRow({
   bill: Bill;
   selected: boolean;
   onSelect: (id: string) => void;
-  onSendApproval: (bill: Bill) => void;
+  onSendApproval: (bills: Bill[]) => void;
   onEmailChange: (id: string, email: string) => void;
 }) {
   const [editEmail, setEditEmail] = useState(false);
@@ -595,7 +622,7 @@ function BillRow({
       </td>
       <td className="px-3 py-2.5">
         <button
-          onClick={() => onSendApproval(bill)}
+          onClick={() => onSendApproval([bill])}
           disabled={!emailVal}
           className="inline-flex items-center gap-1 h-6 px-2 text-[11px] font-medium rounded bg-violet-600/20 hover:bg-violet-600 text-violet-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           title={!emailVal ? "Enter approver email first" : "Send for approval"}
@@ -654,7 +681,7 @@ export default function PayablesWorkspacePage() {
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sendModal, setSendModal] = useState<Bill | null>(null);
+  const [sendModal, setSendModal] = useState<Bill[] | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -744,9 +771,10 @@ export default function PayablesWorkspacePage() {
     }).catch(() => {});
   }
 
-  function handleSent(billId: string, email: string) {
+  function handleSent(billIds: string[], email: string) {
+    const idSet = new Set(billIds);
     setBills((prev) => prev.map((b) =>
-      b.id === billId
+      idSet.has(b.id)
         ? { ...b, approverEmail: email, lastApprovalSentAt: new Date().toISOString(), workflowStatus: "Pending Approval" }
         : b
     ));
@@ -835,8 +863,18 @@ export default function PayablesWorkspacePage() {
             {currencyTotals(filtered.filter((b) => selected.has(b.id)))}
           </span>
           <button
+            onClick={() => {
+              const selectedBills = filtered.filter((b) => selected.has(b.id));
+              setSendModal(selectedBills);
+            }}
+            className="ml-auto flex items-center gap-1.5 h-7 px-3 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+          >
+            <Send size={12} />
+            Send for Approval
+          </button>
+          <button
             onClick={() => setSelected(new Set())}
-            className="ml-auto text-xs text-stone-400 hover:text-stone-200"
+            className="text-xs text-stone-400 hover:text-stone-200"
           >
             Clear
           </button>
@@ -972,7 +1010,7 @@ export default function PayablesWorkspacePage() {
 
       {/* Send for Approval Modal */}
       <SendApprovalModal
-        bill={sendModal}
+        bills={sendModal}
         open={!!sendModal}
         onClose={() => setSendModal(null)}
         onSent={handleSent}

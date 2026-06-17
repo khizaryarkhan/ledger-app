@@ -4,45 +4,48 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import {
   CheckCircle2, XCircle, Loader2, AlertCircle, MessageCircle,
-  Building2, Calendar, Hash, Send, X,
+  Building2, Calendar, ChevronDown, ChevronRight, Send,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface PortalData {
-  org: { name: string; logoUrl?: string };
-  token: { approverEmail: string; approverName?: string };
-  bill: {
-    id: string;
-    billNumber?: string;
-    billDate?: string;
-    dueDate?: string;
-    currency: string;
-    subtotal: number;
-    taxTotal: number;
-    total: number;
-    balance: number;
-    privateNote?: string;
-    workflowStatus: string;
-  };
+interface Bill {
+  id: string;
+  billNumber?: string;
+  billDate?: string;
+  dueDate?: string;
+  currency: string;
+  subtotal: number;
+  taxTotal: number;
+  total: number;
+  balance: number;
+  privateNote?: string;
+  workflowStatus: string;
   supplier: { name: string; email?: string } | null;
   lines: {
     id: string;
     description?: string;
     quantity: number;
     unitPrice: number;
-    accountId?: string;
     lineSubtotal: number;
     lineTax: number;
     lineTotal: number;
   }[];
-  comments: {
-    id: string;
-    body: string;
-    authorName: string;
-    channel: string;
-    createdAt: string;
-  }[];
+}
+
+interface Comment {
+  id: string;
+  body: string;
+  authorName: string;
+  channel: string;
+  createdAt: string;
+}
+
+interface PortalData {
+  org: { name: string; logoUrl?: string };
+  token: { approverEmail: string; approverName?: string };
+  bills: Bill[];
+  comments: Comment[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -79,15 +82,10 @@ const CHANNEL_DOT: Record<string, string> = {
 // ── Reject Modal ──────────────────────────────────────────────────────────────
 
 function RejectModal({
-  open,
-  onClose,
-  onConfirm,
-  loading,
+  open, onClose, onConfirm, loading, isBatch,
 }: {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: (reason: string) => void;
-  loading: boolean;
+  open: boolean; onClose: () => void; onConfirm: (reason: string) => void;
+  loading: boolean; isBatch: boolean;
 }) {
   const [reason, setReason] = useState("");
   if (!open) return null;
@@ -121,10 +119,129 @@ function RejectModal({
             className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-rose-600 hover:bg-rose-500 text-white disabled:opacity-50"
           >
             {loading ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
-            Reject Bill
+            Reject {isBatch ? "All Bills" : "Bill"}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Bill Card (expandable) ────────────────────────────────────────────────────
+
+function BillCard({ bill, defaultOpen }: { bill: Bill; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const ccy = bill.currency;
+  const totalSub = bill.lines.reduce((s, l) => s + (l.lineSubtotal ?? 0), 0);
+  const getLineTax = (l: Bill["lines"][0]) => {
+    if ((l.lineTax ?? 0) > 0) return l.lineTax;
+    if (!bill.taxTotal || totalSub === 0) return 0;
+    return bill.taxTotal * ((l.lineSubtotal ?? 0) / totalSub);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+      {/* Card header — clickable to expand/collapse */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-6 py-4 flex items-center justify-between hover:bg-stone-50 transition-colors"
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="shrink-0 w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center">
+            <span className="text-violet-700 text-[10px] font-bold">#</span>
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-stone-900 font-mono">
+              {bill.billNumber ?? bill.id.slice(0, 8)}
+            </div>
+            <div className="text-xs text-stone-400 mt-0.5 flex items-center gap-3">
+              {bill.supplier && (
+                <span className="flex items-center gap-1">
+                  <Building2 size={10} /> {bill.supplier.name}
+                </span>
+              )}
+              {bill.dueDate && (
+                <span className="flex items-center gap-1">
+                  <Calendar size={10} /> Due {fmtDate(bill.dueDate)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0 ml-4">
+          <span className="text-base font-bold text-stone-900 tabular-nums">
+            {money(bill.total, ccy)}
+          </span>
+          {open
+            ? <ChevronDown size={16} className="text-stone-400" />
+            : <ChevronRight size={16} className="text-stone-400" />
+          }
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-stone-100">
+          {/* Amounts */}
+          <div className="px-6 py-4 grid grid-cols-3 gap-4 text-sm bg-stone-50">
+            <div>
+              <div className="text-xs text-stone-400 mb-0.5">Subtotal</div>
+              <div className="font-medium text-stone-700 tabular-nums">{money(bill.subtotal, ccy)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-stone-400 mb-0.5">Tax</div>
+              <div className="font-medium text-stone-700 tabular-nums">{money(bill.taxTotal, ccy)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-stone-400 mb-0.5">Total</div>
+              <div className="font-bold text-stone-900 tabular-nums">{money(bill.total, ccy)}</div>
+            </div>
+          </div>
+
+          {/* Line items */}
+          {bill.lines.length > 0 && (
+            <div className="overflow-x-auto border-t border-stone-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-100">
+                    {["Description", "Qty", "Unit Price", "Ex. Tax", "Tax", "Inc. Tax"].map((h) => (
+                      <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold text-stone-400 uppercase tracking-wide whitespace-nowrap last:text-right">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bill.lines.map((line) => {
+                    const lt = getLineTax(line);
+                    return (
+                      <tr key={line.id} className="border-b border-stone-100 last:border-0">
+                        <td className="px-4 py-3 text-stone-700 max-w-[200px]">{line.description || "—"}</td>
+                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap">{line.quantity}</td>
+                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap tabular-nums">{money(line.unitPrice, ccy)}</td>
+                        <td className="px-4 py-3 text-stone-700 whitespace-nowrap tabular-nums">{money(line.lineSubtotal, ccy)}</td>
+                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap tabular-nums">{money(lt, ccy)}</td>
+                        <td className="px-4 py-3 font-medium text-stone-900 whitespace-nowrap tabular-nums text-right">
+                          {money((line.lineSubtotal ?? 0) + lt, ccy)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Private note */}
+          {bill.privateNote && (
+            <div className="px-6 py-4 border-t border-stone-100">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <div className="text-xs font-semibold text-amber-700 mb-1">Note from Finance Team</div>
+                <p className="text-sm text-amber-800 whitespace-pre-wrap">{bill.privateNote}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -144,7 +261,7 @@ export default function ApproverPortalPage() {
   const [submitError, setSubmitError] = useState("");
   const [showReject, setShowReject] = useState(false);
 
-  const [comments, setComments] = useState<PortalData["comments"]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [commentBody, setCommentBody] = useState("");
   const [posting, setPosting] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -239,8 +356,9 @@ export default function ApproverPortalPage() {
             }
           </div>
           <h2 className="text-lg font-semibold text-stone-900 mb-2">
-            Bill Already {alreadyDecided.status}
+            Already {alreadyDecided.status}
           </h2>
+          <p className="text-sm text-stone-500">This approval request has already been processed.</p>
           {alreadyDecided.decision && (
             <p className="text-sm text-stone-500 mt-2 italic">"{alreadyDecided.decision}"</p>
           )}
@@ -262,7 +380,7 @@ export default function ApproverPortalPage() {
             }
           </div>
           <h2 className="text-xl font-bold text-stone-900 mb-2">
-            {approved ? "Bill Approved!" : "Bill Rejected"}
+            {approved ? "Approved!" : "Rejected"}
           </h2>
           <p className="text-sm text-stone-500">
             {approved
@@ -275,15 +393,11 @@ export default function ApproverPortalPage() {
   }
 
   if (!data) return null;
-  const { org, bill, supplier, lines } = data;
 
-  // Tax proration (same as bill detail page)
-  const totalSub = lines.reduce((a, l) => a + (l.lineSubtotal ?? 0), 0);
-  const getLineTax = (l: typeof lines[0]) => {
-    if ((l.lineTax ?? 0) > 0) return l.lineTax;
-    if (!bill.taxTotal || totalSub === 0) return 0;
-    return bill.taxTotal * ((l.lineSubtotal ?? 0) / totalSub);
-  };
+  const { org, bills } = data;
+  const isBatch = bills.length > 1;
+  const ccy = bills[0]?.currency ?? "USD";
+  const grandTotal = bills.reduce((s, b) => s + (b.total ?? 0), 0);
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -305,109 +419,33 @@ export default function ApproverPortalPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        {/* Bill overview card */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-          <div className="bg-violet-600 px-6 py-5">
-            <div className="text-violet-200 text-xs font-semibold uppercase tracking-wide mb-1">Bill for Approval</div>
-            <div className="text-white text-2xl font-bold tabular-nums">{money(bill.total, bill.currency)}</div>
-            {bill.billNumber && (
-              <div className="text-violet-200 text-sm mt-1 font-mono">{bill.billNumber}</div>
-            )}
+        {/* Summary banner */}
+        <div className="bg-violet-600 rounded-2xl px-6 py-5 text-white">
+          <div className="text-violet-200 text-xs font-semibold uppercase tracking-wide mb-1">
+            {isBatch ? `${bills.length} Bills for Approval` : "Bill for Approval"}
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm mb-5">
-              {supplier && (
-                <div>
-                  <div className="text-xs text-stone-400 mb-0.5 flex items-center gap-1">
-                    <Building2 size={11} /> Supplier
-                  </div>
-                  <div className="font-semibold text-stone-900">{supplier.name}</div>
-                </div>
-              )}
-              {bill.dueDate && (
-                <div>
-                  <div className="text-xs text-stone-400 mb-0.5 flex items-center gap-1">
-                    <Calendar size={11} /> Due Date
-                  </div>
-                  <div className="font-semibold text-stone-900">{fmtDate(bill.dueDate)}</div>
-                </div>
-              )}
-              {bill.billDate && (
-                <div>
-                  <div className="text-xs text-stone-400 mb-0.5">Bill Date</div>
-                  <div className="text-stone-700">{fmtDate(bill.billDate)}</div>
-                </div>
-              )}
-              <div>
-                <div className="text-xs text-stone-400 mb-0.5">Currency</div>
-                <div className="text-stone-700">{bill.currency}</div>
-              </div>
+          <div className="text-3xl font-bold tabular-nums">{money(grandTotal, ccy)}</div>
+          {isBatch && (
+            <div className="text-violet-200 text-sm mt-1">
+              {bills.map(b => b.billNumber ?? b.id.slice(0, 8)).join(" · ")}
             </div>
-
-            {/* Amounts summary */}
-            <div className="border-t border-stone-100 pt-4 space-y-1.5">
-              <div className="flex justify-between text-sm text-stone-600">
-                <span>Subtotal (Ex. Tax)</span>
-                <span className="tabular-nums">{money(bill.subtotal, bill.currency)}</span>
-              </div>
-              <div className="flex justify-between text-sm text-stone-600">
-                <span>Tax</span>
-                <span className="tabular-nums">{money(bill.taxTotal, bill.currency)}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold text-stone-900 pt-1 border-t border-stone-100">
-                <span>Total</span>
-                <span className="tabular-nums">{money(bill.total, bill.currency)}</span>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Line items */}
-        {lines.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-stone-100">
-              <h3 className="text-sm font-semibold text-stone-900">Line Items</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-stone-50 border-b border-stone-100">
-                    {["Description", "Qty", "Unit Price", "Ex. Tax", "Tax", "Inc. Tax"].map((h) => (
-                      <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold text-stone-400 uppercase tracking-wide whitespace-nowrap last:text-right">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((line) => {
-                    const lt = getLineTax(line);
-                    return (
-                      <tr key={line.id} className="border-b border-stone-100 last:border-0">
-                        <td className="px-4 py-3 text-stone-700 max-w-[200px]">{line.description || "—"}</td>
-                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap">{line.quantity}</td>
-                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap tabular-nums">{money(line.unitPrice, bill.currency)}</td>
-                        <td className="px-4 py-3 text-stone-700 whitespace-nowrap tabular-nums">{money(line.lineSubtotal, bill.currency)}</td>
-                        <td className="px-4 py-3 text-stone-600 whitespace-nowrap tabular-nums">{money(lt, bill.currency)}</td>
-                        <td className="px-4 py-3 font-medium text-stone-900 whitespace-nowrap tabular-nums text-right">{money((line.lineSubtotal ?? 0) + lt, bill.currency)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        {/* Bill cards — single bill opens expanded, batch starts collapsed */}
+        {bills.map((bill, i) => (
+          <BillCard key={bill.id} bill={bill} defaultOpen={!isBatch || i === 0} />
+        ))}
+
+        {/* Batch total footer */}
+        {isBatch && (
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm px-6 py-4 flex items-center justify-between">
+            <span className="text-sm font-semibold text-stone-700">Batch Total ({bills.length} bills)</span>
+            <span className="text-lg font-bold text-stone-900 tabular-nums">{money(grandTotal, ccy)}</span>
           </div>
         )}
 
-        {/* Note from requester */}
-        {bill.privateNote && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
-            <div className="text-xs font-semibold text-amber-700 mb-1">Note from Finance Team</div>
-            <p className="text-sm text-amber-800 whitespace-pre-wrap">{bill.privateNote}</p>
-          </div>
-        )}
-
-        {/* Comments / Activity — always visible so approver can ask questions */}
+        {/* Comments / Activity */}
         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm">
           <div className="px-6 py-4 border-b border-stone-100">
             <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
@@ -433,7 +471,6 @@ export default function ApproverPortalPage() {
             </div>
           )}
 
-          {/* Add comment — always shown */}
           <div className="px-6 py-4">
             <div className="flex gap-2">
               <textarea
@@ -466,6 +503,9 @@ export default function ApproverPortalPage() {
           <h3 className="text-sm font-semibold text-stone-900 mb-1">Your Decision</h3>
           <p className="text-xs text-stone-500 mb-5">
             Reviewing as <strong>{data.token.approverEmail}</strong>.
+            {isBatch
+              ? ` This approves or rejects all ${bills.length} bills at once. `
+              : " "}
             This action is final and will be logged.
           </p>
           <div className="flex gap-3">
@@ -475,7 +515,7 @@ export default function ApproverPortalPage() {
               className="flex-1 inline-flex items-center justify-center gap-2 h-12 px-5 text-sm font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors"
             >
               {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-              Approve Bill
+              Approve {isBatch ? `All ${bills.length} Bills` : "Bill"}
             </button>
             <button
               onClick={() => setShowReject(true)}
@@ -498,6 +538,7 @@ export default function ApproverPortalPage() {
         onClose={() => setShowReject(false)}
         onConfirm={(reason) => { setShowReject(false); submit("reject", reason); }}
         loading={submitting}
+        isBatch={isBatch}
       />
     </div>
   );

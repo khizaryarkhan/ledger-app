@@ -1493,7 +1493,8 @@ export type PaymentRunItem = typeof paymentRunItems.$inferSelect;
 export const apApprovalTokens = pgTable("ap_approval_tokens", {
   id:             uuid("id").defaultRandom().primaryKey(),
   orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  billId:         uuid("bill_id").notNull().references(() => apBills.id, { onDelete: "cascade" }),
+  billId:         uuid("bill_id").references(() => apBills.id, { onDelete: "set null" }),  // primary/first bill (nullable for multi-bill tokens)
+  billIds:        jsonb("bill_ids").$type<string[]>().notNull().default([]),               // all bills in this batch (like invoiceIds in customerPortalTokens)
   token:          text("token").notNull().unique(),
   approverEmail:  text("approver_email").notNull(),
   approverName:   text("approver_name"),

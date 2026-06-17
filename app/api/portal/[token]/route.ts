@@ -4,13 +4,16 @@ import { validatePortalToken } from "@/lib/portal";
 import { customerPortalTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 /**
  * GET /api/portal/[token]
  * Public, token-authenticated. Returns org branding, customer name, open invoices
  * covered by this request, and (if org enabled) the full paid invoice history.
  */
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const rl = await rateLimit(`portal-get:${clientIp(req)}`, 60, 60);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await validatePortalToken(params.token);
   if (!v.ok) {
     const reason = "reason" in v ? v.reason : "error";

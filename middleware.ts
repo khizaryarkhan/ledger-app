@@ -79,7 +79,7 @@ export default auth((req) => {
     path === "/alternatives" ||
     path.endsWith("-alternative") ||
     MARKETING_PATHS.has(path);
-  const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || isPortal || isLegal;
+  const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || path === "/api/health" || isPortal || isLegal;
   const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
@@ -106,10 +106,6 @@ export default auth((req) => {
 
   // Admin panel — platform_admin and super_admin only
   if (isAdmin) {
-    if (!isAuth) {
-      if (isApi) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      return NextResponse.redirect(new URL("/login", req.nextUrl));
-    }
     if (role !== "platform_admin" && role !== "super_admin") {
       if (isApi) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
