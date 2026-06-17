@@ -54,7 +54,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Build portal URL — prefer explicit NEXTAUTH_URL, fall back to Vercel deployment URL
   const rawBase = process.env.NEXTAUTH_URL
     ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-    ?? "https://app.foodready.ai";
+    ?? "https://primeaccountax.com";
   const baseUrl = rawBase.replace(/\/$/, "");
   const portalUrl = `${baseUrl}/approver/${token}`;
 
