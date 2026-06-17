@@ -99,12 +99,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     </div>
   `;
 
+  const emailTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Email sending timed out (15 s). Check SMTP settings.")), 15_000)
+  );
   try {
-    await sendEmail(orgId!, {
-      to: approverEmail,
-      subject: emailSubject,
-      body: htmlBody,
-    });
+    await Promise.race([
+      sendEmail(orgId!, { to: approverEmail, subject: emailSubject, body: htmlBody }),
+      emailTimeout,
+    ]);
   } catch (e: any) {
     console.error("Approval email send failed:", e);
     return bad("Bill updated but email failed to send: " + (e.message ?? "unknown error"), 500);

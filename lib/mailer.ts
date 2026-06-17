@@ -175,10 +175,13 @@ export async function sendEmail(
  */
 export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<void> {
   const transporter = nodemailer.createTransport({
-    host:   config.host,
-    port:   config.port,
-    secure: false,
-    auth:   { user: config.user, pass: config.pass },
+    host:              config.host,
+    port:              config.port,
+    secure:            false,
+    auth:              { user: config.user, pass: config.pass },
+    connectionTimeout: 9_000,
+    greetingTimeout:   9_000,
+    socketTimeout:     9_000,
   });
 
   await transporter.sendMail({
