@@ -60,8 +60,9 @@ export default auth((req) => {
     return new NextResponse(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
   }
 
-  // Customer Response Portal — public, token-authenticated (no login)
-  const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/");
+  // Public token-authenticated portals — no login required
+  const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/")
+    || path.startsWith("/approver/") || path.startsWith("/api/approver/");
   const isLegal = path === "/privacy" || path === "/terms";
   const isHome = path === "/"; // public marketing landing (Google verification needs this)
   // Public SEO / marketing pages (solution landing pages + blog)
