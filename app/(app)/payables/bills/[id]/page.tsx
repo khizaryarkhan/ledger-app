@@ -19,6 +19,9 @@ interface LineItem {
   quantity: number;
   unitPrice: number;
   accountId?: string;
+  accountName?: string;
+  itemId?: string;
+  itemName?: string;
   taxRateId?: string;
   lineSubtotal: number;
   lineTax: number;
@@ -589,7 +592,7 @@ export default function BillDetailPage() {
                   <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Description</th>
                   <th className="px-4 py-2 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Qty</th>
                   <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Unit Price</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Account</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Account / Item</th>
                   <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Ex. Tax</th>
                   <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Tax</th>
                   <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Inc. Tax</th>
@@ -606,7 +609,7 @@ export default function BillDetailPage() {
                       <td className="px-4 py-2.5 text-stone-200">{item.description || "—"}</td>
                       <td className="px-4 py-2.5 text-center text-stone-300 tabular-nums">{item.quantity}</td>
                       <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.unitPrice, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-stone-400 text-xs font-mono">{item.accountId || "—"}</td>
+                      <td className="px-4 py-2.5 text-stone-400 text-xs">{item.accountName || item.itemName || item.accountId || "—"}</td>
                       <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.lineSubtotal, bill.currency)}</td>
                       <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(getLineTax(item), bill.currency)}</td>
                       <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(getLineIncTax(item), bill.currency)}</td>

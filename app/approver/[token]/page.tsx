@@ -26,6 +26,8 @@ interface Bill {
   lines: {
     id: string;
     description?: string;
+    accountName?: string;
+    itemName?: string;
     quantity: number;
     unitPrice: number;
     lineSubtotal: number;
@@ -210,7 +212,7 @@ function BillDecisionCard({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100">
-                    {["Description", "Qty", "Unit Price", "Ex. Tax", "Tax", "Inc. Tax"].map((h) => (
+                    {["Description", "Account / Item", "Qty", "Unit Price", "Ex. Tax", "Tax", "Inc. Tax"].map((h) => (
                       <th key={h} className="px-4 py-2 text-left text-[11px] font-semibold text-stone-400 uppercase tracking-wide whitespace-nowrap last:text-right">
                         {h}
                       </th>
@@ -223,6 +225,7 @@ function BillDecisionCard({
                     return (
                       <tr key={line.id} className="border-b border-stone-100 last:border-0">
                         <td className="px-4 py-3 text-stone-700 max-w-[180px]">{line.description || "—"}</td>
+                        <td className="px-4 py-3 text-stone-500 text-xs">{line.accountName || line.itemName || "—"}</td>
                         <td className="px-4 py-3 text-stone-600 whitespace-nowrap">{line.quantity}</td>
                         <td className="px-4 py-3 text-stone-600 whitespace-nowrap tabular-nums">{money(line.unitPrice, ccy)}</td>
                         <td className="px-4 py-3 text-stone-700 whitespace-nowrap tabular-nums">{money(line.lineSubtotal, ccy)}</td>
