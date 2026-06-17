@@ -131,14 +131,15 @@ async function generateBillPdf(
   page.drawText("LINE ITEMS", { x: margin, y, size: 7.5, font: bold, color: light });
   y -= 6;
 
-  // Table header
+  // 7 columns: Description | Qty | Unit Price | Account | Ex.Tax | Tax | Inc.Tax
   const cols = [
-    { label: "Description", x: margin,             w: cw * 0.38 },
-    { label: "Qty",         x: margin + cw * 0.38, w: cw * 0.08, right: true },
-    { label: "Unit Price",  x: margin + cw * 0.46, w: cw * 0.14, right: true },
-    { label: "Account",     x: margin + cw * 0.60, w: cw * 0.14 },
-    { label: "Subtotal",    x: margin + cw * 0.74, w: cw * 0.13, right: true },
-    { label: "Total",       x: margin + cw * 0.87, w: cw * 0.13, right: true },
+    { label: "Description", x: margin,              w: cw * 0.32, right: false },
+    { label: "Qty",          x: margin + cw * 0.32, w: cw * 0.06, right: true  },
+    { label: "Unit Price",   x: margin + cw * 0.38, w: cw * 0.12, right: true  },
+    { label: "Account",      x: margin + cw * 0.51, w: cw * 0.13, right: false },
+    { label: "Ex. Tax",      x: margin + cw * 0.65, w: cw * 0.11, right: true  },
+    { label: "Tax",          x: margin + cw * 0.77, w: cw * 0.10, right: true  },
+    { label: "Inc. Tax",     x: margin + cw * 0.88, w: cw * 0.12, right: true  },
   ];
 
   const rowH = 18;
@@ -154,20 +155,22 @@ async function generateBillPdf(
   // Data rows
   const ccy = bill.currency || "GBP";
   for (const line of lines) {
-    const desc = truncate(line.description || "—", 42);
-    const qty  = String(line.quantity ?? 1);
-    const up   = money(line.unitPrice, ccy);
-    const acct = truncate(line.accountId || "—", 16);
-    const sub  = money(line.lineSubtotal, ccy);
-    const tot  = money(line.lineTotal, ccy);
+    const desc  = truncate(line.description || "—", 36);
+    const qty   = String(line.quantity ?? 1);
+    const up    = money(line.unitPrice, ccy);
+    const acct  = truncate(line.accountId || "—", 14);
+    const exTax = money(line.lineSubtotal, ccy);
+    const tax   = money(line.lineTax, ccy);
+    const incTax = money(line.lineTotal, ccy);
 
     const cells = [
-      { text: desc, col: cols[0] },
-      { text: qty,  col: cols[1] },
-      { text: up,   col: cols[2] },
-      { text: acct, col: cols[3] },
-      { text: sub,  col: cols[4] },
-      { text: tot,  col: cols[5] },
+      { text: desc,   col: cols[0] },
+      { text: qty,    col: cols[1] },
+      { text: up,     col: cols[2] },
+      { text: acct,   col: cols[3] },
+      { text: exTax,  col: cols[4] },
+      { text: tax,    col: cols[5] },
+      { text: incTax, col: cols[6] },
     ];
 
     page.drawLine({ start: { x: margin - 4, y }, end: { x: width - margin + 4, y }, thickness: 0.3, color: lineC });
