@@ -17,15 +17,20 @@ export async function POST(req: Request, { params }: { params: { token: string }
   const authorName = tokenRow.approverName ?? tokenRow.approverEmail;
 
   // Resolve all bill IDs — batch tokens use billIds[], single-bill tokens use billId
-  const billIds: string[] = (tokenRow.billIds && (tokenRow.billIds as string[]).length > 0)
+  const allBillIds: string[] = (tokenRow.billIds && (tokenRow.billIds as string[]).length > 0)
     ? (tokenRow.billIds as string[])
     : (tokenRow.billId ? [tokenRow.billId] : []);
 
-  if (billIds.length === 0) return Response.json({ error: "No bills found for this token" }, { status: 400 });
+  if (allBillIds.length === 0) return Response.json({ error: "No bills found for this token" }, { status: 400 });
 
-  // Insert a comment linked to each bill in the batch so it appears in every bill's thread
+  // If caller specifies a billId (per-bill chat), post only to that bill — else post to all
+  const requestedBillId = (body.billId ?? "").toString().trim();
+  const billsToPost = requestedBillId && allBillIds.includes(requestedBillId)
+    ? [requestedBillId]
+    : allBillIds;
+
   const inserted = await Promise.all(
-    billIds.map(billId =>
+    billsToPost.map(billId =>
       db.insert(apBillComments).values({
         orgId: tokenRow.orgId,
         billId,
@@ -36,6 +41,6 @@ export async function POST(req: Request, { params }: { params: { token: string }
     )
   );
 
-  // Return the first comment for optimistic UI update (prevents duplicates in the chat view)
+  // Return the first inserted comment for optimistic UI update
   return Response.json(inserted[0][0]);
 }

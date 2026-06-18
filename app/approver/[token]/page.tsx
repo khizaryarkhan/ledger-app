@@ -38,6 +38,7 @@ interface Bill {
 
 interface Comment {
   id: string;
+  billId: string;
   body: string;
   authorName: string;
   channel: string;
@@ -94,19 +95,40 @@ function BillDecisionCard({
   decision,
   selected,
   fieldError,
+  comments,
   onToggleSelect,
   onSetDecision,
   onSetNote,
+  onPostComment,
 }: {
   bill: Bill;
   decision: BillDecision;
   selected: boolean;
   fieldError?: string;
+  comments: Comment[];
   onToggleSelect: () => void;
   onSetDecision: (action: "approve" | "reject" | null) => void;
   onSetNote: (note: string) => void;
+  onPostComment: (body: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatPosting, setChatPosting] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [comments]);
+
+  async function postMsg() {
+    if (!chatInput.trim() || chatPosting) return;
+    setChatPosting(true);
+    try {
+      await onPostComment(chatInput.trim());
+      setChatInput("");
+    } finally { setChatPosting(false); }
+  }
   const ccy = bill.currency;
   const totalSub = bill.lines.reduce((s, l) => s + (l.lineSubtotal ?? 0), 0);
   const getLineTax = (l: Bill["lines"][0]) => {
@@ -296,6 +318,58 @@ function BillDecisionCard({
           </button>
         </div>
       </div>
+
+      {/* Per-bill chat */}
+      <div className="border-t border-stone-100">
+        <button
+          onClick={() => setChatOpen(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-stone-500 hover:bg-stone-50 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <MessageCircle size={12} />
+            {comments.length > 0 ? `Messages (${comments.length})` : "Ask a question"}
+          </span>
+          {chatOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+        {chatOpen && (
+          <div className="border-t border-stone-100">
+            {comments.length > 0 && (
+              <div className="px-4 pt-3 pb-1 space-y-2.5 max-h-44 overflow-y-auto">
+                {comments.map((c) => (
+                  <div key={c.id} className="flex gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${CHANNEL_DOT[c.channel] ?? "bg-stone-300"}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[11px] font-semibold text-stone-600">{c.authorName}</span>
+                        <span className="text-[10px] text-stone-400">{fmtRelative(c.createdAt)}</span>
+                      </div>
+                      <p className="text-xs text-stone-700 whitespace-pre-wrap">{c.body}</p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={chatBottomRef} />
+              </div>
+            )}
+            <div className="px-4 py-3 flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postMsg(); } }}
+                placeholder="Ask the finance team about this bill…"
+                className="flex-1 px-3 py-1.5 text-sm rounded-xl border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:border-violet-400 focus:outline-none"
+              />
+              <button
+                onClick={postMsg}
+                disabled={chatPosting || !chatInput.trim()}
+                className="h-8 w-8 flex items-center justify-center rounded-xl bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40 shrink-0"
+              >
+                {chatPosting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -368,10 +442,9 @@ export default function ApproverPortalPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  // Comments
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [commentBody, setCommentBody] = useState("");
-  const [posting, setPosting] = useState(false);
+  // Per-bill comments (main portal) + flat comments (already-decided screen)
+  const [billComments, setBillComments] = useState<Record<string, Comment[]>>({});
+  const [comments, setComments] = useState<Comment[]>([]); // used for already-decided screen
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -385,7 +458,13 @@ export default function ApproverPortalPage() {
           return;
         }
         setData(d);
-        setComments(d.comments ?? []);
+        // Group comments by billId for per-bill chat
+        const grouped: Record<string, Comment[]> = {};
+        for (const c of (d.comments ?? []) as Comment[]) {
+          if (!grouped[c.billId]) grouped[c.billId] = [];
+          grouped[c.billId].push(c);
+        }
+        setBillComments(grouped);
         // Init all decisions as null/empty
         const init: Record<string, BillDecision> = {};
         for (const b of d.bills ?? []) init[b.id] = { action: null, note: "" };
@@ -495,21 +574,19 @@ export default function ApproverPortalPage() {
     }
   }
 
-  async function postComment() {
-    if (!commentBody.trim()) return;
-    setPosting(true);
-    try {
-      const res = await fetch(`/api/approver/${token}/comment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: commentBody.trim() }),
-      });
-      if (res.ok) {
-        const c = await res.json();
-        setComments(prev => [...prev, c]);
-        setCommentBody("");
-      }
-    } finally { setPosting(false); }
+  async function postBillComment(billId: string, body: string): Promise<void> {
+    const res = await fetch(`/api/approver/${token}/comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body, billId }),
+    });
+    if (res.ok) {
+      const c: Comment = await res.json();
+      setBillComments(prev => ({
+        ...prev,
+        [billId]: [...(prev[billId] ?? []), c],
+      }));
+    }
   }
 
   // ── States ─────────────────────────────────────────────────────────────────
@@ -739,9 +816,11 @@ export default function ApproverPortalPage() {
             decision={decisions[bill.id] ?? { action: null, note: "" }}
             selected={selected.has(bill.id)}
             fieldError={fieldErrors[bill.id]}
+            comments={billComments[bill.id] ?? []}
             onToggleSelect={() => toggleSelect(bill.id)}
             onSetDecision={(action) => setDecision(bill.id, action)}
             onSetNote={(note) => setNote(bill.id, note)}
+            onPostComment={(body) => postBillComment(bill.id, body)}
           />
         ))}
 
@@ -752,54 +831,6 @@ export default function ApproverPortalPage() {
             <span className="text-lg font-bold text-stone-900 tabular-nums">{money(grandTotal, ccy)}</span>
           </div>
         )}
-
-        {/* Activity */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-stone-100">
-            <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
-              <MessageCircle size={15} className="text-stone-400" /> Activity
-            </h3>
-          </div>
-          {comments.length > 0 ? (
-            <div className="px-6 py-4 space-y-3 max-h-56 overflow-y-auto border-b border-stone-100">
-              {comments.map((c) => (
-                <div key={c.id} className="flex gap-3">
-                  <div className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${CHANNEL_DOT[c.channel] ?? "bg-stone-300"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-xs font-semibold text-stone-600">{c.authorName}</span>
-                      <span className="text-[10px] text-stone-400">{fmtRelative(c.createdAt)}</span>
-                    </div>
-                    <p className="text-sm text-stone-700 whitespace-pre-wrap">{c.body}</p>
-                  </div>
-                </div>
-              ))}
-              <div ref={bottomRef} />
-            </div>
-          ) : (
-            <div className="px-6 py-3 border-b border-stone-100">
-              <p className="text-xs text-stone-400">No messages yet. Ask the finance team a question below.</p>
-            </div>
-          )}
-          <div className="px-6 py-4">
-            <div className="flex gap-2">
-              <textarea
-                value={commentBody}
-                onChange={(e) => setCommentBody(e.target.value)}
-                rows={2}
-                placeholder="Ask the finance team a question…"
-                className="flex-1 px-3 py-2 text-sm rounded-xl border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:border-violet-500 focus:outline-none resize-none"
-              />
-              <button
-                onClick={postComment}
-                disabled={posting || !commentBody.trim()}
-                className="self-end h-9 w-9 flex items-center justify-center rounded-xl bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
-              >
-                {posting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-              </button>
-            </div>
-          </div>
-        </div>
 
         {/* Submit section */}
         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
