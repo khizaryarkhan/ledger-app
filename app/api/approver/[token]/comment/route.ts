@@ -16,13 +16,26 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
   const authorName = tokenRow.approverName ?? tokenRow.approverEmail;
 
-  const [comment] = await db.insert(apBillComments).values({
-    orgId: tokenRow.orgId,
-    billId: tokenRow.billId,
-    body: text,
-    authorName,
-    channel: "approver",
-  }).returning();
+  // Resolve all bill IDs — batch tokens use billIds[], single-bill tokens use billId
+  const billIds: string[] = (tokenRow.billIds && (tokenRow.billIds as string[]).length > 0)
+    ? (tokenRow.billIds as string[])
+    : (tokenRow.billId ? [tokenRow.billId] : []);
 
-  return Response.json(comment);
+  if (billIds.length === 0) return Response.json({ error: "No bills found for this token" }, { status: 400 });
+
+  // Insert a comment linked to each bill in the batch so it appears in every bill's thread
+  const inserted = await Promise.all(
+    billIds.map(billId =>
+      db.insert(apBillComments).values({
+        orgId: tokenRow.orgId,
+        billId,
+        body: text,
+        authorName,
+        channel: "approver",
+      }).returning()
+    )
+  );
+
+  // Return the first comment for optimistic UI update (prevents duplicates in the chat view)
+  return Response.json(inserted[0][0]);
 }

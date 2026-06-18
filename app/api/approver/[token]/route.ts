@@ -15,12 +15,31 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   if (!tokenRow) return Response.json({ error: "Invalid link" }, { status: 410 });
   if (tokenRow.expiresAt < new Date()) return Response.json({ error: "This approval link has expired." }, { status: 410 });
   if (tokenRow.status !== "Pending") {
+    // Still load comments so the approver can see the conversation history
+    const decidedBillIds: string[] = (tokenRow.billIds && (tokenRow.billIds as string[]).length > 0)
+      ? (tokenRow.billIds as string[])
+      : (tokenRow.billId ? [tokenRow.billId] : []);
+    const pastComments = decidedBillIds.length > 0
+      ? await db.select().from(apBillComments)
+          .where(and(inArray(apBillComments.billId, decidedBillIds), eq(apBillComments.orgId, tokenRow.orgId)))
+          .orderBy(asc(apBillComments.createdAt))
+          .then(rows => rows.filter(c => c.channel !== "internal"))
+      : [];
+    // Deduplicate: for batch tokens the same comment body is stored once per bill — show each unique body once
+    const seen = new Set<string>();
+    const deduped = pastComments.filter(c => {
+      const key = `${c.authorName}|${c.body}|${new Date(c.createdAt).toISOString().slice(0, 16)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     return Response.json({
       error: null,
       alreadyDecided: true,
       status: tokenRow.status,
       decision: tokenRow.decision,
       submittedAt: tokenRow.submittedAt,
+      comments: deduped,
     });
   }
 
@@ -56,10 +75,18 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   }).from(organisations).where(eq(organisations.id, tokenRow.orgId)).limit(1);
 
   // Comments visible to approver — all bills in the batch, exclude internal
+  // Deduplicate: batch sends store the same message once per bill; show each unique message once
   const comments = await db.select().from(apBillComments)
     .where(and(inArray(apBillComments.billId, billIds), eq(apBillComments.orgId, tokenRow.orgId)))
     .orderBy(asc(apBillComments.createdAt));
-  const visibleComments = comments.filter(c => c.channel !== "internal");
+  const seen = new Set<string>();
+  const visibleComments = comments.filter(c => {
+    if (c.channel === "internal") return false;
+    const key = `${c.authorName}|${c.body}|${new Date(c.createdAt).toISOString().slice(0, 16)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   return Response.json({
     org: {

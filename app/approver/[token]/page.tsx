@@ -379,7 +379,11 @@ export default function ApproverPortalPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.error && !d.alreadyDecided) { setErrorMsg(d.error); return; }
-        if (d.alreadyDecided) { setAlreadyDecided({ status: d.status, decision: d.decision }); return; }
+        if (d.alreadyDecided) {
+          setAlreadyDecided({ status: d.status, decision: d.decision });
+          setComments(d.comments ?? []);
+          return;
+        }
         setData(d);
         setComments(d.comments ?? []);
         // Init all decisions as null/empty
@@ -536,15 +540,63 @@ export default function ApproverPortalPage() {
     const approved = alreadyDecided.status === "Approved";
     const mixed = alreadyDecided.status === "Partial";
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8 text-center max-w-sm w-full">
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${mixed ? "bg-violet-100" : approved ? "bg-emerald-100" : "bg-rose-100"}`}>
-            {mixed ? <CheckCircle2 size={22} className="text-violet-600" /> :
-             approved ? <CheckCircle2 size={22} className="text-emerald-600" /> :
-             <XCircle size={22} className="text-rose-500" />}
+      <div className="min-h-screen bg-stone-50 p-4">
+        <div className="max-w-lg mx-auto pt-8 space-y-4">
+          {/* Status card */}
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6 text-center">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 ${mixed ? "bg-violet-100" : approved ? "bg-emerald-100" : "bg-rose-100"}`}>
+              {mixed ? <CheckCircle2 size={22} className="text-violet-600" /> :
+               approved ? <CheckCircle2 size={22} className="text-emerald-600" /> :
+               <XCircle size={22} className="text-rose-500" />}
+            </div>
+            <h2 className="text-base font-semibold text-stone-900 mb-1">Already {alreadyDecided.status}</h2>
+            <p className="text-sm text-stone-500">This approval request has already been processed. You can still use the chat below.</p>
           </div>
-          <h2 className="text-lg font-semibold text-stone-900 mb-2">Already {alreadyDecided.status}</h2>
-          <p className="text-sm text-stone-500">This approval request has already been processed.</p>
+
+          {/* Activity + chat — visible even after decision so the approver can ask questions */}
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm">
+            <div className="px-5 py-3.5 border-b border-stone-100 flex items-center gap-2">
+              <MessageCircle size={14} className="text-stone-400" />
+              <span className="text-sm font-semibold text-stone-900">Activity</span>
+            </div>
+            {comments.length > 0 ? (
+              <div className="px-5 py-4 space-y-3 max-h-72 overflow-y-auto border-b border-stone-100">
+                {comments.map((c) => (
+                  <div key={c.id} className="flex gap-3">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${CHANNEL_DOT[c.channel] ?? "bg-stone-300"}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-semibold text-stone-600">{c.authorName}</span>
+                        <span className="text-[10px] text-stone-400">{fmtRelative(c.createdAt)}</span>
+                      </div>
+                      <p className="text-sm text-stone-700 whitespace-pre-wrap">{c.body}</p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={bottomRef} />
+              </div>
+            ) : (
+              <div className="px-5 py-4 text-xs text-stone-400 border-b border-stone-100">No messages yet.</div>
+            )}
+            <div className="px-5 py-4">
+              <div className="flex gap-2">
+                <textarea
+                  value={commentBody}
+                  onChange={(e) => setCommentBody(e.target.value)}
+                  rows={2}
+                  placeholder="Ask the finance team a question…"
+                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:border-violet-500 focus:outline-none resize-none"
+                />
+                <button
+                  onClick={postComment}
+                  disabled={posting || !commentBody.trim()}
+                  className="self-end h-9 w-9 flex items-center justify-center rounded-xl bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40"
+                >
+                  {posting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -708,7 +760,7 @@ export default function ApproverPortalPage() {
               <MessageCircle size={15} className="text-stone-400" /> Activity
             </h3>
           </div>
-          {comments.length > 0 && (
+          {comments.length > 0 ? (
             <div className="px-6 py-4 space-y-3 max-h-56 overflow-y-auto border-b border-stone-100">
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-3">
@@ -723,6 +775,10 @@ export default function ApproverPortalPage() {
                 </div>
               ))}
               <div ref={bottomRef} />
+            </div>
+          ) : (
+            <div className="px-6 py-3 border-b border-stone-100">
+              <p className="text-xs text-stone-400">No messages yet. Ask the finance team a question below.</p>
             </div>
           )}
           <div className="px-6 py-4">
