@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 
@@ -49,7 +49,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
-  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise"]);
+  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email"]);
   const notesByInv = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
@@ -511,6 +511,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     labelCls: n.subject === "Promise broken" ? "text-amber-400" : "text-sky-400",
                                     bg: n.subject === "Promise broken" ? "bg-amber-950/20" : "bg-sky-950/20",
                                   };
+                                  case "Email":    return { icon: <Mail size={11} />,          border: "border-l-2 border-blue-500",  label: `Sent to ${n.recipients || "customer"}`, labelCls: "text-blue-400", bg: "bg-blue-950/20" };
                                   default:         return { icon: <StickyNote size={11} />,     border: "border-l-2 border-stone-600", label: n.sender || "Staff",            labelCls: "text-stone-400",   bg: "" };
                                 }
                               })();

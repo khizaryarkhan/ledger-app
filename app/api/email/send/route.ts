@@ -11,7 +11,7 @@
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
+import { invoices, communications } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
@@ -43,10 +43,11 @@ export async function POST(req: Request) {
     // Fetch PDFs for any requested invoice attachments — all in parallel
     const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
     const attachmentErrors: string[] = [];
+    let invRows: (typeof invoices.$inferSelect | null)[] = [];
 
     if (data.attachInvoiceIds && data.attachInvoiceIds.length > 0) {
       // 1. Fetch all invoice DB rows in parallel
-      const invRows = await Promise.all(
+      invRows = await Promise.all(
         data.attachInvoiceIds.map(id =>
           db.select().from(invoices)
             .where(and(eq(invoices.id, id), eq(invoices.orgId, orgId!)))
@@ -129,6 +130,31 @@ export async function POST(req: Request) {
       replyTo:     data.replyTo,
       attachments: attachments.length > 0 ? attachments : undefined,
     });
+
+    // Log sent email as a communication record so it appears in the Notes feed.
+    // One record per invoice (for the per-invoice activity view).
+    // Strip HTML tags for the body preview so the activity feed stays readable.
+    const logRows = invRows.filter(Boolean);
+    if (logRows.length > 0) {
+      const bodyPreview = data.body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1000);
+      await Promise.allSettled(logRows.map(inv =>
+        db.insert(communications).values({
+          orgId:      orgId!,
+          customerId: inv!.customerId,
+          projectId:  inv!.projectId ?? null,
+          invoiceId:  inv!.id,
+          direction:  "Outbound",
+          channel:    "Email",
+          subject:    data.subject,
+          body:       bodyPreview,
+          sender:     result.from,
+          recipients: data.to + (data.cc ? `, ${data.cc}` : ""),
+          matchedBy:  "Manual",
+          isDraft:    false,
+          authorId:   null,
+        })
+      ));
+    }
 
     return ok({
       sent:             true,
