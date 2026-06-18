@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/cron/qbo-sync",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 2 * * *"
     },
     {
       "path": "/api/cron/xero-sync",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }
