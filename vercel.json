@@ -3,6 +3,14 @@
     {
       "path": "/api/admin/sequences/process",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/qbo-sync",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/xero-sync",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
