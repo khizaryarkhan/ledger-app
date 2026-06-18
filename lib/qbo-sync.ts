@@ -1549,7 +1549,7 @@ export async function syncTargetedEntities(
     const taxAmount  = parseFloat(qi.TxnTaxDetail?.TotalTax) || 0;
     const amount     = Math.max(0, total - taxAmount); // Net ex tax
     const paid       = Math.max(0, total - qboBalance);
-    const isPaid     = qboBalance === 0;
+    const isPaid     = qboBalance < 0.005; // < 0.005 tolerates $0.01 rounding remainders
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
 
     const existing     = ledgerInvByQboId.get(qi.Id);
@@ -1639,7 +1639,7 @@ export async function syncTargetedEntities(
       invoiceIds.map((id) =>
         qboApiGet(accessToken, realmId, `invoice/${id}`)
           .then((r) => r.Invoice)
-          .catch(() => null)
+          .catch((e) => { console.warn(`QBO webhook: failed to fetch Invoice ${id}:`, e?.message); return null; })
       )
     );
     for (const qi of qboInvoices.filter(Boolean)) await processQboInvoice(qi);
@@ -1651,7 +1651,7 @@ export async function syncTargetedEntities(
       paymentIds.map((id) =>
         qboApiGet(accessToken, realmId, `payment/${id}`)
           .then((r) => r.Payment)
-          .catch(() => null)
+          .catch((e) => { console.warn(`QBO webhook: failed to fetch Payment ${id}:`, e?.message); return null; })
       )
     );
 
@@ -1675,12 +1675,45 @@ export async function syncTargetedEntities(
         Array.from(webhookPaymentDate.keys()).map((id) =>
           qboApiGet(accessToken, realmId, `invoice/${id}`)
             .then((r) => r.Invoice)
-            .catch(() => null)
+            .catch((e) => { console.warn(`QBO webhook: failed to fetch Invoice ${id}:`, e?.message); return null; })
         )
       );
       for (const qi of linkedQboInvoices.filter(Boolean)) {
         // Pass the actual payment date from the Payment object
         await processQboInvoice(qi, webhookPaymentDate.get(qi.Id));
+      }
+    } else {
+      // Fallback: Payment had no LinkedTxn pointing to invoices (e.g. undeposited
+      // funds flow, open-balance payment, or partial QBO API response).
+      // Use CustomerRef from the payment objects to find affected customers, then
+      // re-fetch all their open invoices from QBO to pick up balance changes.
+      const affectedQboCustomerIds = new Set<string>(
+        qboPayments
+          .filter(Boolean)
+          .map((p: any) => p.CustomerRef?.value)
+          .filter(Boolean)
+      );
+      if (affectedQboCustomerIds.size > 0) {
+        console.warn(
+          `QBO webhook: Payment(s) [${paymentIds.join(", ")}] had no LinkedTxn — falling back to customer-level refresh for ${affectedQboCustomerIds.size} customer(s)`
+        );
+        const openForCustomers = allLedgerInvoices.filter(
+          (inv) =>
+            inv.qboId &&
+            inv.qboCustomerId &&
+            affectedQboCustomerIds.has(inv.qboCustomerId) &&
+            inv.paymentStatus !== "Paid"
+        );
+        const refreshed = await Promise.all(
+          openForCustomers.map((inv) =>
+            qboApiGet(accessToken, realmId, `invoice/${inv.qboId!}`)
+              .then((r) => r.Invoice)
+              .catch((e) => { console.warn(`QBO webhook: fallback invoice fetch failed for qboId ${inv.qboId}:`, e?.message); return null; })
+          )
+        );
+        for (const qi of refreshed.filter(Boolean)) {
+          await processQboInvoice(qi);
+        }
       }
     }
   }
