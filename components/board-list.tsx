@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 
@@ -144,12 +144,52 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     });
   }, [rows, cf, overdueOnly]);
 
+  // ── Column sort ────────────────────────────────────────────────────────────
+  const [sortCol, setSortCol] = useState<string>("customer");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (col: string) => {
+    setSortDir(prev => sortCol === col ? (prev === "asc" ? "desc" : "asc") : "asc");
+    setSortCol(col);
+  };
+
+  const sortedRows = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    const cmp = (a: string | number | null | undefined, b: string | number | null | undefined): number => {
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    };
+    return [...filteredRows].sort((a, b) => {
+      let primary = 0;
+      switch (sortCol) {
+        case "invoice":     primary = cmp(a.inv.invoiceNumber, b.inv.invoiceNumber); break;
+        case "customer":    primary = cmp(a.custName, b.custName); break;
+        case "project":     primary = cmp(a.projName, b.projName); break;
+        case "region":      primary = cmp(a.regionName, b.regionName); break;
+        case "rep":         primary = cmp(a.repName, b.repName); break;
+        case "stage":       primary = cmp(a.stageLabel, b.stageLabel); break;
+        case "response":    primary = cmp(a.inv.hasOpenDispute ? "Disputed" : a.inv.promiseDate ? "Committed" : "None", b.inv.hasOpenDispute ? "Disputed" : b.inv.promiseDate ? "Committed" : "None"); break;
+        case "lastSent":    primary = cmp(a.lastSent, b.lastSent); break;
+        case "due":         primary = cmp(a.inv.dueDate, b.inv.dueDate); break;
+        case "outstanding": primary = cmp(a.bal, b.bal); break;
+        case "days":        primary = cmp(a.days, b.days); break;
+      }
+      if (primary !== 0) return primary * dir;
+      // Secondary: always customer → project → due date for grouping
+      const s1 = cmp(a.custName, b.custName); if (s1 !== 0) return s1;
+      const s2 = cmp(a.projName, b.projName); if (s2 !== 0) return s2;
+      return cmp(a.inv.dueDate, b.inv.dueDate);
+    });
+  }, [filteredRows, sortCol, sortDir]);
+
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
   const fmtSent = (d: string | null) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : null;
 
-  const allSelected = filteredRows.length > 0 && filteredRows.every(r => selected.has(r.inv.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filteredRows.map(r => r.inv.id)));
+  const allSelected = sortedRows.length > 0 && sortedRows.every(r => selected.has(r.inv.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(sortedRows.map(r => r.inv.id)));
   const toggleOne = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.inv.id)), [rows, selected]);
@@ -209,7 +249,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   // Export selected (or all filtered) rows to an Excel-compatible CSV.
   function exportExcel() {
-    const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : filteredRows;
+    const src = selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows;
     const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due", "Days overdue", "Outstanding"];
     const esc = (v: any) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [headers.join(",")];
@@ -256,7 +296,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-stone-800 bg-stone-900 shrink-0">
         <span className="text-[12px] text-stone-400">
-          {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
+          {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
@@ -287,10 +327,38 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <thead className="sticky top-0 bg-stone-900 z-10">
               <tr className="border-b border-stone-800 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
-                {["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due"].map(h => (
-                  <th key={h} className={thCls}>{h}</th>
+                {([
+                  { label: "Invoice",     key: "invoice" },
+                  { label: "Customer",    key: "customer" },
+                  { label: "Project",     key: "project" },
+                  { label: "Region",      key: "region" },
+                  { label: "Rep",         key: "rep" },
+                  { label: "Stage",       key: "stage" },
+                  { label: "Response",    key: "response" },
+                  { label: "Email",       key: null },
+                  { label: "Last sent",   key: "lastSent" },
+                  { label: "Last ref",    key: null },
+                  { label: "Due",         key: "due" },
+                ] as { label: string; key: string | null }[]).map(({ label, key }) => (
+                  <th key={label} className={thCls}>
+                    {key ? (
+                      <button onClick={() => handleSort(key)} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
+                        {label}
+                        {sortCol === key
+                          ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
+                          : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                      </button>
+                    ) : label}
+                  </th>
                 ))}
-                <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">Outstanding</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">
+                  <button onClick={() => handleSort("outstanding")} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group ml-auto">
+                    Outstanding
+                    {sortCol === "outstanding"
+                      ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
+                      : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                  </button>
+                </th>
                 <th className={`${thCls} text-center`}>Notes</th>
               </tr>
               {/* Per-column filter row */}
@@ -338,7 +406,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef }) => {
+              {sortedRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef }) => {
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
                 return (
@@ -539,9 +607,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="text-[10px] text-stone-600 font-medium mb-1.5 px-1">Internal note</div>
                             <div className="flex items-center gap-1.5">
                               <input value={noteText} onChange={e => setNoteText(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = filteredRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
+                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
                                 placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
-                              <button onClick={() => addNote(filteredRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
+                              <button onClick={() => addNote(sortedRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
                                 className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
                             </div>
                           </div>
@@ -555,12 +623,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
                 <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
-                  {filteredRows.length} invoice{filteredRows.length !== 1 ? "s" : ""}
+                  {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
                   {(() => {
                     const byCcy: Record<string, number> = {};
-                    filteredRows.forEach(r => {
+                    sortedRows.forEach(r => {
                       const c = r.inv.currency ?? "USD";
                       byCcy[c] = (byCcy[c] || 0) + r.bal;
                     });
