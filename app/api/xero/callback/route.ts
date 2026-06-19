@@ -11,12 +11,16 @@
  */
 
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { xeroTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
 import { logEvent } from "@/lib/audit";
+import { runXeroSync } from "@/lib/xero-sync";
+
+export const maxDuration = 60;
 
 export async function GET(req: Request) {
   const base =
@@ -135,6 +139,11 @@ export async function GET(req: Request) {
     }
 
     await logEvent({ orgId, eventType: "integration_connected", actorId: userId, meta: { provider: "Xero", tenantId, tenantName } });
+
+    // Kick off a first sync immediately so data appears right after the user
+    // returns to the app. waitUntil keeps the function alive post-redirect.
+    waitUntil(runXeroSync(orgId, userId).catch(e => console.error("Xero initial sync error:", e.message)));
+
     return NextResponse.redirect(new URL("/settings?xero=connected", base));
   } catch (e: any) {
     console.error("Xero callback error:", e);

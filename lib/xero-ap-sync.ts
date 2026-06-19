@@ -19,10 +19,11 @@ import {
   apBills,
   apBillLines,
   xeroTokens,
+  xeroSyncLog,
   organisations,
 } from "@/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -189,20 +190,32 @@ async function xeroFetch(
   return res.json();
 }
 
-/** Paginated fetch — Xero returns 100 per page by default. */
+/** Format a JS Date as a Xero where-clause DateTime literal. */
+function xeroDateTimeFilter(d: Date): string {
+  return `DateTime(${d.getUTCFullYear()}, ${d.getUTCMonth() + 1}, ${d.getUTCDate()}, ${d.getUTCHours()}, ${d.getUTCMinutes()}, ${d.getUTCSeconds()})`;
+}
+
+/** Paginated fetch — Xero returns 100 per page by default.
+ *  When sinceDate is provided, appends an UpdatedDateUTC filter for incremental sync. */
 async function xeroFetchAll(
   accessToken: string,
   tenantId: string,
   entity: string,
   where?: string,
-  extraParams?: string
+  extraParams?: string,
+  sinceDate?: Date
 ): Promise<any[]> {
   const all: any[] = [];
   let page = 1;
+  let effectiveWhere = where;
+  if (sinceDate) {
+    const dateFilter = `UpdatedDateUTC >= ${xeroDateTimeFilter(sinceDate)}`;
+    effectiveWhere = effectiveWhere ? `${effectiveWhere} AND ${dateFilter}` : dateFilter;
+  }
 
   while (true) {
     let path = `${entity}?page=${page}`;
-    if (where) path += `&where=${encodeURIComponent(where)}`;
+    if (effectiveWhere) path += `&where=${encodeURIComponent(effectiveWhere)}`;
     if (extraParams) path += `&${extraParams}`;
 
     const data = await xeroFetch(path, accessToken, tenantId);
@@ -240,6 +253,21 @@ export async function runXeroApSync(
 
   const { accessToken, tenantId } = token;
 
+  // Incremental boundary: suppliers + bills are date-filtered on subsequent runs.
+  // Reference data (Accounts, Items, TaxRates, TrackingCategories) is always fully
+  // fetched — small datasets where deletions/renames must be captured completely.
+  const [lastLog] = await db
+    .select({ syncedAt: xeroSyncLog.syncedAt })
+    .from(xeroSyncLog)
+    .where(and(eq(xeroSyncLog.orgId, orgId), eq(xeroSyncLog.status, "success")))
+    .orderBy(desc(xeroSyncLog.syncedAt))
+    .limit(1);
+  const sinceDate = lastLog
+    ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
+    : undefined;
+  const isIncremental = sinceDate !== undefined;
+  console.log(`Xero AP sync [${orgId}]: ${isIncremental ? `incremental since ${sinceDate!.toISOString()}` : "full historical sync"}`);
+
   const result: XeroApSyncResult = {
     vendorsCreated: 0,
     vendorsUpdated: 0,
@@ -259,7 +287,9 @@ export async function runXeroApSync(
       accessToken,
       tenantId,
       "Contacts",
-      `IsSupplier=true`
+      `IsSupplier=true`,
+      undefined,
+      sinceDate
     );
     await sleep(300);
 
@@ -661,7 +691,8 @@ export async function runXeroApSync(
       tenantId,
       "Invoices",
       `Type="ACCPAY"`,
-      "Statuses=AUTHORISED,SUBMITTED"
+      isIncremental ? "Statuses=DRAFT,SUBMITTED,AUTHORISED,PAID,VOIDED" : "Statuses=AUTHORISED,SUBMITTED",
+      sinceDate
     );
     await sleep(300);
 

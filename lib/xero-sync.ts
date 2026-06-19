@@ -17,7 +17,7 @@
 
 import { db } from "@/db";
 import { xeroTokens, xeroSyncLog, customers, projects, invoices, contacts } from "@/db/schema";
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { eq, and, inArray, isNull, desc } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
@@ -105,21 +105,33 @@ async function xeroGet(accessToken: string, tenantId: string, path: string): Pro
   return res.json();
 }
 
-/** Paginated fetch — Xero returns 100 records per page. */
+/** Format a JS Date as a Xero where-clause DateTime literal. */
+function xeroDateTimeFilter(d: Date): string {
+  return `DateTime(${d.getUTCFullYear()}, ${d.getUTCMonth() + 1}, ${d.getUTCDate()}, ${d.getUTCHours()}, ${d.getUTCMinutes()}, ${d.getUTCSeconds()})`;
+}
+
+/** Paginated fetch — Xero returns 100 records per page.
+ *  When sinceDate is provided, appends an UpdatedDateUTC filter for incremental sync. */
 async function xeroFetchAll(
   accessToken: string,
   tenantId: string,
-  entity: string,       // e.g. "Contacts", "Invoices"
-  where?: string,       // e.g. "Type=\"ACCREC\""
-  extraParams?: string  // e.g. "Statuses=AUTHORISED,SUBMITTED"
+  entity: string,
+  where?: string,
+  extraParams?: string,
+  sinceDate?: Date
 ): Promise<any[]> {
   const all: any[] = [];
   let page = 1;
+  let effectiveWhere = where;
+  if (sinceDate) {
+    const dateFilter = `UpdatedDateUTC >= ${xeroDateTimeFilter(sinceDate)}`;
+    effectiveWhere = effectiveWhere ? `${effectiveWhere} AND ${dateFilter}` : dateFilter;
+  }
 
   while (true) {
     let path = `${entity}?page=${page}`;
-    if (where)       path += `&where=${encodeURIComponent(where)}`;
-    if (extraParams) path += `&${extraParams}`;
+    if (effectiveWhere) path += `&where=${encodeURIComponent(effectiveWhere)}`;
+    if (extraParams)    path += `&${extraParams}`;
 
     const data = await xeroGet(accessToken, tenantId, path);
     // Xero wraps in the entity name: { Contacts: [...] } or { Invoices: [...] }
@@ -173,6 +185,20 @@ export async function runXeroSync(orgId: string, userId: string) {
   if (!token) throw new Error("Xero not connected");
   const { accessToken, tenantId } = token;
 
+  // Incremental boundary: subtract 10-min buffer from last successful sync.
+  // First-ever sync (no log entry) leaves sinceDate undefined → full historical fetch.
+  const [lastLog] = await db
+    .select({ syncedAt: xeroSyncLog.syncedAt })
+    .from(xeroSyncLog)
+    .where(and(eq(xeroSyncLog.orgId, orgId), eq(xeroSyncLog.status, "success")))
+    .orderBy(desc(xeroSyncLog.syncedAt))
+    .limit(1);
+  const sinceDate = lastLog
+    ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
+    : undefined;
+  const isIncremental = sinceDate !== undefined;
+  console.log(`Xero AR sync [${orgId}]: ${isIncremental ? `incremental since ${sinceDate!.toISOString()}` : "full historical sync"}`);
+
   const results = {
     customers: 0,
     contacts: 0,
@@ -183,39 +209,52 @@ export async function runXeroSync(orgId: string, userId: string) {
     creditsUpdated: 0,
   };
 
-  // STEP 1: Fetch from Xero (sequentially, rate-limit safe)
-  // Contacts with IsCustomer=true
+  // STEP 1: Fetch from Xero (sequentially, rate-limit safe).
+  // Incremental runs carry an UpdatedDateUTC filter — typically 10-100x fewer pages.
   const allXeroContacts = await xeroFetchAll(
     accessToken, tenantId, "Contacts",
-    `IsCustomer=true`
+    `IsCustomer=true`,
+    undefined,
+    sinceDate
   );
   await sleep(300);
 
-  // All AR invoices (AUTHORISED = open, SUBMITTED = draft, PAID = closed)
-  // We fetch AUTHORISED first for open AR, then PAID separately for history
-  const openInvoices = await xeroFetchAll(
-    accessToken, tenantId, "Invoices",
-    `Type="ACCREC"`,
-    "Statuses=AUTHORISED,SUBMITTED"
-  );
+  // Full sync: two separate calls — open invoices (AUTHORISED/SUBMITTED) and paid history.
+  // Incremental sync: one date-filtered call with all statuses, then split client-side.
+  // This preserves the downstream STEP 5 (open) / STEP 6 (paid) processing split.
+  let openInvoices: any[];
+  let paidInvoices: any[];
+  if (isIncremental) {
+    const modifiedInvoices = await xeroFetchAll(
+      accessToken, tenantId, "Invoices",
+      `Type="ACCREC"`,
+      "Statuses=DRAFT,SUBMITTED,AUTHORISED,PAID,VOIDED",
+      sinceDate
+    );
+    openInvoices = modifiedInvoices.filter((xi: any) => xi.Status !== "PAID" && xi.Status !== "VOIDED");
+    paidInvoices = modifiedInvoices.filter((xi: any) => xi.Status === "PAID");
+  } else {
+    openInvoices = await xeroFetchAll(
+      accessToken, tenantId, "Invoices",
+      `Type="ACCREC"`,
+      "Statuses=AUTHORISED,SUBMITTED"
+    );
+    await sleep(300);
+    paidInvoices = await xeroFetchAll(
+      accessToken, tenantId, "Invoices",
+      `Type="ACCREC"`,
+      "Statuses=PAID"
+    );
+  }
   await sleep(300);
 
-  const paidInvoices = await xeroFetchAll(
-    accessToken, tenantId, "Invoices",
-    `Type="ACCREC"`,
-    "Statuses=PAID"
-  );
-  await sleep(300);
-
-  // Credit Notes (ACCREC type = customer-facing credits)
-  // Non-fatal: the granular "accounting.invoices" scope may not grant access to
-  // the CreditNotes endpoint (which traditionally needed accounting.transactions).
-  // If the call is forbidden, skip credit notes rather than failing the whole sync.
   let creditNotes: any[] = [];
   try {
     creditNotes = await xeroFetchAll(
       accessToken, tenantId, "CreditNotes",
-      `Type="ACCREC"`
+      `Type="ACCREC"`,
+      undefined,
+      sinceDate
     );
   } catch (e: any) {
     console.warn("Xero CreditNotes fetch skipped (scope/permission?):", e?.message || e);

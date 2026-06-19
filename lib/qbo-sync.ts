@@ -12,7 +12,7 @@ import {
   payments, paymentApplications, refundReceipts, journalEntryArLines,
   deposits,
 } from "@/db/schema";
-import { eq, inArray, and, isNull } from "drizzle-orm";
+import { eq, inArray, and, isNull, desc } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
@@ -112,14 +112,23 @@ async function qboQuery(accessToken: string, realmId: string, sql: string) {
   return qboApiGet(accessToken, realmId, `query?query=${encodeURIComponent(sql)}`);
 }
 
-/** Paginated fetch with rate-limit delays */
+/** Paginated fetch with rate-limit delays.
+ *  When sinceDate is provided, appends a Metadata.LastUpdatedTime filter so only
+ *  recently-changed records are pulled (incremental sync). */
 async function qboFetchAllSafe(
   accessToken: string,
   realmId: string,
   entity: string,
-  where = ""
+  where = "",
+  sinceDate?: Date
 ) {
-  const whereClause = where ? ` where ${where}` : "";
+  let effectiveWhere = where;
+  if (sinceDate) {
+    const ts = sinceDate.toISOString().replace(/\.\d{3}Z$/, "Z");
+    const timeFilter = `Metadata.LastUpdatedTime >= '${ts}'`;
+    effectiveWhere = effectiveWhere ? `${effectiveWhere} AND ${timeFilter}` : timeFilter;
+  }
+  const whereClause = effectiveWhere ? ` where ${effectiveWhere}` : "";
   const all: any[] = [];
   let start = 1;
   const size = 500;
@@ -153,6 +162,22 @@ export async function runQboSync(orgId: string, userId: string) {
   if (!token) throw new Error("QuickBooks not connected");
   const { accessToken, realmId } = token;
 
+  // Determine incremental sync boundary from last successful run.
+  // A 10-minute safety buffer guards against clock skew and in-flight transactions
+  // that QBO indexes slightly after their LastUpdatedTime.
+  // If no prior log entry exists, sinceDate stays undefined → full historical fetch.
+  const [lastLog] = await db
+    .select({ syncedAt: qboSyncLog.syncedAt })
+    .from(qboSyncLog)
+    .where(and(eq(qboSyncLog.orgId, orgId), eq(qboSyncLog.status, "success")))
+    .orderBy(desc(qboSyncLog.syncedAt))
+    .limit(1);
+  const sinceDate = lastLog
+    ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
+    : undefined;
+  const isIncremental = sinceDate !== undefined;
+  console.log(`QBO AR sync [${orgId}]: ${isIncremental ? `incremental since ${sinceDate!.toISOString()}` : "full historical sync"}`);
+
   const results = {
     customers: 0,
     contacts: 0,
@@ -167,40 +192,45 @@ export async function runQboSync(orgId: string, userId: string) {
     difference: 0,
   };
 
-  // STEP 1: Fetch from QBO sequentially (rate-limit safe)
-  // NOTE: no `Active = true` filter — we pull every customer (including inactive)
-  // so historical transactions and payments can resolve their customer FK.
-  const allQboCustomers = await qboFetchAllSafe(accessToken, realmId, "Customer");
+  // STEP 1: Fetch from QBO sequentially (rate-limit safe).
+  // On incremental runs, all fetches carry a Metadata.LastUpdatedTime filter —
+  // typically 10-100x fewer API pages than a full fetch.
+  // NOTE: no `Active = true` filter on customers — pull inactive ones too so
+  // historical transactions can resolve their customer FK.
+  const allQboCustomers = await qboFetchAllSafe(accessToken, realmId, "Customer", "", sinceDate);
   await sleep(500);
-  const openInvoices = await qboFetchAllSafe(accessToken, realmId, "Invoice", "Balance > '0'");
+
+  // For a full sync: two calls — open invoices (Balance>0) + all invoices for close-detection.
+  // For incremental: one date-filtered call covers both open and recently-closed invoices;
+  // reuse the same array for close detection (only recently-modified invoices are re-evaluated).
+  let openInvoices: any[];
+  let allInvoicesForClose: any[];
+  if (isIncremental) {
+    openInvoices = await qboFetchAllSafe(accessToken, realmId, "Invoice", "", sinceDate);
+    allInvoicesForClose = openInvoices;
+    await sleep(500);
+  } else {
+    openInvoices = await qboFetchAllSafe(accessToken, realmId, "Invoice", "Balance > '0'");
+    await sleep(500);
+    allInvoicesForClose = await qboFetchAllSafe(accessToken, realmId, "Invoice");
+    await sleep(500);
+  }
+
+  const openCredits = await qboFetchAllSafe(accessToken, realmId, "CreditMemo", "", sinceDate);
   await sleep(500);
-  const allInvoicesForClose = await qboFetchAllSafe(accessToken, realmId, "Invoice");
+  const allQboPayments = await qboFetchAllSafe(accessToken, realmId, "Payment", "", sinceDate);
   await sleep(500);
-  // Fetch ALL credit memos (applied + unapplied) so closed CMs appear in sales reporting.
-  // AR reconciliation uses openInvoices balances only — credit memo balances are not needed there.
-  const openCredits = await qboFetchAllSafe(accessToken, realmId, "CreditMemo");
+  const allQboRefundReceipts = await qboFetchAllSafe(accessToken, realmId, "RefundReceipt", "", sinceDate);
   await sleep(500);
-  // Fetch all Payments — TxnDate is the actual payment date per payment transaction
-  const allQboPayments = await qboFetchAllSafe(accessToken, realmId, "Payment");
-  await sleep(500);
-  // Fetch all RefundReceipts — money paid out to customers
-  const allQboRefundReceipts = await qboFetchAllSafe(accessToken, realmId, "RefundReceipt");
-  await sleep(500);
-  // Fetch all JournalEntries — needed for AR adjustments (write-offs, audit corrections,
-  // inter-company transfers). Without these, customer AR can be wildly overstated.
-  const allQboJournalEntries = await qboFetchAllSafe(accessToken, realmId, "JournalEntry");
+  // JournalEntries and Deposits are included so write-offs / AR adjustments
+  // that don't generate a Payment still reconcile customer balances.
+  const allQboJournalEntries = await qboFetchAllSafe(accessToken, realmId, "JournalEntry", "", sinceDate);
   await sleep(300);
-  // Fetch all Deposits — some deposit lines hit the AR account directly and
-  // need to be captured so customer balances tie to QBO.
-  const allQboDeposits = await qboFetchAllSafe(accessToken, realmId, "Deposit");
+  const allQboDeposits = await qboFetchAllSafe(accessToken, realmId, "Deposit", "", sinceDate);
   await sleep(300);
-  // Fetch all Purchase transactions (Cheque Expense / Card / Cash payments made
-  // by the business). These rarely affect AR, but when a Purchase line uses an
-  // AR account (e.g. a cheque written back to the customer to clear a credit
-  // balance), it DEBITS the AR account and must be captured so the customer's
-  // net balance reconciles with QBO. Without this, the customer would show a
-  // phantom negative balance equal to the Deposit credit we already synced.
-  const allQboPurchases = await qboFetchAllSafe(accessToken, realmId, "Purchase");
+  // Purchase lines that debit AR (e.g. refund cheques) must be captured or
+  // the customer would show a phantom negative balance.
+  const allQboPurchases = await qboFetchAllSafe(accessToken, realmId, "Purchase", "", sinceDate);
   await sleep(300);
   // Discover Accounts Receivable account ID(s) — usually one per currency
   const arAccountsRaw = await qboQuery(

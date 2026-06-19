@@ -18,10 +18,11 @@ import {
   apBills,
   apBillLines,
   qboTokens,
+  qboSyncLog,
   organisations,
 } from "@/db/schema";
 import { getValidToken } from "@/lib/qbo-sync";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -93,15 +94,23 @@ async function qboQuery(
   );
 }
 
-/** Paginated query — fetches all pages for a given entity + optional WHERE clause. */
+/** Paginated query — fetches all pages for a given entity + optional WHERE clause.
+ *  When sinceDate is provided, appends a Metadata.LastUpdatedTime filter for incremental sync. */
 async function qboFetchAll(
   accessToken: string,
   realmId: string,
   entity: string,
   where = "",
-  pageSize = 500
+  pageSize = 500,
+  sinceDate?: Date
 ): Promise<any[]> {
-  const whereClause = where ? ` WHERE ${where}` : "";
+  let effectiveWhere = where;
+  if (sinceDate) {
+    const ts = sinceDate.toISOString().replace(/\.\d{3}Z$/, "Z");
+    const timeFilter = `Metadata.LastUpdatedTime >= '${ts}'`;
+    effectiveWhere = effectiveWhere ? `${effectiveWhere} AND ${timeFilter}` : timeFilter;
+  }
+  const whereClause = effectiveWhere ? ` WHERE ${effectiveWhere}` : "";
   const all: any[] = [];
   let start = 1;
   while (true) {
@@ -213,6 +222,20 @@ export async function runQboApSync(
   const { accessToken } = token;
   const realmId = qboTokenRow.realmId;
 
+  // Incremental boundary: vendors + bills are date-filtered on subsequent runs.
+  // Reference data (Accounts, Items, TaxRates, Dimensions) is always fully fetched —
+  // these datasets are small and deletions/renames must be captured completely.
+  const [lastLog] = await db
+    .select({ syncedAt: qboSyncLog.syncedAt })
+    .from(qboSyncLog)
+    .where(and(eq(qboSyncLog.orgId, orgId), eq(qboSyncLog.status, "success")))
+    .orderBy(desc(qboSyncLog.syncedAt))
+    .limit(1);
+  const sinceDate = lastLog
+    ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
+    : undefined;
+  console.log(`QBO AP sync [${orgId}]: ${sinceDate ? `incremental since ${sinceDate.toISOString()}` : "full historical sync"}`);
+
   const result: QboApSyncResult = {
     vendorsCreated: 0,
     vendorsUpdated: 0,
@@ -232,15 +255,15 @@ export async function runQboApSync(
   // must explicitly include inactive vendors or those bills can never link to a
   // supplier (they'd show "Unknown"). Fetch both and merge.
   try {
-    let vendors = await qboFetchAll(accessToken, realmId, "Vendor", "Active IN (true, false)");
+    let vendors = await qboFetchAll(accessToken, realmId, "Vendor", "Active IN (true, false)", 500, sinceDate);
     await sleep(300);
     // Fallback for QBO accounts that reject the combined Active filter
     if (vendors.length === 0) {
-      const active = await qboFetchAll(accessToken, realmId, "Vendor");
+      const active = await qboFetchAll(accessToken, realmId, "Vendor", "", 500, sinceDate);
       await sleep(200);
       let inactive: any[] = [];
       try {
-        inactive = await qboFetchAll(accessToken, realmId, "Vendor", "Active = false");
+        inactive = await qboFetchAll(accessToken, realmId, "Vendor", "Active = false", 500, sinceDate);
       } catch (e: any) {
         errors.push(`Inactive vendors fetch failed: ${e?.message ?? String(e)}`);
       }
@@ -555,7 +578,7 @@ export async function runQboApSync(
 
   // ── 7. Bills → ap_bills + ap_bill_lines ───────────────────────────────────
   try {
-    const bills = await qboFetchAll(accessToken, realmId, "Bill", "", 200);
+    const bills = await qboFetchAll(accessToken, realmId, "Bill", "", 200, sinceDate);
     await sleep(300);
 
     // Resolve suppliers up-front. Build a qboId → supplierId map for the org,

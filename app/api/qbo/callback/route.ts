@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { qboTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
 import { logEvent } from "@/lib/audit";
+import { runQboSync } from "@/lib/qbo-sync";
+
+// Allow up to 60 s (Vercel Hobby limit) so the background sync can run
+// for as long as possible before the function is cut off.
+export const maxDuration = 60;
 
 export async function GET(req: Request) {
   const base = req.headers.get("origin") || process.env.AUTH_URL || "https://ledger-app-alpha-roan.vercel.app";
@@ -81,6 +87,12 @@ export async function GET(req: Request) {
     }
 
     await logEvent({ orgId, eventType: "integration_connected", actorId: userId, meta: { provider: "QuickBooks", realmId, company: companyName } });
+
+    // Kick off a first sync immediately in the background so data appears right
+    // after the user returns to the app — without this they'd wait up to 2 hours
+    // for the nightly cron to run. waitUntil keeps the function alive post-redirect.
+    waitUntil(runQboSync(orgId, userId).catch(e => console.error("QBO initial sync error:", e.message)));
+
     return NextResponse.redirect(new URL("/settings?qbo=connected", base));
   } catch (e: any) {
     console.error("QBO callback error:", e);
