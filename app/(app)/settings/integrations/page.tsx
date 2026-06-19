@@ -29,18 +29,18 @@ export default function IntegrationsSettingsPage() {
 
   // QBO
   const [qboStatus, setQboStatus] = useState<any>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<any>(null);
   const [syncHistory, setSyncHistory] = useState<any[]>([]);
   const [disconnecting, setDisconnecting] = useState(false);
 
   // ── Xero ─────────────────────────────────────────────────────────────────
   const [xeroStatus, setXeroStatus] = useState<any>(null);
-  const [xeroSyncing, setXeroSyncing] = useState(false);
-  const [xeroSyncResult, setXeroSyncResult] = useState<any>(null);
   const [xeroHistory, setXeroHistory] = useState<any[]>([]);
   const [xeroDisconnecting, setXeroDisconnecting] = useState(false);
   const [xeroWebhookHealth, setXeroWebhookHealth] = useState<any>(null);
+
+  // ── Unified sync ──────────────────────────────────────────────────────────
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
 
   const loadXeroWebhookHealth = () => {
     fetch("/api/xero/webhook-health")
@@ -49,24 +49,30 @@ export default function IntegrationsSettingsPage() {
       .catch(() => {});
   };
 
-  const handleXeroSync = async () => {
-    setXeroSyncing(true);
-    setXeroSyncResult(null);
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncResult(null);
     try {
-      const res = await fetch("/api/xero/sync", { method: "POST" });
+      const res = await fetch("/api/sync", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        toast(data.error || "Xero sync failed", "error");
+        toast(data.error || "Sync failed", "error");
       } else {
-        setXeroSyncResult(data.synced);
-        toast("Xero sync complete ✓");
+        setSyncResult(data.synced);
+        const qboDiff = data.synced?.qbo?.ar?.difference || 0;
+        if (Math.abs(qboDiff) < 1) {
+          toast("Sync complete ✓");
+        } else {
+          toast(`Sync complete — €${Math.abs(qboDiff).toFixed(2)} QBO AR variance`, "info");
+        }
         await refresh();
+        fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
         fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
       }
     } catch {
-      toast("Xero sync failed", "error");
+      toast("Sync failed", "error");
     } finally {
-      setXeroSyncing(false);
+      setSyncing(false);
     }
   };
 
@@ -75,7 +81,7 @@ export default function IntegrationsSettingsPage() {
     try {
       await fetch("/api/xero/disconnect", { method: "POST" });
       setXeroStatus({ connected: false });
-      setXeroSyncResult(null);
+      setSyncResult(null);
       toast("Xero disconnected");
     } finally {
       setXeroDisconnecting(false);
@@ -156,8 +162,9 @@ export default function IntegrationsSettingsPage() {
   useEffect(() => {
     const qbo = searchParams.get("qbo");
     if (qbo === "connected") {
-      toast("QuickBooks connected!");
+      toast("QuickBooks connected! Starting initial sync…");
       fetch("/api/qbo/sync").then(r => r.json()).then(setQboStatus);
+      handleSync();
     } else if (qbo === "error") {
       toast(`QBO error: ${searchParams.get("reason")}`, "error");
     }
@@ -165,50 +172,11 @@ export default function IntegrationsSettingsPage() {
     if (xero === "connected") {
       toast("Xero connected! Starting initial sync…");
       fetch("/api/xero/sync").then(r => r.json()).then(setXeroStatus);
-      // Kick off initial full sync automatically
-      fetch("/api/xero/sync", { method: "POST" })
-        .then(r => r.json())
-        .then(d => {
-          if (d.synced) {
-            setXeroSyncResult(d.synced);
-            toast("Initial Xero sync complete ✓");
-            refresh();
-            fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
-          }
-        })
-        .catch(() => {});
+      handleSync();
     } else if (xero === "error") {
       toast(`Xero error: ${searchParams.get("reason")}`, "error");
     }
   }, [searchParams]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/qbo/sync", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast(data.error || "Sync failed", "error");
-      } else {
-        setSyncResult(data.synced);
-        const diff = data.synced.difference || 0;
-        if (data.synced.paymentsPersistenceError) {
-          toast(`Payments not stored: ${data.synced.paymentsPersistenceError}`, "error");
-        } else if (diff < 1) {
-          toast("Sync complete — AR reconciled ✓");
-        } else {
-          toast(`Sync complete — €${diff.toFixed(2)} variance, check reconciliation`, "info");
-        }
-        await refresh();
-        fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
-      }
-    } catch {
-      toast("Sync failed", "error");
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const handleQboDisconnect = async () => {
     setDisconnecting(true);
@@ -275,6 +243,93 @@ export default function IntegrationsSettingsPage() {
         <p className="text-sm text-stone-400 mt-1">Connect external services and manage data sync.</p>
       </div>
 
+      {/* ── Unified Sync ── */}
+      {(qboStatus?.connected || xeroStatus?.connected) && (
+        <Card className="mb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Sync All</h3>
+              <p className="text-[12px] text-stone-400 mt-0.5">
+                Pulls Receivables (AR) and Payables (AP) from all connected integrations in one go.
+              </p>
+            </div>
+            <Button onClick={handleSync} disabled={syncing}>
+              {syncing ? (
+                <span className="flex items-center gap-2">
+                  <Loader size={14} className="animate-spin" />Syncing…
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <RefreshCw size={14} />Sync Now
+                </span>
+              )}
+            </Button>
+          </div>
+
+          {/* Combined sync result */}
+          {syncResult && (
+            <div className="mt-4 space-y-3">
+              {syncResult.qbo && (
+                <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                    QuickBooks — this sync
+                  </div>
+                  {syncResult.qbo.error ? (
+                    <p className="text-sm text-rose-400">{syncResult.qbo.error}</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-x-2 gap-y-3 text-center">
+                      {[
+                        { label: "Customers", value: syncResult.qbo.ar?.customers ?? 0 },
+                        { label: "New invoices", value: syncResult.qbo.ar?.invoicesCreated ?? 0 },
+                        { label: "Updated", value: syncResult.qbo.ar?.invoicesUpdated ?? 0 },
+                        { label: "Auto-closed", value: syncResult.qbo.ar?.invoicesClosed ?? 0 },
+                        { label: "Suppliers", value: syncResult.qbo.ap?.suppliers ?? 0 },
+                        { label: "Bills", value: syncResult.qbo.ap?.bills ?? 0 },
+                        { label: "Accounts", value: syncResult.qbo.ap?.accounts ?? 0 },
+                        { label: "Items", value: syncResult.qbo.ap?.items ?? 0 },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <div className="text-xl font-semibold text-white">{value}</div>
+                          <div className="text-[10px] text-stone-500">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {syncResult.xero && (
+                <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                    Xero — this sync
+                  </div>
+                  {syncResult.xero.error ? (
+                    <p className="text-sm text-rose-400">{syncResult.xero.error}</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-x-2 gap-y-3 text-center">
+                      {[
+                        { label: "Customers", value: syncResult.xero.ar?.customers ?? 0 },
+                        { label: "New invoices", value: syncResult.xero.ar?.invoicesCreated ?? 0 },
+                        { label: "Updated", value: syncResult.xero.ar?.invoicesUpdated ?? 0 },
+                        { label: "Auto-closed", value: syncResult.xero.ar?.invoicesClosed ?? 0 },
+                        { label: "Suppliers", value: syncResult.xero.ap?.suppliers ?? 0 },
+                        { label: "Bills", value: syncResult.xero.ap?.bills ?? 0 },
+                        { label: "Accounts", value: syncResult.xero.ap?.accounts ?? 0 },
+                        { label: "Items", value: syncResult.xero.ap?.items ?? 0 },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <div className="text-xl font-semibold text-white">{value}</div>
+                          <div className="text-[10px] text-stone-500">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* QuickBooks Online */}
       <Card className="mb-4">
         <div className="flex items-center gap-2 mb-4">
@@ -307,17 +362,6 @@ export default function IntegrationsSettingsPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={handleSync} disabled={syncing}>
-                {syncing ? (
-                  <span className="flex items-center gap-2">
-                    <Loader size={14} className="animate-spin" />Syncing from QuickBooks…
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw size={14} />Sync from QuickBooks
-                  </span>
-                )}
-              </Button>
               <Link href="/settings/integrations/reconcile">
                 <Button variant="secondary" size="sm">
                   <span className="flex items-center gap-2">
@@ -591,6 +635,7 @@ export default function IntegrationsSettingsPage() {
                   // - errors > 0 in last 24h → "Errors"
                   let healthLabel = "Not yet received";
                   let healthColor = "neutral";
+                  const isStale = lastSuccessAt && minutesSinceSuccess! > 60 * 48;
                   if (lastSuccessAt) {
                     if (webhookHealth.errorsLast24h > 0) {
                       healthLabel = `${webhookHealth.errorsLast24h} error(s) in 24h`;
@@ -598,6 +643,9 @@ export default function IntegrationsSettingsPage() {
                     } else if (minutesSinceSuccess! < 60 * 24) {
                       healthLabel = "Healthy";
                       healthColor = "emerald";
+                    } else if (isStale) {
+                      healthLabel = "Subscription may be broken";
+                      healthColor = "rose";
                     } else {
                       healthLabel = "No events in 24h";
                       healthColor = "amber";
@@ -616,23 +664,37 @@ export default function IntegrationsSettingsPage() {
                   return (
                     <div className={`rounded-lg p-3 ring-1 ${
                       healthColor === "emerald" ? "bg-emerald-500/10 ring-emerald-500/30" :
-                      healthColor === "amber" ? "bg-amber-500/10 ring-amber-500/30" :
+                      healthColor === "rose"    ? "bg-rose-500/10 ring-rose-500/30" :
+                      healthColor === "amber"   ? "bg-amber-500/10 ring-amber-500/30" :
                       "bg-stone-800/40 ring-stone-700"
                     }`}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           {healthColor === "emerald" ? <CheckCircle size={14} className="text-emerald-400" /> :
-                           healthColor === "amber" ? <AlertTriangle size={14} className="text-amber-400" /> :
+                           healthColor === "rose"    ? <XCircle size={14} className="text-rose-400" /> :
+                           healthColor === "amber"   ? <AlertTriangle size={14} className="text-amber-400" /> :
                            <Clock size={14} className="text-stone-400" />}
                           <span className={`text-sm font-medium ${
                             healthColor === "emerald" ? "text-emerald-400" :
-                            healthColor === "amber" ? "text-amber-300" : "text-stone-300"
+                            healthColor === "rose"    ? "text-rose-300" :
+                            healthColor === "amber"   ? "text-amber-300" : "text-stone-300"
                           }`}>{healthLabel}</span>
                         </div>
                         <span className="text-[11px] text-stone-500">
                           {webhookHealth.last24hCount} event(s) in last 24h
                         </span>
                       </div>
+                      {isStale && (
+                        <div className="mb-2 text-[11px] text-rose-300 bg-rose-500/10 rounded px-2 py-1.5 leading-relaxed">
+                          QBO has not sent any webhooks in {Math.floor(minutesSinceSuccess! / 60 / 24)} days. Payments recorded in QBO will not auto-close until you fix this.
+                          <br />
+                          <strong>Fix:</strong> Go to{" "}
+                          <a href="https://developer.intuit.com" target="_blank" rel="noopener noreferrer" className="underline text-rose-200">developer.intuit.com</a>
+                          {" "}→ your app → Webhooks → verify the endpoint is{" "}
+                          <code className="font-mono text-rose-100 bg-rose-500/20 px-1 rounded">https://primeaccountax.com/api/webhooks/qbo</code>
+                          {" "}and the Verifier Token matches your env var.
+                        </div>
+                      )}
                       <div className="grid grid-cols-3 gap-3 text-[11px]">
                         <div>
                           <div className="text-stone-400 uppercase tracking-wider mb-0.5">Last event</div>
@@ -652,7 +714,7 @@ export default function IntegrationsSettingsPage() {
                         </div>
                       </div>
                       <div className="mt-2 pt-2 border-t border-stone-700/60 text-[10px] text-stone-500">
-                        Webhooks deliver QBO changes in seconds. If we miss one, the cron sync (every 30 min) reconciles all data — nothing is permanently lost.
+                        Webhooks deliver QBO changes in seconds. If we miss one, the daily cron sync reconciles all data — nothing is permanently lost.
                       </div>
                     </div>
                   );
@@ -803,46 +865,11 @@ export default function IntegrationsSettingsPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={handleXeroSync} disabled={xeroSyncing}>
-                {xeroSyncing ? (
-                  <span className="flex items-center gap-2">
-                    <Loader size={14} className="animate-spin" />Syncing from Xero…
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw size={14} />Sync from Xero
-                  </span>
-                )}
-              </Button>
               <Button variant="ghost" size="sm" onClick={handleXeroDisconnect} disabled={xeroDisconnecting}>
                 <Unlink size={14} className="mr-1.5" />
                 {xeroDisconnecting ? "Disconnecting…" : "Disconnect"}
               </Button>
             </div>
-
-            {/* Sync stats after manual sync */}
-            {xeroSyncResult && (
-              <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
-                <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
-                  This sync
-                </div>
-                <div className="grid grid-cols-4 gap-x-2 gap-y-3 text-center">
-                  {[
-                    { label: "Customers", value: xeroSyncResult.customers },
-                    { label: "Contacts", value: xeroSyncResult.contacts },
-                    { label: "New invoices", value: xeroSyncResult.invoicesCreated },
-                    { label: "Updated", value: xeroSyncResult.invoicesUpdated },
-                    { label: "Auto-closed", value: xeroSyncResult.invoicesClosed },
-                    { label: "Credits", value: xeroSyncResult.creditsCreated },
-                  ].map(({ label, value }) => (
-                    <div key={label}>
-                      <div className="text-xl font-semibold text-white">{value ?? 0}</div>
-                      <div className="text-[10px] text-stone-500">{label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Webhook health */}
             {xeroWebhookHealth && (

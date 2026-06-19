@@ -77,13 +77,6 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         { href: "/reports", label: "Reports", icon: BarChart3 },
       ],
     },
-    {
-      label: "CONFIGURE",
-      items: [
-        { href: "/imports", label: "Imports", icon: Upload },
-        { href: "/settings", label: "Settings", icon: Settings },
-      ],
-    },
   ];
 
   const apSections = [
@@ -103,20 +96,33 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     {
       label: "OPERATIONS",
       items: [
-        { href: "/payables/workspace", label: "Payables Workspace", icon: Kanban },
+        { href: "/payables/workspace", label: "Workspace", icon: Kanban },
         { href: "/payables/approval-inbox", label: "Approval Inbox", icon: Bell },
         { href: "/payables/supplier-queries", label: "Supplier Queries", icon: MessageSquare },
         { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
         { href: "/payables/tasks", label: "Tasks", icon: CheckSquare },
+        { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
+        { href: "/payables/reports", label: "Reports", icon: BarChart3 },
       ],
     },
+  ];
+
+  // CONFIGURE is shared — always rendered at the bottom regardless of department.
+  // Links are contextual so Settings/Imports point to the right section.
+  const configureSections = [
     {
       label: "CONFIGURE",
       items: [
-        { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
-        { href: "/payables/reports", label: "Reports", icon: BarChart3 },
-        { href: "/payables/imports", label: "Imports", icon: Upload },
-        { href: "/payables/settings", label: "Settings", icon: Settings },
+        {
+          href: department === "ap" ? "/payables/imports" : "/imports",
+          label: "Imports",
+          icon: Upload,
+        },
+        {
+          href: department === "ap" ? "/payables/settings" : "/settings",
+          label: "Settings",
+          icon: Settings,
+        },
       ],
     },
   ];
@@ -195,56 +201,92 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3 px-2">
-        {sections.map((sec, si) => (
-          <div key={si} className="mb-4">
-            {sec.label && (
+      <nav className="flex-1 overflow-y-auto py-3 px-2 flex flex-col">
+        <div className="flex-1">
+          {sections.map((sec, si) => (
+            <div key={si} className="mb-4">
+              {sec.label && (
+                <div className="px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest">
+                  {sec.label}
+                </div>
+              )}
+              {sec.items.map(item => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onClose}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
+                      isActive
+                        ? department === "ap"
+                          ? "bg-violet-500/15 text-violet-400"
+                          : "bg-emerald-500/15 text-emerald-400"
+                        : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
+                    }`}
+                  >
+                    <Icon
+                      size={15}
+                      strokeWidth={isActive ? 2.25 : 2}
+                      className={isActive
+                        ? department === "ap" ? "text-violet-400" : "text-emerald-400"
+                        : "text-stone-500"}
+                    />
+                    <span className="flex-1">{item.label}</span>
+                    {item.count != null && item.count > 0 && (
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          (item as any).urgent
+                            ? "bg-rose-500 text-white"
+                            : isActive
+                              ? department === "ap" ? "bg-violet-500/20 text-violet-400" : "bg-emerald-500/20 text-emerald-400"
+                              : "bg-stone-800 text-stone-400"
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Shared CONFIGURE — always at the bottom, same in both departments */}
+        <div className="border-t border-stone-800/60 pt-3 mt-1">
+          {configureSections.map((sec, si) => (
+            <div key={si} className="mb-2">
               <div className="px-2.5 mb-1.5 text-[10px] font-semibold text-stone-600 tracking-widest">
                 {sec.label}
               </div>
-            )}
-            {sec.items.map(item => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onClose}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
-                    isActive
-                      ? department === "ap"
-                        ? "bg-violet-500/15 text-violet-400"
-                        : "bg-emerald-500/15 text-emerald-400"
-                      : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
-                  }`}
-                >
-                  <Icon
-                    size={15}
-                    strokeWidth={isActive ? 2.25 : 2}
-                    className={isActive
-                      ? department === "ap" ? "text-violet-400" : "text-emerald-400"
-                      : "text-stone-500"}
-                  />
-                  <span className="flex-1">{item.label}</span>
-                  {item.count != null && item.count > 0 && (
-                    <span
-                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                        (item as any).urgent
-                          ? "bg-rose-500 text-white"
-                          : isActive
-                            ? department === "ap" ? "bg-violet-500/20 text-violet-400" : "bg-emerald-500/20 text-emerald-400"
-                            : "bg-stone-800 text-stone-400"
-                      }`}
-                    >
-                      {item.count}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+              {sec.items.map(item => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onClose}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
+                      isActive
+                        ? "bg-stone-700/60 text-stone-200"
+                        : "text-stone-500 hover:bg-stone-800/70 hover:text-stone-300"
+                    }`}
+                  >
+                    <Icon
+                      size={15}
+                      strokeWidth={isActive ? 2.25 : 2}
+                      className={isActive ? "text-stone-300" : "text-stone-600"}
+                    />
+                    <span className="flex-1">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </nav>
 
       <div className="p-3 border-t border-stone-800">

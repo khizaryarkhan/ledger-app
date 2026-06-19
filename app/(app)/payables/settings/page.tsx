@@ -642,138 +642,24 @@ function WorkflowRulesTab() {
 // ── Sync Tab ──────────────────────────────────────────────────────────────────
 
 function SyncTab() {
-  const [syncStatuses, setSyncStatuses] = useState<SyncStatus[]>([]);
-  const [syncing, setSyncing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastSync, setLastSync] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    fetch("/api/payables/settings/sync-status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setSyncStatuses(d.statuses ?? []);
-          setLastSync(d.lastSyncAt);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function handleSync() {
-    setSyncing(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/payables/sync-master-data", {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error("Sync failed");
-      const data = await res.json();
-      setSyncStatuses(data.statuses ?? []);
-      setLastSync(data.lastSyncAt);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  const ENTITIES = [
-    "Suppliers",
-    "Chart of Accounts",
-    "Items",
-    "Tax Rates",
-    "Dimensions",
-  ];
-
   return (
     <div className="space-y-5 max-w-2xl">
-      {error && (
-        <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
-          <AlertCircle size={14} /> {error}
-        </div>
-      )}
-
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Master Data Sync</h3>
-            <p className="text-xs text-stone-400 mt-0.5">
-              Last synced: {fmtDate(lastSync)}
-            </p>
-          </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
-          >
-            {syncing ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            Sync Master Data from Accounting
-          </button>
+        <div className="flex items-center gap-2 mb-3">
+          <RefreshCw size={15} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Sync</h3>
         </div>
-
-        {loading ? (
-          <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : (
-          <div className="divide-y divide-stone-800">
-            {ENTITIES.map((entity) => {
-              const status = syncStatuses.find((s) => s.entity === entity) ?? {
-                entity,
-                count: 0,
-                status: "pending" as const,
-              };
-              return (
-                <div
-                  key={entity}
-                  className="flex items-center justify-between py-3"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Database size={14} className="text-stone-500" />
-                    <span className="text-sm text-white font-medium">
-                      {entity}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {status.lastSyncAt && (
-                      <span className="text-xs text-stone-500">
-                        {fmtDate(status.lastSyncAt)}
-                      </span>
-                    )}
-                    {status.count > 0 && (
-                      <span className="text-xs text-stone-400 tabular-nums">
-                        {status.count.toLocaleString()} records
-                      </span>
-                    )}
-                    <Badge
-                      variant={
-                        status.status === "synced"
-                          ? "green"
-                          : status.status === "error"
-                          ? "red"
-                          : "neutral"
-                      }
-                    >
-                      {status.status === "synced"
-                        ? "Synced"
-                        : status.status === "error"
-                        ? "Error"
-                        : "Pending"}
-                    </Badge>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <p className="text-sm text-stone-400 leading-relaxed mb-4">
+          Suppliers, bills, chart of accounts, items, tax rates, and dimensions are all synced
+          together with your AR data in one unified sync. Use the button below to go there.
+        </p>
+        <a
+          href="/settings/integrations"
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+        >
+          <RefreshCw size={14} />
+          Go to Sync — Settings → Integrations
+        </a>
       </Card>
     </div>
   );

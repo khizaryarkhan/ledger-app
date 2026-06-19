@@ -641,15 +641,16 @@ export type XeroEntityChange = {
   eventType: string;           // "CREATE" | "UPDATE" | "DELETE"
   eventCategory: string;       // "INVOICE" | "CONTACT" | "CREDITNOTE" | "PAYMENT"
   tenantId: string;
+  xeroEventId?: string;        // per-event UUID from Xero payload — used for idempotency
 };
 
 export async function syncXeroTargetedEntities(
   orgId: string,
   userId: string,
   changes: XeroEntityChange[]
-) {
+): Promise<{ apInvoiceIds: string[] }> {
   const token = await getValidToken(orgId);
-  if (!token) return;
+  if (!token) return { apInvoiceIds: [] };
   const { accessToken, tenantId } = token;
 
   const [allLedgerCustomers, allLedgerInvoices] = await Promise.all([
@@ -665,18 +666,37 @@ export async function syncXeroTargetedEntities(
     allLedgerInvoices.filter(i => i.xeroId).map(i => [i.xeroId!, i])
   );
 
-  for (const change of changes) {
+  // AP invoice IDs discovered during INVOICE processing (non-ACCREC types).
+  // Returned to the caller so it can pass them to syncXeroApBills without
+  // re-fetching invoices we already know aren't AR.
+  const apInvoiceIds: string[] = [];
+
+  // Non-DELETE PAYMENT events are batched after the main loop (GAP-2).
+  // Processing them in two parallel phases (fetch payments → fetch linked invoices)
+  // instead of 2 sequential API calls per payment in the loop.
+  const batchPayments = changes.filter(c => c.eventCategory === "PAYMENT" && c.eventType !== "DELETE");
+  const mainChanges   = changes.filter(c => !(c.eventCategory === "PAYMENT" && c.eventType !== "DELETE"));
+
+  for (const change of mainChanges) {
     try {
       const { resourceId, eventType, eventCategory } = change;
       if (eventType === "DELETE") {
-        // Mark invoice as closed on deletion (Xero voided it)
         if (eventCategory === "INVOICE" || eventCategory === "CREDITNOTE") {
+          // Voided/deleted invoice or credit note — close it locally
           const prefix = eventCategory === "CREDITNOTE" ? `CN-${resourceId}` : resourceId;
           const existing = ledgerInvByXeroId.get(prefix);
           if (existing) {
             await db.update(invoices)
               .set({ collectionStage: "Closed", paymentStatus: "Paid", updatedAt: new Date() })
               .where(eq(invoices.id, existing.id));
+          }
+        } else if (eventCategory === "CONTACT") {
+          // Contact archived/deleted in Xero — mark as Inactive locally
+          const existing = freshCustByXeroId.get(resourceId) || freshCustByCode.get(`XERO-${resourceId}`);
+          if (existing) {
+            await db.update(customers)
+              .set({ status: "Inactive", updatedAt: new Date() })
+              .where(eq(customers.id, existing.id));
           }
         }
         continue;
@@ -685,7 +705,12 @@ export async function syncXeroTargetedEntities(
       if (eventCategory === "INVOICE") {
         const data = await xeroGet(accessToken, tenantId, `Invoices/${resourceId}`);
         const xi = data.Invoices?.[0];
-        if (!xi || xi.Type !== "ACCREC") continue;
+        if (!xi) continue;
+        if (xi.Type !== "ACCREC") {
+          // Already fetched — not an AR invoice. Pass to AP sync (GAP-3: no double-fetch).
+          apInvoiceIds.push(resourceId);
+          continue;
+        }
 
         const contactId = xi.Contact?.ContactID;
         const cust = contactId
@@ -836,20 +861,40 @@ export async function syncXeroTargetedEntities(
         }
       }
 
-      if (eventCategory === "PAYMENT") {
-        // A payment was applied — fetch the linked invoice and update its balance
-        const data = await xeroGet(accessToken, tenantId, `Payments/${resourceId}`);
-        const pay = data.Payments?.[0];
-        if (!pay) continue;
+    } catch (e: any) {
+      console.error(`Xero targeted sync failed for ${change.eventCategory} ${change.resourceId}:`, e?.message);
+    }
+  }
 
-        const invoiceXeroId = pay.Invoice?.InvoiceID;
-        if (!invoiceXeroId) continue;
+  // ── Batch PAYMENT processing (GAP-2) ────────────────────────────────────────
+  // Two parallel batches instead of 2 serial API calls per payment:
+  //   Phase 1: fetch all payments in parallel → collect unique linked invoice IDs
+  //   Phase 2: fetch all linked invoices in parallel → update all in parallel
+  // Many payments on the same invoice are deduplicated — only one invoice fetch.
+  if (batchPayments.length > 0) {
+    const fetchedPayments = (await Promise.all(
+      batchPayments.map(c =>
+        xeroGet(accessToken, tenantId, `Payments/${c.resourceId}`)
+          .then((d: any) => d.Payments?.[0] ?? null)
+          .catch(() => null)
+      )
+    )).filter(Boolean);
 
-        // Re-fetch the invoice to get current AmountDue
-        const invData = await xeroGet(accessToken, tenantId, `Invoices/${invoiceXeroId}`);
-        const xi = invData.Invoices?.[0];
-        if (!xi) continue;
+    const linkedInvIds = [
+      ...new Set(fetchedPayments.map((p: any) => p.Invoice?.InvoiceID).filter(Boolean))
+    ];
 
+    if (linkedInvIds.length > 0) {
+      const linkedInvoices = (await Promise.all(
+        linkedInvIds.map((id: string) =>
+          xeroGet(accessToken, tenantId, `Invoices/${id}`)
+            .then((d: any) => d.Invoices?.[0] ?? null)
+            .catch(() => null)
+        )
+      )).filter(Boolean);
+
+      const payUpdateOps: Promise<any>[] = [];
+      for (const xi of linkedInvoices) {
         const total   = parseFloat(xi.Total) || 0;
         const balance = parseFloat(xi.AmountDue) || 0;
         const paid    = Math.max(0, total - balance);
@@ -868,13 +913,14 @@ export async function syncXeroTargetedEntities(
           if (paidAt) updateData.paidAt = paidAt;
         }
 
-        const existing = ledgerInvByXeroId.get(invoiceXeroId);
+        const existing = ledgerInvByXeroId.get(xi.InvoiceID);
         if (existing) {
-          await db.update(invoices).set(updateData).where(eq(invoices.id, existing.id));
+          payUpdateOps.push(db.update(invoices).set(updateData).where(eq(invoices.id, existing.id)));
         }
       }
-    } catch (e: any) {
-      console.error(`Xero targeted sync failed for ${change.eventCategory} ${change.resourceId}:`, e?.message);
+      if (payUpdateOps.length > 0) await Promise.all(payUpdateOps);
     }
   }
+
+  return { apInvoiceIds };
 }

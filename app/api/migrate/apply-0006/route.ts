@@ -31,7 +31,8 @@ export async function POST(req: Request) {
       CREATE TABLE IF NOT EXISTS ap_approval_tokens (
         id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
         org_id          UUID        NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
-        bill_id         UUID        NOT NULL REFERENCES ap_bills(id) ON DELETE CASCADE,
+        bill_id         UUID        REFERENCES ap_bills(id) ON DELETE SET NULL,
+        bill_ids        JSONB       NOT NULL DEFAULT '[]'::jsonb,
         token           TEXT        NOT NULL UNIQUE,
         approver_email  TEXT        NOT NULL,
         approver_name   TEXT,
@@ -42,6 +43,17 @@ export async function POST(req: Request) {
         expires_at      TIMESTAMPTZ NOT NULL,
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `);
+    // Add bill_ids to existing table if it was already created without it
+    await db.execute(sql`
+      ALTER TABLE ap_approval_tokens
+        ADD COLUMN IF NOT EXISTS bill_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+    `);
+    // Backfill bill_ids for any existing single-bill tokens
+    await db.execute(sql`
+      UPDATE ap_approval_tokens
+      SET bill_ids = jsonb_build_array(bill_id::text)
+      WHERE bill_id IS NOT NULL AND bill_ids = '[]'::jsonb
     `);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_ap_approval_tokens_bill ON ap_approval_tokens(bill_id)

@@ -17,7 +17,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { qboTokens, qboWebhookEvents } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
 import { syncQboApBills, type QboBillChange } from "@/lib/qbo-ap-sync";
 
@@ -124,6 +124,45 @@ export async function POST(req: Request) {
   return new Response("OK", { status: 200 });
 }
 
+// Filters out entity changes whose (name:id:operation) fingerprint already appears
+// in successfully-processed events for this realm in the last 2 minutes.
+// `isAp` distinguishes Bill changes (no name field) from AR changes (have name field).
+async function deduplicateQboEntities(
+  realmId: string,
+  entities: any[],
+  isAp: boolean
+): Promise<any[]> {
+  if (entities.length === 0) return [];
+
+  const recentRows = await db
+    .select({ entities: qboWebhookEvents.entities })
+    .from(qboWebhookEvents)
+    .where(
+      and(
+        eq(qboWebhookEvents.realmId, realmId),
+        eq(qboWebhookEvents.status, "received"),
+        gt(qboWebhookEvents.receivedAt, new Date(Date.now() - 2 * 60 * 1000))
+      )
+    );
+
+  const processedKeys = new Set<string>();
+  for (const row of recentRows) {
+    if (Array.isArray(row.entities)) {
+      for (const e of row.entities as any[]) {
+        const hasName = Boolean(e.name);
+        if (isAp ? !hasName : hasName) {
+          processedKeys.add(isAp ? `${e.id}:${e.operation}` : `${e.name}:${e.id}:${e.operation}`);
+        }
+      }
+    }
+  }
+
+  return entities.filter(e => {
+    const key = isAp ? `${e.id}:${e.operation}` : `${e.name}:${e.id}:${e.operation}`;
+    return !processedKeys.has(key);
+  });
+}
+
 async function processWebhookEvents(
   workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[] }>
 ) {
@@ -149,17 +188,30 @@ async function processWebhookEvents(
     }
 
     try {
-      if (changes.length > 0) {
-        await syncTargetedEntities(token.orgId, token.userId, changes);
+      // GAP-4: Idempotency — filter out entity changes already processed
+      // in the last 2 minutes for this realm. Catches QBO's retry storms
+      // when our response was too slow (QBO retries for up to 14 days).
+      const freshChanges   = await deduplicateQboEntities(realmId, changes,   false);
+      const freshApChanges = await deduplicateQboEntities(realmId, apChanges, true);
+
+      if (freshChanges.length === 0 && freshApChanges.length === 0) {
+        console.log(`QBO webhook: all ${totalCount} entity change(s) for realmId ${realmId} are duplicates — skipping`);
+        continue;
       }
-      if (apChanges.length > 0) {
-        await syncQboApBills(token.orgId, token.userId, apChanges);
+
+      if (freshChanges.length > 0) {
+        await syncTargetedEntities(token.orgId, token.userId, freshChanges);
+      }
+      if (freshApChanges.length > 0) {
+        await syncQboApBills(token.orgId, token.userId, freshApChanges);
       }
       const ms = Date.now() - startedAt;
-      console.log(`QBO webhook: synced ${totalCount} change(s) for org ${token.orgId} in ${ms}ms`);
+      const processedCount = freshChanges.length + freshApChanges.length;
+      console.log(`QBO webhook: synced ${processedCount} change(s) for org ${token.orgId} in ${ms}ms`);
       await db.insert(qboWebhookEvents).values({
         realmId, orgId: token.orgId, status: "received",
-        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
+        entityCount: processedCount,
+        entities: [...freshChanges, ...freshApChanges] as any,
         processingMs: ms,
       }).catch(() => {});
     } catch (err: any) {

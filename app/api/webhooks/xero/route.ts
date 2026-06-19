@@ -22,7 +22,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
 import { xeroTokens, xeroWebhookEvents } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { syncXeroTargetedEntities, type XeroEntityChange } from "@/lib/xero-sync";
 import { syncXeroApBills } from "@/lib/xero-ap-sync";
 
@@ -104,13 +104,11 @@ export async function POST(req: Request) {
     return new Response("OK", { status: 200 });
   }
 
-  // Group events by tenantId
+  // Group events by tenantId.
+  // eventId (per-event UUID from Xero) is captured for idempotency checks.
   const byTenant = new Map<string, XeroEntityChange[]>();
-  // INVOICE events also feed the payables sync — a Xero "Invoice" is either a
-  // sales invoice (ACCREC) or a bill (ACCPAY); the AP handler keeps bills only.
-  const apInvoicesByTenant = new Map<string, string[]>();
   for (const ev of events) {
-    const { tenantId, resourceId, eventType, eventCategory } = ev;
+    const { tenantId, resourceId, eventType, eventCategory, eventId } = ev;
     if (!tenantId || !resourceId) continue;
     const cat = eventCategory?.toUpperCase();
     if (!RELEVANT_CATEGORIES.has(cat)) continue;
@@ -121,32 +119,24 @@ export async function POST(req: Request) {
       eventType: eventType?.toUpperCase() ?? "UPDATE",
       eventCategory: cat ?? "INVOICE",
       tenantId,
+      xeroEventId: eventId ?? undefined,
     });
-
-    if (cat === "INVOICE") {
-      if (!apInvoicesByTenant.has(tenantId)) apInvoicesByTenant.set(tenantId, []);
-      apInvoicesByTenant.get(tenantId)!.push(resourceId);
-    }
   }
 
   // 6. Return 200 immediately — Xero requires a response within 5 seconds.
   //    waitUntil keeps the Vercel function alive to finish processing in the
   //    background, even after the response has been sent to Xero.
   if (byTenant.size > 0) {
-    waitUntil(processTenantChanges(byTenant, apInvoicesByTenant));
+    waitUntil(processTenantChanges(byTenant));
   }
 
   return new Response("OK", { status: 200 });
 }
 
-async function processTenantChanges(
-  byTenant: Map<string, XeroEntityChange[]>,
-  apInvoicesByTenant: Map<string, string[]>
-) {
-  const startedAt = Date.now();
-
+async function processTenantChanges(byTenant: Map<string, XeroEntityChange[]>) {
   for (const [tenantId, changes] of byTenant.entries()) {
-    // Resolve tenantId → org
+    const startedAt = Date.now();
+
     const [token] = await db
       .select({ orgId: xeroTokens.orgId, userId: xeroTokens.userId })
       .from(xeroTokens)
@@ -161,25 +151,63 @@ async function processTenantChanges(
     }
 
     try {
-      await syncXeroTargetedEntities(token.orgId, token.userId, changes);
-      const apInvoiceIds = apInvoicesByTenant.get(tenantId) ?? [];
+      // GAP-4: Filter out events whose xeroEventId was already processed in the
+      // last 2 minutes — protects against Xero's rapid retry on slow responses.
+      const freshChanges = await deduplicateXeroChanges(tenantId, changes);
+      if (freshChanges.length === 0) {
+        console.log(`Xero webhook: all ${changes.length} event(s) for tenant ${tenantId} are duplicates — skipping`);
+        continue;
+      }
+
+      // GAP-3: syncXeroTargetedEntities returns non-ACCREC invoice IDs it already
+      // fetched, so AP sync receives only those — no redundant Xero API call.
+      const { apInvoiceIds } = await syncXeroTargetedEntities(token.orgId, token.userId, freshChanges);
       if (apInvoiceIds.length > 0) {
         await syncXeroApBills(token.orgId, token.userId, apInvoiceIds);
       }
+
       const ms = Date.now() - startedAt;
-      console.log(
-        `Xero webhook: synced ${changes.length} change(s) for org ${token.orgId} in ${ms}ms`
-      );
-      await logEvent(tenantId, token.orgId, "received", changes.length, changes, null, ms);
+      console.log(`Xero webhook: synced ${freshChanges.length} change(s) for org ${token.orgId} in ${ms}ms`);
+      await logEvent(tenantId, token.orgId, "received", freshChanges.length, freshChanges, null, ms);
     } catch (err: any) {
       const ms = Date.now() - startedAt;
       console.error(`Xero webhook sync failed for org ${token.orgId}:`, err.message);
-      await logEvent(
-        tenantId, token.orgId, "error", changes.length, changes,
-        err?.message || String(err), ms
-      );
+      await logEvent(tenantId, token.orgId, "error", changes.length, changes,
+        err?.message || String(err), ms);
     }
   }
+}
+
+// Filters Xero events whose xeroEventId already appears in successfully-processed
+// events for this tenant in the last 2 minutes. Catches Xero's 5s-deadline retries.
+async function deduplicateXeroChanges(
+  tenantId: string,
+  changes: XeroEntityChange[]
+): Promise<XeroEntityChange[]> {
+  const hasEventIds = changes.some(c => c.xeroEventId);
+  if (!hasEventIds) return changes;
+
+  const recentRows = await db
+    .select({ entities: xeroWebhookEvents.entities })
+    .from(xeroWebhookEvents)
+    .where(
+      and(
+        eq(xeroWebhookEvents.tenantId, tenantId),
+        eq(xeroWebhookEvents.status, "received"),
+        gt(xeroWebhookEvents.receivedAt, new Date(Date.now() - 2 * 60 * 1000))
+      )
+    );
+
+  const processedIds = new Set<string>();
+  for (const row of recentRows) {
+    if (Array.isArray(row.entities)) {
+      for (const e of row.entities as any[]) {
+        if (e.xeroEventId) processedIds.add(e.xeroEventId);
+      }
+    }
+  }
+
+  return changes.filter(c => !c.xeroEventId || !processedIds.has(c.xeroEventId));
 }
 
 async function logEvent(

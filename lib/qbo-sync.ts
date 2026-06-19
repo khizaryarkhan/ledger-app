@@ -1729,27 +1729,53 @@ export async function syncTargetedEntities(
     );
     for (const cm of qboCredits.filter(Boolean)) {
       const existing = ledgerInvByQboId.get(`CM-${cm.Id}`);
-      if (!existing) continue;
       const totalAmt  = parseFloat(cm.TotalAmt) || 0;
       const balance   = parseFloat(cm.Balance)  || 0;
       const taxAmt    = parseFloat(cm.TxnTaxDetail?.TotalTax) || 0;
       const netAmt    = Math.max(0, totalAmt - taxAmt);
-      updatePromises.push(
-        db
-          .update(invoices)
-          .set({
-            // Match invoice convention: total + qboBalance = GROSS; amount = ex-tax.
-            total:         -totalAmt, // negative GROSS face value (matches QBO TotalAmt)
-            amount:        -netAmt,   // negative ex-tax (for sales reporting)
-            taxAmount:     -taxAmt,
-            paid:          0,         // not applicable for CMs
-            qboBalance:    -balance,  // negative GROSS unapplied balance (matches QBO.Balance)
-            qboSyncedAt:   new Date(),
-            updatedAt:     new Date(),
-            paymentStatus: balance === 0 ? "Paid" : "Unpaid",
-          })
-          .where(eq(invoices.id, existing.id))
-      );
+      // Match invoice convention: total + qboBalance = GROSS; amount = ex-tax.
+      const cmFields = {
+        total:         -totalAmt, // negative GROSS face value (matches QBO TotalAmt)
+        amount:        -netAmt,   // negative ex-tax (for sales reporting)
+        taxAmount:     -taxAmt,
+        paid:          0,         // not applicable for CMs
+        qboBalance:    -balance,  // negative GROSS unapplied balance (matches QBO.Balance)
+        qboSyncedAt:   new Date(),
+        updatedAt:     new Date(),
+        paymentStatus: (balance === 0 ? "Paid" : "Unpaid") as any,
+      };
+
+      if (existing) {
+        updatePromises.push(
+          db.update(invoices).set(cmFields).where(eq(invoices.id, existing.id))
+        );
+      } else {
+        // New credit memo — insert it (same pattern as new invoices above).
+        // Need customer lookup; reuse custMap if already loaded.
+        if (!custMap) {
+          const allQboCusts = await qboFetchAllSafe(accessToken, realmId, "Customer", "Active = true");
+          custMap = new Map(allQboCusts.map((c: any) => [c.Id, c]));
+        }
+        const tlId = topLevelId(cm.CustomerRef?.value, custMap!);
+        const cust = ledgerCustByQboId.get(tlId) || ledgerCustByCode.get(`QBO-${tlId}`);
+        if (!cust) continue; // customer not yet synced — nightly cron will catch it
+        invsToInsert.push({
+          orgId,
+          invoiceNumber: `CM-${cm.DocNumber || cm.Id}`,
+          customerId: cust.id,
+          projectId: null,
+          invoiceDate: cm.TxnDate || new Date().toISOString().slice(0, 10),
+          dueDate:     cm.TxnDate || new Date().toISOString().slice(0, 10),
+          currency:    cust.currency || "EUR",
+          paymentTerms: 0,
+          collectionStage: "Credit Memo",
+          collectionOwnerId: userId,
+          qboId: `CM-${cm.Id}`,
+          qboCustomerId: cm.CustomerRef?.value ?? null,
+          txnType: "CreditMemo",
+          ...cmFields,
+        });
+      }
     }
   }
 
@@ -1889,6 +1915,46 @@ export async function syncTargetedEntities(
           db.insert(refundReceipts).values(refundFields).onConflictDoNothing()
         );
       }
+    }
+  }
+
+  // --- RefundReceipt: refresh linked invoices (GAP-10) ---
+  // A RefundReceipt reduces customer AR. If it references specific invoices via
+  // LinkedTxn, re-fetch those to pick up the balance change. If there's no explicit
+  // link (e.g. overpayment refund), fall back to refreshing all open invoices for
+  // the affected customer so our AR balance stays accurate.
+  if (qboRefunds.filter(Boolean).length > 0) {
+    const linkedQboInvIds = new Set<string>();
+    for (const rr of qboRefunds.filter(Boolean)) {
+      for (const txn of (rr.LinkedTxn ?? [])) {
+        if (txn.TxnType === "Invoice") linkedQboInvIds.add(txn.TxnId);
+      }
+      for (const line of (rr.Line ?? [])) {
+        for (const txn of (line.LinkedTxn ?? [])) {
+          if (txn.TxnType === "Invoice") linkedQboInvIds.add(txn.TxnId);
+        }
+      }
+    }
+    if (linkedQboInvIds.size === 0) {
+      // No explicit invoice link — fall back to customer-level open-invoice refresh
+      const affectedCustIds = new Set(
+        qboRefunds.filter(Boolean).map((rr: any) => rr.CustomerRef?.value).filter(Boolean)
+      );
+      for (const inv of allLedgerInvoices) {
+        if (inv.qboId && inv.qboCustomerId && affectedCustIds.has(inv.qboCustomerId) && inv.paymentStatus !== "Paid") {
+          linkedQboInvIds.add(inv.qboId);
+        }
+      }
+    }
+    if (linkedQboInvIds.size > 0) {
+      const refreshed = await Promise.all(
+        Array.from(linkedQboInvIds).map(id =>
+          qboApiGet(accessToken, realmId, `invoice/${id}`)
+            .then((r: any) => r.Invoice)
+            .catch(() => null)
+        )
+      );
+      for (const qi of refreshed.filter(Boolean)) await processQboInvoice(qi);
     }
   }
 
