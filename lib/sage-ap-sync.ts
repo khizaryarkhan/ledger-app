@@ -36,8 +36,8 @@ type SageCreds = {
 let _ctrlSeqAp = 1000;
 
 function buildXml(creds: SageCreds, functionXml: string): string {
-  const senderId = process.env.SAGE_SENDER_ID ?? "";
-  const senderPwd = process.env.SAGE_SENDER_PASSWORD ?? "";
+  const senderId = process.env.SAGE_SENDER_ID ?? "Primeaccountax";
+  const senderPwd = process.env.SAGE_SENDER_PASSWORD ?? "Primeaccountax1!";
   const ctrlId = `ctrlap${_ctrlSeqAp++}_${Date.now()}`;
   const entityEl = creds.entityId ? `<locationid>${creds.entityId}</locationid>` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
