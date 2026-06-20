@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/replay-webhooks",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/sage-sync",
+      "schedule": "0 5 * * *"
     }
   ]
 }

@@ -38,6 +38,15 @@ export default function IntegrationsSettingsPage() {
   const [xeroDisconnecting, setXeroDisconnecting] = useState(false);
   const [xeroWebhookHealth, setXeroWebhookHealth] = useState<any>(null);
 
+  // ── Sage Intacct ──────────────────────────────────────────────────────────
+  const [sageStatus, setSageStatus] = useState<any>(null);
+  const [sageHistory, setSageHistory] = useState<any[]>([]);
+  const [sageDisconnecting, setSageDisconnecting] = useState(false);
+  const [sageConnectOpen, setSageConnectOpen] = useState(false);
+  const [sageConnecting, setSageConnecting] = useState(false);
+  const [sageForm, setSageForm] = useState({ companyId: "", sageUserId: "", password: "", entityId: "" });
+  const [sageConnectError, setSageConnectError] = useState<string | null>(null);
+
   // ── Unified sync ──────────────────────────────────────────────────────────
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
@@ -68,6 +77,7 @@ export default function IntegrationsSettingsPage() {
         await refresh();
         fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
         fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+        fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
       }
     } catch {
       toast("Sync failed", "error");
@@ -85,6 +95,46 @@ export default function IntegrationsSettingsPage() {
       toast("Xero disconnected");
     } finally {
       setXeroDisconnecting(false);
+    }
+  };
+
+  const handleSageConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSageConnecting(true);
+    setSageConnectError(null);
+    try {
+      const res = await fetch("/api/sage/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(sageForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSageConnectError(data.error || "Connection failed");
+      } else {
+        setSageStatus({ connected: true, companyId: data.companyId, companyName: data.companyName });
+        setSageConnectOpen(false);
+        setSageForm({ companyId: "", sageUserId: "", password: "", entityId: "" });
+        toast("Sage Intacct connected! Starting initial sync…");
+        handleSync();
+        fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
+      }
+    } catch {
+      setSageConnectError("Network error — please try again");
+    } finally {
+      setSageConnecting(false);
+    }
+  };
+
+  const handleSageDisconnect = async () => {
+    setSageDisconnecting(true);
+    try {
+      await fetch("/api/sage/disconnect", { method: "POST" });
+      setSageStatus({ connected: false });
+      setSyncResult(null);
+      toast("Sage Intacct disconnected");
+    } finally {
+      setSageDisconnecting(false);
     }
   };
 
@@ -157,6 +207,8 @@ export default function IntegrationsSettingsPage() {
     fetch("/api/xero/sync").then(r => r.json()).then(setXeroStatus).catch(() => setXeroStatus({ connected: false }));
     fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
     loadXeroWebhookHealth();
+    fetch("/api/sage/sync").then(r => r.json()).then(setSageStatus).catch(() => setSageStatus({ connected: false }));
+    fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -244,7 +296,7 @@ export default function IntegrationsSettingsPage() {
       </div>
 
       {/* ── Unified Sync ── */}
-      {(qboStatus?.connected || xeroStatus?.connected) && (
+      {(qboStatus?.connected || xeroStatus?.connected || sageStatus?.connected) && (
         <Card className="mb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -315,6 +367,34 @@ export default function IntegrationsSettingsPage() {
                         { label: "Bills", value: syncResult.xero.ap?.bills ?? 0 },
                         { label: "Accounts", value: syncResult.xero.ap?.accounts ?? 0 },
                         { label: "Items", value: syncResult.xero.ap?.items ?? 0 },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <div className="text-xl font-semibold text-white">{value}</div>
+                          <div className="text-[10px] text-stone-500">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {syncResult.sage && (
+                <div className="bg-stone-800/40 ring-1 ring-stone-700 rounded-md p-3">
+                  <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                    Sage Intacct — this sync
+                  </div>
+                  {syncResult.sage.error ? (
+                    <p className="text-sm text-rose-400">{syncResult.sage.error}</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-x-2 gap-y-3 text-center">
+                      {[
+                        { label: "Customers", value: syncResult.sage.ar?.customersCreated ?? 0 },
+                        { label: "New invoices", value: syncResult.sage.ar?.invoicesCreated ?? 0 },
+                        { label: "Updated", value: syncResult.sage.ar?.invoicesUpdated ?? 0 },
+                        { label: "Auto-closed", value: syncResult.sage.ar?.invoicesClosed ?? 0 },
+                        { label: "Suppliers", value: syncResult.sage.ap?.suppliersCreated ?? 0 },
+                        { label: "New bills", value: syncResult.sage.ap?.billsCreated ?? 0 },
+                        { label: "Bills updated", value: syncResult.sage.ap?.billsUpdated ?? 0 },
+                        { label: "Credits", value: syncResult.sage.ar?.creditsCreated ?? 0 },
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <div className="text-xl font-semibold text-white">{value}</div>
@@ -1017,6 +1097,174 @@ export default function IntegrationsSettingsPage() {
           </div>
         )}
       </Card>
+
+      {/* ── Sage Intacct ── */}
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Database size={16} className="text-violet-400" />
+          <h3 className="text-sm font-semibold text-white">Sage Intacct</h3>
+          {sageStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+        </div>
+
+        {sageStatus === null ? (
+          <div className="flex items-center gap-2 text-sm text-stone-500">
+            <Loader size={14} className="animate-spin" /> Checking…
+          </div>
+        ) : sageStatus.connected ? (
+          <div className="space-y-4">
+            {/* Connected banner */}
+            <div className="bg-violet-500/10 ring-1 ring-violet-500/30 rounded-md p-3 flex items-center gap-2">
+              <Check size={15} className="text-violet-400" />
+              <div>
+                <div className="text-sm font-medium text-violet-400">
+                  Connected to {sageStatus.companyName || sageStatus.companyId}
+                </div>
+                <div className="text-[11px] text-violet-500/80 mt-0.5">Company ID: {sageStatus.companyId}</div>
+              </div>
+            </div>
+
+            <div className="text-sm text-stone-400">
+              Sync pulls AR customers, invoices, and credit memos plus AP vendors and bills.
+              Runs daily via cron — no webhooks required.
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="ghost" size="sm" onClick={handleSageDisconnect} disabled={sageDisconnecting}>
+                <Unlink size={14} className="mr-1.5" />
+                {sageDisconnecting ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </div>
+
+            {/* Sync history */}
+            {sageHistory.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">
+                  Sync history
+                </div>
+                <div className="space-y-1.5">
+                  {sageHistory.slice(0, 8).map((log: any) => (
+                    <div key={log.id} className="flex items-center gap-3 text-sm py-1.5 border-b border-stone-800 last:border-0">
+                      {log.status === "success"
+                        ? <CheckCircle size={14} className="text-emerald-500" />
+                        : <XCircle size={14} className="text-rose-500" />}
+                      <span className="text-stone-500 text-[12px] w-36">
+                        {new Date(log.syncedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      {log.status === "success" ? (
+                        <>
+                          <span className="text-stone-400 text-[12px]">
+                            {log.invoicesCreated} new · {log.invoicesUpdated} updated · {log.invoicesClosed} closed
+                          </span>
+                          <span className="text-stone-400 text-[11px] ml-auto">
+                            {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : ""}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-rose-600 text-[12px] truncate">{log.errorMessage}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Not connected */
+          <div className="space-y-5">
+            <p className="text-sm text-stone-400 leading-relaxed">
+              Connect Sage Intacct to sync your customers, invoices, credit memos, vendors,
+              and bills. Uses credential-based auth — no OAuth redirect required.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                { icon: <RefreshCw size={13} />, text: "AR customers and invoices synced" },
+                { icon: <Check size={13} />,     text: "Invoices close when paid in Sage" },
+                { icon: <Database size={13} />,  text: "AP vendors and bills imported" },
+                { icon: <Clock size={13} />,     text: "Daily cron sync — fully automatic" },
+              ].map(({ icon, text }) => (
+                <div key={text} className="flex items-center gap-2 text-[13px] text-stone-400">
+                  <span className="text-violet-400 shrink-0">{icon}</span>
+                  {text}
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={() => { setSageConnectOpen(true); setSageConnectError(null); }}>
+              <Database size={14} />
+              <span className="ml-1.5">Connect Sage Intacct</span>
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Sage connect modal ── */}
+      {sageConnectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 pt-6 pb-4 border-b border-stone-800">
+              <h2 className="text-base font-semibold text-white">Connect Sage Intacct</h2>
+              <p className="text-[13px] text-stone-400 mt-1">
+                Enter your Sage Intacct Web Services credentials. Use a dedicated API user.
+              </p>
+            </div>
+
+            <form onSubmit={handleSageConnect} className="px-6 py-5 space-y-4">
+              {sageConnectError && (
+                <div className="px-3 py-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 leading-relaxed">
+                  {sageConnectError}
+                </div>
+              )}
+
+              {[
+                { key: "companyId",  label: "Company ID",  placeholder: "e.g. ACME_Corp", required: true },
+                { key: "sageUserId", label: "User ID",     placeholder: "Web services user login", required: true },
+                { key: "password",   label: "Password",    placeholder: "User password", required: true, type: "password" },
+                { key: "entityId",   label: "Entity ID",   placeholder: "Optional — for multi-entity", required: false },
+              ].map(({ key, label, placeholder, required, type }) => (
+                <div key={key}>
+                  <label className="block text-xs text-stone-400 mb-1.5">
+                    {label} {required && <span className="text-rose-400">*</span>}
+                  </label>
+                  <input
+                    type={type || "text"}
+                    value={(sageForm as any)[key]}
+                    onChange={e => setSageForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    required={required}
+                    autoComplete={type === "password" ? "current-password" : "off"}
+                    className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
+                </div>
+              ))}
+
+              <div className="text-[11px] text-stone-500 leading-relaxed bg-stone-800/40 rounded-lg px-3 py-2">
+                Your credentials are encrypted at rest. Sage Intacct requires a
+                <strong className="text-stone-400"> Web Services user</strong> with API access enabled
+                in your Sage subscription settings.
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSageConnectOpen(false)}
+                  className="flex-1 py-2 rounded-lg border border-stone-700 text-sm text-stone-400 hover:text-white hover:border-stone-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sageConnecting}
+                  className="flex-1 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {sageConnecting && <Loader size={13} className="animate-spin" />}
+                  {sageConnecting ? "Verifying…" : "Connect"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Data Tools */}
       <Card>

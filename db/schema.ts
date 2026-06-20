@@ -364,6 +364,7 @@ export const customers = pgTable("customers", {
   addressPostcode: varchar("address_postcode", { length: 32 }),
   qboId: varchar("qbo_id", { length: 64 }),
   xeroId: varchar("xero_id", { length: 64 }),   // Xero ContactID
+  sageIntacctId: varchar("sage_intacct_id", { length: 64 }), // Sage Intacct CUSTOMERID
   chaseByProject: boolean("chase_by_project").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -449,6 +450,10 @@ export const invoices = pgTable("invoices", {
   xeroCustomerId: varchar("xero_customer_id", { length: 64 }), // Xero ContactID
   xeroSyncedAt: timestamp("xero_synced_at"),
   xeroTenantId: varchar("xero_tenant_id", { length: 64 }), // which Xero org this came from
+  sageIntacctId: varchar("sage_intacct_id", { length: 64 }), // Sage Intacct RECORDNO (prefix CM- for credit memos)
+  sageIntacctBalance: real("sage_intacct_balance"),
+  sageIntacctCustomerId: varchar("sage_intacct_customer_id", { length: 64 }),
+  sageIntacctSyncedAt: timestamp("sage_intacct_synced_at"),
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   paidAt: varchar("paid_at", { length: 16 }), // Date payment was received (YYYY-MM-DD) — NULL if unpaid
   // ── Customer Response Portal derived/cached state ──────────────────────
@@ -463,6 +468,9 @@ export const invoices = pgTable("invoices", {
   orgQboIdUnique: uniqueIndex("invoices_org_qbo_id_unique")
     .on(t.orgId, t.qboId)
     .where(sql`${t.qboId} IS NOT NULL`),
+  orgSageIdUnique: uniqueIndex("invoices_org_sage_id_unique")
+    .on(t.orgId, t.sageIntacctId)
+    .where(sql`${t.sageIntacctId} IS NOT NULL`),
 }));
 
 // =========================================================================
@@ -1004,6 +1012,47 @@ export const microsoftTokens = pgTable("microsoft_tokens", {
 export type MicrosoftToken = typeof microsoftTokens.$inferSelect;
 
 // =========================================================================
+// SAGE INTACCT CREDENTIALS
+// =========================================================================
+export const sageIntacctCredentials = pgTable("sage_intacct_credentials", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  userId:      uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  companyId:   varchar("company_id", { length: 128 }).notNull(),  // Sage company ID
+  sageUserId:  varchar("sage_user_id", { length: 128 }).notNull(), // Sage web services user
+  password:    text("password").notNull(),                          // encrypted user password
+  entityId:    varchar("entity_id", { length: 64 }),               // optional multi-entity location ID
+  companyName: varchar("company_name", { length: 255 }),           // fetched from Sage on connect
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("sage_intacct_credentials_org_unique").on(t.orgId),
+]);
+export type SageIntacctCredential = typeof sageIntacctCredentials.$inferSelect;
+
+// =========================================================================
+// SAGE SYNC LOG
+// =========================================================================
+export const sageSyncLog = pgTable("sage_sync_log", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  orgId:            uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  userId:           uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  syncedAt:         timestamp("synced_at").notNull().defaultNow(),
+  status:           varchar("status", { length: 16 }).notNull().default("success"),
+  customersCreated: integer("customers_created").default(0),
+  invoicesCreated:  integer("invoices_created").default(0),
+  invoicesUpdated:  integer("invoices_updated").default(0),
+  invoicesClosed:   integer("invoices_closed").default(0),
+  creditsCreated:   integer("credits_created").default(0),
+  suppliersCreated: integer("suppliers_created").default(0),
+  billsCreated:     integer("bills_created").default(0),
+  billsUpdated:     integer("bills_updated").default(0),
+  errorMessage:     text("error_message"),
+  durationMs:       integer("duration_ms"),
+});
+export type SageSyncLog = typeof sageSyncLog.$inferSelect;
+
+// =========================================================================
 // RELATIONS
 // =========================================================================
 export const customersRelations = relations(customers, ({ many, one }) => ({
@@ -1079,10 +1128,11 @@ export const apSuppliers = pgTable("ap_suppliers", {
   status:        varchar("status", { length: 32 }).notNull().default("Active"),
   riskRating:    varchar("risk_rating", { length: 16 }).notNull().default("Low"),
   notes:         text("notes"),
-  qboId:         varchar("qbo_id", { length: 64 }),
-  xeroId:        varchar("xero_id", { length: 64 }),
-  source:        varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'manual'
-  lastSyncedAt:  timestamp("last_synced_at"),
+  qboId:          varchar("qbo_id", { length: 64 }),
+  xeroId:         varchar("xero_id", { length: 64 }),
+  sageIntacctId:  varchar("sage_intacct_id", { length: 64 }),
+  source:         varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'sage' | 'manual'
+  lastSyncedAt:   timestamp("last_synced_at"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -1325,7 +1375,8 @@ export const apBills = pgTable("ap_bills", {
   xeroPurchaseOrderId:    varchar("xero_purchase_order_id", { length: 64 }),
   qboId:                  varchar("qbo_id", { length: 64 }),
   xeroId:                 varchar("xero_id", { length: 64 }),
-  source:                 varchar("source", { length: 16 }),   // 'qbo' | 'xero'
+  sageIntacctId:          varchar("sage_intacct_id", { length: 64 }),
+  source:                 varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'sage'
   assignedApproverId:     uuid("assigned_approver_id").references(() => users.id, { onDelete: "set null" }),
   approvedByUserId:       uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   approvedAt:             timestamp("approved_at"),
@@ -1340,6 +1391,7 @@ export const apBills = pgTable("ap_bills", {
   index("idx_ap_bills_org_id").on(t.orgId),
   uniqueIndex("ap_bills_org_qbo_unique").on(t.orgId, t.qboId).where(sql`${t.qboId} IS NOT NULL`),
   uniqueIndex("ap_bills_org_xero_unique").on(t.orgId, t.xeroId).where(sql`${t.xeroId} IS NOT NULL`),
+  uniqueIndex("ap_bills_org_sage_unique").on(t.orgId, t.sageIntacctId).where(sql`${t.sageIntacctId} IS NOT NULL`),
 ]);
 export type ApBill = typeof apBills.$inferSelect;
 
