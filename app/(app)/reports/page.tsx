@@ -544,28 +544,30 @@ function addBuckets(a: any, b: any) {
 function invBuckets(inv: any, asAt: Date) {
   const b = emptyBuckets();
 
-  // Credit memos / unapplied-payment & deposit credits are EXCLUDED from the
-  // aging buckets. An aging report shows gross receivables by age; smearing a
-  // customer's available credit into "Current" makes that bucket go negative
-  // whenever credits exceed Current invoices (e.g. region-less customers
-  // holding large deposits), producing nonsensical negative totals and
-  // >100% / negative "% of AR" figures. This matches the Dashboard, which
-  // also shows gross AR by age and accounts for credits only in the net
-  // "Total Receivable" KPI.
-  if (inv.txnType === "CreditMemo") {
-    return b; // contributes nothing to aging
-  }
-
-  // For historical view: if paidAt is after asAt (or null), invoice was open then — use full outstanding
-  // For today's view: skip paid invoices (collectionStage is NOT a payment status — never filter on it)
   const isHistorical = asAt.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10);
   if (!isHistorical) {
     if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return b;
   }
-  // Outstanding as-at: if paid after asAt, full balance was open; otherwise use qboBalance
-  // (authoritative open balance from QBO) falling back to total-paid for local-only rows.
+
+  // Credit memos / credits: age by their OWN date with a negative balance,
+  // exactly as QBO's AgedReceivableDetail does (e.g. a credit dated 70 days ago
+  // lands in 61-90, not Current). They are NOT all forced into Current — doing
+  // so produced a deeply-negative Current bucket. Bucketing each credit by its
+  // own due/transaction date keeps every bucket and the grand total in lockstep
+  // with QBO.
+  if (inv.txnType === "CreditMemo") {
+    const credit = inv.qboBalance ?? 0; // negative
+    if (credit >= 0) return b;          // fully applied — nothing to show
+    const bk = getBucket(inv, asAt);
+    if (bk) { b[bk] = credit; b.total = credit; }
+    return b;
+  }
+
+  // Invoices: outstanding as-at. If paid after asAt, the full balance was open;
+  // otherwise use qboBalance (authoritative open balance) falling back to
+  // total-paid for local-only rows.
   const out = (isHistorical && inv.paidAt && inv.paidAt > asAt.toISOString().slice(0, 10))
-    ? Number(inv.total)  // paid after the as-at date → full amount was outstanding then
+    ? Number(inv.total)
     : (inv.qboBalance != null ? Number(inv.qboBalance) : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0)));
   if (out <= 0) return b;
   const bucket = getBucket(inv, asAt);

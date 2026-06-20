@@ -42,11 +42,13 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
     activeCMs.forEach((i: any) => { const c = i.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + b(i); });
     const dominantCurrency = Object.keys(byCcy)[0] ?? "EUR";
 
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0);
-    const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + b(i), 0);
-    const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + b(i), 0);
-    const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + b(i), 0);
-    const b90plus = open.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + b(i), 0);
+    // Age every row (invoices + credits) by its own date — matches QBO.
+    const aging = [...open, ...activeCMs];
+    const current = aging.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0);
+    const b1_30   = aging.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b31_60  = aging.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b61_90  = aging.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + b(i), 0);
+    const b90plus = aging.filter((i: any) => daysOverdue(i.dueDate) > 90).reduce((s: number, i: any) => s + b(i), 0);
 
     const currentPct  = totalAR > 0 ? (current  / totalAR) * 100 : 0;
     const over90Pct   = totalAR > 0 ? (b90plus  / totalAR) * 100 : 0;
@@ -512,12 +514,14 @@ export default function DashboardPage() {
     overdue.forEach((i: any) => { const c = i.currency || "EUR"; overdueByCurrency[c] = (overdueByCurrency[c] || 0) + openBal(i); });
     const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
 
-    // Aging buckets — gross AR by age (credits/CMs excluded; they're already
-    // deducted in totalByCurrency / totalReceivable shown in the KPI card).
-    // Including large unapplied-payment CMs in Current would make that bucket
-    // deeply negative and break the bar chart scale.
+    // Aging buckets — every row ages by its OWN date, matching QBO's
+    // AgedReceivableDetail. Invoices contribute a positive balance; credit
+    // memos contribute a negative balance in whichever bucket their date falls
+    // (NOT all forced into Current — that drove the bucket deeply negative).
+    // Summing both reconciles the buckets to QBO's grand total.
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
+    activeCMs.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
     const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
     const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
     const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);

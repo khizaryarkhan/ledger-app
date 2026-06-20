@@ -1,22 +1,25 @@
 /**
- * AR Snapshot at any historical date — QBO-native.
+ * AR Snapshot at any date — QBO-native first.
  *
- * GET /api/reports/ar-snapshot?asOf=YYYY-MM-DD
+ * GET /api/reports/ar-snapshot?asOf=YYYY-MM-DD[&source=qbo|local]
  *
  * Returns an array shaped like rows from the invoices table. Every downstream
- * aging report (AgingByCustomer, AgingByProject, AgingByRegion, AgingByRep,
- * ArHealthReport) consumes this list, so all of them get QBO-native data
- * automatically without UI changes.
+ * consumer (Dashboard KPIs + all AR aging reports: AgingByCustomer,
+ * AgingByProject, AgingByRegion, AgingByRep) buckets these rows by their
+ * dueDate, so they all reconcile to the same grand total automatically.
  *
- * Implementation: defers to the same engine that powers /api/reports/ar-aging.
- *   - Historical dates → QBO AgedReceivableDetail (authoritative)
- *   - Today           → local engine with qboBalance snapshot
+ * Source of truth:
+ *   - PRIMARY: QBO's own AgedReceivableDetail report (via fetchQboAging). This
+ *     is the exact engine QBO's UI uses, so our numbers match QBO 1:1 — totals
+ *     AND per-bucket figures. Each row ages by its own date (invoices, credit
+ *     memos, and journal entries alike), exactly as QBO presents them.
+ *   - FALLBACK: the local event-sourced engine (computeArAging), used only when
+ *     QBO is not connected or the API call fails. The local fallback does NOT
+ *     inject synthetic unapplied-payment / deposit-credit rows — those are a
+ *     net-AR reconciliation device that does not appear on QBO's aging report
+ *     and previously distorted the Current bucket.
  *
- * Each detail row from the aging engine is converted into a synthetic
- * invoice-shaped record so the aging UI functions can bucket it.
- *
- * Note: Journal Entries are filtered out at the aging-engine layer (to match
- * the user's PBI methodology), so they will not appear in any AR report.
+ * To force a source for debugging: ?source=qbo or ?source=local.
  */
 
 import { db } from "@/db";
@@ -25,6 +28,45 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, lte } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
 import type { DetailRow } from "@/lib/ar-aging";
+import { fetchQboAging } from "@/lib/qbo-aging-report";
+
+/** Subtract `days` from an ISO date (YYYY-MM-DD), returning YYYY-MM-DD.
+ *  Used to reconstruct the due date that reproduces QBO's own aging bucket:
+ *  for QBO's Report_Date method, daysPastDue = asOf − dueDate, so
+ *  dueDate = asOf − daysPastDue. Setting each row's dueDate this way means the
+ *  downstream dueDate-based bucketing lands every row in the exact bucket QBO
+ *  assigned it, regardless of any QBO-internal aging nuance. */
+function shiftDateBack(asOf: string, days: number): string {
+  const d = new Date(asOf + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - (Number.isFinite(days) ? days : 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Map a QBO-native aging detail row to our invoice-table row shape. */
+function qboRowToInvoiceShape(d: DetailRow, asOf: string) {
+  const isCredit = d.txnType === "Credit Memo" || d.openBalance < 0;
+  return {
+    id:              d.txnId,
+    customerId:      d.customerId,
+    projectId:       d.projectId ?? null,
+    invoiceNumber:   d.txnNumber,
+    invoiceDate:     d.txnDate,
+    // dueDate reconstructed from QBO's own aging so downstream bucketing == QBO.
+    dueDate:         shiftDateBack(asOf, d.daysPastDue),
+    currency:        d.currency,
+    total:           d.openBalance,   // QBO detail reports open balance only
+    paid:            0,
+    qboBalance:      d.openBalance,    // signed: invoices +, credits −
+    paymentStatus:   "Unpaid",
+    collectionStage: "New",
+    paidAt:          null,
+    qboId:           d.qboId,
+    txnType:         isCredit ? "CreditMemo" : "Invoice",
+    amount:          d.openBalance,
+    taxAmount:       0,
+    paymentTerms:    30,
+  };
+}
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -32,23 +74,37 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const asOf = url.searchParams.get("asOf");
+  const source = url.searchParams.get("source"); // "qbo" | "local" | null
   if (!asOf || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
     return bad("asOf=YYYY-MM-DD required");
   }
 
-  // Always use the local engine. The Aging by Customer / Project / Region /
-  // Rep tabs all consume this snapshot, so they're now all computed from our
-  // synced data — invoices, payments, payment_applications (incl. JE
-  // applications with per-line netting), JEs, deposits.
+  // ── PRIMARY: QBO-native AgedReceivableDetail ────────────────────────────────
+  // Mirrors QBO's UI report exactly. Skip only if explicitly forced to local.
+  if (source !== "local") {
+    try {
+      const qbo = await fetchQboAging(orgId!, asOf);
+      const rows = qbo.detail
+        .filter(d => Math.abs(d.openBalance) >= 0.005)
+        .map(d => qboRowToInvoiceShape(d, asOf));
+      return ok(rows);
+    } catch (qboErr: any) {
+      // QBO not connected / token expired / rate limited → fall back to local.
+      if (source === "qbo") {
+        return bad(`QBO aging unavailable: ${qboErr?.message || String(qboErr)}`, 502);
+      }
+      // otherwise silently fall through to the local engine below
+    }
+  }
+
+  // ── FALLBACK: local event-sourced engine ────────────────────────────────────
+  // Used when QBO is unreachable. We deliberately do NOT inject synthetic
+  // unapplied-payment / deposit-credit rows here — they are a net-AR device that
+  // does not appear on QBO's aging report and would distort the buckets.
   const localResult = await computeArAging(orgId!, asOf, false);
   const detail: DetailRow[] = localResult.detail;
 
-  // Load metadata from our invoices table so we can hydrate currency / customer /
-  // project linkage on the rows we know about. QBO rows that don't map to
-  // anything in our ledger still get a synthetic row so the totals tie.
-  // Bound the metadata query to invoices dated on or before asOf so that
-  // invoices created after the snapshot date don't pollute historical views
-  // with future totals or currency values.
+  // Hydrate currency / customer / project linkage from our invoices table.
   const ourInvs = await db.select({
     id:           invoices.id,
     customerId:   invoices.customerId,
@@ -62,48 +118,11 @@ export async function GET(req: Request) {
   }).from(invoices).where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf)));
   const ourInvById = new Map(ourInvs.map(i => [i.id, i]));
 
-  // Unapplied payment amounts per customer (from the payments table).
-  // The aging engine deducts these from the per-customer summary. We inject
-  // synthetic CreditMemo rows so every downstream report produces the same
-  // grand total as the main AR Aging report.
-  const unappliedByCustomer: Record<string, number> = localResult.unappliedByCustomer ?? {};
-
-  // Build a best-guess currency per customer from the detail rows so that
-  // synthetic rows (Unapplied Payment, Deposit Credit) use the correct
-  // currency instead of the hardcoded "EUR" default.
-  const currencyByCustomer = new Map<string, string>();
-  for (const d of detail) {
-    if (!currencyByCustomer.has(d.customerId) && d.currency) {
-      currencyByCustomer.set(d.customerId, d.currency);
-    }
-  }
-  // Also try our locally-stored invoices for customers who appear only via
-  // synthetic rows (no open invoice detail rows).
-  for (const inv of ourInvs) {
-    if (!currencyByCustomer.has(inv.customerId) && inv.currency) {
-      currencyByCustomer.set(inv.customerId, inv.currency);
-    }
-  }
-
-  // Deposit credits per customer (QBO Deposit AR lines with negative amount).
-  // These are NETTED against the customer's open invoice rows oldest-first
-  // (matching QBO's behaviour when a deposit has been applied against an
-  // invoice). Any credit remaining after netting all invoices gets a synthetic
-  // CreditMemo row. This prevents customers from appearing twice — once for
-  // their open invoice and once for the deposit credit that offsets it.
-  const depositCreditsRemaining: Record<string, number> = {
-    ...(localResult.depositCreditsByCustomer ?? {}),
-  };
-
-  const rows = detail.map((d) => {
-    const owned = ourInvById.get(d.txnId);
-    const isCm = d.txnType === "Credit Memo";
-
-    // For a CM: openBalance is negative (unapplied credit).
-    // For an Invoice: openBalance is the positive remaining amount.
-    // Map to our invoice row shape so invBuckets() and downstream functions
-    // work without modification.
-    if (isCm) {
+  const rows = detail
+    .filter(d => Math.abs(d.openBalance) >= 0.005)
+    .map((d) => {
+      const owned = ourInvById.get(d.txnId);
+      const isCredit = d.txnType === "Credit Memo" || d.openBalance < 0;
       return {
         id:              d.txnId,
         customerId:      owned?.customerId ?? d.customerId,
@@ -112,141 +131,19 @@ export async function GET(req: Request) {
         invoiceDate:     d.txnDate,
         dueDate:         d.dueDate,
         currency:        d.currency,
-        total:           owned?.total ?? d.openBalance, // CMs' face value is negative
+        total:           owned?.total ?? d.openBalance,
         paid:            0,
         qboBalance:      d.openBalance,
         paymentStatus:   "Unpaid",
         collectionStage: "New",
         paidAt:          null,
         qboId:           d.qboId,
-        txnType:         "CreditMemo",
+        txnType:         isCredit ? "CreditMemo" : "Invoice",
         amount:          d.openBalance,
         taxAmount:       0,
         paymentTerms:    30,
       };
-    }
-
-    // Non-CM rows with a negative openBalance are AR credits (e.g. a credit
-    // Journal Entry line or a negative Deposit).  If we map them as "Invoice"
-    // the Dashboard would include them in grossReceivable (correctly reducing
-    // it) while Reports' invBuckets() would silently drop them with its
-    // `if (out <= 0) return b` guard — causing a mismatch equal to the sum of
-    // those credits.  Mapping them as CreditMemo lets every downstream
-    // consumer (Dashboard activeCMs filter, invBuckets CM path, arByRegion
-    // activeCMs loop) apply the same negative-credit logic consistently.
-    if (d.openBalance < 0) {
-      return {
-        id:              d.txnId,
-        customerId:      owned?.customerId ?? d.customerId,
-        projectId:       owned?.projectId ?? d.projectId ?? null,
-        invoiceNumber:   d.txnNumber,
-        invoiceDate:     d.txnDate,
-        dueDate:         d.dueDate,
-        currency:        d.currency,
-        total:           d.openBalance,
-        paid:            0,
-        qboBalance:      d.openBalance,
-        paymentStatus:   "Unpaid",
-        collectionStage: "New",
-        paidAt:          null,
-        qboId:           d.qboId,
-        txnType:         "CreditMemo",
-        amount:          d.openBalance,
-        taxAmount:       0,
-        paymentTerms:    30,
-      };
-    }
-
-    // Invoice (positive open balance).
-    // Net any deposit credit for this customer against this invoice row.
-    // This mirrors QBO's behaviour: when a Deposit has been applied against an
-    // invoice, the invoice's open balance is reduced (and may reach zero).
-    // We apply credits oldest-overdue-first — detail rows arrive ordered by
-    // txnDate ascending from the aging engine.
-    const custId = owned?.customerId ?? d.customerId;
-    let effectiveOpenBalance = d.openBalance;
-    const depositCredit = depositCreditsRemaining[custId] ?? 0;
-    if (depositCredit > 0.005 && effectiveOpenBalance > 0.005) {
-      const applied = Math.min(depositCredit, effectiveOpenBalance);
-      depositCreditsRemaining[custId] = depositCredit - applied;
-      effectiveOpenBalance = effectiveOpenBalance - applied;
-    }
-    // If the deposit credit fully covers this invoice, drop the row (balance = 0).
-    if (effectiveOpenBalance < 0.005) return null;
-
-    return {
-      id:              d.txnId,
-      customerId:      custId,
-      projectId:       owned?.projectId ?? d.projectId ?? null,
-      invoiceNumber:   d.txnNumber,
-      invoiceDate:     d.txnDate,
-      dueDate:         d.dueDate,
-      currency:        d.currency,
-      total:           owned?.total ?? effectiveOpenBalance,
-      paid:            owned ? Math.max(0, (owned.total ?? 0) - effectiveOpenBalance) : 0,
-      qboBalance:      effectiveOpenBalance,
-      paymentStatus:   "Unpaid",
-      collectionStage: "New",
-      paidAt:          null,
-      qboId:           d.qboId,
-      txnType:         "Invoice",
-      amount:          effectiveOpenBalance,
-      taxAmount:       0,
-      paymentTerms:    30,
-    };
-  }).filter((r): r is NonNullable<typeof r> => r !== null);
-
-  // Synthetic CreditMemo rows for unapplied payments (from the payments table).
-  for (const [custId, unapplied] of Object.entries(unappliedByCustomer)) {
-    if (unapplied < 0.005) continue;
-    rows.push({
-      id:              `__unapplied__${custId}`,
-      customerId:      custId,
-      projectId:       null,
-      invoiceNumber:   "Unapplied Payment",
-      invoiceDate:     asOf,
-      dueDate:         asOf,
-      currency:        currencyByCustomer.get(custId) ?? "EUR",
-      total:           -unapplied,
-      paid:            0,
-      qboBalance:      -unapplied,
-      paymentStatus:   "Unpaid",
-      collectionStage: "New",
-      paidAt:          null,
-      qboId:           null,
-      txnType:         "CreditMemo",
-      amount:          -unapplied,
-      taxAmount:       0,
-      paymentTerms:    0,
     });
-  }
-
-  // Synthetic CreditMemo rows for any deposit credit that was NOT fully
-  // consumed by netting against invoice rows above. This happens when a
-  // customer has deposit credits but no (or fewer) open invoices to offset.
-  for (const [custId, remaining] of Object.entries(depositCreditsRemaining)) {
-    if (remaining < 0.005) continue;
-    rows.push({
-      id:              `__deposit_credit__${custId}`,
-      customerId:      custId,
-      projectId:       null,
-      invoiceNumber:   "Deposit Credit",
-      invoiceDate:     asOf,
-      dueDate:         asOf,
-      currency:        currencyByCustomer.get(custId) ?? "EUR",
-      total:           -remaining,
-      paid:            0,
-      qboBalance:      -remaining,
-      paymentStatus:   "Unpaid",
-      collectionStage: "New",
-      paidAt:          null,
-      qboId:           null,
-      txnType:         "CreditMemo",
-      amount:          -remaining,
-      taxAmount:       0,
-      paymentTerms:    0,
-    });
-  }
 
   return ok(rows);
 }
