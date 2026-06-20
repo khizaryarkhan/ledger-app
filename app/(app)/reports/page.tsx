@@ -544,14 +544,16 @@ function addBuckets(a: any, b: any) {
 function invBuckets(inv: any, asAt: Date) {
   const b = emptyBuckets();
 
-  // Credit memos: place unapplied balance (negative) in Current bucket.
-  // They don't age like invoices — they're available credits reducing net AR.
+  // Credit memos / unapplied-payment & deposit credits are EXCLUDED from the
+  // aging buckets. An aging report shows gross receivables by age; smearing a
+  // customer's available credit into "Current" makes that bucket go negative
+  // whenever credits exceed Current invoices (e.g. region-less customers
+  // holding large deposits), producing nonsensical negative totals and
+  // >100% / negative "% of AR" figures. This matches the Dashboard, which
+  // also shows gross AR by age and accounts for credits only in the net
+  // "Total Receivable" KPI.
   if (inv.txnType === "CreditMemo") {
-    const openBal = inv.qboBalance ?? 0; // already negative
-    if (openBal >= 0) return b; // fully applied — don't show
-    b["Current"] = openBal;
-    b.total = openBal;
-    return b;
+    return b; // contributes nothing to aging
   }
 
   // For historical view: if paidAt is after asAt (or null), invoice was open then — use full outstanding
