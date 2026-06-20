@@ -46,6 +46,7 @@ export default function IntegrationsSettingsPage() {
   const [sageConnecting, setSageConnecting] = useState(false);
   const [sageForm, setSageForm] = useState({ companyId: "", sageUserId: "", password: "", entityId: "" });
   const [sageConnectError, setSageConnectError] = useState<string | null>(null);
+  const [sageInstructionsOpen, setSageInstructionsOpen] = useState(false);
 
   // ── Unified sync ──────────────────────────────────────────────────────────
   const [syncing, setSyncing] = useState(false);
@@ -1190,13 +1191,168 @@ export default function IntegrationsSettingsPage() {
               ))}
             </div>
 
-            <Button onClick={() => { setSageConnectOpen(true); setSageConnectError(null); }}>
-              <Database size={14} />
-              <span className="ml-1.5">Connect Sage Intacct</span>
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button onClick={() => { setSageConnectOpen(true); setSageConnectError(null); }}>
+                <Database size={14} />
+                <span className="ml-1.5">Connect Sage Intacct</span>
+              </Button>
+              <button
+                onClick={() => setSageInstructionsOpen(true)}
+                className="text-[13px] text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+              >
+                Setup instructions
+              </button>
+            </div>
           </div>
         )}
       </Card>
+
+      {/* ── Sage instructions modal ── */}
+      {sageInstructionsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 border-b border-stone-800 flex items-start justify-between shrink-0">
+              <div>
+                <h2 className="text-base font-semibold text-white">Sage Intacct — Setup Guide</h2>
+                <p className="text-[13px] text-stone-400 mt-1">
+                  Complete these steps in your Sage Intacct account before connecting.
+                </p>
+              </div>
+              <button onClick={() => setSageInstructionsOpen(false)} className="text-stone-500 hover:text-white transition-colors ml-4 mt-0.5">
+                ✕
+              </button>
+            </div>
+
+            {/* Steps */}
+            <div className="overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Step 1 */}
+              <div className="flex gap-4">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center text-xs font-bold text-violet-400">1</div>
+                <div>
+                  <div className="text-sm font-semibold text-white mb-1">Enable Web Services</div>
+                  <div className="text-[13px] text-stone-400 leading-relaxed">
+                    Log into Sage Intacct as a Company Admin, then go to:
+                  </div>
+                  <div className="mt-2 px-3 py-2 bg-stone-800 rounded-lg font-mono text-[12px] text-violet-300">
+                    Company → Admin → Subscriptions → tick <strong>Web Services</strong> → Save
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex gap-4">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center text-xs font-bold text-violet-400">2</div>
+                <div>
+                  <div className="text-sm font-semibold text-white mb-1">Authorise Primeaccountax</div>
+                  <div className="text-[13px] text-stone-400 leading-relaxed">
+                    This allows our platform to connect to your Sage account. Go to:
+                  </div>
+                  <div className="mt-2 px-3 py-2 bg-stone-800 rounded-lg font-mono text-[12px] text-violet-300">
+                    Company → Admin → Web Services Authorizations → Add
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    {[
+                      { label: "Sender ID", value: "Primeaccountax" },
+                      { label: "Description", value: "Primeaccountax Integration" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex items-center gap-2 text-[12px]">
+                        <span className="text-stone-500 w-24 shrink-0">{label}:</span>
+                        <span className="font-mono bg-stone-800 border border-stone-700 px-2 py-0.5 rounded text-white">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[12px] text-stone-500">Click <strong className="text-stone-400">Save</strong> when done.</div>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex gap-4">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center text-xs font-bold text-violet-400">3</div>
+                <div>
+                  <div className="text-sm font-semibold text-white mb-1">Create a dedicated API user</div>
+                  <div className="text-[13px] text-stone-400 leading-relaxed">
+                    Create a user specifically for this integration — do not use a personal login. Go to:
+                  </div>
+                  <div className="mt-2 px-3 py-2 bg-stone-800 rounded-lg font-mono text-[12px] text-violet-300">
+                    Company → Admin → Users → Add User
+                  </div>
+                  <div className="mt-2 space-y-1.5 text-[12px] text-stone-400">
+                    {[
+                      "Set User Type to Business User",
+                      "Tick Web Services only (no UI login needed)",
+                      "Set Admin Privileges to Full (or read-only if preferred)",
+                      "Grant permissions: AR, AP, Customers, Vendors",
+                      "Note the User ID and Password you set",
+                    ].map(s => (
+                      <div key={s} className="flex items-start gap-2">
+                        <CheckCircle size={12} className="text-violet-400 mt-0.5 shrink-0" />
+                        <span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="flex gap-4">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center text-xs font-bold text-violet-400">4</div>
+                <div>
+                  <div className="text-sm font-semibold text-white mb-1">Find your Company ID</div>
+                  <div className="text-[13px] text-stone-400 leading-relaxed">
+                    Your Company ID is shown in the top-right corner of Sage Intacct when logged in, or under:
+                  </div>
+                  <div className="mt-2 px-3 py-2 bg-stone-800 rounded-lg font-mono text-[12px] text-violet-300">
+                    Company → Company Information → Company ID
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 5 */}
+              <div className="flex gap-4">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xs font-bold text-emerald-400">5</div>
+                <div>
+                  <div className="text-sm font-semibold text-white mb-1">Enter credentials here</div>
+                  <div className="text-[13px] text-stone-400 leading-relaxed">
+                    Come back to this page and click <strong className="text-white">Connect Sage Intacct</strong>. Enter:
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    {[
+                      { label: "Company ID", value: "Your Sage Company ID" },
+                      { label: "User ID",    value: "The API user created in Step 3" },
+                      { label: "Password",   value: "That user's password" },
+                      { label: "Entity ID",  value: "Leave blank unless multi-entity" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex items-center gap-2 text-[12px]">
+                        <span className="text-stone-500 w-24 shrink-0">{label}:</span>
+                        <span className="text-stone-300">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Note */}
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 text-[12px] text-amber-300 leading-relaxed">
+                <strong>Estimated setup time: ~10 minutes.</strong> You only need to do this once. All credentials are encrypted at rest and never shared.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-stone-800 flex items-center justify-between shrink-0">
+              <button onClick={() => setSageInstructionsOpen(false)} className="text-sm text-stone-500 hover:text-stone-300 transition-colors">
+                Close
+              </button>
+              <Button onClick={() => { setSageInstructionsOpen(false); setSageConnectOpen(true); setSageConnectError(null); }}>
+                <Database size={14} />
+                <span className="ml-1.5">Connect Sage Intacct</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Sage connect modal ── */}
       {sageConnectOpen && (
