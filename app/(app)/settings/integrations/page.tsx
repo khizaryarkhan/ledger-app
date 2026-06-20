@@ -1255,16 +1255,20 @@ export default function IntegrationsSettingsPage() {
                   </div>
                   <div className="mt-2 space-y-1.5">
                     {[
-                      { label: "Sender ID", value: "Primeaccountax" },
+                      { label: "Sender ID",   value: "Primeaccountax" },
+                      { label: "Password",    value: "Primeaccountax1!" },
                       { label: "Description", value: "Primeaccountax Integration" },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex items-center gap-2 text-[12px]">
                         <span className="text-stone-500 w-24 shrink-0">{label}:</span>
-                        <span className="font-mono bg-stone-800 border border-stone-700 px-2 py-0.5 rounded text-white">{value}</span>
+                        <span className="font-mono bg-stone-800 border border-stone-700 px-2 py-0.5 rounded text-white select-all">{value}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-2 text-[12px] text-stone-500">Click <strong className="text-stone-400">Save</strong> when done.</div>
+                  <div className="mt-2 text-[12px] text-amber-400/80">
+                    ⚠ Enter these values exactly as shown — they must match our system.
+                  </div>
+                  <div className="mt-1 text-[12px] text-stone-500">Click <strong className="text-stone-400">Save</strong> when done.</div>
                 </div>
               </div>
 
