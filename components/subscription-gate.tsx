@@ -18,7 +18,7 @@ type View = "options" | "plans" | "request" | "submitted";
 
 export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const pathname  = usePathname();
-  const { status: authStatus } = useSession();
+  const { data: session, status: authStatus } = useSession();
 
   const [access, setAccess]       = useState<any>(null);
   const [checking, setChecking]   = useState(true);
@@ -35,9 +35,11 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const [submitting, setSubmitting] = useState(false);
 
   const isAllowed = ALLOWED_PATHS.some(p => pathname.startsWith(p));
+  const role = (session?.user as any)?.role;
+  const isAdmin = role === "super_admin" || role === "platform_admin";
 
   useEffect(() => {
-    if (authStatus !== "authenticated" || isAllowed) {
+    if (authStatus !== "authenticated" || isAllowed || isAdmin) {
       setChecking(false);
       return;
     }
@@ -95,6 +97,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Platform admins and super admins always have full access regardless of subscription
+  if (isAdmin) return <>{children}</>;
   // Show children normally in all non-blocked cases
   if (checking || isAllowed || authStatus !== "authenticated") return <>{children}</>;
   if (!access?.blocked) return <>{children}</>;
