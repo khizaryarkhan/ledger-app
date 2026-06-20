@@ -115,9 +115,10 @@ async function sageFetchAll(
 
     const resp = await sagePost(buildXml(creds, fn));
     const resultBlock = assertSuccess(resp, fnId);
-    const dataBlock = xmlBlocks(resultBlock, "data")[0] ?? "";
-    const numRemainingMatch = dataBlock.match(/numremaining="(\d+)"/);
+    // numremaining is an attribute on the <data> tag itself, not child content
+    const numRemainingMatch = resultBlock.match(/numremaining="(\d+)"/i);
     const numRemaining = numRemainingMatch ? parseInt(numRemainingMatch[1]) : 0;
+    const dataBlock = xmlBlocks(resultBlock, "data")[0] ?? "";
     const batch = xmlBlocks(dataBlock, objTag);
     records.push(...batch);
     if (numRemaining === 0 || batch.length === 0) break;

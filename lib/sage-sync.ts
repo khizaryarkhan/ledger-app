@@ -135,10 +135,12 @@ async function sageFetchAll(
     const resp = await sagePost(buildXml(creds, fn));
     const resultBlock = assertSuccess(resp, fnId);
 
-    const dataBlock = xmlBlocks(resultBlock, "data")[0] ?? "";
-    const numRemainingMatch = dataBlock.match(/numremaining="(\d+)"/);
+    // numremaining is an attribute on the <data> tag itself, not child content —
+    // so we must search resultBlock, not the content extracted by xmlBlocks.
+    const numRemainingMatch = resultBlock.match(/numremaining="(\d+)"/i);
     const numRemaining = numRemainingMatch ? parseInt(numRemainingMatch[1]) : 0;
 
+    const dataBlock = xmlBlocks(resultBlock, "data")[0] ?? "";
     const batch = xmlBlocks(dataBlock, objTag);
     records.push(...batch);
 
@@ -274,12 +276,11 @@ export async function runSageSync(orgId: string, userId: string) {
 
       if (!existing) {
         const code = `SAGE-${sageId}`.slice(0, 64);
-        // Try to insert; skip silently if code collision
-        await db.insert(customers).values({
+        const inserted = await db.insert(customers).values({
           orgId, name, code, currency, status,
           sageIntacctId: sageId,
-        }).onConflictDoNothing();
-        customersCreated++;
+        }).onConflictDoNothing().returning({ id: customers.id });
+        if (inserted.length > 0) customersCreated++;
       } else {
         await db.update(customers)
           .set({ name, currency, status, updatedAt: new Date() })
@@ -329,7 +330,10 @@ export async function runSageSync(orgId: string, userId: string) {
         .from(customers)
         .where(and(eq(customers.orgId, orgId), eq(customers.sageIntacctId, customerId)))
         .limit(1);
-      if (!customer) continue;
+      if (!customer) {
+        console.warn(`Sage AR sync: skipping invoice ${recordNo} — customer ${customerId} not found in org ${orgId}`);
+        continue;
+      }
 
       const invoiceDate = parseSageDate(whenCreated);
       const dueDate     = parseSageDate(whenDue) || invoiceDate;
@@ -405,7 +409,10 @@ export async function runSageSync(orgId: string, userId: string) {
         .from(customers)
         .where(and(eq(customers.orgId, orgId), eq(customers.sageIntacctId, customerId)))
         .limit(1);
-      if (!customer) continue;
+      if (!customer) {
+        console.warn(`Sage AR sync: skipping credit memo ${recordNo} — customer ${customerId} not found in org ${orgId}`);
+        continue;
+      }
 
       const sageKey     = `CM-${recordNo}`;
       const invoiceDate = parseSageDate(whenCreated);
