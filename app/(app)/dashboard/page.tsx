@@ -42,8 +42,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
     activeCMs.forEach((i: any) => { const c = i.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + b(i); });
     const dominantCurrency = Object.keys(byCcy)[0] ?? "EUR";
 
-    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0)
-      + activeCMs.reduce((s: number, i: any) => s + b(i), 0);
+    const current = open.filter((i: any) => daysOverdue(i.dueDate) <= 0).reduce((s: number, i: any) => s + b(i), 0);
     const b1_30   = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 0 && d <= 30; }).reduce((s: number, i: any) => s + b(i), 0);
     const b31_60  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 30 && d <= 60; }).reduce((s: number, i: any) => s + b(i), 0);
     const b61_90  = open.filter((i: any) => { const d = daysOverdue(i.dueDate); return d > 60 && d <= 90; }).reduce((s: number, i: any) => s + b(i), 0);
@@ -513,10 +512,12 @@ export default function DashboardPage() {
     overdue.forEach((i: any) => { const c = i.currency || "EUR"; overdueByCurrency[c] = (overdueByCurrency[c] || 0) + openBal(i); });
     const totalOverdue = overdue.reduce((s: number, i: any) => s + openBal(i), 0);
 
-    // Aging buckets — CMs land in Current as negative credits (same as AR Reports)
+    // Aging buckets — gross AR by age (credits/CMs excluded; they're already
+    // deducted in totalByCurrency / totalReceivable shown in the KPI card).
+    // Including large unapplied-payment CMs in Current would make that bucket
+    // deeply negative and break the bar chart scale.
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
-    activeCMs.forEach((i: any) => { buckets["Current"] += openBal(i); });
     const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
     const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
     const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);
