@@ -1175,7 +1175,9 @@ export default function IntegrationsSettingsPage() {
         <div className="flex items-center gap-2 mb-4">
           <Database size={16} className="text-violet-400" />
           <h3 className="text-sm font-semibold text-white">Sage Intacct</h3>
-          {sageStatus?.connected && <Badge variant="green" size="sm">Connected</Badge>}
+          {sageStatus?.connected
+            ? <Badge variant="green" size="sm">Connected</Badge>
+            : <Badge variant="neutral" size="sm">Coming soon</Badge>}
         </div>
 
         {sageStatus === null ? (
@@ -1241,14 +1243,14 @@ export default function IntegrationsSettingsPage() {
             )}
           </div>
         ) : (
-          /* Not connected */
+          /* Coming soon — Sage web-services sender registration pending */
           <div className="space-y-5">
             <p className="text-sm text-stone-400 leading-relaxed">
-              Connect Sage Intacct to sync your customers, invoices, credit memos, vendors,
-              and bills. Uses credential-based auth — no OAuth redirect required.
+              Sync your Sage Intacct customers, invoices, credit memos, vendors and bills.
+              <span className="text-stone-500"> This integration is being finalised and will be available soon.</span>
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 opacity-60">
               {[
                 { icon: <RefreshCw size={13} />, text: "AR customers and invoices synced" },
                 { icon: <Check size={13} />,     text: "Invoices close when paid in Sage" },
@@ -1263,16 +1265,10 @@ export default function IntegrationsSettingsPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button onClick={() => { setSageConnectOpen(true); setSageConnectError(null); }}>
-                <Database size={14} />
-                <span className="ml-1.5">Connect Sage Intacct</span>
+              <Button disabled className="opacity-60 cursor-not-allowed">
+                <Clock size={14} />
+                <span className="ml-1.5">Coming soon</span>
               </Button>
-              <button
-                onClick={() => setSageInstructionsOpen(true)}
-                className="text-[13px] text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
-              >
-                Setup instructions
-              </button>
             </div>
           </div>
         )}
