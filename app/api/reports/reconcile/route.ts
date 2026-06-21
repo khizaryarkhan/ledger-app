@@ -26,13 +26,13 @@
 
 import { db } from "@/db";
 import {
-  customers, invoices,
-  journalEntryArLines, deposits, refundReceipts, payments,
+  customers, invoices, payments,
   qboTokens, xeroTokens, sageIntacctCredentials,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, lte } from "drizzle-orm";
 import { fetchQboAging } from "@/lib/qbo-aging-report";
+import { computeArAging } from "@/lib/ar-aging";
 
 export const maxDuration = 60;
 
@@ -122,17 +122,26 @@ export async function GET(req: Request) {
     addOur(inv.txnType === "CreditMemo" ? "Credit Memo" : "Invoice", bal);
   }
 
-  // Other AR-affecting transaction types we capture in their own tables.
-  const [jeLines, depRows, refundRows, payRows] = await Promise.all([
-    db.select({ amount: journalEntryArLines.amount, voided: journalEntryArLines.voided })
-      .from(journalEntryArLines).where(eq(journalEntryArLines.orgId, orgId!)),
-    db.select({ amount: deposits.amount }).from(deposits).where(eq(deposits.orgId, orgId!)),
-    db.select({ totalAmount: refundReceipts.totalAmount }).from(refundReceipts).where(eq(refundReceipts.orgId, orgId!)),
-    db.select({ unappliedAmount: payments.unappliedAmount }).from(payments).where(eq(payments.orgId, orgId!)),
-  ]);
-  for (const j of jeLines) { if (!j.voided && Math.abs(j.amount ?? 0) >= 0.005) addOur("Journal Entry", j.amount ?? 0); }
-  for (const d of depRows) { if (Math.abs(d.amount ?? 0) >= 0.005) addOur("Deposit", d.amount ?? 0); }
-  for (const r of refundRows) { if (Math.abs(r.totalAmount ?? 0) >= 0.005) addOur("Refund Receipt", -(r.totalAmount ?? 0)); }
+  // Journal Entries & AR-account Deposits: use the engine's NET-OPEN figure
+  // (gross JE/deposit lines netted by the applications/payments against them),
+  // NOT the raw table sum — otherwise we'd compare every historical AR-JE line
+  // against QBO's single net-open position. The engine maps AR-debit deposits
+  // to "Journal Entry" too, and nets negative deposit credits into the customer
+  // summary, mirroring QBO's aged report.
+  let engine: Awaited<ReturnType<typeof computeArAging>> | null = null;
+  try {
+    engine = await computeArAging(orgId!, asOf);
+    for (const d of engine.detail) {
+      if (d.txnType !== "Journal Entry") continue;       // invoices/CMs come from the synced balances above
+      if (Math.abs(d.openBalance) < 0.005) continue;
+      addOur("Journal Entry", d.openBalance);
+    }
+  } catch { /* engine failure shouldn't break the reconciliation */ }
+
+  // Unapplied payments are deducted in the engine summary (not detail), so read
+  // them straight from the payments table.
+  const payRows = await db.select({ unappliedAmount: payments.unappliedAmount })
+    .from(payments).where(eq(payments.orgId, orgId!));
   for (const p of payRows) { if ((p.unappliedAmount ?? 0) >= 0.005) addOur("Unapplied Payment", -(p.unappliedAmount ?? 0)); }
 
   const custs = await db.select({
