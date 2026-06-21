@@ -27,6 +27,7 @@
 import { db } from "@/db";
 import {
   customers, invoices,
+  journalEntryArLines, deposits, refundReceipts, payments,
   qboTokens, xeroTokens, sageIntacctCredentials,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -42,6 +43,21 @@ type RowOut = {
   currency:     string;
   syncedAR:     number;   // provider's authoritative open balance, summed
 };
+
+/** Canonical transaction-type label so the provider's labels and ours line up. */
+function normaliseTxnType(raw: string): string {
+  const t = raw.toLowerCase();
+  if (t.includes("journal")) return "Journal Entry";
+  if (t.includes("credit"))  return "Credit Memo";
+  if (t.includes("invoice")) return "Invoice";
+  if (t.includes("deposit")) return "Deposit";
+  if (t.includes("refund"))  return "Refund Receipt";
+  if (t.includes("payment")) return "Unapplied Payment";
+  return raw || "Other";
+}
+
+type TypeAgg = { providerCount: number; providerAmount: number; ourCount: number; ourAmount: number };
+function emptyTypeAgg(): TypeAgg { return { providerCount: 0, providerAmount: 0, ourCount: 0, ourAmount: 0 }; }
 
 /** Provider's authoritative per-invoice open balance (whichever is populated).
  *  CMs/credits carry a negative balance; falls back to total − paid for
@@ -82,10 +98,20 @@ export async function GET(req: Request) {
     total:              invoices.total,
     paid:               invoices.paid,
     paymentStatus:      invoices.paymentStatus,
+    txnType:            invoices.txnType,
     qboBalance:         invoices.qboBalance,
     xeroBalance:        invoices.xeroBalance,
     sageIntacctBalance: invoices.sageIntacctBalance,
   }).from(invoices).where(and(eq(invoices.orgId, orgId!), lte(invoices.invoiceDate, asOf)));
+
+  // ── Our open AR contribution, grouped by transaction type ──────────────────
+  const ourByType = new Map<string, TypeAgg>();
+  const addOur = (type: string, amount: number) => {
+    const k = normaliseTxnType(type);
+    const a = ourByType.get(k) ?? emptyTypeAgg();
+    a.ourCount += 1; a.ourAmount += amount;
+    ourByType.set(k, a);
+  };
 
   const syncedByCustomer = new Map<string, number>();
   for (const inv of invs) {
@@ -93,7 +119,21 @@ export async function GET(req: Request) {
     const bal = providerBalanceOf(inv);
     if (Math.abs(bal) < 0.005) continue;
     syncedByCustomer.set(inv.customerId, (syncedByCustomer.get(inv.customerId) ?? 0) + bal);
+    addOur(inv.txnType === "CreditMemo" ? "Credit Memo" : "Invoice", bal);
   }
+
+  // Other AR-affecting transaction types we capture in their own tables.
+  const [jeLines, depRows, refundRows, payRows] = await Promise.all([
+    db.select({ amount: journalEntryArLines.amount, voided: journalEntryArLines.voided })
+      .from(journalEntryArLines).where(eq(journalEntryArLines.orgId, orgId!)),
+    db.select({ amount: deposits.amount }).from(deposits).where(eq(deposits.orgId, orgId!)),
+    db.select({ totalAmount: refundReceipts.totalAmount }).from(refundReceipts).where(eq(refundReceipts.orgId, orgId!)),
+    db.select({ unappliedAmount: payments.unappliedAmount }).from(payments).where(eq(payments.orgId, orgId!)),
+  ]);
+  for (const j of jeLines) { if (!j.voided && Math.abs(j.amount ?? 0) >= 0.005) addOur("Journal Entry", j.amount ?? 0); }
+  for (const d of depRows) { if (Math.abs(d.amount ?? 0) >= 0.005) addOur("Deposit", d.amount ?? 0); }
+  for (const r of refundRows) { if (Math.abs(r.totalAmount ?? 0) >= 0.005) addOur("Refund Receipt", -(r.totalAmount ?? 0)); }
+  for (const p of payRows) { if ((p.unappliedAmount ?? 0) >= 0.005) addOur("Unapplied Payment", -(p.unappliedAmount ?? 0)); }
 
   const custs = await db.select({
     id: customers.id, name: customers.name, code: customers.code, currency: customers.currency,
@@ -114,20 +154,53 @@ export async function GET(req: Request) {
   }
   const syncedTotal = rows.reduce((s, r) => s + r.syncedAR, 0);
 
-  // ── Independent provider check (QBO live report total) ─────────────────────
+  // ── Independent provider check (QBO live report total + by-type) ───────────
   const providers = await detectProviders(orgId!);
   let providerReportTotal: number | null = null;
   let providerReportSource: string | null = null;
   let providerCheckError: string | null = null;
+  const providerByType = new Map<string, TypeAgg>();
   if (providers.qbo) {
     try {
       const qbo = await fetchQboAging(orgId!, asOf);
       providerReportTotal = qbo.grandTotals.total;
       providerReportSource = "QuickBooks AgedReceivableDetail";
+      // Group the provider's open AR rows by QBO's raw transaction type
+      // (stashed as a `qbotype:` flag on each detail row).
+      for (const d of qbo.detail) {
+        if (Math.abs(d.openBalance) < 0.005) continue;
+        const rawFlag = d.flags.find(f => f.startsWith("qbotype:"));
+        const raw = rawFlag ? rawFlag.slice("qbotype:".length) : (d.txnType || "Other");
+        const k = normaliseTxnType(raw);
+        const a = providerByType.get(k) ?? emptyTypeAgg();
+        a.providerCount += 1; a.providerAmount += d.openBalance;
+        providerByType.set(k, a);
+      }
     } catch (e: any) {
       providerCheckError = e?.message || String(e);
     }
   }
+
+  // ── Merge into a single by-transaction-type gap table ──────────────────────
+  const allTypes = new Set<string>([...ourByType.keys(), ...providerByType.keys()]);
+  const byType = [...allTypes].map(type => {
+    const ours = ourByType.get(type) ?? emptyTypeAgg();
+    const prov = providerByType.get(type) ?? emptyTypeAgg();
+    const providerAmount = prov.providerAmount;
+    const ourAmount = ours.ourAmount;
+    return {
+      type,
+      providerCount: prov.providerCount,
+      providerAmount,
+      ourCount: ours.ourCount,
+      ourAmount,
+      // gap = what the provider shows minus what we carry for this type.
+      gap: providerAmount - ourAmount,
+      // QBO's aged report doesn't surface every type (e.g. deposits/refunds it
+      // nets silently); flag types we have but the provider report never listed.
+      providerListsType: providerByType.has(type),
+    };
+  }).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
 
   const variance = providerReportTotal != null ? syncedTotal - providerReportTotal : null;
 
@@ -146,6 +219,7 @@ export async function GET(req: Request) {
     providerCheckError,
     variance,
     reconciled: variance == null ? null : Math.abs(variance) < Math.max(1, syncedTotal * 0.005),
+    byType,
     rows: rows.sort((a, b) => Math.abs(b.syncedAR) - Math.abs(a.syncedAR)),
   });
 }

@@ -11,6 +11,12 @@ type SelfReconRow = {
   customerId: string; customerName: string; customerCode: string; currency: string;
   syncedAR: number;
 };
+type SelfReconType = {
+  type: string;
+  providerCount: number; providerAmount: number;
+  ourCount: number; ourAmount: number;
+  gap: number; providerListsType: boolean;
+};
 type SelfRecon = {
   asOf: string;
   providers: string[];
@@ -20,6 +26,7 @@ type SelfRecon = {
   providerCheckError: string | null;
   variance: number | null;
   reconciled: boolean | null;
+  byType: SelfReconType[];
   rows: SelfReconRow[];
 };
 
@@ -178,6 +185,53 @@ export default function ReconcilePage() {
             {selfRecon.reconciled === true && (
               <div className="mb-4 flex items-center gap-2 text-[13px] text-emerald-700">
                 <CheckCircle size={16} /> Our receivables reconcile to {selfRecon.providerReportSource}. The figures the dashboard and reports show are correct.
+              </div>
+            )}
+
+            {/* Reconcile by transaction type — assess what's captured per type */}
+            {selfRecon.byType && selfRecon.byType.length > 0 && (
+              <div className="mb-5">
+                <div className="text-[12px] font-semibold text-stone-700 mb-1">By transaction type</div>
+                <p className="text-[11px] text-stone-500 mb-2">
+                  Open AR each transaction type contributes — the provider's aged report vs what we captured. The gap shows where data is missing.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+                        <th className="text-left font-semibold px-3 py-2">Transaction type</th>
+                        <th className="text-right font-semibold px-3 py-2">Provider (count)</th>
+                        <th className="text-right font-semibold px-3 py-2">Provider amount</th>
+                        <th className="text-right font-semibold px-3 py-2">Our count</th>
+                        <th className="text-right font-semibold px-3 py-2">Our amount</th>
+                        <th className="text-right font-semibold px-3 py-2">Gap</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selfRecon.byType.map(t => {
+                        const ccy = selfRecon.rows[0]?.currency || "EUR";
+                        const hasGap = Math.abs(t.gap) >= 1;
+                        return (
+                          <tr key={t.type} className="border-b border-stone-100">
+                            <td className="px-3 py-2 font-medium text-stone-800">
+                              {t.type}
+                              {!t.providerListsType && (
+                                <span className="ml-2 text-[10px] text-stone-400">(not on provider report)</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-stone-500">{t.providerCount || "—"}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-stone-600">{t.providerAmount ? fmt.money(t.providerAmount, ccy) : "—"}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-stone-500">{t.ourCount || "—"}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-stone-600">{t.ourAmount ? fmt.money(t.ourAmount, ccy) : "—"}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums font-semibold ${hasGap ? "text-rose-700" : "text-emerald-700"}`}>
+                              {fmt.money(t.gap, ccy)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

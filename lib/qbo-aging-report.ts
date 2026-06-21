@@ -361,6 +361,10 @@ export async function fetchQboAging(
     // Stash the QBO name on the row so the UI can render it when our
     // customers table has no matching record.
     if (!ourCust && rawName) flags.push(`qbo-name:${rawName}`);
+    // Stash QBO's RAW transaction type (Invoice, Credit Memo, Journal Entry,
+    // Payment, Deposit, …) so reconciliation can group the provider's open AR
+    // by transaction type and surface exactly which types we're missing.
+    flags.push(`qbotype:${String(txnTypeRaw || "").trim() || "Unknown"}`);
 
     detail.push({
       customerId:   resolvedCustomerId,
