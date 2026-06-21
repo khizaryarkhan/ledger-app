@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
-  Building2, FileText, LogOut, ShieldCheck, ChevronRight,
+  Building2, FileText, LogOut, ShieldCheck, ChevronRight, ReceiptText,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: "/admin",             icon: LayoutDashboard, label: "Overview",       exact: true },
   { href: "/admin/leads",       icon: FileText,        label: "Leads"                        },
   { href: "/admin/subscriptions", icon: CreditCard,    label: "Subscriptions"                },
+  { href: "/admin/invoices",      icon: ReceiptText,   label: "Invoices"                     },
   { href: "/admin/cancellations", icon: XCircle,       label: "Cancellations"                },
   { href: "/admin/audit",       icon: ScrollText,      label: "Audit Log"                    },
   { href: "/admin/team",        icon: Users,           label: "Admin Team"                   },
