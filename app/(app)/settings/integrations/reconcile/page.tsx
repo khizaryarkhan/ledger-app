@@ -6,20 +6,21 @@ import { Card, Button, Badge } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { ChevronLeft, RefreshCw, CheckCircle, AlertTriangle, ExternalLink, Filter } from "lucide-react";
 
-// ── Provider-agnostic reconciliation (instant, no per-customer API calls) ──────
+// ── Provider-agnostic reconciliation (synced AR vs provider's own report) ──────
 type SelfReconRow = {
   customerId: string; customerName: string; customerCode: string; currency: string;
-  providerStatedAR: number; reconstructedAR: number; variance: number;
-  status: "match" | "drift";
+  syncedAR: number;
 };
 type SelfRecon = {
   asOf: string;
   providers: string[];
+  syncedTotal: number;
+  providerReportTotal: number | null;
+  providerReportSource: string | null;
+  providerCheckError: string | null;
+  variance: number | null;
+  reconciled: boolean | null;
   rows: SelfReconRow[];
-  totals: {
-    customers: number; inDrift: number; inMatch: number;
-    providerStatedTotal: number; reconstructedTotal: number; variance: number;
-  };
 };
 
 type Row = {
@@ -118,21 +119,21 @@ export default function ReconcilePage() {
         </p>
       </div>
 
-      {/* ── Provider-agnostic reconciliation: our reconstruction vs provider-stated ── */}
+      {/* ── Our displayed AR vs the provider's own report total ─────────────────── */}
       <Card className="mb-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-sm font-semibold text-stone-900">Ledger reconciliation</h2>
+            <h2 className="text-sm font-semibold text-stone-900">Receivables reconciliation</h2>
             <p className="text-[12px] text-stone-500 mt-0.5">
-              Our independent reconstruction (rebuilt from captured invoices, payments &amp; credits) vs each provider's stated open balance.
+              The AR we display — built from each provider's authoritative per-invoice balance we synced — checked against the provider's own aged-receivables total.
               {selfRecon && selfRecon.providers.length > 0 && (
                 <> Source{selfRecon.providers.length > 1 ? "s" : ""}: <span className="font-medium text-stone-700">{selfRecon.providers.join(", ")}</span>.</>
               )}
             </p>
           </div>
-          {selfRecon && (
-            <Badge variant={Math.abs(selfRecon.totals.variance) < 1 ? "green" : "red"} size="sm">
-              {Math.abs(selfRecon.totals.variance) < 1 ? "Reconciled" : `Δ ${fmt.money(selfRecon.totals.variance, selfRecon.rows[0]?.currency || "EUR")}`}
+          {selfRecon && selfRecon.reconciled != null && (
+            <Badge variant={selfRecon.reconciled ? "green" : "red"} size="sm">
+              {selfRecon.reconciled ? "Reconciled" : `Δ ${fmt.money(selfRecon.variance ?? 0, selfRecon.rows[0]?.currency || "EUR")}`}
             </Badge>
           )}
         </div>
@@ -148,67 +149,63 @@ export default function ReconcilePage() {
           <>
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="rounded-lg ring-1 ring-stone-200 p-3">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Provider stated AR</div>
-                <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(selfRecon.totals.providerStatedTotal, selfRecon.rows[0]?.currency || "EUR")}</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Our receivables (displayed)</div>
+                <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(selfRecon.syncedTotal, selfRecon.rows[0]?.currency || "EUR")}</div>
+                <div className="text-[11px] text-stone-500 mt-1">{selfRecon.rows.length} customers with a balance</div>
               </div>
               <div className="rounded-lg ring-1 ring-stone-200 p-3">
-                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Our reconstruction</div>
-                <div className="text-xl font-semibold text-stone-900 tabular-nums">{fmt.money(selfRecon.totals.reconstructedTotal, selfRecon.rows[0]?.currency || "EUR")}</div>
+                <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Provider report total</div>
+                <div className="text-xl font-semibold text-stone-900 tabular-nums">
+                  {selfRecon.providerReportTotal != null ? fmt.money(selfRecon.providerReportTotal, selfRecon.rows[0]?.currency || "EUR") : "—"}
+                </div>
+                <div className="text-[11px] text-stone-500 mt-1">{selfRecon.providerReportSource ?? "live check available for QuickBooks"}</div>
               </div>
               <div className="rounded-lg ring-1 ring-stone-200 p-3">
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Variance</div>
-                <div className={`text-xl font-semibold tabular-nums ${Math.abs(selfRecon.totals.variance) < 1 ? "text-emerald-700" : "text-rose-700"}`}>
-                  {fmt.money(selfRecon.totals.variance, selfRecon.rows[0]?.currency || "EUR")}
+                <div className={`text-xl font-semibold tabular-nums ${selfRecon.variance == null ? "text-stone-400" : selfRecon.reconciled ? "text-emerald-700" : "text-rose-700"}`}>
+                  {selfRecon.variance != null ? fmt.money(selfRecon.variance, selfRecon.rows[0]?.currency || "EUR") : "—"}
                 </div>
-                <div className="text-[11px] text-stone-500 mt-1">{selfRecon.totals.inDrift} of {selfRecon.totals.customers} customers drift</div>
+                <div className="text-[11px] text-stone-500 mt-1">vs provider's own report</div>
               </div>
             </div>
 
-            {/* Explain any variance */}
-            {Math.abs(selfRecon.totals.variance) >= 1 && (
+            {selfRecon.providerCheckError && (
               <div className="mb-4 px-3 py-2 rounded-md bg-amber-50 ring-1 ring-amber-200 text-[12px] text-amber-800">
-                <div className="font-medium mb-1">A variance means a payment or credit isn't fully captured yet.</div>
-                Our reconstruction rebuilds each invoice as <code>total − applied payments</code>. The most common cause of drift is a
-                credit memo applied directly to an invoice (no payment transaction): the provider nets it into the invoice balance,
-                but we never recorded it as an application — so our reconstruction still shows the invoice open. The drifted customers
-                below show exactly where, and by how much.
+                Couldn't fetch the provider's live report total ({selfRecon.providerCheckError}). The displayed AR above is still computed from the per-invoice balances we synced from the provider.
               </div>
             )}
 
-            {/* Drifted customers */}
-            {selfRecon.rows.filter(r => r.status === "drift").length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
-                      <th className="text-left font-semibold px-3 py-2">Customer</th>
-                      <th className="text-right font-semibold px-3 py-2">Provider stated</th>
-                      <th className="text-right font-semibold px-3 py-2">Reconstructed</th>
-                      <th className="text-right font-semibold px-3 py-2">Variance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selfRecon.rows.filter(r => r.status === "drift").slice(0, 50).map(r => (
-                      <tr key={r.customerId} className="border-b border-stone-100 hover:bg-stone-50">
-                        <td className="px-3 py-2">
-                          <Link href={`/customers/${r.customerId}`} className="text-stone-800 hover:text-brand-orange font-medium">{r.customerName}</Link>
-                          <div className="text-[10px] text-stone-400 font-mono">{r.customerCode}</div>
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(r.providerStatedAR, r.currency)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(r.reconstructedAR, r.currency)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-bold text-rose-700">{fmt.money(r.variance, r.currency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="py-6 text-center">
-                <CheckCircle size={28} className="mx-auto text-emerald-500 mb-2" />
-                <div className="text-sm text-stone-700 font-medium">Our ledger reproduces the provider exactly</div>
-                <div className="text-[12px] text-stone-500 mt-1">All {selfRecon.totals.customers} customers reconcile within tolerance.</div>
+            {selfRecon.reconciled === true && (
+              <div className="mb-4 flex items-center gap-2 text-[13px] text-emerald-700">
+                <CheckCircle size={16} /> Our receivables reconcile to {selfRecon.providerReportSource}. The figures the dashboard and reports show are correct.
               </div>
             )}
+
+            {/* Top balances (informational) */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+                    <th className="text-left font-semibold px-3 py-2">Customer</th>
+                    <th className="text-right font-semibold px-3 py-2">Receivable (synced)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selfRecon.rows.slice(0, 25).map(r => (
+                    <tr key={r.customerId} className="border-b border-stone-100 hover:bg-stone-50">
+                      <td className="px-3 py-2">
+                        <Link href={`/customers/${r.customerId}`} className="text-stone-800 hover:text-brand-orange font-medium">{r.customerName}</Link>
+                        <div className="text-[10px] text-stone-400 font-mono">{r.customerCode}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-stone-700">{fmt.money(r.syncedAR, r.currency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-2">
+              For a customer-by-customer check against QuickBooks' live <code>Customer.Balance</code>, run the deep-check below.
+            </p>
           </>
         )}
       </Card>
