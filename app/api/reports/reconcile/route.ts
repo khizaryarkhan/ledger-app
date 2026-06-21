@@ -26,7 +26,7 @@
 
 import { db } from "@/db";
 import {
-  customers, invoices, payments,
+  customers, invoices, payments, journalEntryArLines,
   qboTokens, xeroTokens, sageIntacctCredentials,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -149,6 +149,28 @@ export async function GET(req: Request) {
   }).from(customers).where(eq(customers.orgId, orgId!));
   const custById = new Map(custs.map(c => [c.id, c]));
 
+  // Our captured AR journal-entry lines — to compare against what QBO returns
+  // (e.g. is the big -€1.48M JE in our ledger at all, or did we never capture it?).
+  const ourJeRowsRaw = await db.select({
+    customerId: journalEntryArLines.customerId,
+    qboCustomerId: journalEntryArLines.qboCustomerId,
+    amount: journalEntryArLines.amount,
+    voided: journalEntryArLines.voided,
+    docNumber: journalEntryArLines.docNumber,
+    accountName: journalEntryArLines.accountName,
+  }).from(journalEntryArLines).where(eq(journalEntryArLines.orgId, orgId!));
+  const ourJournalEntries = ourJeRowsRaw
+    .filter(j => !j.voided && Math.abs(j.amount ?? 0) >= 0.005)
+    .map(j => ({
+      customer: (j.customerId && custById.get(j.customerId)?.name) || j.qboCustomerId || "(no customer on line)",
+      account: j.accountName || "—",
+      docNumber: j.docNumber || "—",
+      amount: j.amount ?? 0,
+    }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    .slice(0, 25);
+  const ourJeTotal = ourJeRowsRaw.filter(j => !j.voided).reduce((s, j) => s + (j.amount ?? 0), 0);
+
   const rows: RowOut[] = [];
   for (const [cid, syncedAR] of syncedByCustomer) {
     if (Math.abs(syncedAR) < 0.005) continue;
@@ -221,6 +243,9 @@ export async function GET(req: Request) {
             customer: custById.get(d.customerId)?.name ?? nameFromFlags(d.flags) ?? d.customerQboId ?? "—",
           })),
         topRows: bigRows,
+        // OUR captured AR JE lines, for side-by-side comparison.
+        ourJournalEntries,
+        ourJeTotal,
       };
     } catch (e: any) {
       providerCheckError = e?.message || String(e);

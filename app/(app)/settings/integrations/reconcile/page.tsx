@@ -34,6 +34,8 @@ type SelfRecon = {
     tiesOut: boolean;
     journalEntries: { num: string; date: string; amount: number; customer: string }[];
     topRows: { type: string; rawType: string; num: string; date: string; dueDate: string; amount: number; customer: string }[];
+    ourJournalEntries: { customer: string; account: string; docNumber: string; amount: number }[];
+    ourJeTotal: number;
   } | null;
   rows: SelfReconRow[];
 };
@@ -257,29 +259,56 @@ export default function ReconcilePage() {
                     ⚠ The detail rows we parsed don't sum to QBO's own grand total — so the per-type "provider" figures below are unreliable (a non-transaction row is being read as a transaction). The rows below show what QBO actually returned.
                   </div>
                 )}
-                {selfRecon.providerDiag.journalEntries.length > 0 && (
-                  <div className="mt-2">
-                    <div className="text-[11px] font-semibold text-stone-600 mb-1">Journal Entry rows QBO returned ({selfRecon.providerDiag.journalEntries.length})</div>
-                    <table className="w-full text-[11px]">
-                      <thead><tr className="text-stone-500 border-b border-stone-200">
-                        <th className="text-left font-semibold px-2 py-1">Num</th>
-                        <th className="text-left font-semibold px-2 py-1">Date</th>
-                        <th className="text-left font-semibold px-2 py-1">Customer</th>
-                        <th className="text-right font-semibold px-2 py-1">Open balance</th>
-                      </tr></thead>
-                      <tbody>
-                        {selfRecon.providerDiag.journalEntries.map((j, i) => (
-                          <tr key={i} className="border-b border-stone-100">
-                            <td className="px-2 py-1 font-mono">{j.num || "—"}</td>
-                            <td className="px-2 py-1">{j.date || "—"}</td>
-                            <td className="px-2 py-1">{j.customer}</td>
-                            <td className="px-2 py-1 text-right tabular-nums">{fmt.money(j.amount, selfRecon.rows[0]?.currency || "EUR")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  {/* QBO's JEs */}
+                  <div>
+                    <div className="text-[11px] font-semibold text-stone-600 mb-1">QBO Journal Entries ({selfRecon.providerDiag.journalEntries.length})</div>
+                    {selfRecon.providerDiag.journalEntries.length === 0 ? (
+                      <div className="text-[11px] text-stone-400">None on QBO's report.</div>
+                    ) : (
+                      <table className="w-full text-[11px]">
+                        <thead><tr className="text-stone-500 border-b border-stone-200">
+                          <th className="text-left font-semibold px-2 py-1">Customer</th>
+                          <th className="text-right font-semibold px-2 py-1">Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {selfRecon.providerDiag.journalEntries.map((j, i) => (
+                            <tr key={i} className="border-b border-stone-100">
+                              <td className="px-2 py-1">{j.customer}</td>
+                              <td className="px-2 py-1 text-right tabular-nums">{fmt.money(j.amount, selfRecon.rows[0]?.currency || "EUR")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
-                )}
+                  {/* Our captured JEs */}
+                  <div>
+                    <div className="text-[11px] font-semibold text-stone-600 mb-1">
+                      Our captured AR Journal Entries (net {fmt.money(selfRecon.providerDiag.ourJeTotal, selfRecon.rows[0]?.currency || "EUR")})
+                    </div>
+                    {selfRecon.providerDiag.ourJournalEntries.length === 0 ? (
+                      <div className="text-[11px] text-rose-600">None captured — we have no AR journal-entry lines.</div>
+                    ) : (
+                      <table className="w-full text-[11px]">
+                        <thead><tr className="text-stone-500 border-b border-stone-200">
+                          <th className="text-left font-semibold px-2 py-1">Customer</th>
+                          <th className="text-left font-semibold px-2 py-1">Account</th>
+                          <th className="text-right font-semibold px-2 py-1">Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {selfRecon.providerDiag.ourJournalEntries.map((j, i) => (
+                            <tr key={i} className="border-b border-stone-100">
+                              <td className="px-2 py-1">{j.customer}</td>
+                              <td className="px-2 py-1 text-stone-500">{j.account}</td>
+                              <td className="px-2 py-1 text-right tabular-nums">{fmt.money(j.amount, selfRecon.rows[0]?.currency || "EUR")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
                 <details className="mt-2">
                   <summary className="text-[11px] text-stone-500 cursor-pointer">Top {selfRecon.providerDiag.topRows.length} rows QBO returned (by size)</summary>
                   <table className="w-full text-[11px] mt-1">
