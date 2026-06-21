@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   CreditCard, Loader, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle,
   Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText, Ban,
@@ -982,6 +983,15 @@ export default function SubscriptionsPage() {
                       {/* Actions */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          {s.orgId && (
+                            <Link
+                              href={`/admin/invoices?org=${s.orgId}`}
+                              className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-stone-700 text-stone-400 hover:border-stone-500 hover:text-stone-200 transition-colors"
+                              title="View this organisation's invoices"
+                            >
+                              <FileText size={11} /> Invoices
+                            </Link>
+                          )}
                           {isManual ? (
                             <>
                               <ExtendDropdown

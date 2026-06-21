@@ -107,6 +107,13 @@ export default function AdminInvoicesPage() {
   const [toast, setToast]       = useState<any>(null);
   const [markPaid, setMarkPaid] = useState<Invoice | null>(null);
   const [acting, setActing]     = useState<string | null>(null);
+  const [orgFilter, setOrgFilter] = useState<string | null>(null);
+
+  // Optional ?org=<id> deep-link from the Subscriptions page.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    setOrgFilter(p.get("org"));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -166,11 +173,13 @@ export default function AdminInvoicesPage() {
     draft: invoices.filter(i => i.status === "draft").length,
     void:  invoices.filter(i => i.status === "void" || i.status === "uncollectible").length,
   };
-  const filtered = invoices.filter(i =>
-    tab === "all" ? true
-    : tab === "void" ? (i.status === "void" || i.status === "uncollectible")
-    : i.status === tab
-  );
+  const filtered = invoices.filter(i => {
+    if (orgFilter && i.orgId !== orgFilter) return false;
+    if (tab === "all") return true;
+    if (tab === "void") return i.status === "void" || i.status === "uncollectible";
+    return i.status === tab;
+  });
+  const orgFilterName = orgFilter ? (invoices.find(i => i.orgId === orgFilter)?.orgName ?? "this organisation") : null;
 
   const totalOutstanding = invoices.filter(i => i.status === "open").reduce((s, i) => s + i.amountDue, 0);
 
@@ -184,7 +193,14 @@ export default function AdminInvoicesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold text-white">Invoices</h1>
-          <p className="text-xs text-stone-500 mt-0.5">Every Stripe invoice across all organisations</p>
+          {orgFilterName ? (
+            <p className="text-xs text-stone-500 mt-0.5">
+              Showing invoices for <span className="text-stone-300 font-medium">{orgFilterName}</span> ·{" "}
+              <button onClick={() => setOrgFilter(null)} className="text-sky-400 hover:text-sky-300">show all</button>
+            </p>
+          ) : (
+            <p className="text-xs text-stone-500 mt-0.5">Every Stripe invoice across all organisations</p>
+          )}
         </div>
         <button onClick={load} disabled={loading}
           className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-200 transition-colors disabled:opacity-40">
