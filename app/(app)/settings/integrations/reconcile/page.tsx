@@ -27,6 +27,14 @@ type SelfRecon = {
   variance: number | null;
   reconciled: boolean | null;
   byType: SelfReconType[];
+  providerDiag: {
+    grandTotal: number | null;
+    detailSum: number;
+    detailCount: number;
+    tiesOut: boolean;
+    journalEntries: { num: string; date: string; amount: number; customer: string }[];
+    topRows: { type: string; rawType: string; num: string; date: string; dueDate: string; amount: number; customer: string }[];
+  } | null;
   rows: SelfReconRow[];
 };
 
@@ -232,6 +240,67 @@ export default function ReconcilePage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {/* QBO report parser diagnostic — does the detail tie to QBO's own total? */}
+            {selfRecon.providerDiag && (
+              <div className="mb-5 rounded-lg ring-1 ring-stone-200 p-3 bg-stone-50">
+                <div className="text-[12px] font-semibold text-stone-700 mb-1">QuickBooks report check (diagnostic)</div>
+                <div className="grid grid-cols-3 gap-3 mb-2 text-[12px]">
+                  <div><span className="text-stone-500">QBO grand total:</span> <span className="tabular-nums font-medium">{selfRecon.providerDiag.grandTotal != null ? fmt.money(selfRecon.providerDiag.grandTotal, selfRecon.rows[0]?.currency || "EUR") : "—"}</span></div>
+                  <div><span className="text-stone-500">Sum of detail rows:</span> <span className="tabular-nums font-medium">{fmt.money(selfRecon.providerDiag.detailSum, selfRecon.rows[0]?.currency || "EUR")}</span></div>
+                  <div><span className="text-stone-500">Rows parsed:</span> <span className="tabular-nums font-medium">{selfRecon.providerDiag.detailCount}</span></div>
+                </div>
+                {!selfRecon.providerDiag.tiesOut && (
+                  <div className="px-2 py-1.5 rounded bg-amber-50 ring-1 ring-amber-200 text-[11px] text-amber-800 mb-2">
+                    ⚠ The detail rows we parsed don't sum to QBO's own grand total — so the per-type "provider" figures below are unreliable (a non-transaction row is being read as a transaction). The rows below show what QBO actually returned.
+                  </div>
+                )}
+                {selfRecon.providerDiag.journalEntries.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[11px] font-semibold text-stone-600 mb-1">Journal Entry rows QBO returned ({selfRecon.providerDiag.journalEntries.length})</div>
+                    <table className="w-full text-[11px]">
+                      <thead><tr className="text-stone-500 border-b border-stone-200">
+                        <th className="text-left font-semibold px-2 py-1">Num</th>
+                        <th className="text-left font-semibold px-2 py-1">Date</th>
+                        <th className="text-left font-semibold px-2 py-1">Customer</th>
+                        <th className="text-right font-semibold px-2 py-1">Open balance</th>
+                      </tr></thead>
+                      <tbody>
+                        {selfRecon.providerDiag.journalEntries.map((j, i) => (
+                          <tr key={i} className="border-b border-stone-100">
+                            <td className="px-2 py-1 font-mono">{j.num || "—"}</td>
+                            <td className="px-2 py-1">{j.date || "—"}</td>
+                            <td className="px-2 py-1">{j.customer}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{fmt.money(j.amount, selfRecon.rows[0]?.currency || "EUR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <details className="mt-2">
+                  <summary className="text-[11px] text-stone-500 cursor-pointer">Top {selfRecon.providerDiag.topRows.length} rows QBO returned (by size)</summary>
+                  <table className="w-full text-[11px] mt-1">
+                    <thead><tr className="text-stone-500 border-b border-stone-200">
+                      <th className="text-left font-semibold px-2 py-1">Type (raw)</th>
+                      <th className="text-left font-semibold px-2 py-1">Num</th>
+                      <th className="text-left font-semibold px-2 py-1">Customer</th>
+                      <th className="text-right font-semibold px-2 py-1">Open balance</th>
+                    </tr></thead>
+                    <tbody>
+                      {selfRecon.providerDiag.topRows.map((r, i) => (
+                        <tr key={i} className="border-b border-stone-100">
+                          <td className="px-2 py-1">{r.rawType || r.type}</td>
+                          <td className="px-2 py-1 font-mono">{r.num || "—"}</td>
+                          <td className="px-2 py-1">{r.customer}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{fmt.money(r.amount, selfRecon.rows[0]?.currency || "EUR")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
               </div>
             )}
 

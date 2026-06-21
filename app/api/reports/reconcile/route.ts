@@ -169,6 +169,7 @@ export async function GET(req: Request) {
   let providerReportSource: string | null = null;
   let providerCheckError: string | null = null;
   const providerByType = new Map<string, TypeAgg>();
+  let providerDiag: any = null;
   if (providers.qbo) {
     try {
       const qbo = await fetchQboAging(orgId!, asOf);
@@ -185,6 +186,42 @@ export async function GET(req: Request) {
         a.providerCount += 1; a.providerAmount += d.openBalance;
         providerByType.set(k, a);
       }
+      // ── Diagnostic: does the detail tie to QBO's own grand total? ───────────
+      // If the sum of parsed detail rows ≠ QBO's grand-total row, our parser is
+      // misreading the report (e.g. picking up a subtotal/section line as a
+      // transaction). Surface that so a phantom row can't masquerade as a gap.
+      const detailSum = qbo.detail.reduce((s, d) => s + d.openBalance, 0);
+      const nameFromFlags = (flags: string[]) => {
+        const f = flags.find(x => x.startsWith("qbo-name:"));
+        return f ? f.slice("qbo-name:".length) : null;
+      };
+      const bigRows = qbo.detail
+        .filter(d => Math.abs(d.openBalance) >= 0.005)
+        .map(d => ({
+          type: d.txnType,
+          rawType: (d.flags.find(f => f.startsWith("qbotype:")) || "qbotype:").slice("qbotype:".length),
+          num: d.txnNumber,
+          date: d.txnDate,
+          dueDate: d.dueDate,
+          amount: d.openBalance,
+          customer: custById.get(d.customerId)?.name ?? nameFromFlags(d.flags) ?? d.customerQboId ?? "—",
+        }))
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+        .slice(0, 40);
+      providerDiag = {
+        grandTotal: providerReportTotal,
+        detailSum,
+        detailCount: qbo.detail.length,
+        tiesOut: Math.abs(detailSum - (providerReportTotal ?? detailSum)) < Math.max(1, Math.abs(providerReportTotal ?? 0) * 0.005),
+        // Every Journal Entry row QBO returned — so we can see if the big JE is real.
+        journalEntries: qbo.detail
+          .filter(d => d.txnType === "Journal Entry" && Math.abs(d.openBalance) >= 0.005)
+          .map(d => ({
+            num: d.txnNumber, date: d.txnDate, amount: d.openBalance,
+            customer: custById.get(d.customerId)?.name ?? nameFromFlags(d.flags) ?? d.customerQboId ?? "—",
+          })),
+        topRows: bigRows,
+      };
     } catch (e: any) {
       providerCheckError = e?.message || String(e);
     }
@@ -229,6 +266,7 @@ export async function GET(req: Request) {
     variance,
     reconciled: variance == null ? null : Math.abs(variance) < Math.max(1, syncedTotal * 0.005),
     byType,
+    providerDiag,
     rows: rows.sort((a, b) => Math.abs(b.syncedAR) - Math.abs(a.syncedAR)),
   });
 }
