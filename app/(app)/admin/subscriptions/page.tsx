@@ -195,7 +195,9 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
                 </div>
                 <div>
                   <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
-                  <input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} maxLength={3} className={inputCls} />
+                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
+                    {["GBP","EUR","USD","AUD","CAD","NZD","CHF","AED","INR","SGD","ZAR"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="text-[11px] text-stone-400 block mb-1">Billing cycle</label>
@@ -222,7 +224,9 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
               <div className="flex gap-2">
                 <div className="flex-1">
                   <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
-                  <input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} maxLength={3} className={inputCls} />
+                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
+                    {["GBP","EUR","USD","AUD","CAD","NZD","CHF","AED","INR","SGD","ZAR"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
               </div>
               <div>

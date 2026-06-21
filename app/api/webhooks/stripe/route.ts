@@ -197,6 +197,40 @@ export async function POST(req: NextRequest) {
           stripeUpdatedAt:   new Date(),
         })
         .where(and(eq(subscriptions.stripeCustomerId, customerId), eq(subscriptions.source, "stripe")));
+
+      // Re-sync the subscription's STATUS on payment. Paying the first invoice
+      // moves a subscription incomplete → active; relying on a separate
+      // customer.subscription.updated event is fragile (it may not be enabled on
+      // the webhook). invoice.paid is the authoritative "money received" signal,
+      // so we refresh status here too. (API version note: the subscription id
+      // moved to invoice.parent.subscription_details in newer API versions.)
+      const subId: string | null =
+        inv.subscription ?? inv.parent?.subscription_details?.subscription ?? null;
+      if (subId) {
+        try {
+          const fullSub = await stripe.subscriptions.retrieve(subId, {
+            expand: ["default_payment_method", "items.data.price.product"],
+          });
+          await syncSubscriptionFromStripe(fullSub);
+
+          const [subRow] = await db
+            .select({ orgId: subscriptions.orgId })
+            .from(subscriptions)
+            .where(eq(subscriptions.stripeCustomerId, customerId))
+            .limit(1);
+          if (subRow) {
+            await logBillingEvent({
+              organizationId: subRow.orgId,
+              action:         "invoice_paid",
+              newStatus:      fullSub.status,
+              stripeEventId:  event.id,
+              metadata:       { invoiceId: inv.id, amountPaid: inv.amount_paid },
+            });
+          }
+        } catch (err) {
+          console.error("[stripe-webhook] invoice.paid subscription re-sync error:", err);
+        }
+      }
     }
 
     // ── Invoice payment failed ────────────────────────────────────────────

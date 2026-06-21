@@ -144,9 +144,11 @@ export async function POST(req: Request) {
         expand:   ["latest_invoice"],
       });
 
-      // Persist the Stripe subscription id immediately (webhook will fill the rest).
+      // Persist the Stripe subscription id + the REAL status immediately, so the
+      // row reflects Stripe even before the webhook lands (don't leave it stuck
+      // on our placeholder "incomplete"). The webhook keeps it updated after.
       await db.update(subscriptions)
-        .set({ stripeSubscriptionId: sub.id, stripeUpdatedAt: new Date() })
+        .set({ stripeSubscriptionId: sub.id, status: sub.status, stripeUpdatedAt: new Date() })
         .where(eq(subscriptions.orgId, org.id));
 
       // The first invoice should be finalised & emailed so the client gets a link.
