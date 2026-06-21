@@ -23,17 +23,28 @@ export async function POST(req: Request) {
   if (error) return error;
   const userId = (session!.user as any).id;
 
-  // `full: true` forces a complete historical re-sync (ignores the incremental
-  // last-sync boundary) for every connected provider. Slower, but re-pulls all
-  // invoices, payments, credits and applications so AR can be fully reconciled.
+  // Body options:
+  //   full:     true → ignore the incremental boundary and re-pull everything.
+  //   provider: "qbo" | "xero" | "sage" → run only that provider (the Full Sync
+  //             button chunks the work per provider so no single request times out).
+  //   scope:    "ar" | "ap" → run only Receivables or only Payables (further
+  //             chunking — a full AR re-pull and a full AP re-pull each get their
+  //             own request/time budget).
   let fullSync = false;
+  let provider: string | undefined;
+  let scope: string | undefined;
   try {
     const body = await req.json();
     fullSync = body?.full === true;
+    provider = body?.provider;
+    scope = body?.scope;
   } catch {
-    // no body → incremental (default)
+    // no body → incremental, all providers, both scopes (default)
   }
   const opts = { fullSync };
+  const runAr = scope !== "ap";
+  const runAp = scope !== "ar";
+  const wants = (p: string) => !provider || provider === p;
 
   const [qboToken] = await db
     .select({ id: qboTokens.id })
@@ -64,11 +75,11 @@ export async function POST(req: Request) {
   } = {};
 
   // ── QBO ────────────────────────────────────────────────────────────────────
-  if (qboToken) {
+  if (qboToken && wants("qbo")) {
     try {
       const [ar, ap] = await Promise.all([
-        runQboSync(orgId!, userId, opts),
-        runQboApSync(orgId!, userId, opts),
+        runAr ? runQboSync(orgId!, userId, opts) : Promise.resolve(null),
+        runAp ? runQboApSync(orgId!, userId, opts) : Promise.resolve(null),
       ]);
       result.qbo = { ar, ap };
     } catch (e: any) {
@@ -82,11 +93,11 @@ export async function POST(req: Request) {
   }
 
   // ── Xero ───────────────────────────────────────────────────────────────────
-  if (xeroToken) {
+  if (xeroToken && wants("xero")) {
     try {
       const [ar, ap] = await Promise.all([
-        runXeroSync(orgId!, userId, opts),
-        runXeroApSync(orgId!, userId, opts),
+        runAr ? runXeroSync(orgId!, userId, opts) : Promise.resolve(null),
+        runAp ? runXeroApSync(orgId!, userId, opts) : Promise.resolve(null),
       ]);
       result.xero = { ar, ap };
     } catch (e: any) {
@@ -100,11 +111,11 @@ export async function POST(req: Request) {
   }
 
   // ── Sage Intacct ──────────────────────────────────────────────────────────
-  if (sageToken) {
+  if (sageToken && wants("sage")) {
     try {
       const [ar, ap] = await Promise.all([
-        runSageSync(orgId!, userId, opts),
-        runSageApSync(orgId!, userId, opts),
+        runAr ? runSageSync(orgId!, userId, opts) : Promise.resolve(null),
+        runAp ? runSageApSync(orgId!, userId, opts) : Promise.resolve(null),
       ]);
       result.sage = { ar, ap };
     } catch (e: any) {

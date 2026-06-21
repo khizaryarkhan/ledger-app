@@ -60,46 +60,87 @@ export default function IntegrationsSettingsPage() {
       .catch(() => {});
   };
 
+  const refreshSyncHistories = () => {
+    fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+    fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+    fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
+  };
+
+  // One sync request. For Full Sync we call this per provider+scope so each
+  // slice gets its own time budget and no single request can time out.
+  const postSync = async (body: any) => {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let data: any = null;
+    try { data = await res.json(); } catch { /* non-JSON (e.g. 504 timeout) */ }
+    return { res, data };
+  };
+
   const handleSync = async (full = false) => {
     if (full) setFullSyncing(true); else setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ full }),
-      });
+      if (full) {
+        // ── Chunked full sync: each provider's AR and AP as separate requests ──
+        const providers = [
+          qboStatus?.connected && "qbo",
+          xeroStatus?.connected && "xero",
+          sageStatus?.connected && "sage",
+        ].filter(Boolean) as string[];
 
-      // Read the body defensively — a timeout / gateway error may not be JSON.
-      let data: any = null;
-      try { data = await res.json(); } catch { /* non-JSON (e.g. 504 timeout) */ }
+        const merged: any = {};
+        let firstErr: string | null = null;
+        for (const p of providers) {
+          for (const sc of ["ar", "ap"] as const) {
+            const { res, data } = await postSync({ full: true, provider: p, scope: sc });
+            if (!res.ok) {
+              const msg = (res.status === 504 || res.status === 502)
+                ? `${p.toUpperCase()} ${sc.toUpperCase()} timed out`
+                : (data?.error || `${p.toUpperCase()} ${sc.toUpperCase()} failed (HTTP ${res.status})`);
+              firstErr = firstErr || msg;
+              continue;
+            }
+            const slice = data?.synced?.[p];
+            if (slice) {
+              merged[p] = merged[p] || { ar: null, ap: null };
+              if (slice.ar != null) merged[p].ar = slice.ar;
+              if (slice.ap != null) merged[p].ap = slice.ap;
+              if (slice.error) { firstErr = firstErr || slice.error; merged[p].error = slice.error; }
+            }
+            setSyncResult({ ...merged }); // progressive update so the user sees it fill in
+          }
+        }
+        if (firstErr) toast(`Full sync issue: ${firstErr}`, "error");
+        else toast("Full sync complete ✓");
+        await refresh();
+        refreshSyncHistories();
+        return;
+      }
 
+      // ── Incremental sync: one request, all providers ──────────────────────
+      const { res, data } = await postSync({ full: false });
       if (!res.ok) {
         if (res.status === 504 || res.status === 502) {
-          toast(`${full ? "Full sync" : "Sync"} timed out — too much data for one run. It may have partly completed; check sync history.`, "error");
+          toast("Sync timed out — try Full Sync, which runs in smaller chunks.", "error");
         } else {
           toast(data?.error || `Sync failed (HTTP ${res.status})`, "error");
         }
         return;
       }
-
       setSyncResult(data.synced);
-      // Surface a provider-level error even though the request returned 200.
       const provErr = data.synced?.qbo?.error || data.synced?.xero?.error || data.synced?.sage?.error;
       if (provErr) {
         toast(`Sync error: ${provErr}`, "error");
       } else {
         const qboDiff = data.synced?.qbo?.ar?.difference || 0;
-        if (Math.abs(qboDiff) < 1) {
-          toast(full ? "Full sync complete ✓" : "Sync complete ✓");
-        } else {
-          toast(`Sync complete — €${Math.abs(qboDiff).toFixed(2)} QBO AR variance`, "info");
-        }
+        if (Math.abs(qboDiff) < 1) toast("Sync complete ✓");
+        else toast(`Sync complete — €${Math.abs(qboDiff).toFixed(2)} QBO AR variance`, "info");
       }
       await refresh();
-      fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
-      fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
-      fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
+      refreshSyncHistories();
     } catch (e: any) {
       toast(`Sync failed: ${e?.message || "network error"}`, "error");
     } finally {
