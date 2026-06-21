@@ -137,9 +137,10 @@ export default function AdminInvoicesPage() {
 
   const refundInvoice = async (inv: Invoice) => {
     const offline = inv.paidOutOfBand;
+    const subNote = inv.isSubscription ? " The subscription will be cancelled and access revoked." : "";
     const msg = offline
-      ? `Record a refund for ${inv.orgName} (${fmt.money(inv.total / 100, inv.currency)})? This invoice was paid outside Stripe, so no Stripe refund is issued — the repayment is made offline and recorded here.`
-      : `Refund ${fmt.money(inv.total / 100, inv.currency)} to ${inv.orgName} via Stripe? This cannot be undone.`;
+      ? `Record a refund for ${inv.orgName} (${fmt.money(inv.total / 100, inv.currency)})? Paid outside Stripe, so no Stripe refund is issued — repayment is made offline and recorded here.${subNote}`
+      : `Refund ${fmt.money(inv.total / 100, inv.currency)} to ${inv.orgName} via Stripe? This cannot be undone.${subNote}`;
     if (!confirm(msg)) return;
     const note = window.prompt("Reason / reference for the refund (optional):") ?? "";
     setActing(inv.id);
@@ -149,7 +150,11 @@ export default function AdminInvoicesPage() {
         body: JSON.stringify({ action: "refund", note: note.trim() || undefined }),
       });
       const d = await r.json();
-      if (r.ok) { setToast({ type: "success", message: d.offline ? "Refund recorded (offline)" : "Refund issued via Stripe" }); load(); }
+      if (r.ok) {
+        const base = d.offline ? "Refund recorded (offline)" : "Refund issued via Stripe";
+        setToast({ type: "success", message: d.subscriptionCancelled ? `${base} · subscription cancelled` : base });
+        load();
+      }
       else setToast({ type: "error", message: d.error ?? "Refund failed" });
     } finally { setActing(null); }
   };

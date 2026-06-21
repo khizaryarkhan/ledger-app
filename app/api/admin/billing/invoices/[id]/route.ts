@@ -128,13 +128,32 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         },
       });
 
+      // A refund ends the customer relationship: cancel the subscription so
+      // access is revoked. (Refunding the payment alone leaves the subscription
+      // "active" in Stripe — which is why a refunded org otherwise stays on.)
+      const anyInv = inv as any;
+      const subId: string | null =
+        anyInv.subscription ?? anyInv.parent?.subscription_details?.subscription ?? null;
+      let subscriptionCancelled = false;
+      if (subId) {
+        try {
+          await stripe.subscriptions.cancel(subId);
+          await db.update(subscriptions)
+            .set({ status: "canceled", stripeUpdatedAt: new Date() })
+            .where(eq(subscriptions.stripeSubscriptionId, subId));
+          subscriptionCancelled = true;
+        } catch (e: any) {
+          console.error("[invoices/refund] subscription cancel failed:", e?.message);
+        }
+      }
+
       await logBillingEvent({
         organizationId: subRow?.orgId ?? null,
         actorUserId:    userId,
         action:         "invoice_refunded",
-        metadata:       { invoiceId, refundId, method: paidOffline ? "offline" : "stripe", amount: inv.amount_paid, note },
+        metadata:       { invoiceId, refundId, method: paidOffline ? "offline" : "stripe", amount: inv.amount_paid, note, subscriptionCancelled },
       });
-      return NextResponse.json({ ok: true, action: "refund", refundId, offline: paidOffline });
+      return NextResponse.json({ ok: true, action: "refund", refundId, offline: paidOffline, subscriptionCancelled });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

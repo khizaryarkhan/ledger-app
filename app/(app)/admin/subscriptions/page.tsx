@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CreditCard, Loader, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle,
-  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText,
+  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText, Ban,
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -673,6 +673,20 @@ export default function SubscriptionsPage() {
     } finally { setSyncing(false); }
   };
 
+  const cancelStripe = async (s: any) => {
+    if (!confirm(`Cancel ${s.orgName ?? "this org"}'s Stripe subscription now and revoke access? This cannot be undone.`)) return;
+    try {
+      const r = await fetch(`/api/admin/subscriptions/${s.id}/cancel`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ atPeriodEnd: false }),
+      });
+      const d = await r.json();
+      if (r.ok) { setToast({ type: "success", message: "Subscription cancelled — access revoked" }); load(); }
+      else setToast({ type: "error", message: d.error ?? "Cancel failed" });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
+    }
+  };
+
   const handleQuickAction = async (subId: string, action: string) => {
     const r = await fetch(`/api/admin/subscriptions/${subId}`, {
       method: "PATCH",
@@ -991,17 +1005,28 @@ export default function SubscriptionsPage() {
                               </button>
                             </>
                           ) : (
-                            s.stripeCustomerId && (
-                              <a
-                                href={`https://dashboard.stripe.com/customers/${s.stripeCustomerId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-stone-500 hover:text-emerald-400 transition-colors"
-                                title="Open in Stripe"
-                              >
-                                <ExternalLink size={13} />
-                              </a>
-                            )
+                            <>
+                              {s.stripeCustomerId && (
+                                <a
+                                  href={`https://dashboard.stripe.com/customers/${s.stripeCustomerId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-stone-500 hover:text-emerald-400 transition-colors p-1"
+                                  title="Open in Stripe"
+                                >
+                                  <ExternalLink size={13} />
+                                </a>
+                              )}
+                              {(s.status === "active" || s.status === "trialing" || s.status === "past_due") && (
+                                <button
+                                  onClick={() => cancelStripe(s)}
+                                  className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 transition-colors"
+                                  title="Cancel subscription & revoke access"
+                                >
+                                  <Ban size={11} /> Cancel
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
