@@ -521,13 +521,6 @@ export default function IntegrationsSettingsPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Link href="/settings/integrations/reconcile">
-                <Button variant="secondary" size="sm">
-                  <span className="flex items-center gap-2">
-                    <RefreshCw size={14} />Reconcile with QBO
-                  </span>
-                </Button>
-              </Link>
               <Button variant="secondary" size="sm" onClick={handleBackfill} disabled={backfilling || syncing}>
                 {backfilling ? (
                   <span className="flex items-center gap-2">
