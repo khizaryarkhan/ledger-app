@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   CreditCard, Loader, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle,
-  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X,
+  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText,
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -63,6 +63,193 @@ const PAYMENT_BADGE: Record<string, string> = {
   overdue: "red",
   waived:  "neutral",
 };
+
+// ─── Create Stripe Invoice / Subscription Modal ──────────────────────────────
+// Creates a Stripe-hosted invoice (no card data touched). "Subscription" bills a
+// custom recurring price (the sales-led primary path); "One-off" sends a single
+// invoice. Stripe issues & emails the invoice; the webhook syncs status → access.
+
+function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
+  open: boolean; onClose: () => void; onDone: () => void; onToast: (t: any) => void;
+}) {
+  const [orgs, setOrgs]         = useState<{ id: string; name: string }[]>([]);
+  const [orgId, setOrgId]       = useState("");
+  const [mode, setMode]         = useState<"subscription" | "oneoff">("subscription");
+  const [billingEmail, setBillingEmail] = useState("");
+  const [currency, setCurrency] = useState("GBP");
+  const [daysUntilDue, setDaysUntilDue] = useState("14");
+  // subscription
+  const [planName, setPlanName] = useState("");
+  const [amount, setAmount]     = useState("");
+  const [interval, setInterval] = useState<"month" | "year">("month");
+  // one-off
+  const [items, setItems]       = useState<{ description: string; amount: string }[]>([{ description: "", amount: "" }]);
+  const [memo, setMemo]         = useState("");
+  const [saving, setSaving]     = useState(false);
+  const [err, setErr]           = useState("");
+  const [result, setResult]     = useState<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setErr(""); setResult(null);
+    fetch("/api/admin/organisations")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setOrgs((Array.isArray(d) ? d : (d?.organisations ?? [])).map((o: any) => ({ id: o.id, name: o.name }))));
+  }, [open]);
+
+  const setItem = (i: number, k: "description" | "amount", v: string) =>
+    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
+
+  const submit = async () => {
+    setErr("");
+    if (!orgId) return setErr("Select an organisation");
+    if (!billingEmail.trim()) return setErr("Billing email is required");
+    const payload: any = {
+      orgId, mode, billingEmail: billingEmail.trim(),
+      currency: currency.toLowerCase(),
+      daysUntilDue: parseInt(daysUntilDue) || 14,
+    };
+    if (mode === "subscription") {
+      const cents = Math.round(parseFloat(amount) * 100);
+      if (!cents || cents <= 0) return setErr("Enter a valid amount");
+      payload.amount = cents;
+      payload.interval = interval;
+      payload.planName = planName.trim() || "Custom plan";
+    } else {
+      const li = items
+        .filter(it => it.description.trim() && parseFloat(it.amount) > 0)
+        .map(it => ({ description: it.description.trim(), amount: Math.round(parseFloat(it.amount) * 100) }));
+      if (li.length === 0) return setErr("Add at least one line item with a description and amount");
+      payload.lineItems = li;
+      payload.memo = memo.trim() || undefined;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch("/api/admin/billing/create-invoice", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (!r.ok) { setErr(d.error || `Failed (${r.status})`); return; }
+      setResult(d);
+      onToast({ type: "success", message: mode === "subscription" ? "Subscription created & invoice sent" : "Invoice created & sent" });
+      onDone();
+    } catch (e: any) {
+      setErr(e?.message || "Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = "w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-100 placeholder-stone-600 focus:ring-sky-500 focus:outline-none";
+
+  return (
+    <Modal open={open} onClose={onClose} title="Create Stripe invoice">
+      {result ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-emerald-400 text-sm"><CheckCircle2 size={16} /> Invoice created and emailed to the client.</div>
+          <div className="text-xs text-stone-400">Status: <span className="text-stone-200">{result.status}</span></div>
+          {result.hostedInvoiceUrl && (
+            <a href={result.hostedInvoiceUrl} target="_blank" rel="noreferrer"
+               className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 break-all">
+              <ExternalLink size={14} /> Shareable hosted invoice link
+            </a>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button variant="primary" onClick={() => { setResult(null); onClose(); }}>Done</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] text-stone-400 block mb-1">Organisation</label>
+            <select value={orgId} onChange={e => setOrgId(e.target.value)} className={inputCls}>
+              <option value="">Select an organisation…</option>
+              {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] text-stone-400 block mb-1">Billing email (where Stripe sends the invoice)</label>
+            <input type="email" value={billingEmail} onChange={e => setBillingEmail(e.target.value)} placeholder="finance@client.com" className={inputCls} />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setMode("subscription")}
+              className={`flex-1 h-8 text-xs rounded-md ring-1 ${mode === "subscription" ? "ring-sky-500 bg-sky-500/10 text-sky-300" : "ring-stone-700 text-stone-400"}`}>
+              Recurring subscription
+            </button>
+            <button onClick={() => setMode("oneoff")}
+              className={`flex-1 h-8 text-xs rounded-md ring-1 ${mode === "oneoff" ? "ring-sky-500 bg-sky-500/10 text-sky-300" : "ring-stone-700 text-stone-400"}`}>
+              One-off invoice
+            </button>
+          </div>
+
+          {mode === "subscription" ? (
+            <>
+              <div>
+                <label className="text-[11px] text-stone-400 block mb-1">Plan name</label>
+                <input value={planName} onChange={e => setPlanName(e.target.value)} placeholder="e.g. AR Automation — Pro" className={inputCls} />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[11px] text-stone-400 block mb-1">Amount</label>
+                  <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="499.00" inputMode="decimal" className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
+                  <input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} maxLength={3} className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-stone-400 block mb-1">Billing cycle</label>
+                  <select value={interval} onChange={e => setInterval(e.target.value as any)} className={inputCls}>
+                    <option value="month">Monthly</option>
+                    <option value="year">Yearly</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <label className="text-[11px] text-stone-400 block">Line items</label>
+              {items.map((it, i) => (
+                <div key={i} className="flex gap-2">
+                  <input value={it.description} onChange={e => setItem(i, "description", e.target.value)} placeholder="Setup fee" className={inputCls + " flex-1"} />
+                  <input value={it.amount} onChange={e => setItem(i, "amount", e.target.value)} placeholder="0.00" inputMode="decimal" className={inputCls + " w-28"} />
+                  {items.length > 1 && (
+                    <button onClick={() => setItems(items.filter((_, idx) => idx !== i))} className="text-stone-500 hover:text-rose-400 px-1"><X size={14} /></button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => setItems([...items, { description: "", amount: "" }])} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"><Plus size={12} /> Add line</button>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
+                  <input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} maxLength={3} className={inputCls} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] text-stone-400 block mb-1">Memo (optional)</label>
+                <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Shown on the invoice" className={inputCls} />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="text-[11px] text-stone-400 block mb-1">Payment terms (days until due)</label>
+            <input value={daysUntilDue} onChange={e => setDaysUntilDue(e.target.value)} inputMode="numeric" className={inputCls + " w-28"} />
+          </div>
+
+          {err && <div className="text-xs text-rose-400 bg-rose-500/10 ring-1 ring-rose-500/20 rounded-md px-3 py-2">{err}</div>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={submit} disabled={saving}>
+              {saving ? "Creating…" : "Create & send invoice"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
 
 // ─── Manual Subscription Modal ───────────────────────────────────────────────
 
@@ -400,6 +587,7 @@ export default function SubscriptionsPage() {
   const [syncResult, setSyncResult] = useState<SyncResult>(null);
   const [tab, setTab]               = useState<Tab>("all");
   const [showAdd, setShowAdd]       = useState(false);
+  const [showInvoice, setShowInvoice] = useState(false);
   const [editing, setEditing]       = useState<any>(null);
   const [toast, setToast]           = useState<any>(null);
 
@@ -508,6 +696,12 @@ export default function SubscriptionsPage() {
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
             {syncing ? "Syncing…" : "Sync Stripe"}
+          </button>
+          <button
+            onClick={() => setShowInvoice(true)}
+            className="flex items-center gap-2 h-8 px-3 text-xs font-medium rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors"
+          >
+            <FileText size={13} /> Create invoice
           </button>
           <button
             onClick={() => setShowAdd(true)}
@@ -767,6 +961,14 @@ export default function SubscriptionsPage() {
           </div>
         )}
       </Card>
+
+      {/* Create Stripe Invoice Modal */}
+      <StripeInvoiceModal
+        open={showInvoice}
+        onClose={() => setShowInvoice(false)}
+        onDone={() => { load(); }}
+        onToast={(t: any) => setToast(t)}
+      />
 
       {/* Add Manual Modal */}
       <ManualModal
