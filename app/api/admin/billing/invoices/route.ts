@@ -50,6 +50,9 @@ export async function GET(req: Request) {
       const customerId = typeof inv.customer === "string" ? inv.customer : inv.customer?.id;
       const cust = typeof inv.customer === "object" ? inv.customer : null;
       const org = customerId ? orgByCustomer.get(customerId) : undefined;
+      const isSubscription = !!(inv.subscription ?? inv.parent?.subscription_details?.subscription);
+      const interval: string | null = inv.lines?.data?.[0]?.price?.recurring?.interval ?? null; // 'month' | 'year'
+      const m = inv.metadata ?? {};
       return {
         id:               inv.id,
         number:           inv.number,
@@ -60,6 +63,10 @@ export async function GET(req: Request) {
         currency:         (inv.currency || "eur").toUpperCase(),
         created:          inv.created ? inv.created * 1000 : null,
         dueDate:          inv.due_date ? inv.due_date * 1000 : null,
+        // Payment date: Stripe's recorded paid timestamp; offline payments may
+        // carry an explicit received date the admin entered.
+        paidAt:           inv.status_transitions?.paid_at ? inv.status_transitions.paid_at * 1000 : null,
+        receivedDate:     m.paid_received_date || null,
         hostedInvoiceUrl: inv.hosted_invoice_url,
         invoicePdf:       inv.invoice_pdf,
         customerId,
@@ -68,10 +75,15 @@ export async function GET(req: Request) {
         orgId:            org?.orgId ?? null,
         orgName:          org?.name ?? cust?.name ?? cust?.email ?? "—",
         description:      inv.description ?? null,
-        isSubscription:   !!(inv.subscription ?? inv.parent?.subscription_details?.subscription),
-        paidMethod:       inv.metadata?.paid_method ?? null,
-        paidNote:         inv.metadata?.paid_note ?? null,
-        paidOutOfBand:    inv.metadata?.paid_out_of_band === "true",
+        isSubscription,
+        interval,                                          // billing cadence for subscription invoices
+        billingLabel:     isSubscription ? (interval === "year" ? "Annual" : interval === "month" ? "Monthly" : "Recurring") : "One-off",
+        paidMethod:       m.paid_method ?? null,
+        paidNote:         m.paid_note ?? null,
+        paidOutOfBand:    m.paid_out_of_band === "true",
+        refunded:         m.refunded === "true",
+        refundedAmount:   m.refunded_amount ? parseInt(m.refunded_amount) : null,
+        refundMethod:     m.refund_method ?? null,
       };
     });
 

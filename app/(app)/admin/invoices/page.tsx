@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  FileText, Loader, RefreshCw, ExternalLink, Ban, CheckCircle2, HandCoins, X,
+  FileText, Loader, RefreshCw, ExternalLink, Ban, CheckCircle2, HandCoins, X, Undo2,
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -10,11 +10,13 @@ import { fmt } from "@/lib/format";
 type Invoice = {
   id: string; number: string | null; status: string;
   total: number; amountDue: number; amountPaid: number; currency: string;
-  created: number | null; dueDate: number | null;
+  created: number | null; dueDate: number | null; paidAt: number | null; receivedDate: string | null;
   hostedInvoiceUrl: string | null; invoicePdf: string | null;
   orgName: string; orgId: string | null;
   customerEmail: string | null; description: string | null;
-  isSubscription: boolean; paidMethod: string | null; paidNote: string | null; paidOutOfBand: boolean;
+  isSubscription: boolean; interval: string | null; billingLabel: string;
+  paidMethod: string | null; paidNote: string | null; paidOutOfBand: boolean;
+  refunded: boolean; refundedAmount: number | null; refundMethod: string | null;
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -33,10 +35,14 @@ function MarkPaidModal({ invoice, onClose, onDone, onToast }: {
 }) {
   const [method, setMethod] = useState("bank_transfer");
   const [note, setNote]     = useState("");
+  const [receivedDate, setReceivedDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState("");
 
-  useEffect(() => { if (invoice) { setMethod("bank_transfer"); setNote(""); setErr(""); } }, [invoice]);
+  useEffect(() => {
+    if (invoice) { setMethod("bank_transfer"); setNote(""); setErr("");
+      setReceivedDate(new Date().toISOString().slice(0, 10)); }
+  }, [invoice]);
   if (!invoice) return null;
 
   const submit = async () => {
@@ -44,7 +50,7 @@ function MarkPaidModal({ invoice, onClose, onDone, onToast }: {
     try {
       const r = await fetch(`/api/admin/billing/invoices/${invoice.id}`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "mark_paid", method, note: note.trim() || undefined }),
+        body: JSON.stringify({ action: "mark_paid", method, note: note.trim() || undefined, receivedDate: receivedDate || undefined }),
       });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Failed"); return; }
@@ -72,11 +78,17 @@ function MarkPaidModal({ invoice, onClose, onDone, onToast }: {
         <p className="text-[12px] text-stone-500">
           Records this invoice as paid <b>outside Stripe</b> (no card charge) and notes how it was received. It then counts as paid everywhere.
         </p>
-        <div>
-          <label className="text-xs text-stone-400 block mb-1.5">How was it received?</label>
-          <select value={method} onChange={e => setMethod(e.target.value)} className={inp}>
-            {Object.entries(METHOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-stone-400 block mb-1.5">How was it received?</label>
+            <select value={method} onChange={e => setMethod(e.target.value)} className={inp}>
+              {Object.entries(METHOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-stone-400 block mb-1.5">Date received</label>
+            <input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)} className={inp} />
+          </div>
         </div>
         <div>
           <label className="text-xs text-stone-400 block mb-1.5">Reference / note <span className="text-stone-600">(optional)</span></label>
@@ -120,6 +132,25 @@ export default function AdminInvoicesPage() {
       const d = await r.json();
       if (r.ok) { setToast({ type: "success", message: "Invoice voided" }); load(); }
       else setToast({ type: "error", message: d.error ?? "Failed to void" });
+    } finally { setActing(null); }
+  };
+
+  const refundInvoice = async (inv: Invoice) => {
+    const offline = inv.paidOutOfBand;
+    const msg = offline
+      ? `Record a refund for ${inv.orgName} (${fmt.money(inv.total / 100, inv.currency)})? This invoice was paid outside Stripe, so no Stripe refund is issued — the repayment is made offline and recorded here.`
+      : `Refund ${fmt.money(inv.total / 100, inv.currency)} to ${inv.orgName} via Stripe? This cannot be undone.`;
+    if (!confirm(msg)) return;
+    const note = window.prompt("Reason / reference for the refund (optional):") ?? "";
+    setActing(inv.id);
+    try {
+      const r = await fetch(`/api/admin/billing/invoices/${inv.id}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "refund", note: note.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (r.ok) { setToast({ type: "success", message: d.offline ? "Refund recorded (offline)" : "Refund issued via Stripe" }); load(); }
+      else setToast({ type: "error", message: d.error ?? "Refund failed" });
     } finally { setActing(null); }
   };
 
@@ -187,7 +218,7 @@ export default function AdminInvoicesPage() {
             <table className="w-full text-sm min-w-[900px]">
               <thead>
                 <tr className="border-b border-stone-800">
-                  {["Organisation", "Invoice", "Amount", "Status", "Created", "Due", "Actions"].map(h => (
+                  {["Organisation", "Invoice", "Billing", "Amount", "Status", "Created", "Paid", "Due", "Actions"].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-[11px] text-stone-500 font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -203,19 +234,33 @@ export default function AdminInvoicesPage() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-stone-200 text-xs font-mono">{inv.number ?? inv.id.slice(0, 14)}</p>
-                        {inv.isSubscription && <span className="text-[10px] text-stone-600">subscription</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
+                          inv.isSubscription ? "border-violet-500/30 bg-violet-500/10 text-violet-300" : "border-stone-700 bg-stone-800 text-stone-400"
+                        }`}>{inv.billingLabel}</span>
                       </td>
                       <td className="px-4 py-3 text-xs text-stone-200 tabular-nums whitespace-nowrap">
                         {fmt.money(inv.total / 100, inv.currency)}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={(STATUS_BADGE[inv.status] ?? "neutral") as any}>{inv.status}</Badge>
-                        {inv.paidOutOfBand && inv.paidMethod && (
+                        {inv.refunded && (
+                          <p className="text-[10px] text-rose-400/90 mt-0.5">refunded{inv.refundMethod === "offline" ? " (offline)" : ""}</p>
+                        )}
+                        {!inv.refunded && inv.paidOutOfBand && inv.paidMethod && (
                           <p className="text-[10px] text-emerald-500/80 mt-0.5">via {METHOD_LABEL[inv.paidMethod] ?? inv.paidMethod}</p>
                         )}
                       </td>
                       <td className="px-4 py-3 text-[11px] text-stone-400 whitespace-nowrap">
                         {inv.created ? new Date(inv.created).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[11px] whitespace-nowrap">
+                        {(() => {
+                          const paid = inv.receivedDate ? new Date(inv.receivedDate).getTime() : inv.paidAt;
+                          if (!paid) return <span className="text-stone-600">—</span>;
+                          return <span className="text-emerald-400/90">{new Date(paid).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>;
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-[11px] text-stone-400 whitespace-nowrap">
                         {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—"}
@@ -242,7 +287,15 @@ export default function AdminInvoicesPage() {
                               </button>
                             </>
                           )}
-                          {inv.status === "paid" && <CheckCircle2 size={14} className="text-emerald-500" />}
+                          {inv.status === "paid" && !inv.refunded && (
+                            <button onClick={() => refundInvoice(inv)} disabled={acting === inv.id}
+                              className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-amber-700/50 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-40"
+                              title="Refund this payment">
+                              {acting === inv.id ? <Loader size={11} className="animate-spin" /> : <Undo2 size={11} />} Refund
+                            </button>
+                          )}
+                          {inv.status === "paid" && !inv.refunded && <CheckCircle2 size={14} className="text-emerald-500" />}
+                          {inv.refunded && <span className="text-[11px] text-rose-400">Refunded</span>}
                         </div>
                       </td>
                     </tr>

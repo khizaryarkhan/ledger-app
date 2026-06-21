@@ -68,13 +68,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
       const note = String(body?.note || "").slice(0, 500);
 
+      const receivedDate = String(body?.receivedDate || "").slice(0, 10); // YYYY-MM-DD
       // Record HOW it was received on the invoice itself, then pay out-of-band.
       await stripe.invoices.update(invoiceId, {
         metadata: {
-          paid_out_of_band: "true",
-          paid_method:      method,
-          paid_note:        note,
-          paid_recorded_by: userId ?? "",
+          paid_out_of_band:   "true",
+          paid_method:        method,
+          paid_note:          note,
+          paid_received_date: receivedDate,
+          paid_recorded_by:   userId ?? "",
         },
       });
       // A draft must be finalised before it can be paid.
@@ -91,6 +93,48 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         metadata:       { invoiceId, method, note, total: paid.total },
       });
       return NextResponse.json({ ok: true, action: "mark_paid", status: paid.status, method });
+    }
+
+    // ── Refund a paid invoice ────────────────────────────────────────────────
+    if (action === "refund") {
+      if (inv.status !== "paid") {
+        return NextResponse.json({ error: "Only a paid invoice can be refunded" }, { status: 400 });
+      }
+      const note = String(body?.note || "").slice(0, 500);
+      const paidOffline = inv.metadata?.paid_out_of_band === "true";
+
+      // Re-fetch with the payment objects so we can issue a real Stripe refund.
+      const full = await stripe.invoices.retrieve(invoiceId, { expand: ["payment_intent", "charge"] }) as any;
+      const chargeId = typeof full.charge === "string" ? full.charge : full.charge?.id;
+      const piId     = typeof full.payment_intent === "string" ? full.payment_intent : full.payment_intent?.id;
+
+      let refundId: string | null = null;
+      if (!paidOffline && (chargeId || piId)) {
+        // Real card/Stripe payment → issue an actual refund.
+        const refund = await stripe.refunds.create(chargeId ? { charge: chargeId } : { payment_intent: piId });
+        refundId = refund.id;
+      }
+      // For offline-paid invoices there is no Stripe charge to reverse — the
+      // money was received outside Stripe, so we record the refund as a note;
+      // the actual repayment is made offline.
+      await stripe.invoices.update(invoiceId, {
+        metadata: {
+          ...(inv.metadata ?? {}),
+          refunded:         "true",
+          refunded_amount:  String(inv.amount_paid ?? inv.total ?? 0),
+          refund_method:    paidOffline ? "offline" : "stripe",
+          refund_note:      note,
+          refunded_by:      userId ?? "",
+        },
+      });
+
+      await logBillingEvent({
+        organizationId: subRow?.orgId ?? null,
+        actorUserId:    userId,
+        action:         "invoice_refunded",
+        metadata:       { invoiceId, refundId, method: paidOffline ? "offline" : "stripe", amount: inv.amount_paid, note },
+      });
+      return NextResponse.json({ ok: true, action: "refund", refundId, offline: paidOffline });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
