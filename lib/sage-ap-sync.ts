@@ -147,7 +147,7 @@ function parseSageDate(raw: string): string {
 
 // ─── Main AP sync ─────────────────────────────────────────────────────────────
 
-export async function runSageApSync(orgId: string, userId: string) {
+export async function runSageApSync(orgId: string, userId: string, opts: { fullSync?: boolean } = {}) {
   const t0 = Date.now();
 
   const [cred] = await db
@@ -171,7 +171,8 @@ export async function runSageApSync(orgId: string, userId: string) {
     .orderBy(desc(sageSyncLog.syncedAt))
     .limit(1);
 
-  const sinceDate = lastLog
+  // fullSync forces a complete historical re-fetch (ignores the last-sync log).
+  const sinceDate = (!opts.fullSync && lastLog)
     ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
     : undefined;
 

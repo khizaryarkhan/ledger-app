@@ -18,10 +18,22 @@ export const maxDuration = 300;
  * Replaces the separate /api/qbo/sync, /api/xero/sync, and
  * /api/payables/sync-master-data manual-trigger endpoints.
  */
-export async function POST() {
+export async function POST(req: Request) {
   const { error, session, orgId } = await requireOrg();
   if (error) return error;
   const userId = (session!.user as any).id;
+
+  // `full: true` forces a complete historical re-sync (ignores the incremental
+  // last-sync boundary) for every connected provider. Slower, but re-pulls all
+  // invoices, payments, credits and applications so AR can be fully reconciled.
+  let fullSync = false;
+  try {
+    const body = await req.json();
+    fullSync = body?.full === true;
+  } catch {
+    // no body → incremental (default)
+  }
+  const opts = { fullSync };
 
   const [qboToken] = await db
     .select({ id: qboTokens.id })
@@ -55,8 +67,8 @@ export async function POST() {
   if (qboToken) {
     try {
       const [ar, ap] = await Promise.all([
-        runQboSync(orgId!, userId),
-        runQboApSync(orgId!, userId),
+        runQboSync(orgId!, userId, opts),
+        runQboApSync(orgId!, userId, opts),
       ]);
       result.qbo = { ar, ap };
     } catch (e: any) {
@@ -73,8 +85,8 @@ export async function POST() {
   if (xeroToken) {
     try {
       const [ar, ap] = await Promise.all([
-        runXeroSync(orgId!, userId),
-        runXeroApSync(orgId!, userId),
+        runXeroSync(orgId!, userId, opts),
+        runXeroApSync(orgId!, userId, opts),
       ]);
       result.xero = { ar, ap };
     } catch (e: any) {
@@ -91,8 +103,8 @@ export async function POST() {
   if (sageToken) {
     try {
       const [ar, ap] = await Promise.all([
-        runSageSync(orgId!, userId),
-        runSageApSync(orgId!, userId),
+        runSageSync(orgId!, userId, opts),
+        runSageApSync(orgId!, userId, opts),
       ]);
       result.sage = { ar, ap };
     } catch (e: any) {

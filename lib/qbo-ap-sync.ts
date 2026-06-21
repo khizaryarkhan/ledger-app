@@ -203,7 +203,8 @@ async function upsertDimension(
 
 export async function runQboApSync(
   orgId: string,
-  userId: string
+  userId: string,
+  opts: { fullSync?: boolean } = {}
 ): Promise<QboApSyncResult> {
   const errors: string[] = [];
 
@@ -231,7 +232,8 @@ export async function runQboApSync(
     .where(and(eq(qboSyncLog.orgId, orgId), eq(qboSyncLog.status, "success")))
     .orderBy(desc(qboSyncLog.syncedAt))
     .limit(1);
-  const sinceDate = lastLog
+  // fullSync forces a complete historical re-fetch (ignores the last-sync log).
+  const sinceDate = (!opts.fullSync && lastLog)
     ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
     : undefined;
   console.log(`QBO AP sync [${orgId}]: ${sinceDate ? `incremental since ${sinceDate.toISOString()}` : "full historical sync"}`);

@@ -179,7 +179,7 @@ function getContactCountry(contact: any): string {
 // ============================================================
 // FULL SYNC — manual button + scheduled cron
 // ============================================================
-export async function runXeroSync(orgId: string, userId: string) {
+export async function runXeroSync(orgId: string, userId: string, opts: { fullSync?: boolean } = {}) {
   const startTime = Date.now();
   const token = await getValidToken(orgId);
   if (!token) throw new Error("Xero not connected");
@@ -193,7 +193,8 @@ export async function runXeroSync(orgId: string, userId: string) {
     .where(and(eq(xeroSyncLog.orgId, orgId), eq(xeroSyncLog.status, "success")))
     .orderBy(desc(xeroSyncLog.syncedAt))
     .limit(1);
-  const sinceDate = lastLog
+  // fullSync forces a complete historical re-fetch (ignores the last-sync log).
+  const sinceDate = (!opts.fullSync && lastLog)
     ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
     : undefined;
   const isIncremental = sinceDate !== undefined;

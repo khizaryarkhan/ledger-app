@@ -212,7 +212,7 @@ export async function testSageCredentials(creds: SageCreds): Promise<{ companyNa
 
 // ─── Main AR sync ────────────────────────────────────────────────────────────
 
-export async function runSageSync(orgId: string, userId: string) {
+export async function runSageSync(orgId: string, userId: string, opts: { fullSync?: boolean } = {}) {
   const t0 = Date.now();
 
   // Load and decrypt credentials
@@ -238,7 +238,8 @@ export async function runSageSync(orgId: string, userId: string) {
     .orderBy(desc(sageSyncLog.syncedAt))
     .limit(1);
 
-  const sinceDate = lastLog
+  // fullSync forces a complete historical re-fetch (ignores the last-sync log).
+  const sinceDate = (!opts.fullSync && lastLog)
     ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
     : undefined;
 

@@ -50,6 +50,7 @@ export default function IntegrationsSettingsPage() {
 
   // ── Unified sync ──────────────────────────────────────────────────────────
   const [syncing, setSyncing] = useState(false);
+  const [fullSyncing, setFullSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
 
   const loadXeroWebhookHealth = () => {
@@ -59,11 +60,15 @@ export default function IntegrationsSettingsPage() {
       .catch(() => {});
   };
 
-  const handleSync = async () => {
-    setSyncing(true);
+  const handleSync = async (full = false) => {
+    if (full) setFullSyncing(true); else setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch("/api/sync", { method: "POST" });
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ full }),
+      });
       const data = await res.json();
       if (!res.ok) {
         toast(data.error || "Sync failed", "error");
@@ -71,7 +76,7 @@ export default function IntegrationsSettingsPage() {
         setSyncResult(data.synced);
         const qboDiff = data.synced?.qbo?.ar?.difference || 0;
         if (Math.abs(qboDiff) < 1) {
-          toast("Sync complete ✓");
+          toast(full ? "Full sync complete ✓" : "Sync complete ✓");
         } else {
           toast(`Sync complete — €${Math.abs(qboDiff).toFixed(2)} QBO AR variance`, "info");
         }
@@ -83,7 +88,7 @@ export default function IntegrationsSettingsPage() {
     } catch {
       toast("Sync failed", "error");
     } finally {
-      setSyncing(false);
+      if (full) setFullSyncing(false); else setSyncing(false);
     }
   };
 
@@ -306,18 +311,35 @@ export default function IntegrationsSettingsPage() {
                 Pulls Receivables (AR) and Payables (AP) from all connected integrations in one go.
               </p>
             </div>
-            <Button onClick={handleSync} disabled={syncing}>
-              {syncing ? (
-                <span className="flex items-center gap-2">
-                  <Loader size={14} className="animate-spin" />Syncing…
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <RefreshCw size={14} />Sync Now
-                </span>
-              )}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => handleSync(true)} disabled={syncing || fullSyncing} title="Re-pulls ALL invoices, payments and credits from scratch (ignores the incremental boundary). Use after connecting or when reconciling.">
+                {fullSyncing ? (
+                  <span className="flex items-center gap-2">
+                    <Loader size={14} className="animate-spin" />Full sync…
+                  </span>
+                ) : (
+                  <span className="flex flex-col items-center leading-tight">
+                    <span className="flex items-center gap-2"><RefreshCw size={14} />Full Sync</span>
+                    <span className="text-[10px] font-normal text-stone-400">Takes time</span>
+                  </span>
+                )}
+              </Button>
+              <Button onClick={() => handleSync(false)} disabled={syncing || fullSyncing}>
+                {syncing ? (
+                  <span className="flex items-center gap-2">
+                    <Loader size={14} className="animate-spin" />Syncing…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <RefreshCw size={14} />Sync Now
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
+          <p className="text-[11px] text-stone-500 mt-2">
+            <span className="font-medium text-stone-400">Full Sync</span> re-pulls your entire history from QuickBooks, Xero and Sage (slower) so receivables fully reconcile. <span className="font-medium text-stone-400">Sync Now</span> pulls only what changed since the last sync.
+          </p>
 
           {/* Combined sync result */}
           {syncResult && (

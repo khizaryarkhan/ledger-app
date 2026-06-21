@@ -243,7 +243,8 @@ function parseXeroDate(d: string | undefined | null): string | null {
 
 export async function runXeroApSync(
   orgId: string,
-  userId: string
+  userId: string,
+  opts: { fullSync?: boolean } = {}
 ): Promise<XeroApSyncResult> {
   const errors: string[] = [];
 
@@ -262,7 +263,8 @@ export async function runXeroApSync(
     .where(and(eq(xeroSyncLog.orgId, orgId), eq(xeroSyncLog.status, "success")))
     .orderBy(desc(xeroSyncLog.syncedAt))
     .limit(1);
-  const sinceDate = lastLog
+  // fullSync forces a complete historical re-fetch (ignores the last-sync log).
+  const sinceDate = (!opts.fullSync && lastLog)
     ? new Date(lastLog.syncedAt.getTime() - 10 * 60 * 1000)
     : undefined;
   const isIncremental = sinceDate !== undefined;
