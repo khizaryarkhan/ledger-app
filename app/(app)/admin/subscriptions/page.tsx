@@ -140,68 +140,103 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
     }
   };
 
-  const inputCls = "w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-100 placeholder-stone-600 focus:ring-sky-500 focus:outline-none";
+  const CURRENCIES = ["GBP", "EUR", "USD", "AUD", "CAD", "NZD", "CHF", "AED", "INR", "SGD", "ZAR"];
+  const inp = "px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+  const label = "text-xs text-stone-400 block mb-1.5";
+
+  const oneOffTotal = items.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
+  const symbol = ({ GBP: "£", EUR: "€", USD: "$", AUD: "$", CAD: "$", NZD: "$", INR: "₹" } as Record<string, string>)[currency] ?? "";
 
   return (
-    <Modal open={open} onClose={onClose} title="Create Stripe invoice">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Create Stripe invoice"
+      footer={result ? (
+        <Button variant="primary" onClick={() => { setResult(null); onClose(); }}>Done</Button>
+      ) : (
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={submit} disabled={saving}>
+            {saving && <Loader size={13} className="animate-spin mr-1" />}
+            {saving ? "Creating…" : "Create & send invoice"}
+          </Button>
+        </>
+      )}
+    >
       {result ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-emerald-400 text-sm"><CheckCircle2 size={16} /> Invoice created and emailed to the client.</div>
-          <div className="text-xs text-stone-400">Status: <span className="text-stone-200">{result.status}</span></div>
+        <div className="px-5 py-6 space-y-4">
+          <div className="flex items-center gap-2.5 text-emerald-300">
+            <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center"><CheckCircle2 size={18} /></div>
+            <div>
+              <p className="text-sm font-medium text-white">Invoice created & emailed</p>
+              <p className="text-xs text-stone-400">Status: <span className="text-stone-200 capitalize">{result.status}</span></p>
+            </div>
+          </div>
           {result.hostedInvoiceUrl && (
             <a href={result.hostedInvoiceUrl} target="_blank" rel="noreferrer"
-               className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 break-all">
-              <ExternalLink size={14} /> Shareable hosted invoice link
+               className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sm text-sky-300 hover:bg-sky-500/15 transition-colors">
+              <span className="flex items-center gap-2"><ExternalLink size={14} /> Open shareable invoice link</span>
+              <span className="text-[11px] text-sky-400/70">opens Stripe</span>
             </a>
           )}
-          <div className="flex justify-end pt-2">
-            <Button variant="primary" onClick={() => { setResult(null); onClose(); }}>Done</Button>
-          </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="px-5 py-5 space-y-4">
+          {/* Organisation */}
           <div>
-            <label className="text-[11px] text-stone-400 block mb-1">Organisation</label>
-            <select value={orgId} onChange={e => setOrgId(e.target.value)} className={inputCls}>
+            <label className={label}>Organisation <span className="text-rose-400">*</span></label>
+            <select value={orgId} onChange={e => setOrgId(e.target.value)} className={inp + " w-full"}>
               <option value="">Select an organisation…</option>
               {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </div>
+
+          {/* Billing email */}
           <div>
-            <label className="text-[11px] text-stone-400 block mb-1">Billing email (where Stripe sends the invoice)</label>
-            <input type="email" value={billingEmail} onChange={e => setBillingEmail(e.target.value)} placeholder="finance@client.com" className={inputCls} />
+            <label className={label}>Billing email <span className="text-rose-400">*</span></label>
+            <input type="email" value={billingEmail} onChange={e => setBillingEmail(e.target.value)}
+              placeholder="finance@client.com" className={inp + " w-full"} />
+            <p className="text-[11px] text-stone-600 mt-1">Stripe sends the hosted invoice here.</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setMode("subscription")}
-              className={`flex-1 h-8 text-xs rounded-md ring-1 ${mode === "subscription" ? "ring-sky-500 bg-sky-500/10 text-sky-300" : "ring-stone-700 text-stone-400"}`}>
-              Recurring subscription
-            </button>
-            <button onClick={() => setMode("oneoff")}
-              className={`flex-1 h-8 text-xs rounded-md ring-1 ${mode === "oneoff" ? "ring-sky-500 bg-sky-500/10 text-sky-300" : "ring-stone-700 text-stone-400"}`}>
-              One-off invoice
-            </button>
+
+          {/* Mode segmented control */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-800/60 rounded-lg">
+            {([["subscription", "Recurring"], ["oneoff", "One-off invoice"]] as const).map(([m, lbl]) => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`h-8 text-xs font-medium rounded-md transition-all ${
+                  mode === m ? "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/40" : "text-stone-400 hover:text-stone-200"
+                }`}>
+                {lbl}
+              </button>
+            ))}
           </div>
 
           {mode === "subscription" ? (
             <>
               <div>
-                <label className="text-[11px] text-stone-400 block mb-1">Plan name</label>
-                <input value={planName} onChange={e => setPlanName(e.target.value)} placeholder="e.g. AR Automation — Pro" className={inputCls} />
+                <label className={label}>Plan name</label>
+                <input value={planName} onChange={e => setPlanName(e.target.value)}
+                  placeholder="e.g. AR Automation — Pro" className={inp + " w-full"} />
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[11px] text-stone-400 block mb-1">Amount</label>
-                  <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="499.00" inputMode="decimal" className={inputCls} />
+                  <label className={label}>Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-stone-500">{symbol}</span>
+                    <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="499.00" inputMode="decimal"
+                      className={inp + ` w-full ${symbol ? "pl-7" : ""}`} />
+                  </div>
                 </div>
                 <div>
-                  <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
-                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
-                    {["GBP","EUR","USD","AUD","CAD","NZD","CHF","AED","INR","SGD","ZAR"].map(c => <option key={c} value={c}>{c}</option>)}
+                  <label className={label}>Currency</label>
+                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inp + " w-full"}>
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[11px] text-stone-400 block mb-1">Billing cycle</label>
-                  <select value={interval} onChange={e => setInterval(e.target.value as any)} className={inputCls}>
+                  <label className={label}>Billing cycle</label>
+                  <select value={interval} onChange={e => setInterval(e.target.value as any)} className={inp + " w-full"}>
                     <option value="month">Monthly</option>
                     <option value="year">Yearly</option>
                   </select>
@@ -210,45 +245,58 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
             </>
           ) : (
             <>
-              <label className="text-[11px] text-stone-400 block">Line items</label>
-              {items.map((it, i) => (
-                <div key={i} className="flex gap-2">
-                  <input value={it.description} onChange={e => setItem(i, "description", e.target.value)} placeholder="Setup fee" className={inputCls + " flex-1"} />
-                  <input value={it.amount} onChange={e => setItem(i, "amount", e.target.value)} placeholder="0.00" inputMode="decimal" className={inputCls + " w-28"} />
-                  {items.length > 1 && (
-                    <button onClick={() => setItems(items.filter((_, idx) => idx !== i))} className="text-stone-500 hover:text-rose-400 px-1"><X size={14} /></button>
-                  )}
+              <div>
+                <label className={label}>Line items</label>
+                <div className="space-y-2">
+                  {items.map((it, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={it.description} onChange={e => setItem(i, "description", e.target.value)}
+                        placeholder="Description — e.g. Setup fee" className={inp + " flex-1 min-w-0"} />
+                      <div className="relative w-32 shrink-0">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-stone-500">{symbol}</span>
+                        <input value={it.amount} onChange={e => setItem(i, "amount", e.target.value)}
+                          placeholder="0.00" inputMode="decimal" className={inp + ` w-full text-right ${symbol ? "pl-7" : ""}`} />
+                      </div>
+                      <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)}
+                        disabled={items.length === 1}
+                        className="text-stone-600 hover:text-rose-400 p-1.5 shrink-0 disabled:opacity-30 disabled:hover:text-stone-600">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <button onClick={() => setItems([...items, { description: "", amount: "" }])} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"><Plus size={12} /> Add line</button>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="text-[11px] text-stone-400 block mb-1">Currency</label>
-                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
-                    {["GBP","EUR","USD","AUD","CAD","NZD","CHF","AED","INR","SGD","ZAR"].map(c => <option key={c} value={c}>{c}</option>)}
+                <div className="flex items-center justify-between mt-2">
+                  <button onClick={() => setItems([...items, { description: "", amount: "" }])}
+                    className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"><Plus size={12} /> Add line</button>
+                  <span className="text-xs text-stone-400">Total <span className="text-white font-medium tabular-nums">{symbol}{oneOffTotal.toFixed(2)}</span></span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Currency</label>
+                  <select value={currency} onChange={e => setCurrency(e.target.value)} className={inp + " w-full"}>
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="text-[11px] text-stone-400 block mb-1">Memo (optional)</label>
-                <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Shown on the invoice" className={inputCls} />
+                <label className={label}>Memo <span className="text-stone-600">(optional)</span></label>
+                <input value={memo} onChange={e => setMemo(e.target.value)}
+                  placeholder="Shown on the invoice" className={inp + " w-full"} />
               </div>
             </>
           )}
 
           <div>
-            <label className="text-[11px] text-stone-400 block mb-1">Payment terms (days until due)</label>
-            <input value={daysUntilDue} onChange={e => setDaysUntilDue(e.target.value)} inputMode="numeric" className={inputCls + " w-28"} />
+            <label className={label}>Payment terms</label>
+            <div className="flex items-center gap-2">
+              <input value={daysUntilDue} onChange={e => setDaysUntilDue(e.target.value)} inputMode="numeric"
+                className={inp + " w-20 text-center"} />
+              <span className="text-xs text-stone-500">days until due</span>
+            </div>
           </div>
 
-          {err && <div className="text-xs text-rose-400 bg-rose-500/10 ring-1 ring-rose-500/20 rounded-md px-3 py-2">{err}</div>}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={submit} disabled={saving}>
-              {saving ? "Creating…" : "Create & send invoice"}
-            </Button>
-          </div>
+          {err && <div className="px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{err}</div>}
         </div>
       )}
     </Modal>
