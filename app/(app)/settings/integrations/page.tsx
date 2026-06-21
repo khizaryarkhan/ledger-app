@@ -69,24 +69,39 @@ export default function IntegrationsSettingsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ full }),
       });
-      const data = await res.json();
+
+      // Read the body defensively — a timeout / gateway error may not be JSON.
+      let data: any = null;
+      try { data = await res.json(); } catch { /* non-JSON (e.g. 504 timeout) */ }
+
       if (!res.ok) {
-        toast(data.error || "Sync failed", "error");
+        if (res.status === 504 || res.status === 502) {
+          toast(`${full ? "Full sync" : "Sync"} timed out — too much data for one run. It may have partly completed; check sync history.`, "error");
+        } else {
+          toast(data?.error || `Sync failed (HTTP ${res.status})`, "error");
+        }
+        return;
+      }
+
+      setSyncResult(data.synced);
+      // Surface a provider-level error even though the request returned 200.
+      const provErr = data.synced?.qbo?.error || data.synced?.xero?.error || data.synced?.sage?.error;
+      if (provErr) {
+        toast(`Sync error: ${provErr}`, "error");
       } else {
-        setSyncResult(data.synced);
         const qboDiff = data.synced?.qbo?.ar?.difference || 0;
         if (Math.abs(qboDiff) < 1) {
           toast(full ? "Full sync complete ✓" : "Sync complete ✓");
         } else {
           toast(`Sync complete — €${Math.abs(qboDiff).toFixed(2)} QBO AR variance`, "info");
         }
-        await refresh();
-        fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
-        fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
-        fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
       }
-    } catch {
-      toast("Sync failed", "error");
+      await refresh();
+      fetch("/api/qbo/history").then(r => r.json()).then(setSyncHistory).catch(() => {});
+      fetch("/api/xero/history").then(r => r.json()).then(setXeroHistory).catch(() => {});
+      fetch("/api/sage/history").then(r => r.json()).then(setSageHistory).catch(() => {});
+    } catch (e: any) {
+      toast(`Sync failed: ${e?.message || "network error"}`, "error");
     } finally {
       if (full) setFullSyncing(false); else setSyncing(false);
     }
