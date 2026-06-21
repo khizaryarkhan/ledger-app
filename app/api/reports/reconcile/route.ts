@@ -26,7 +26,7 @@
 
 import { db } from "@/db";
 import {
-  customers, invoices, payments, journalEntryArLines,
+  customers, invoices, payments, journalEntryArLines, paymentApplications,
   qboTokens, xeroTokens, sageIntacctCredentials,
 } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -171,6 +171,16 @@ export async function GET(req: Request) {
     .slice(0, 25);
   const ourJeTotal = ourJeRowsRaw.filter(j => !j.voided).reduce((s, j) => s + (j.amount ?? 0), 0);
 
+  // Payments/credits we captured as applied directly to Journal Entries. QBO's
+  // aged report lists a JE at its GROSS open balance, but its total nets these
+  // applications — so a settled opening-balance JE (gross -€1.48M, fully
+  // applied) contributes ~€0. Surfacing this explains why the provider's gross
+  // JE row is not additional open AR.
+  const jeAppsRaw = await db.select({ amountApplied: paymentApplications.amountApplied })
+    .from(paymentApplications)
+    .where(and(eq(paymentApplications.orgId, orgId!), eq(paymentApplications.targetType, "JournalEntry")));
+  const jeAppliedTotal = jeAppsRaw.reduce((s, a) => s + (a.amountApplied ?? 0), 0);
+
   const rows: RowOut[] = [];
   for (const [cid, syncedAR] of syncedByCustomer) {
     if (Math.abs(syncedAR) < 0.005) continue;
@@ -246,6 +256,8 @@ export async function GET(req: Request) {
         // OUR captured AR JE lines, for side-by-side comparison.
         ourJournalEntries,
         ourJeTotal,
+        // Payments applied to JEs — what offsets QBO's gross JE rows.
+        jeAppliedTotal,
       };
     } catch (e: any) {
       providerCheckError = e?.message || String(e);

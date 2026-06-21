@@ -36,6 +36,7 @@ type SelfRecon = {
     topRows: { type: string; rawType: string; num: string; date: string; dueDate: string; amount: number; customer: string }[];
     ourJournalEntries: { customer: string; account: string; docNumber: string; amount: number }[];
     ourJeTotal: number;
+    jeAppliedTotal: number;
   } | null;
   rows: SelfReconRow[];
 };
@@ -256,7 +257,12 @@ export default function ReconcilePage() {
                 </div>
                 {!selfRecon.providerDiag.tiesOut && (
                   <div className="px-2 py-1.5 rounded bg-amber-50 ring-1 ring-amber-200 text-[11px] text-amber-800 mb-2">
-                    ⚠ The detail rows we parsed don't sum to QBO's own grand total — so the per-type "provider" figures below are unreliable (a non-transaction row is being read as a transaction). The rows below show what QBO actually returned.
+                    ⚠ The detail rows we parsed don't sum to QBO's grand total. QBO lists each row at its <b>gross</b> open balance, but its total <b>nets</b> the payments/credits applied to them — so the per-type "provider" amounts below are gross and read high. Compare against the net figures, not these.
+                  </div>
+                )}
+                {Math.abs(selfRecon.providerDiag.jeAppliedTotal) >= 1 && (
+                  <div className="px-2 py-1.5 rounded bg-stone-100 ring-1 ring-stone-200 text-[11px] text-stone-600 mb-2">
+                    {fmt.money(selfRecon.providerDiag.jeAppliedTotal, selfRecon.rows[0]?.currency || "EUR")} of payments/credits are applied to Journal Entries. A gross JE on QBO's report (e.g. an opening-balance journal) that is fully applied nets to ~€0 — it is <b>not</b> additional open AR.
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4 mt-2">
