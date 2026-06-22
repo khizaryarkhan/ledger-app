@@ -78,6 +78,24 @@ export async function GET(_req: Request, { params }: { params: { orgId: string }
     }
   }
 
+  // Credit notes (refunds/adjustments against invoices).
+  let creditNotes: any[] = [];
+  if (sub?.stripeCustomerId) {
+    try {
+      const cn = await stripe.creditNotes.list({ customer: sub.stripeCustomerId, limit: 100 });
+      creditNotes = cn.data.map((c: any) => ({
+        id: c.id, number: c.number, total: c.total,
+        currency: (c.currency || "eur").toUpperCase(),
+        created: c.created ? c.created * 1000 : null,
+        status: c.status, reason: c.reason,
+        invoiceId: typeof c.invoice === "string" ? c.invoice : c.invoice?.id ?? null,
+        memo: c.memo ?? null, pdf: c.pdf ?? null,
+      }));
+    } catch (e: any) {
+      console.error("[admin/billing/org] credit notes:", e?.message);
+    }
+  }
+
   // Stats.
   const billable = invoices.filter(i => i.status !== "draft" && i.status !== "void");
   const totalBilled = billable.reduce((s, i) => s + (i.total || 0), 0);
@@ -120,6 +138,7 @@ export async function GET(_req: Request, { params }: { params: { orgId: string }
       : null,
     invoices: invoices.sort((a, b) => (b.created ?? 0) - (a.created ?? 0)),
     payments,
+    creditNotes,
     stats: { totalBilled, totalPaid, outstanding, mrr, currency },
   });
 }
