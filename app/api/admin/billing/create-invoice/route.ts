@@ -28,6 +28,7 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { logBillingEvent } from "@/lib/billing";
+import { getAppUrl } from "@/lib/system-mailer";
 
 export const maxDuration = 60;
 
@@ -128,11 +129,17 @@ export async function POST(req: Request) {
         });
       }
 
-      const sub = await stripe.subscriptions.create({
-        customer:          customerId,
-        collection_method: "send_invoice",
-        days_until_due:    d.daysUntilDue,
-        items: [{
+      // Stripe Checkout (subscription mode): the shareable link is the agreement.
+      // The customer enters their card once → Stripe charges the first period,
+      // SAVES the card, and AUTO-CHARGES every period thereafter
+      // (collection_method defaults to charge_automatically in Checkout). On
+      // checkout completion our webhook links the subscription to this org.
+      const appUrl = getAppUrl();
+      const session = await stripe.checkout.sessions.create({
+        mode:     "subscription",
+        customer: customerId,
+        line_items: [{
+          quantity: 1,
           price_data: {
             currency,
             product:     productId,
@@ -140,41 +147,25 @@ export async function POST(req: Request) {
             recurring:   { interval: d.interval },
           },
         }],
-        metadata: { orgId: org.id, createdBy: userId ?? "" },
-        expand:   ["latest_invoice"],
+        // Save the card for future automatic charges.
+        payment_method_collection: "always",
+        success_url: `${appUrl}/?billing=success`,
+        cancel_url:  `${appUrl}/?billing=cancelled`,
+        metadata:          { orgId: org.id, createdBy: userId ?? "" },
+        subscription_data: { metadata: { orgId: org.id } },
       });
-
-      // Persist the Stripe subscription id + the REAL status immediately, so the
-      // row reflects Stripe even before the webhook lands (don't leave it stuck
-      // on our placeholder "incomplete"). The webhook keeps it updated after.
-      await db.update(subscriptions)
-        .set({ stripeSubscriptionId: sub.id, status: sub.status, stripeUpdatedAt: new Date() })
-        .where(eq(subscriptions.orgId, org.id));
-
-      // The first invoice should be finalised & emailed so the client gets a link.
-      let invoice: any = sub.latest_invoice;
-      if (invoice && typeof invoice === "object") {
-        if (invoice.status === "draft") {
-          invoice = await stripe.invoices.finalizeInvoice(invoice.id);
-          try { await stripe.invoices.sendInvoice(invoice.id); } catch { /* may already be sent */ }
-        }
-      }
 
       await logBillingEvent({
         organizationId: org.id,
-        action:         "subscription_created",
-        newStatus:      sub.status,
-        metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id },
+        action:         "subscription_checkout_created",
+        metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, sessionId: session.id },
       });
 
       return NextResponse.json({
-        ok:               true,
-        mode:             "subscription",
-        subscriptionId:   sub.id,
-        status:           sub.status,
-        invoiceId:        invoice?.id ?? null,
-        hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null,
-        invoicePdf:       invoice?.invoice_pdf ?? null,
+        ok:          true,
+        mode:        "subscription",
+        checkoutUrl: session.url,   // the shareable agreement / payment link
+        sessionId:   session.id,
       });
     }
 

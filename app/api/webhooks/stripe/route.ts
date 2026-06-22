@@ -27,7 +27,47 @@ export async function POST(req: NextRequest) {
       const session   = event.data.object;
       const pendingId = session.metadata?.pendingId;
       if (!pendingId) {
-        console.warn("[stripe-webhook] no pendingId in session metadata");
+        // Admin-created subscription for an EXISTING org (Checkout subscription
+        // mode from the billing cockpit). Link the new auto-charging
+        // subscription to the org so status/access sync.
+        const metaOrgId = session.metadata?.orgId as string | undefined;
+        if (metaOrgId) {
+          const customerId     = session.customer as string | null;
+          const subscriptionId = session.subscription as string | null;
+          const [existing] = await db
+            .select({ id: subscriptions.id })
+            .from(subscriptions)
+            .where(eq(subscriptions.orgId, metaOrgId))
+            .limit(1);
+          if (existing) {
+            await db.update(subscriptions).set({
+              stripeCustomerId:     customerId,
+              stripeSubscriptionId: subscriptionId ?? undefined,
+              source:               "stripe",
+              stripeUpdatedAt:      new Date(),
+            }).where(eq(subscriptions.id, existing.id));
+          } else {
+            await db.insert(subscriptions).values({
+              orgId:                metaOrgId,
+              stripeCustomerId:     customerId,
+              stripeSubscriptionId: subscriptionId ?? undefined,
+              source:               "stripe",
+              status:               "active",
+            });
+          }
+          if (subscriptionId) {
+            try {
+              const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+                expand: ["default_payment_method", "items.data.price.product"],
+              });
+              await syncSubscriptionFromStripe(sub);
+              if (customerId) await syncCustomerBillingEmail(customerId);
+            } catch (e) { console.error("[stripe-webhook] org-checkout sync:", e); }
+          }
+          await logBillingEvent({ organizationId: metaOrgId, action: "subscription_created", stripeEventId: event.id });
+          return new Response("OK", { status: 200 });
+        }
+        console.warn("[stripe-webhook] no pendingId/orgId in session metadata");
         return new Response("OK", { status: 200 });
       }
 

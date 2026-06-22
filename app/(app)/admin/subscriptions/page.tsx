@@ -132,7 +132,7 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
       const d = await r.json();
       if (!r.ok) { setErr(d.error || `Failed (${r.status})`); return; }
       setResult(d);
-      onToast({ type: "success", message: mode === "subscription" ? "Subscription created & invoice sent" : "Invoice created & sent" });
+      onToast({ type: "success", message: mode === "subscription" ? "Agreement link created" : "Invoice created & sent" });
       onDone();
     } catch (e: any) {
       setErr(e?.message || "Network error");
@@ -170,14 +170,18 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
           <div className="flex items-center gap-2.5 text-emerald-300">
             <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center"><CheckCircle2 size={18} /></div>
             <div>
-              <p className="text-sm font-medium text-white">Invoice created & emailed</p>
-              <p className="text-xs text-stone-400">Status: <span className="text-stone-200 capitalize">{result.status}</span></p>
+              <p className="text-sm font-medium text-white">{result.checkoutUrl ? "Subscription agreement ready" : "Invoice created & emailed"}</p>
+              <p className="text-xs text-stone-400">
+                {result.checkoutUrl
+                  ? "Share the link below. The customer enters their card once, then it's charged automatically each period."
+                  : <>Status: <span className="text-stone-200 capitalize">{result.status}</span></>}
+              </p>
             </div>
           </div>
-          {result.hostedInvoiceUrl && (
-            <a href={result.hostedInvoiceUrl} target="_blank" rel="noreferrer"
+          {(result.checkoutUrl || result.hostedInvoiceUrl) && (
+            <a href={result.checkoutUrl || result.hostedInvoiceUrl} target="_blank" rel="noreferrer"
                className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sm text-sky-300 hover:bg-sky-500/15 transition-colors">
-              <span className="flex items-center gap-2"><ExternalLink size={14} /> Open shareable invoice link</span>
+              <span className="flex items-center gap-2"><ExternalLink size={14} /> {result.checkoutUrl ? "Open / copy payment agreement link" : "Open shareable invoice link"}</span>
               <span className="text-[11px] text-sky-400/70">opens Stripe</span>
             </a>
           )}
