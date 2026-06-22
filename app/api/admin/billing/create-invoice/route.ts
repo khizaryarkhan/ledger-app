@@ -51,6 +51,12 @@ const schema = z.object({
   memo:         z.string().max(1000).optional(),
   // optional discount (subscription mode)
   couponId:     z.string().trim().optional(),
+  // customer location (for tax / records). country = ISO 3166-1 alpha-2.
+  country:      z.string().trim().length(2).optional(),
+  state:        z.string().trim().max(40).optional(),
+  postalCode:   z.string().trim().max(20).optional(),
+  city:         z.string().trim().max(100).optional(),
+  line1:        z.string().trim().max(200).optional(),
 });
 
 export async function POST(req: Request) {
@@ -80,15 +86,27 @@ export async function POST(req: Request) {
     .limit(1);
 
   try {
+    // Customer location — needed for Stripe Tax and good billing records.
+    const address = d.country
+      ? {
+          country:     d.country.toUpperCase(),
+          ...(d.state ? { state: d.state } : {}),
+          ...(d.postalCode ? { postal_code: d.postalCode } : {}),
+          ...(d.city ? { city: d.city } : {}),
+          ...(d.line1 ? { line1: d.line1 } : {}),
+        }
+      : undefined;
+
     // ── Get or create the Stripe customer (1:1 with the org) ────────────────
     let customerId = existingSub?.stripeCustomerId ?? null;
     if (customerId) {
-      // keep the billing email current
-      await stripe.customers.update(customerId, { email: d.billingEmail }).catch(() => {});
+      // keep the billing email + address current
+      await stripe.customers.update(customerId, { email: d.billingEmail, ...(address ? { address } : {}) }).catch(() => {});
     } else {
       const customer = await stripe.customers.create({
         name:     org.name,
         email:    d.billingEmail,
+        ...(address ? { address } : {}),
         metadata: { orgId: org.id },
       });
       customerId = customer.id;

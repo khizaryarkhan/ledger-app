@@ -65,6 +65,20 @@ const PAYMENT_BADGE: Record<string, string> = {
   waived:  "neutral",
 };
 
+// Common billing countries (ISO 3166-1 alpha-2). Ordered with likely-first.
+const COUNTRIES: { code: string; name: string }[] = [
+  { code: "IE", name: "Ireland" }, { code: "GB", name: "United Kingdom" }, { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" }, { code: "AU", name: "Australia" }, { code: "NZ", name: "New Zealand" },
+  { code: "FR", name: "France" }, { code: "DE", name: "Germany" }, { code: "ES", name: "Spain" },
+  { code: "IT", name: "Italy" }, { code: "NL", name: "Netherlands" }, { code: "BE", name: "Belgium" },
+  { code: "PT", name: "Portugal" }, { code: "SE", name: "Sweden" }, { code: "DK", name: "Denmark" },
+  { code: "NO", name: "Norway" }, { code: "FI", name: "Finland" }, { code: "PL", name: "Poland" },
+  { code: "CH", name: "Switzerland" }, { code: "AT", name: "Austria" }, { code: "LU", name: "Luxembourg" },
+  { code: "AE", name: "United Arab Emirates" }, { code: "SA", name: "Saudi Arabia" }, { code: "IN", name: "India" },
+  { code: "SG", name: "Singapore" }, { code: "HK", name: "Hong Kong" }, { code: "ZA", name: "South Africa" },
+  { code: "JP", name: "Japan" }, { code: "BR", name: "Brazil" }, { code: "MX", name: "Mexico" },
+];
+
 // ─── Create Stripe Invoice / Subscription Modal ──────────────────────────────
 // Creates a Stripe-hosted invoice (no card data touched). "Subscription" bills a
 // custom recurring price (the sales-led primary path); "One-off" sends a single
@@ -77,6 +91,9 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
   const [orgId, setOrgId]       = useState("");
   const [mode, setMode]         = useState<"subscription" | "oneoff">("subscription");
   const [billingEmail, setBillingEmail] = useState("");
+  const [country, setCountry]   = useState("IE");
+  const [stateRegion, setStateRegion] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [currency, setCurrency] = useState("GBP");
   const [daysUntilDue, setDaysUntilDue] = useState("14");
   // subscription
@@ -111,10 +128,14 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
     setErr("");
     if (!orgId) return setErr("Select an organisation");
     if (!billingEmail.trim()) return setErr("Billing email is required");
+    if (!country) return setErr("Select the customer's country");
     const payload: any = {
       orgId, mode, billingEmail: billingEmail.trim(),
       currency: currency.toLowerCase(),
       daysUntilDue: parseInt(daysUntilDue) || 14,
+      country,
+      state: stateRegion.trim() || undefined,
+      postalCode: postalCode.trim() || undefined,
     };
     if (mode === "subscription") {
       const cents = Math.round(parseFloat(amount) * 100);
@@ -211,6 +232,25 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
               placeholder="finance@client.com" className={inp + " w-full"} />
             <p className="text-[11px] text-stone-600 mt-1">Stripe sends the hosted invoice here.</p>
           </div>
+
+          {/* Customer location (for tax & records) */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-1">
+              <label className={label}>Country <span className="text-rose-400">*</span></label>
+              <select value={country} onChange={e => setCountry(e.target.value)} className={inp + " w-full"}>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="col-span-1">
+              <label className={label}>State / region</label>
+              <input value={stateRegion} onChange={e => setStateRegion(e.target.value)} placeholder={country === "US" ? "CA" : "optional"} className={inp + " w-full"} />
+            </div>
+            <div className="col-span-1">
+              <label className={label}>Postal code</label>
+              <input value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="optional" className={inp + " w-full"} />
+            </div>
+          </div>
+          <p className="-mt-2 text-[11px] text-stone-600">Used for tax calculation and the customer's billing record.</p>
 
           {/* Mode segmented control */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-800/60 rounded-lg">
