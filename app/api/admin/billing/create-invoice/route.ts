@@ -28,7 +28,6 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { logBillingEvent } from "@/lib/billing";
-import { getAppUrl } from "@/lib/system-mailer";
 
 export const maxDuration = 60;
 
@@ -129,17 +128,21 @@ export async function POST(req: Request) {
         });
       }
 
-      // Stripe Checkout (subscription mode): the shareable link is the agreement.
-      // The customer enters their card once → Stripe charges the first period,
-      // SAVES the card, and AUTO-CHARGES every period thereafter
-      // (collection_method defaults to charge_automatically in Checkout). On
-      // checkout completion our webhook links the subscription to this org.
-      const appUrl = getAppUrl();
-      const session = await stripe.checkout.sessions.create({
-        mode:     "subscription",
-        customer: customerId,
-        line_items: [{
-          quantity: 1,
+      // Invoice-first recurring subscription:
+      //   collection_method:'charge_automatically' → future periods auto-charge.
+      //   payment_behavior:'default_incomplete'    → it issues a FIRST INVOICE
+      //     and stays "incomplete" until that invoice is paid (no card yet).
+      //   save_default_payment_method:'on_subscription' → the card the customer
+      //     uses to pay the first invoice is SAVED and becomes the default, so
+      //     every period after is charged to it automatically.
+      // We share the first invoice's hosted link; on payment Stripe activates
+      // the subscription and our webhook syncs status → access.
+      const sub = await stripe.subscriptions.create({
+        customer:          customerId,
+        collection_method: "charge_automatically",
+        payment_behavior:  "default_incomplete",
+        payment_settings:  { save_default_payment_method: "on_subscription" },
+        items: [{
           price_data: {
             currency,
             product:     productId,
@@ -147,25 +150,36 @@ export async function POST(req: Request) {
             recurring:   { interval: d.interval },
           },
         }],
-        // Save the card for future automatic charges.
-        payment_method_collection: "always",
-        success_url: `${appUrl}/?billing=success`,
-        cancel_url:  `${appUrl}/?billing=cancelled`,
-        metadata:          { orgId: org.id, createdBy: userId ?? "" },
-        subscription_data: { metadata: { orgId: org.id } },
+        metadata: { orgId: org.id, createdBy: userId ?? "" },
+        expand:   ["latest_invoice"],
       });
+
+      await db.update(subscriptions)
+        .set({ stripeSubscriptionId: sub.id, status: sub.status, stripeUpdatedAt: new Date() })
+        .where(eq(subscriptions.orgId, org.id));
+
+      // Finalise the first invoice so it has a shareable hosted link.
+      let invoice: any = sub.latest_invoice;
+      if (invoice && typeof invoice === "object" && invoice.status === "draft") {
+        invoice = await stripe.invoices.finalizeInvoice(invoice.id);
+      }
 
       await logBillingEvent({
         organizationId: org.id,
-        action:         "subscription_checkout_created",
-        metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, sessionId: session.id },
+        action:         "subscription_created",
+        newStatus:      sub.status,
+        metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id },
       });
 
       return NextResponse.json({
-        ok:          true,
-        mode:        "subscription",
-        checkoutUrl: session.url,   // the shareable agreement / payment link
-        sessionId:   session.id,
+        ok:               true,
+        mode:             "subscription",
+        recurring:        true,
+        subscriptionId:   sub.id,
+        status:           sub.status,
+        invoiceId:        invoice?.id ?? null,
+        hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null,
+        invoicePdf:       invoice?.invoice_pdf ?? null,
       });
     }
 
