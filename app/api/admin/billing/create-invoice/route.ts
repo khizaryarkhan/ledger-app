@@ -49,6 +49,8 @@ const schema = z.object({
   // oneoff mode
   lineItems:    z.array(lineItem).optional(),
   memo:         z.string().max(1000).optional(),
+  // optional discount (subscription mode)
+  couponId:     z.string().trim().optional(),
 });
 
 export async function POST(req: Request) {
@@ -150,6 +152,7 @@ export async function POST(req: Request) {
             recurring:   { interval: d.interval },
           },
         }],
+        ...(d.couponId ? { discounts: [{ coupon: d.couponId }] } : {}),
         metadata: { orgId: org.id, createdBy: userId ?? "" },
         expand:   ["latest_invoice"],
       });

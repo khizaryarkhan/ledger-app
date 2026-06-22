@@ -83,6 +83,8 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
   const [planName, setPlanName] = useState("");
   const [amount, setAmount]     = useState("");
   const [interval, setInterval] = useState<"month" | "year">("month");
+  const [coupons, setCoupons]   = useState<{ id: string; name: string }[]>([]);
+  const [couponId, setCouponId] = useState("");
   // one-off
   const [items, setItems]       = useState<{ description: string; amount: string }[]>([{ description: "", amount: "" }]);
   const [memo, setMemo]         = useState("");
@@ -96,6 +98,10 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
     fetch("/api/admin/organisations")
       .then(r => r.ok ? r.json() : [])
       .then(d => setOrgs((Array.isArray(d) ? d : (d?.organisations ?? [])).map((o: any) => ({ id: o.id, name: o.name }))));
+    fetch("/api/admin/billing/coupons")
+      .then(r => r.ok ? r.json() : { coupons: [] })
+      .then(d => setCoupons((d.coupons ?? []).filter((c: any) => c.valid).map((c: any) => ({ id: c.id, name: `${c.name} (${c.percentOff != null ? c.percentOff + "%" : (c.amountOff != null ? (c.amountOff / 100).toFixed(2) + " " + (c.currency ?? "") : "")})` }))))
+      .catch(() => {});
   }, [open]);
 
   const setItem = (i: number, k: "description" | "amount", v: string) =>
@@ -116,6 +122,7 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
       payload.amount = cents;
       payload.interval = interval;
       payload.planName = planName.trim() || "Custom plan";
+      if (couponId) payload.couponId = couponId;
     } else {
       const li = items
         .filter(it => it.description.trim() && parseFloat(it.amount) > 0)
@@ -247,6 +254,15 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
                   </select>
                 </div>
               </div>
+              {coupons.length > 0 && (
+                <div>
+                  <label className={label}>Discount <span className="text-stone-600">(optional)</span></label>
+                  <select value={couponId} onChange={e => setCouponId(e.target.value)} className={inp + " w-full"}>
+                    <option value="">No discount</option>
+                    {coupons.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
             </>
           ) : (
             <>

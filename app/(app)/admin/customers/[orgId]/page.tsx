@@ -7,7 +7,8 @@ import {
   ChevronLeft, Loader, ExternalLink, Ban, Undo2, CheckCircle2, HandCoins,
   CreditCard, Building2, TrendingUp, FileText, Receipt, FileMinus,
 } from "lucide-react";
-import { Card, Badge, Toast } from "@/components/ui";
+import { Card, Badge, Toast, Button, Modal } from "@/components/ui";
+import { Pencil } from "lucide-react";
 import { fmt } from "@/lib/format";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -38,6 +39,11 @@ export default function CustomerDetailPage() {
   const [toast, setToast]     = useState<any>(null);
   const [acting, setActing]   = useState<string | null>(null);
   const [tab, setTab]         = useState<Tab>("invoices");
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [newAmount, setNewAmount] = useState("");
+  const [newInterval, setNewInterval] = useState<"month" | "year">("month");
+  const [prorate, setProrate] = useState(true);
+  const [savingPrice, setSavingPrice] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +84,29 @@ export default function CustomerDetailPage() {
       if (r.ok) { setToast({ type: "success", message: "Subscription cancelled" }); load(); }
       else setToast({ type: "error", message: d.error ?? "Failed" });
     } finally { setActing(null); }
+  };
+
+  const openPriceModal = () => {
+    const s = data?.subscription;
+    setNewAmount(s?.planAmount != null ? String(s.planAmount / 100) : "");
+    setNewInterval(s?.planInterval === "year" ? "year" : "month");
+    setProrate(true);
+    setPriceOpen(true);
+  };
+  const submitPrice = async () => {
+    const sub = data?.subscription; if (!sub) return;
+    const cents = Math.round(parseFloat(newAmount) * 100);
+    if (!cents || cents <= 0) { setToast({ type: "error", message: "Enter a valid amount" }); return; }
+    setSavingPrice(true);
+    try {
+      const r = await fetch(`/api/admin/subscriptions/${sub.id}/change-price`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount: cents, interval: newInterval, prorate }),
+      });
+      const d = await r.json();
+      if (r.ok) { setToast({ type: "success", message: "Price updated" }); setPriceOpen(false); load(); }
+      else setToast({ type: "error", message: d.error ?? "Failed" });
+    } finally { setSavingPrice(false); }
   };
 
   if (loading && !data) return <div className="p-6"><Loader size={20} className="animate-spin text-stone-500" /></div>;
@@ -122,9 +151,14 @@ export default function CustomerDetailPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Subscription</h2>
           {sub && sub.source === "stripe" && (sub.status === "active" || sub.status === "trialing" || sub.status === "past_due") && (
-            <button onClick={cancelSub} disabled={acting === "sub"} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 disabled:opacity-40">
-              {acting === "sub" ? <Loader size={11} className="animate-spin" /> : <Ban size={11} />} Cancel & revoke
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={openPriceModal} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-stone-700 text-stone-300 hover:bg-stone-700">
+                <Pencil size={11} /> Change price
+              </button>
+              <button onClick={cancelSub} disabled={acting === "sub"} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 disabled:opacity-40">
+                {acting === "sub" ? <Loader size={11} className="animate-spin" /> : <Ban size={11} />} Cancel & revoke
+              </button>
+            </div>
           )}
         </div>
         {!sub ? (
@@ -244,6 +278,33 @@ export default function CustomerDetailPage() {
           )}
         </Card>
       </div>
+
+      {/* Change price modal */}
+      <Modal open={priceOpen} onClose={() => setPriceOpen(false)} title="Change subscription price"
+        footer={<><Button variant="secondary" onClick={() => setPriceOpen(false)}>Cancel</Button>
+          <Button variant="primary" onClick={submitPrice} disabled={savingPrice}>{savingPrice ? "Saving…" : "Update price"}</Button></>}>
+        <div className="px-5 py-5 space-y-4">
+          <p className="text-[12px] text-stone-500">The saved card is charged the new amount going forward. Proration credits/charges the difference for the current period.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-stone-400 block mb-1.5">New amount ({ccy})</label>
+              <input value={newAmount} onChange={e => setNewAmount(e.target.value)} inputMode="decimal" placeholder="499.00"
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs text-stone-400 block mb-1.5">Billing cycle</label>
+              <select value={newInterval} onChange={e => setNewInterval(e.target.value as any)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none">
+                <option value="month">Monthly</option><option value="year">Yearly</option>
+              </select>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-stone-300 cursor-pointer">
+            <input type="checkbox" checked={prorate} onChange={e => setProrate(e.target.checked)} className="accent-emerald-500" />
+            Prorate the change for the current period
+          </label>
+        </div>
+      </Modal>
 
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
