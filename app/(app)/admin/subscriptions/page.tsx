@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import { COUNTRIES } from "@/lib/countries";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -64,20 +65,6 @@ const PAYMENT_BADGE: Record<string, string> = {
   overdue: "red",
   waived:  "neutral",
 };
-
-// Common billing countries (ISO 3166-1 alpha-2). Ordered with likely-first.
-const COUNTRIES: { code: string; name: string }[] = [
-  { code: "IE", name: "Ireland" }, { code: "GB", name: "United Kingdom" }, { code: "US", name: "United States" },
-  { code: "CA", name: "Canada" }, { code: "AU", name: "Australia" }, { code: "NZ", name: "New Zealand" },
-  { code: "FR", name: "France" }, { code: "DE", name: "Germany" }, { code: "ES", name: "Spain" },
-  { code: "IT", name: "Italy" }, { code: "NL", name: "Netherlands" }, { code: "BE", name: "Belgium" },
-  { code: "PT", name: "Portugal" }, { code: "SE", name: "Sweden" }, { code: "DK", name: "Denmark" },
-  { code: "NO", name: "Norway" }, { code: "FI", name: "Finland" }, { code: "PL", name: "Poland" },
-  { code: "CH", name: "Switzerland" }, { code: "AT", name: "Austria" }, { code: "LU", name: "Luxembourg" },
-  { code: "AE", name: "United Arab Emirates" }, { code: "SA", name: "Saudi Arabia" }, { code: "IN", name: "India" },
-  { code: "SG", name: "Singapore" }, { code: "HK", name: "Hong Kong" }, { code: "ZA", name: "South Africa" },
-  { code: "JP", name: "Japan" }, { code: "BR", name: "Brazil" }, { code: "MX", name: "Mexico" },
-];
 
 // ─── Create Stripe Invoice / Subscription Modal ──────────────────────────────
 // Creates a Stripe-hosted invoice (no card data touched). "Subscription" bills a
