@@ -898,7 +898,13 @@ export default function SubscriptionsPage() {
                     >
                       {/* Organisation */}
                       <td className="px-4 py-3">
-                        <p className="text-white text-xs font-medium">{s.orgName ?? "—"}</p>
+                        {s.orgId ? (
+                          <Link href={`/admin/billing/${s.orgId}`} className="text-white text-xs font-medium hover:text-emerald-400 transition-colors">
+                            {s.orgName ?? "—"}
+                          </Link>
+                        ) : (
+                          <p className="text-white text-xs font-medium">{s.orgName ?? "—"}</p>
+                        )}
                         {s.billingEmail && (
                           <p className="text-[11px] text-stone-500 truncate max-w-[150px]">{s.billingEmail}</p>
                         )}
