@@ -45,19 +45,26 @@ export async function GET() {
           ? (!s.manualExpiresAt || new Date(s.manualExpiresAt).getTime() > now)
           : (s.status === "active" || s.status === "trialing"))
       : false;
+    const interval = s?.planInterval ?? null;
+    const renewsAt = s ? (s.source === "manual" ? s.manualExpiresAt : s.currentPeriodEnd) : null;
     return {
       orgId:        o.id,
       name:         o.name,
       email:        emailByOrg.get(o.id) ?? s?.billingEmail ?? null,
       hasSub:       !!s,
-      source:       s?.source ?? null,
+      source:       s?.source ?? null,                       // 'stripe' | 'manual' | null
       status:       s ? (isActive ? "active" : s.status) : "none",
       isActive,
       planName:     s?.planName ?? null,
       planAmount:   s?.planAmount ?? null,
       planCurrency: (s?.planCurrency ?? "gbp").toUpperCase(),
-      planInterval: s?.planInterval ?? null,
-      mrr:          isActive ? toMonthly(s?.planAmount ?? null, s?.planInterval ?? null) : 0,
+      planInterval: interval,
+      billing:      interval === "year" ? "Annual" : interval === "month" ? "Monthly" : (interval ? "Custom" : "—"),
+      mrr:          isActive ? toMonthly(s?.planAmount ?? null, interval) : 0,
+      lastPayment:  s?.lastPaymentDate ? new Date(s.lastPaymentDate).getTime() : null,
+      lastPaymentStatus: s?.lastPaymentStatus ?? s?.manualPaymentStatus ?? null,
+      lastPaymentAmount: s?.lastPaymentAmount ?? null,
+      renewsAt:     renewsAt ? new Date(renewsAt).getTime() : null,
     };
   });
 
