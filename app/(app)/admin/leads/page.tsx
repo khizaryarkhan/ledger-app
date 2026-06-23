@@ -7,6 +7,7 @@ import {
   Upload, Download, Square, ListTodo, Zap, Play, Pause, Sparkles, Reply,
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
+import { LeadsCommandCenter } from "./command-center";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
 type LeadStatus = typeof STATUS_OPTIONS[number];
@@ -1916,6 +1917,15 @@ export default function LeadsPage() {
     }
   };
 
+  // Open a lead drawer by id (from the command center). If it's filtered out of
+  // the current list, clear filters so it loads.
+  const openLeadById = (id: string) => {
+    const l = leads.find(x => x.id === id);
+    if (l) { setActive(l); return; }
+    setStatusFilter("all"); setSearch("");
+    setToast({ type: "info", message: "Filters cleared — the lead is loading, click it in the list" });
+  };
+
   const toggleSelect = (id: string) =>
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -1976,6 +1986,9 @@ export default function LeadsPage() {
           </button>
         </div>
       </div>
+
+      {/* Sales command center */}
+      <LeadsCommandCenter onOpenLead={openLeadById} refreshKey={leads.length} />
 
       {/* Stats bar */}
       {!loading && leads.length > 0 && (
