@@ -10,14 +10,16 @@ const STAGE_TEMPLATES = [
   {
     stage: "new",
     name: "New Lead — First Touch",
-    subject: "Quick question about food safety at {{companyName}}",
+    subject: "Getting paid faster at {{companyName}}",
     body: `Hi {{firstName}},
 
-I came across {{companyName}} and wanted to reach out briefly.
+I came across {{companyName}} and wanted to reach out.
 
-We help food businesses stay audit-ready and compliant without the paper chaos — FoodReady automates your HACCP plans, temperature logs, and supplier checklists all in one place.
+Most finance teams lose hours every week chasing overdue invoices by hand. Prime Accountax plugs straight into your QuickBooks or Xero and does the chasing for you — automated, polite payment reminders, a portal where customers can see and pay invoices, and a live view of who owes what.
 
-Would it make sense to have a quick 15-minute call to see if it could be a fit?
+Teams using us typically get paid 1–2 weeks sooner and cut the manual follow-up almost entirely.
+
+Worth a quick 15-minute look to see what it would do for {{companyName}}'s cash flow?
 
 Best,
 [Your Name]`,
@@ -25,14 +27,16 @@ Best,
   {
     stage: "contacted",
     name: "Contacted — Follow-Up",
-    subject: "Following up — FoodReady for {{companyName}}",
+    subject: "Following up — automating collections for {{companyName}}",
     body: `Hi {{firstName}},
 
-Just following up on my previous note — I know things get busy.
+Just circling back on my note — I know month-end gets hectic.
 
-We're currently helping food manufacturers cut audit prep time by up to 70%. I'd love to show you how {{companyName}} could benefit.
+Quick question: how many hours does your team spend each week chasing unpaid invoices, and what's your average time-to-pay right now?
 
-Even 10 minutes works. What does your calendar look like this week?
+That's exactly what Prime Accountax fixes — it reminds customers automatically, escalates the ones that go quiet, and tells you who to call today. Most clients see overdue balances drop within the first month.
+
+Even 10 minutes this week and I'll show you the numbers on your own QuickBooks/Xero data.
 
 Best,
 [Your Name]`,
@@ -40,18 +44,17 @@ Best,
   {
     stage: "qualified",
     name: "Qualified — Demo Invitation",
-    subject: "Let's book a demo for {{companyName}}, {{firstName}}",
+    subject: "Let's book your walkthrough, {{firstName}}",
     body: `Hi {{firstName}},
 
-Based on our conversation, I think FoodReady could make a real difference at {{companyName}}.
+Based on our conversation, I think Prime Accountax is a strong fit for {{companyName}}. In a 30-minute walkthrough I'll show you, on your own data:
 
-I'd love to set up a personalised demo to show you exactly how we handle:
-- Digital HACCP plans and corrective actions
-- Automated temperature and checklist logs
-- Supplier and allergen management
-- Audit-ready reports in one click
+- Automated reminder sequences that chase invoices for you (so your team doesn't)
+- A self-serve payment portal — customers view and pay in one click
+- A collections dashboard: aging, who's overdue, promises to pay, who to call now
+- Live two-way sync with QuickBooks / Xero — no double entry
 
-Would [Day] at [Time] work for a 30-minute walkthrough? Reply and I'll send a calendar invite.
+Would [Day] at [Time] work? Reply and I'll send the invite.
 
 Best,
 [Your Name]`,
@@ -59,32 +62,32 @@ Best,
   {
     stage: "converted",
     name: "Converted — Welcome Aboard",
-    subject: "Welcome to FoodReady, {{firstName}}!",
+    subject: "Welcome to Prime Accountax, {{firstName}}!",
     body: `Hi {{firstName}},
 
-Welcome to FoodReady — we're thrilled to have {{companyName}} on board!
+Welcome aboard — delighted to have {{companyName}} with us!
 
-Here's what to expect next:
-1. Your onboarding call is being scheduled (check your inbox)
-2. Our team will guide you through your first HACCP plan setup
-3. You'll be audit-ready within your first week
+Here's what happens next:
+1. We connect your QuickBooks/Xero (takes a few minutes) and pull in your invoices
+2. We set up your reminder sequences and payment portal with you
+3. You'll see your first automated reminders going out — and start getting paid faster — within days
 
-If you have any questions in the meantime, just reply to this email.
+Anything you need before then, just reply to this email.
 
-Excited to work with you,
-[Your Name] & The FoodReady Team`,
+Excited to help you get paid sooner,
+[Your Name] & the Prime Accountax team`,
   },
   {
     stage: "rejected",
     name: "Rejected — Re-engage",
-    subject: "Checking in — has anything changed at {{companyName}}?",
+    subject: "Has anything changed with collections at {{companyName}}?",
     body: `Hi {{firstName}},
 
-I know the timing wasn't right when we last spoke — completely understandable.
+Totally understood that the timing wasn't right when we last spoke.
 
-I'm reaching out because we've recently launched some new features that often change the conversation, including automated audit scheduling and a new supplier portal.
+I'm reaching back out because we've shipped a few things that often change the conversation — a redesigned customer payment portal and smarter, fully automated reminder workflows.
 
-If circumstances have changed at {{companyName}}, I'd love to reconnect for a quick update. No pressure at all.
+If late payments or manual chasing are still costing {{companyName}} time, I'd be glad to reconnect for a quick update. No pressure at all.
 
 Best,
 [Your Name]`,
@@ -92,14 +95,14 @@ Best,
   {
     stage: "archived",
     name: "Archived — Win-Back",
-    subject: "Still thinking about compliance at {{companyName}}?",
+    subject: "Still chasing invoices at {{companyName}}?",
     body: `Hi {{firstName}},
 
-It's been a while since we last connected and I wanted to reach out one more time.
+It's been a while since we connected, so one last note from me.
 
-Food safety regulations are only getting stricter, and we've helped dozens of businesses like {{companyName}} stay ahead of audits without the stress.
+Cash flow only gets more important, and we've helped a lot of businesses like {{companyName}} cut their overdue balances and stop chasing invoices by hand — all on top of the QuickBooks/Xero they already use.
 
-If you're open to it, I'd love to show you what's new. If not, no worries — I'll leave the door open.
+If you're open to it, I'd love to show you what's new. If not, no worries — the door stays open.
 
 Best,
 [Your Name]`,
@@ -111,19 +114,21 @@ Best,
 const DEFAULT_SEQUENCE = {
   name: "New Lead Nurture — 6 Step",
   description:
-    "Automated 6-email sequence for new leads over 25 days. Takes a lead from cold introduction through to a demo booked or a clean close.",
+    "Automated 6-email sequence for new leads over 25 days. Takes a QuickBooks/Xero business from cold introduction through to a demo booked or a clean close — selling AR automation, faster payment and less manual chasing.",
   steps: [
     {
       stepNumber: 1,
       delayDays: 0,
-      subject: "Quick question about food safety at {{companyName}}",
+      subject: "Getting paid faster at {{companyName}}",
       body: `Hi {{firstName}},
 
 I came across {{companyName}} and wanted to reach out.
 
-We help food businesses automate compliance — HACCP plans, temperature logs, supplier checklists — all in one place, on any device.
+Prime Accountax connects to your QuickBooks or Xero and automates the bit everyone hates — chasing unpaid invoices. Automatic reminders, a portal where customers can pay in one click, and a live view of who owes what.
 
-Would a quick 15-minute call make sense?
+Most teams get paid 1–2 weeks sooner and stop the manual follow-up.
+
+Worth a quick 15-minute look?
 
 Best,
 [Your Name]`,
@@ -131,14 +136,14 @@ Best,
     {
       stepNumber: 2,
       delayDays: 3,
-      subject: "The #1 reason food businesses fail audits",
+      subject: "What late payments are really costing {{companyName}}",
       body: `Hi {{firstName}},
 
-Most food businesses fail audits for the same reason: paper-based records that are incomplete, illegible, or simply missing.
+A quick one: every extra day an invoice sits unpaid is cash you can't use — and the average SME carries weeks of it.
 
-FoodReady replaces paper with digital logs your team actually fills in — on any device, in seconds — so every inspection is effortless.
+Prime Accountax shortens that. It chases overdue invoices automatically (politely, on your schedule), escalates the ones that go quiet, and shows you exactly who to call today.
 
-Worth a look? I can walk you through it in under 15 minutes.
+I can show you the impact on {{companyName}}'s own numbers in under 15 minutes.
 
 Best,
 [Your Name]`,
@@ -146,14 +151,14 @@ Best,
     {
       stepNumber: 3,
       delayDays: 7,
-      subject: "From 3 days of prep to 4 hours — a quick story",
+      subject: "How one finance team cut their overdue balance in half",
       body: `Hi {{firstName}},
 
-One of our customers — a mid-size food manufacturer — used to spend 3 days preparing for every audit.
+One client — a services business on Xero — was spending half a day a week chasing invoices and still letting balances slip past 60 days.
 
-After switching to FoodReady, their prep time dropped to 4 hours. Everything was already logged, verified, and ready to export.
+Within a month of switching the chasing over to Prime Accountax, their overdue balance roughly halved and the manual follow-up basically disappeared.
 
-I'd love to show {{companyName}} the same results. Open to a short demo this week?
+I'd love to show {{companyName}} how. Open to a short walkthrough this week?
 
 Best,
 [Your Name]`,
@@ -161,16 +166,16 @@ Best,
     {
       stepNumber: 4,
       delayDays: 12,
-      subject: "3 FoodReady features {{companyName}} would use every day",
+      subject: "3 things {{companyName}} would use every single day",
       body: `Hi {{firstName}},
 
-Based on what I know about {{companyName}}, here are three FoodReady features that would make an immediate difference:
+Three Prime Accountax features that make an immediate difference:
 
-1. Smart checklists — mobile-friendly, with auto-reminders on incomplete items
-2. Corrective action tracking — log issues, assign tasks, close the loop automatically
-3. One-click audit reports — export everything an inspector needs in seconds
+1. Automated reminder sequences — invoices get chased for you, end to end
+2. Customer payment portal — clients view and pay in one click (less back-and-forth)
+3. Collections dashboard — aging, overdue, promises to pay, and who to call now, synced live from QuickBooks/Xero
 
-Would you like to see these in a 20-minute walkthrough?
+Want to see these on your own data in a 20-minute walkthrough?
 
 Best,
 [Your Name]`,
@@ -178,14 +183,12 @@ Best,
     {
       stepNumber: 5,
       delayDays: 18,
-      subject: "Last chance to book a demo this month, {{firstName}}",
+      subject: "A couple of onboarding slots left this month, {{firstName}}",
       body: `Hi {{firstName}},
 
-We only onboard a limited number of new customers each month to make sure everyone gets proper support.
+We take on a limited number of new clients each month so onboarding gets proper attention. I've a couple of slots left and wanted to offer one to {{companyName}}.
 
-I have a couple of spots left this month and wanted to offer one to {{companyName}} before they fill up.
-
-If you're at all curious, now is a great time to lock in a 30-minute walkthrough. Just reply and I'll sort the calendar.
+If getting paid faster is on your list for this quarter, now's a good time to lock in a 30-minute walkthrough. Reply and I'll sort the calendar.
 
 Best,
 [Your Name]`,
@@ -196,11 +199,11 @@ Best,
       subject: "Should I close your file, {{firstName}}?",
       body: `Hi {{firstName}},
 
-I've reached out a few times but haven't heard back — which usually means the timing is off or this just isn't a priority right now.
+I've reached out a few times without hearing back — usually that means the timing's off or it's just not a priority right now.
 
-Either way, completely fine. I'll stop reaching out after this.
+Either way, completely fine — I'll stop here.
 
-But if there's still some interest, I'm one reply away. Happy to pick up where we left off whenever works for {{companyName}}.
+But if getting paid sooner and ending the manual chasing is still worth a look, I'm one reply away. Happy to pick up whenever suits {{companyName}}.
 
 Wishing you well,
 [Your Name]`,
