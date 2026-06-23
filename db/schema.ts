@@ -336,6 +336,30 @@ export const opportunities = pgTable("opportunities", {
 export type Opportunity = typeof opportunities.$inferSelect;
 
 // =========================================================================
+// ADMIN EMAIL ACCOUNTS (per platform-admin mailbox — IMAP/SMTP, admin portal)
+// Each admin connects their own @primeaccountax.com mailbox to send/receive
+// inside the portal. The password is encrypted at rest via lib/crypto.
+// =========================================================================
+export const adminEmailAccounts = pgTable("admin_email_accounts", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  userId:       uuid("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  emailAddress: varchar("email_address", { length: 255 }).notNull(),
+  fromName:     varchar("from_name", { length: 255 }),
+  imapHost:     varchar("imap_host", { length: 255 }).notNull(),
+  imapPort:     integer("imap_port").notNull().default(993),
+  smtpHost:     varchar("smtp_host", { length: 255 }).notNull(),
+  smtpPort:     integer("smtp_port").notNull().default(465),
+  username:     varchar("username", { length: 255 }).notNull(),
+  passwordEnc:  text("password_enc").notNull(), // AES-256-GCM via lib/crypto
+  status:       varchar("status", { length: 20 }).notNull().default("connected"), // connected | error
+  lastError:    text("last_error"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+});
+export type AdminEmailAccount = typeof adminEmailAccounts.$inferSelect;
+
+// =========================================================================
 // BILLING AUDIT LOG
 // =========================================================================
 export const billingAuditLogs = pgTable("billing_audit_logs", {
