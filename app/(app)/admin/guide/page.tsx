@@ -7,7 +7,7 @@ import {
 import { DEFAULT_GUIDES } from "@/lib/guide-content";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, Save, Eye, EyeOff, RotateCcw, Loader,
-  GripVertical, Image as ImageIcon,
+  GripVertical, Image as ImageIcon, Upload,
 } from "lucide-react";
 
 type Key = "customer" | "admin";
@@ -250,6 +250,20 @@ function BlockEditor({ block, onChange, onUp, onDown, onDelete, first, last }: {
 }) {
   const typeLabel = BLOCK_TYPES.find(t => t.type === block.type)?.label ?? block.type;
   const setItems = (items: string[]) => onChange({ ...block, items } as GuideBlock);
+  const [uploading, setUploading] = useState(false);
+  const [upErr, setUpErr] = useState("");
+
+  const uploadImage = async (file: File) => {
+    setUploading(true); setUpErr("");
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const r = await fetch("/api/admin/guide/upload", { method: "POST", body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.url) onChange({ ...(block as any), image: d.url });
+      else setUpErr(d.error ?? "Upload failed");
+    } catch { setUpErr("Upload failed"); }
+    finally { setUploading(false); }
+  };
 
   return (
     <div className="rounded-lg border border-stone-800 bg-stone-900/60 p-2.5">
@@ -303,13 +317,26 @@ function BlockEditor({ block, onChange, onUp, onDown, onDelete, first, last }: {
             <div><label className={lbl}>Caption</label>
               <input className={inp} value={block.caption ?? ""} onChange={e => onChange({ ...block, caption: e.target.value })} /></div>
           </div>
-          <div><label className={lbl}>Image URL <span className="text-stone-600 normal-case">(https… — leave blank to show a placeholder)</span></label>
+          <div><label className={lbl}>Screenshot <span className="text-stone-600 normal-case">(upload a file, or paste an https URL — blank shows a placeholder)</span></label>
             <div className="flex items-center gap-2">
               <input className={inp} value={block.image ?? ""} onChange={e => onChange({ ...block, image: e.target.value })} placeholder="https://…/screenshot.png" />
               {block.image
                 ? // eslint-disable-next-line @next/next/no-img-element
                   <img src={block.image} alt="" className="w-12 h-10 object-cover rounded border border-stone-700" />
                 : <span className="shrink-0 w-12 h-10 rounded border border-dashed border-stone-700 flex items-center justify-center text-stone-600"><ImageIcon size={14} /></span>}
+            </div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <label className={`flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-medium rounded border border-stone-700 cursor-pointer transition-colors ${uploading ? "text-stone-500" : "text-stone-300 hover:bg-stone-800"}`}>
+                {uploading ? <Loader size={11} className="animate-spin" /> : <Upload size={11} />}
+                {uploading ? "Uploading…" : "Upload image"}
+                <input type="file" accept="image/*" className="hidden" disabled={uploading}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }} />
+              </label>
+              {block.image && (
+                <button onClick={() => onChange({ ...block, image: "" })}
+                  className="text-[11px] text-stone-500 hover:text-rose-400">Remove</button>
+              )}
+              {upErr && <span className="text-[11px] text-rose-400">{upErr}</span>}
             </div>
           </div>
         </div>
