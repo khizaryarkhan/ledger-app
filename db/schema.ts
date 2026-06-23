@@ -310,6 +310,32 @@ export const guidePages = pgTable("guide_pages", {
 export type GuidePage = typeof guidePages.$inferSelect;
 
 // =========================================================================
+// OPPORTUNITIES / DEALS (admin sales pipeline — admin.primeaccountax.com)
+// A deal sits on a Lead (landing_page_requests) and, once won, can link to the
+// billing organisation. Value is stored in MAJOR currency units (e.g. 5000 = €5,000).
+// =========================================================================
+export const opportunities = pgTable("opportunities", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  leadId:           uuid("lead_id").references(() => landingPageRequests.id, { onDelete: "set null" }),
+  orgId:            uuid("org_id").references(() => organisations.id, { onDelete: "set null" }),
+  title:            varchar("title", { length: 255 }).notNull(),
+  value:            integer("value").notNull().default(0),
+  currency:         varchar("currency", { length: 3 }).notNull().default("USD"),
+  confidence:       integer("confidence").notNull().default(50), // 0-100
+  stage:            varchar("stage", { length: 40 }).notNull().default("discovery"),
+  status:           varchar("status", { length: 20 }).notNull().default("open"), // open | won | lost
+  expectedCloseDate: timestamp("expected_close_date"),
+  wonAt:            timestamp("won_at"),
+  lostAt:           timestamp("lost_at"),
+  lostReason:       text("lost_reason"),
+  ownerId:          uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+  createdBy:        uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+});
+export type Opportunity = typeof opportunities.$inferSelect;
+
+// =========================================================================
 // BILLING AUDIT LOG
 // =========================================================================
 export const billingAuditLogs = pgTable("billing_audit_logs", {
