@@ -1321,6 +1321,12 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
   const [stepBody,      setStepBody]    = useState("");
   const [stepSaving,    setStepSaving]  = useState(false);
 
+  // Inline step editing
+  const [editStepId,    setEditStepId]  = useState<string | null>(null);
+  const [eDelay,        setEDelay]       = useState(0);
+  const [eSubject,      setESubject]     = useState("");
+  const [eBody,         setEBody]        = useState("");
+
   const loadSequences = async () => {
     setLoading(true);
     const r = await fetch("/api/admin/sequences");
@@ -1398,6 +1404,29 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
     await fetch(`/api/admin/sequences/${editing.id}/steps/${stepId}`, { method: "DELETE" });
     setSteps(prev => prev.filter(s => s.id !== stepId));
     setSequences(prev => prev.map(s => s.id === editing!.id ? { ...s, stepCount: Math.max(0, (s.stepCount ?? 1) - 1) } : s));
+  };
+
+  const startEditStep = (step: any) => {
+    setAddingStep(false);
+    setEditStepId(step.id);
+    setEDelay(step.delayDays ?? 0);
+    setESubject(step.subject ?? "");
+    setEBody(step.body ?? "");
+  };
+
+  const saveEditStep = async () => {
+    if (!editStepId || !editing || !eSubject.trim() || !eBody.trim()) return;
+    setStepSaving(true);
+    const r = await fetch(`/api/admin/sequences/${editing.id}/steps/${editStepId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ delayDays: eDelay, subject: eSubject.trim(), body: eBody }),
+    });
+    if (r.ok) {
+      setSteps(prev => prev.map(s => s.id === editStepId ? { ...s, delayDays: Math.max(0, eDelay), subject: eSubject.trim(), body: eBody } : s));
+      setEditStepId(null);
+    }
+    setStepSaving(false);
   };
 
   return (
@@ -1523,6 +1552,40 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
 
                   <div className="space-y-2">
                     {steps.map((step, idx) => (
+                      editStepId === step.id ? (
+                        <div key={step.id} className="rounded-lg p-4 ring-1 ring-purple-500/40 bg-purple-500/5 space-y-3">
+                          <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider">Editing step {idx + 1}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                                Delay (days after {idx === 0 ? "enrolment" : "previous step"})
+                              </label>
+                              <input type="number" min={0} value={eDelay} onChange={e => setEDelay(Number(e.target.value))}
+                                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 focus:ring-purple-500 focus:outline-none" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
+                              <input value={eSubject} onChange={e => setESubject(e.target.value)} placeholder="Email subject"
+                                className="w-full h-8 px-3 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-purple-500 focus:outline-none" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
+                              Body <span className="ml-1.5 text-stone-600 normal-case font-normal tracking-normal">{'{{firstName}}'}, {'{{companyName}}'} supported</span>
+                            </label>
+                            <textarea value={eBody} onChange={e => setEBody(e.target.value)} rows={6}
+                              className="w-full px-3 py-2.5 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 resize-none focus:ring-purple-500 focus:outline-none leading-relaxed" />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => setEditStepId(null)}
+                              className="h-7 px-3 text-[11px] text-stone-400 hover:text-stone-200 hover:bg-stone-800 rounded-lg transition-colors">Cancel</button>
+                            <button onClick={saveEditStep} disabled={stepSaving || !eSubject.trim() || !eBody.trim()}
+                              className="h-7 px-3 text-[11px] font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1">
+                              {stepSaving && <Loader size={10} className="animate-spin" />} Save step
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
                       <div key={step.id} className="rounded-lg p-3.5 bg-stone-800/30 ring-1 ring-stone-800 group">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="flex items-center gap-2">
@@ -1531,14 +1594,21 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
                               {step.delayDays === 0 ? "Immediately on enrolment" : `${step.delayDays} day${step.delayDays !== 1 ? "s" : ""} after ${idx === 0 ? "enrolment" : "previous step"}`}
                             </span>
                           </div>
-                          <button onClick={() => deleteStep(step.id)}
-                            className="p-1 rounded hover:bg-rose-500/15 text-stone-600 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100">
-                            <Trash2 size={11} />
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => startEditStep(step)} title="Edit step"
+                              className="p-1 rounded hover:bg-purple-500/15 text-stone-600 hover:text-purple-400 transition-colors">
+                              <Pencil size={11} />
+                            </button>
+                            <button onClick={() => deleteStep(step.id)} title="Delete step"
+                              className="p-1 rounded hover:bg-rose-500/15 text-stone-600 hover:text-rose-400 transition-colors">
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
                         </div>
                         <p className="text-[11px] font-medium text-stone-300">{step.subject}</p>
                         <p className="text-[11px] text-stone-500 mt-0.5 line-clamp-2 whitespace-pre-wrap">{step.body}</p>
                       </div>
+                      )
                     ))}
 
                     {addingStep && (
@@ -1843,6 +1913,39 @@ export default function LeadsPage() {
   const [showBatchEmail, setShowBatchEmail] = useState(false);
   const [seedingDefaults, setSeedingDefaults] = useState(false);
   const [view, setView] = useState<"list" | "board">("list");
+  const [sequences, setSequences] = useState<any[]>([]);
+  const [colF, setColF] = useState({ name: "", email: "", service: "", status: "", source: "" });
+
+  useEffect(() => {
+    fetch("/api/admin/sequences")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setSequences((Array.isArray(d) ? d : []).filter((s: any) => s.isActive)))
+      .catch(() => {});
+  }, []);
+
+  const applySequence = async (leadId: string, sequenceId: string) => {
+    if (!sequenceId) return;
+    const seq = sequences.find(s => s.id === sequenceId);
+    const r = await fetch(`/api/admin/leads/${leadId}/enrollments`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sequenceId }),
+    });
+    if (r.ok) {
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, activeSequence: { enrollmentId: "", sequenceId, name: seq?.name ?? "Sequence" } } : l));
+      setToast({ type: "success", message: `Enrolled in ${seq?.name ?? "sequence"}` });
+      load();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      setToast({ type: "error", message: d.error ?? "Failed to enrol" });
+    }
+  };
+
+  const stopSequence = async (leadId: string, enrollmentId: string) => {
+    const r = await fetch(`/api/admin/leads/${leadId}/enrollments/${enrollmentId}`, { method: "DELETE" });
+    if (r.ok) {
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, activeSequence: null } : l));
+      setToast({ type: "success", message: "Sequence stopped" });
+    } else setToast({ type: "error", message: "Failed to stop sequence" });
+  };
 
   const seedDefaults = async () => {
     setSeedingDefaults(true);
@@ -1941,6 +2044,16 @@ export default function LeadsPage() {
     inProgress: leads.filter(l => l.status === "contacted" || l.status === "qualified").length,
     converted:  leads.filter(l => l.status === "converted").length,
   };
+
+  // Per-column filters (client-side, on top of the server search/status).
+  const displayLeads = leads.filter(l => {
+    if (colF.name && !`${l.fullName ?? ""} ${l.companyName ?? ""}`.toLowerCase().includes(colF.name.toLowerCase())) return false;
+    if (colF.email && !`${l.email ?? ""}`.toLowerCase().includes(colF.email.toLowerCase())) return false;
+    if (colF.service && !`${l.interestedService ?? ""}`.toLowerCase().includes(colF.service.toLowerCase())) return false;
+    if (colF.status && l.status !== colF.status) return false;
+    if (colF.source && l.source !== colF.source) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-5">
@@ -2081,13 +2194,23 @@ export default function LeadsPage() {
                     className="rounded border-stone-600 bg-stone-800 accent-emerald-500 cursor-pointer"
                   />
                 </th>
-                {["Name / Company", "Email", "Service", "Status", "Source", "Received", ""].map(h => (
+                {["Name / Company", "Email", "Service", "Status", "Source", "Sequence", "Received", ""].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">{h}</th>
                 ))}
               </tr>
+              {/* Column filters */}
+              <tr className="border-b border-stone-800 bg-stone-900/40">
+                <th />
+                <th className="px-4 py-1.5"><input value={colF.name} onChange={e => setColF(f => ({ ...f, name: e.target.value }))} placeholder="name / company" className="w-full h-7 px-2 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-stone-500" /></th>
+                <th className="px-4 py-1.5"><input value={colF.email} onChange={e => setColF(f => ({ ...f, email: e.target.value }))} placeholder="email" className="w-full h-7 px-2 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-stone-500" /></th>
+                <th className="px-4 py-1.5"><input value={colF.service} onChange={e => setColF(f => ({ ...f, service: e.target.value }))} placeholder="service" className="w-full h-7 px-2 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-stone-500" /></th>
+                <th className="px-4 py-1.5"><select value={colF.status} onChange={e => setColF(f => ({ ...f, status: e.target.value }))} className="w-full h-7 px-1 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-300 focus:outline-none focus:border-stone-500"><option value="">All</option>{STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</select></th>
+                <th className="px-4 py-1.5"><select value={colF.source} onChange={e => setColF(f => ({ ...f, source: e.target.value }))} className="w-full h-7 px-1 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-300 focus:outline-none focus:border-stone-500"><option value="">All</option><option value="manual">Manual</option><option value="landing_page">Website</option></select></th>
+                <th /><th /><th />
+              </tr>
             </thead>
             <tbody>
-              {leads.map((l: any) => (
+              {displayLeads.map((l: any) => (
                 <tr key={l.id} className={`border-b border-stone-800/50 hover:bg-stone-800/20 transition-colors group ${selected.has(l.id) ? "bg-stone-800/30" : ""}`}>
                   <td className="pl-4 py-3 w-8" onClick={e => e.stopPropagation()}>
                     <input type="checkbox"
@@ -2113,6 +2236,26 @@ export default function LeadsPage() {
                       ? <span className="inline-flex items-center gap-1 text-[10px] font-medium text-stone-500 bg-stone-800 px-1.5 py-0.5 rounded"><UserPlus size={9} /> Manual</span>
                       : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded"><Globe size={9} /> Website</span>
                     }
+                  </td>
+                  {/* Sequence — apply or stop inline */}
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {l.activeSequence ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-300 bg-violet-500/10 ring-1 ring-violet-500/30 px-1.5 py-0.5 rounded max-w-[120px] truncate" title={l.activeSequence.name}>
+                          <Zap size={9} /> {l.activeSequence.name}
+                        </span>
+                        <button onClick={() => stopSequence(l.id, l.activeSequence.enrollmentId)}
+                          title="Stop sequence" className="text-stone-500 hover:text-rose-400 p-0.5"><Pause size={11} /></button>
+                      </div>
+                    ) : sequences.length === 0 ? (
+                      <span className="text-[11px] text-stone-600">—</span>
+                    ) : (
+                      <select defaultValue="" onChange={e => { applySequence(l.id, e.target.value); e.target.value = ""; }}
+                        className="h-7 px-1.5 text-[11px] rounded bg-stone-800 border border-stone-700 text-stone-400 hover:text-stone-200 focus:outline-none focus:border-emerald-500 max-w-[140px]">
+                        <option value="">Apply sequence…</option>
+                        {sequences.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-stone-500 whitespace-nowrap">
                     {new Date(l.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { landingPageRequests, users } from "@/db/schema";
+import { landingPageRequests, users, leadSequenceEnrollments, leadSequences } from "@/db/schema";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { eq, desc, ilike, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -50,7 +50,25 @@ export async function GET(req: NextRequest) {
   }
 
   const rows = await (query as any).orderBy(desc(landingPageRequests.createdAt));
-  return NextResponse.json({ leads: rows });
+
+  // Attach each lead's ACTIVE sequence enrolment (for the inline Sequence column).
+  const active = await db
+    .select({
+      leadId:       leadSequenceEnrollments.leadId,
+      enrollmentId: leadSequenceEnrollments.id,
+      sequenceId:   leadSequenceEnrollments.sequenceId,
+      name:         leadSequences.name,
+    })
+    .from(leadSequenceEnrollments)
+    .innerJoin(leadSequences, eq(leadSequences.id, leadSequenceEnrollments.sequenceId))
+    .where(eq(leadSequenceEnrollments.status, "active"));
+  const activeByLead = new Map(active.map(a => [a.leadId, a]));
+
+  const leads = (rows as any[]).map(l => ({
+    ...l,
+    activeSequence: activeByLead.get(l.id) ?? null,
+  }));
+  return NextResponse.json({ leads });
 }
 
 export async function POST(req: NextRequest) {
