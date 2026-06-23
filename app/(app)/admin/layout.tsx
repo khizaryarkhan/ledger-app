@@ -5,22 +5,37 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
-  Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen, Trophy, Mail,
+  Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
+  Trophy, Mail, Plug,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-const NAV = [
-  { href: "/admin",             icon: LayoutDashboard, label: "Overview",       exact: true },
-  { href: "/admin/leads",       icon: FileText,        label: "Leads"                        },
-  { href: "/admin/opportunities", icon: Trophy,        label: "Opportunities"                },
-  { href: "/admin/inbox",       icon: Mail,            label: "Mail"                         },
-  { href: "/admin/customers",     icon: Building2,     label: "Customers"                    },
-  { href: "/admin/subscriptions", icon: CreditCard,    label: "Subscriptions"                },
-  { href: "/admin/discounts",     icon: Percent,       label: "Discounts"                    },
-  { href: "/admin/cancellations", icon: XCircle,       label: "Cancellations"                },
-  { href: "/admin/audit",       icon: ScrollText,      label: "Audit Log"                    },
-  { href: "/admin/team",        icon: Users,           label: "Admin Team"                   },
-  { href: "/admin/guide",       icon: BookOpen,        label: "Guide"                        },
+type NavItem = { href: string; icon: any; label: string; exact?: boolean };
+type NavSection = { label?: string; items: NavItem[] };
+
+const NAV: NavSection[] = [
+  { items: [
+    { href: "/admin", icon: LayoutDashboard, label: "Overview", exact: true },
+  ] },
+  { label: "CRM", items: [
+    { href: "/admin/leads",         icon: FileText,  label: "Leads" },
+    { href: "/admin/opportunities", icon: Trophy,    label: "Opportunities" },
+    { href: "/admin/inbox",         icon: Mail,      label: "Mail" },
+  ] },
+  { label: "BILLING", items: [
+    { href: "/admin/customers",     icon: Building2,  label: "Customers" },
+    { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
+    { href: "/admin/discounts",     icon: Percent,    label: "Discounts" },
+    { href: "/admin/cancellations", icon: XCircle,    label: "Cancellations" },
+  ] },
+  { label: "SETTINGS", items: [
+    { href: "/admin/settings/email", icon: Plug,       label: "Email Integration" },
+    { href: "/admin/team",           icon: Users,      label: "Admin Team" },
+    { href: "/admin/audit",          icon: ScrollText, label: "Audit Log" },
+  ] },
+  { items: [
+    { href: "/admin/guide", icon: BookOpen, label: "Guide" },
+  ] },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -38,6 +53,23 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </div>
     );
   }
+
+  const renderItem = ({ href, icon: Icon, label, exact }: NavItem) => {
+    const active = exact ? path === href : (path === href || path.startsWith(href + "/"));
+    return (
+      <Link
+        key={href}
+        href={href}
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors group ${
+          active ? "bg-stone-800 text-white font-medium" : "text-stone-500 hover:text-stone-200 hover:bg-stone-900"
+        }`}
+      >
+        <Icon size={14} className={active ? "text-emerald-400" : "text-stone-600 group-hover:text-stone-400"} />
+        <span className="flex-1">{label}</span>
+        {active && <ChevronRight size={11} className="text-stone-600" />}
+      </Link>
+    );
+  };
 
   return (
     <div className="flex gap-0 min-h-screen">
@@ -57,31 +89,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 space-y-0.5">
-          <p className="text-[9px] text-stone-700 font-semibold uppercase tracking-widest px-2 pb-1.5 pt-0.5">
-            Platform
-          </p>
-          {NAV.map(({ href, icon: Icon, label, exact }) => {
-            const active = exact ? path === href : path.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors group ${
-                  active
-                    ? "bg-stone-800 text-white font-medium"
-                    : "text-stone-500 hover:text-stone-200 hover:bg-stone-900"
-                }`}
-              >
-                <Icon
-                  size={14}
-                  className={active ? "text-emerald-400" : "text-stone-600 group-hover:text-stone-400"}
-                />
-                <span className="flex-1">{label}</span>
-                {active && <ChevronRight size={11} className="text-stone-600" />}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 px-2 space-y-3 overflow-y-auto">
+          {NAV.map((section, i) => (
+            <div key={i} className="space-y-0.5">
+              {section.label && (
+                <p className="text-[9px] text-stone-700 font-semibold uppercase tracking-widest px-2 pb-1 pt-0.5">
+                  {section.label}
+                </p>
+              )}
+              {section.items.map(renderItem)}
+            </div>
+          ))}
         </nav>
 
         {/* Footer — user + sign out */}
