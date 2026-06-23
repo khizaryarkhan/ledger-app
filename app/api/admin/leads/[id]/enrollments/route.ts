@@ -9,6 +9,17 @@ import {
 import { eq, and, asc, desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
+// These CRM tables are provisioned manually in Neon — tolerate a missing
+// relation OR a missing column (schema drift) so enrolment never hard-500s.
+function isSchemaMissingError(e: unknown): boolean {
+  const msg = ((e as any)?.message ?? "").toLowerCase();
+  return msg.includes("does not exist") && (msg.includes("relation") || msg.includes("column"));
+}
+function isMissingColumn(e: unknown, col: string): boolean {
+  const msg = ((e as any)?.message ?? "").toLowerCase();
+  return msg.includes("column") && msg.includes(col.toLowerCase()) && msg.includes("does not exist");
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { error, session } = await requireAuth();
   if (error) return error;
@@ -36,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
+  try {
   const { sequenceId } = await req.json().catch(() => ({}));
   if (!sequenceId) return bad("sequenceId is required");
 
@@ -55,29 +67,58 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (existing) return bad("Lead is already enrolled in this sequence", 409);
 
   const enrolledBy = (session as any).user?.id ?? null;
-  const [enrollment] = await db.insert(leadSequenceEnrollments).values({
-    leadId:     params.id,
-    sequenceId,
-    enrolledBy,
-    status:     "active",
-  }).returning();
 
-  // Schedule the first step
-  const [firstStep] = await db.select().from(leadSequenceSteps)
-    .where(eq(leadSequenceSteps.sequenceId, sequenceId))
-    .orderBy(asc(leadSequenceSteps.stepNumber))
-    .limit(1);
+  let enrollment;
+  try {
+    [enrollment] = await db.insert(leadSequenceEnrollments).values({
+      leadId:     params.id,
+      sequenceId,
+      enrolledBy,
+      status:     "active",
+    }).returning();
+  } catch (e) {
+    // Older DBs may not have the enrolled_by column — retry without it.
+    if (isMissingColumn(e, "enrolled_by")) {
+      [enrollment] = await db.insert(leadSequenceEnrollments).values({
+        leadId:     params.id,
+        sequenceId,
+        status:     "active",
+      } as any).returning();
+    } else if (isSchemaMissingError(e)) {
+      return bad("Sequences aren't set up on this database yet. Create the lead_sequence_* tables in Neon, then try again.", 503);
+    } else {
+      throw e;
+    }
+  }
 
-  if (firstStep) {
-    const scheduledAt = new Date();
-    if (firstStep.delayDays > 0) scheduledAt.setDate(scheduledAt.getDate() + firstStep.delayDays);
-    await db.insert(leadSequenceSends).values({
-      enrollmentId: enrollment.id,
-      stepId:       firstStep.id,
-      scheduledAt,
-      status:       "pending",
-    });
+  // Schedule the first step — best-effort. A missing sends table or column
+  // must not undo a successful enrolment, so swallow schema errors here.
+  try {
+    const [firstStep] = await db.select().from(leadSequenceSteps)
+      .where(eq(leadSequenceSteps.sequenceId, sequenceId))
+      .orderBy(asc(leadSequenceSteps.stepNumber))
+      .limit(1);
+
+    if (firstStep) {
+      const scheduledAt = new Date();
+      if (firstStep.delayDays > 0) scheduledAt.setDate(scheduledAt.getDate() + firstStep.delayDays);
+      await db.insert(leadSequenceSends).values({
+        enrollmentId: enrollment.id,
+        stepId:       firstStep.id,
+        scheduledAt,
+        status:       "pending",
+      });
+    }
+  } catch (e) {
+    if (!isSchemaMissingError(e)) throw e;
+    // sends table/column missing — enrolment still stands.
   }
 
   return ok({ ...enrollment, sequenceName: seq.name });
+  } catch (e) {
+    if (isSchemaMissingError(e)) {
+      return bad("Sequences aren't set up on this database yet. Create the lead_sequence_* tables in Neon, then try again.", 503);
+    }
+    return bad(`Enrolment failed: ${(e as any)?.message ?? "unknown error"}`, 500);
+  }
 }
