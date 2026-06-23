@@ -3,7 +3,20 @@
 import { useState, useEffect } from "react";
 import {
   Camera, Lightbulb, AlertTriangle, Info, Printer, ChevronRight,
+  Rocket, LayoutDashboard, FileText, Users, Kanban, Zap, MessageSquare,
+  BarChart3, Package, RefreshCw, Settings, ShieldCheck, Flame, Building2,
+  CreditCard, Percent, Receipt, XCircle, ScrollText, BookOpen, HelpCircle,
 } from "lucide-react";
+
+// ── Icon registry ─────────────────────────────────────────────────────────────
+// Sections store their icon as a NAME (a string survives JSON/DB; a React
+// component does not). Resolve names to components here.
+export const GUIDE_ICONS: Record<string, any> = {
+  Rocket, LayoutDashboard, FileText, Users, Kanban, Zap, MessageSquare,
+  BarChart3, Package, RefreshCw, Settings, ShieldCheck, Flame, Building2,
+  CreditCard, Percent, Receipt, XCircle, ScrollText, BookOpen, HelpCircle, Info,
+};
+export const GUIDE_ICON_NAMES = Object.keys(GUIDE_ICONS);
 
 // ── Content model ────────────────────────────────────────────────────────────
 export type GuideBlock =
@@ -12,34 +25,41 @@ export type GuideBlock =
   | { type: "steps"; items: string[] }
   | { type: "bullets"; items: string[] }
   | { type: "callout"; tone?: "tip" | "warn" | "info"; text: string }
-  | { type: "figure"; title: string; caption?: string; where?: string };
+  | { type: "figure"; title: string; caption?: string; where?: string; image?: string };
 
 export type GuideSection = {
   id: string;
   title: string;
-  icon?: any;
+  icon?: string;
   intro?: string;
   blocks: GuideBlock[];
 };
 
-// ── Screenshot placeholder ────────────────────────────────────────────────────
-// A clearly-marked slot the team can later replace with a real <img>. `where`
-// tells whoever captures the screenshot exactly which screen/URL to grab.
-function Figure({ title, caption, where }: { title: string; caption?: string; where?: string }) {
+export type GuideContent = { title: string; subtitle: string; sections: GuideSection[] };
+
+// ── Screenshot figure ─────────────────────────────────────────────────────────
+// If `image` is set, render it. Otherwise show a labelled placeholder telling
+// whoever captures the screenshot exactly which screen/URL to grab.
+function Figure({ title, caption, where, image }: { title: string; caption?: string; where?: string; image?: string }) {
   return (
-    <figure className="my-4 rounded-xl border border-dashed border-stone-700 bg-stone-900/40 overflow-hidden">
-      <div className="aspect-[16/8] flex flex-col items-center justify-center gap-2 text-center px-6">
-        <div className="w-11 h-11 rounded-full bg-stone-800 flex items-center justify-center">
-          <Camera size={18} className="text-stone-500" />
+    <figure className="my-4 rounded-xl border border-stone-800 bg-stone-900/40 overflow-hidden">
+      {image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={image} alt={title} className="w-full block" />
+      ) : (
+        <div className="aspect-[16/8] flex flex-col items-center justify-center gap-2 text-center px-6 border border-dashed border-stone-700 m-px rounded-lg">
+          <div className="w-11 h-11 rounded-full bg-stone-800 flex items-center justify-center">
+            <Camera size={18} className="text-stone-500" />
+          </div>
+          <p className="text-[13px] font-medium text-stone-300">{title}</p>
+          {where && (
+            <p className="text-[11px] text-stone-500">
+              Capture: <span className="text-stone-400 font-mono">{where}</span>
+            </p>
+          )}
+          <span className="text-[10px] uppercase tracking-widest text-stone-600 font-semibold">Screenshot</span>
         </div>
-        <p className="text-[13px] font-medium text-stone-300">{title}</p>
-        {where && (
-          <p className="text-[11px] text-stone-500">
-            Capture: <span className="text-stone-400 font-mono">{where}</span>
-          </p>
-        )}
-        <span className="text-[10px] uppercase tracking-widest text-stone-600 font-semibold">Screenshot</span>
-      </div>
+      )}
       {caption && (
         <figcaption className="border-t border-stone-800 px-4 py-2 text-[11px] text-stone-500">{caption}</figcaption>
       )}
@@ -96,7 +116,7 @@ function renderBlock(b: GuideBlock, i: number) {
     case "callout":
       return <Callout key={i} tone={b.tone} text={b.text} />;
     case "figure":
-      return <Figure key={i} title={b.title} caption={b.caption} where={b.where} />;
+      return <Figure key={i} title={b.title} caption={b.caption} where={b.where} image={b.image} />;
   }
 }
 
@@ -139,7 +159,7 @@ export function GuideLayout({ title, subtitle, sections }: {
           <div className="sticky top-6 space-y-0.5">
             <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest px-2.5 pb-1.5">On this page</p>
             {sections.map(s => {
-              const Icon = s.icon;
+              const Icon = s.icon ? GUIDE_ICONS[s.icon] : null;
               const on = active === s.id;
               return (
                 <a key={s.id} href={`#${s.id}`}
@@ -157,7 +177,7 @@ export function GuideLayout({ title, subtitle, sections }: {
         {/* Content */}
         <div className="flex-1 min-w-0 max-w-3xl">
           {sections.map(s => {
-            const Icon = s.icon;
+            const Icon = s.icon ? GUIDE_ICONS[s.icon] : null;
             return (
               <section key={s.id} id={s.id} className="scroll-mt-20 mb-12">
                 <div className="flex items-center gap-2.5 mb-1 pb-2 border-b border-stone-800">

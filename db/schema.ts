@@ -296,6 +296,20 @@ export const leadSequenceSends = pgTable("lead_sequence_sends", {
 export type LeadSequenceSend = typeof leadSequenceSends.$inferSelect;
 
 // =========================================================================
+// GUIDE PAGES (editable in-app help — one row per guide: 'customer' | 'admin')
+// =========================================================================
+export const guidePages = pgTable("guide_pages", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  key:       varchar("key", { length: 32 }).notNull().unique(), // 'customer' | 'admin'
+  title:     varchar("title", { length: 255 }).notNull(),
+  subtitle:  text("subtitle"),
+  sections:  jsonb("sections").notNull().default([]), // GuideSection[] (icon stored as name)
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+});
+export type GuidePage = typeof guidePages.$inferSelect;
+
+// =========================================================================
 // BILLING AUDIT LOG
 // =========================================================================
 export const billingAuditLogs = pgTable("billing_audit_logs", {
