@@ -55,7 +55,7 @@ export function SolutionPage({ slug }: { slug: string }) {
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-[1.1] text-white mb-6">{s.h1}</h1>
           <p className="text-lg text-stone-400 max-w-2xl mx-auto leading-relaxed mb-8">{s.description}</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/register" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm px-7 py-3.5 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30">Get started →</Link>
+            <Link href="/?demo=1" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm px-7 py-3.5 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30">Request a demo →</Link>
             <Link href="/login" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 text-stone-300 hover:text-white border border-stone-700 hover:border-emerald-500/50 text-sm px-7 py-3.5 rounded-xl transition-colors">Sign in</Link>
           </div>
         </div>

@@ -19,7 +19,7 @@ export function MarketingNav() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/login" className="hidden sm:inline text-sm text-stone-400 hover:text-white px-3 py-2 rounded-lg transition-colors">Sign in</Link>
-          <Link href="/register" className="text-sm font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2 rounded-lg transition-all hover:shadow-lg hover:shadow-emerald-500/30">Get started →</Link>
+          <Link href="/?demo=1" className="text-sm font-medium bg-emerald-500 hover:bg-emerald-400 text-white px-4 py-2 rounded-lg transition-all hover:shadow-lg hover:shadow-emerald-500/30">Request a demo →</Link>
         </div>
       </div>
     </nav>
@@ -61,9 +61,9 @@ export function MarketingFooter() {
           </ul>
         </div>
         <div>
-          <div className="text-[12px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Get started</div>
+          <div className="text-[12px] uppercase tracking-wider text-stone-500 font-semibold mb-3">Company</div>
           <ul className="space-y-2 text-[13px] text-stone-400">
-            <li><Link href="/register" className="hover:text-emerald-400 transition-colors">Create account</Link></li>
+            <li><Link href="/?demo=1" className="hover:text-emerald-400 transition-colors">Request a demo</Link></li>
             <li><Link href="/login" className="hover:text-emerald-400 transition-colors">Sign in</Link></li>
             <li><Link href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy</Link></li>
             <li><Link href="/terms" className="hover:text-emerald-400 transition-colors">Terms</Link></li>
@@ -86,11 +86,11 @@ export function MarketingCTA({ heading = "Ready to get paid faster?" }: { headin
       <div className="max-w-3xl mx-auto rounded-3xl border border-emerald-500/25 bg-gradient-to-b from-emerald-500/10 via-stone-900/60 to-transparent p-10 md:p-14 text-center">
         <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">{heading}</h2>
         <p className="text-stone-400 mb-8 text-lg max-w-xl mx-auto">
-          Connect QuickBooks Online or Xero and start automating collections in minutes.
+          Book a demo — we'll connect QuickBooks Online or Xero and get your collections automated.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Link href="/register" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-8 py-4 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30 text-sm">
-            Get started →
+          <Link href="/?demo=1" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-8 py-4 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30 text-sm">
+            Request a demo →
           </Link>
           <Link href="/" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 text-stone-300 hover:text-white border border-stone-700 hover:border-emerald-500/50 px-8 py-4 rounded-xl transition-all text-sm">
             See all features

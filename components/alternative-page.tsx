@@ -63,7 +63,7 @@ export function AlternativePage({ slug }: { slug: string }) {
             Prime Accountax is an accounts receivable and collections platform for QuickBooks Online and Xero — automated reminders, a customer payment portal, promise &amp; dispute tracking, and simple $99/month pricing.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/register" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm px-7 py-3.5 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30">Get started →</Link>
+            <Link href="/?demo=1" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm px-7 py-3.5 rounded-xl transition-all hover:shadow-xl hover:shadow-emerald-500/30">Request a demo →</Link>
             <Link href="/login" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 text-stone-300 hover:text-white border border-stone-700 hover:border-emerald-500/50 text-sm px-7 py-3.5 rounded-xl transition-colors">Sign in</Link>
           </div>
         </div>
