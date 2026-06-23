@@ -33,8 +33,10 @@ const nextConfig = {
         "localhost:3000",
       ],
     },
+    // Next 14 key (was incorrectly set as top-level `serverExternalPackages`,
+    // which Next 14 ignores). Keep heavy server-only deps out of the bundle.
+    serverComponentsExternalPackages: ["openai", "imapflow", "mailparser", "nodemailer"],
   },
-  serverExternalPackages: ["openai"],
   async headers() {
     return [
       {
