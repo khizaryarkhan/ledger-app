@@ -1,7 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { opportunities } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { opportunities, landingPageRequests } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { OPP_STAGE_KEYS, stageStatus, defaultConfidence } from "@/lib/opportunities";
 
@@ -37,6 +37,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const [row] = await db.update(opportunities).set(updates).where(eq(opportunities.id, params.id)).returning();
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Relational lifecycle: winning a deal converts its lead to a customer so
+    // the company graduates out of the active leads pipeline (one place only).
+    if (updates.status === "won" && row.leadId) {
+      await db.update(landingPageRequests)
+        .set({ status: "converted", updatedAt: new Date() })
+        .where(and(eq(landingPageRequests.id, row.leadId), inArray(landingPageRequests.status, ["new", "contacted", "qualified"])));
+    }
     return NextResponse.json(row);
   } catch (e) {
     const m = ((e as any)?.message ?? "").toLowerCase();

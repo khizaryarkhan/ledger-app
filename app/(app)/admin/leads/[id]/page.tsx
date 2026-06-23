@@ -98,6 +98,22 @@ export default function LeadWorkspace() {
     setSavingStatus(false); setToast({ ok: true, msg: `Marked ${STATUS_LABEL[status]}` });
   };
 
+  const [converting, setConverting] = useState(false);
+  // One-click lead → opportunity: create the deal (server auto-qualifies the lead).
+  const convertToOpportunity = async () => {
+    setConverting(true);
+    try {
+      const r = await fetch("/api/admin/opportunities", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leadId: id, title: `${lead.companyName || lead.fullName} — deal`, stage: "discovery", currency: "USD" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { load(); setToast({ ok: true, msg: "Converted to opportunity" }); }
+      else setToast({ ok: false, msg: d.error ?? "Could not convert" });
+    } catch { setToast({ ok: false, msg: "Could not convert" }); }
+    finally { setConverting(false); }
+  };
+
   if (loading) return <div className="max-w-6xl mx-auto"><div className="h-24 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse mb-4" /><div className="grid grid-cols-3 gap-4">{[1,2,3].map(i => <div key={i} className="h-80 bg-stone-900/40 border border-stone-800 rounded-xl animate-pulse" />)}</div></div>;
   if (!lead) return <div className="max-w-3xl mx-auto py-20 text-center text-stone-500">Lead not found. <Link href="/admin/leads" className="text-emerald-400">Back to Leads</Link></div>;
 
@@ -141,12 +157,27 @@ export default function LeadWorkspace() {
         ))}
       </div>
 
+      {/* Won → customer banner */}
+      {lead.status === "converted" && (
+        <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3.5 flex items-center gap-2.5">
+          <Trophy size={15} className="text-emerald-400 shrink-0" />
+          <p className="text-[13px] text-emerald-300 flex-1">This company is <b>won</b> — it's now a customer. Manage its billing under Customers.</p>
+          <Link href="/admin/customers" className="text-[12px] font-medium text-emerald-300 hover:text-emerald-200 whitespace-nowrap">Open Customers →</Link>
+        </div>
+      )}
+
       {/* AI summary strip */}
       <div className="mb-4 rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5">
         <div className="flex items-center gap-1.5 mb-1.5"><Sparkles size={13} className="text-violet-300" /><span className="text-[11px] font-semibold text-violet-300 uppercase tracking-wider">AI summary</span>
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stone-400"><Heart size={11} className="text-emerald-400" /> Engagement {insight.engagement}</span>
         </div>
         <p className="text-[13px] text-stone-300 leading-relaxed"><span className="text-stone-400">Next best action — </span>{insight.next}</p>
+        {lead.status !== "converted" && !insight.openDeal && (
+          <button onClick={convertToOpportunity} disabled={converting}
+            className="mt-2.5 inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:bg-stone-700 text-white transition-colors">
+            {converting ? <Loader size={12} className="animate-spin" /> : <Trophy size={13} />} Convert to opportunity
+          </button>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-[320px_1fr] gap-5">

@@ -1,7 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { opportunities, landingPageRequests, users } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { OPP_STAGE_KEYS, stageStatus, defaultConfidence } from "@/lib/opportunities";
 
@@ -82,6 +82,19 @@ export async function POST(req: NextRequest) {
       ownerId: b.ownerId || (userId as string) || null,
       createdBy: (userId as string) || null,
     }).returning();
+
+    // Relational lifecycle: opening a deal on a lead advances it to Qualified
+    // (so the company moves along one pipeline, never an "untouched" lead with
+    // an active deal). Won deals are handled in PATCH.
+    if (b.leadId) {
+      const nextLeadStatus = status === "won" ? "converted" : "qualified";
+      await db.update(landingPageRequests)
+        .set({ status: nextLeadStatus, updatedAt: new Date() })
+        .where(and(
+          eq(landingPageRequests.id, b.leadId),
+          inArray(landingPageRequests.status, status === "won" ? ["new", "contacted", "qualified"] : ["new", "contacted"]),
+        ));
+    }
     return NextResponse.json(row, { status: 201 });
   } catch (e) {
     if (isSchemaMissing(e)) {
