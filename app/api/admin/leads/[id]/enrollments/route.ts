@@ -56,44 +56,64 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .where(and(eq(leadSequences.id, sequenceId), eq(leadSequences.isActive, true))).limit(1);
   if (!seq) return bad("Sequence not found or not active", 404);
 
-  // Check not already actively enrolled
-  const [existing] = await db.select({ id: leadSequenceEnrollments.id })
+  const enrolledBy = (session as any).user?.id ?? null;
+
+  // There is a UNIQUE(lead_id, sequence_id) constraint, so at most one row can
+  // exist per lead+sequence. Find ANY existing row (regardless of status): if
+  // it's active that's a real conflict; if the lead was previously enrolled and
+  // later stopped, the row lingers as 'cancelled' — reactivate it rather than
+  // inserting a duplicate (which would violate the unique key).
+  const [existing] = await db.select()
     .from(leadSequenceEnrollments)
     .where(and(
       eq(leadSequenceEnrollments.leadId, params.id),
       eq(leadSequenceEnrollments.sequenceId, sequenceId),
-      eq(leadSequenceEnrollments.status, "active"),
     )).limit(1);
-  if (existing) return bad("Lead is already enrolled in this sequence", 409);
 
-  const enrolledBy = (session as any).user?.id ?? null;
+  if (existing && existing.status === "active") {
+    return bad("Lead is already enrolled in this sequence", 409);
+  }
 
   let enrollment;
-  try {
-    [enrollment] = await db.insert(leadSequenceEnrollments).values({
-      leadId:     params.id,
-      sequenceId,
-      enrolledBy,
-      status:     "active",
-    }).returning();
-  } catch (e) {
-    // Older DBs may not have the enrolled_by column — retry without it.
-    if (isMissingColumn(e, "enrolled_by")) {
+  if (existing) {
+    // Re-enrol: revive the cancelled/completed row.
+    [enrollment] = await db.update(leadSequenceEnrollments)
+      .set({ status: "active", enrolledAt: new Date(), enrolledBy, completedAt: null })
+      .where(eq(leadSequenceEnrollments.id, existing.id))
+      .returning();
+  } else {
+    try {
       [enrollment] = await db.insert(leadSequenceEnrollments).values({
         leadId:     params.id,
         sequenceId,
+        enrolledBy,
         status:     "active",
-      } as any).returning();
-    } else if (isSchemaMissingError(e)) {
-      return bad("Sequences aren't set up on this database yet. Create the lead_sequence_* tables in Neon, then try again.", 503);
-    } else {
-      throw e;
+      }).returning();
+    } catch (e) {
+      // Older DBs may not have the enrolled_by column — retry without it.
+      if (isMissingColumn(e, "enrolled_by")) {
+        [enrollment] = await db.insert(leadSequenceEnrollments).values({
+          leadId:     params.id,
+          sequenceId,
+          status:     "active",
+        } as any).returning();
+      } else if (isSchemaMissingError(e)) {
+        return bad("Sequences aren't set up on this database yet. Create the lead_sequence_* tables in Neon, then try again.", 503);
+      } else {
+        throw e;
+      }
     }
   }
 
   // Schedule the first step — best-effort. A missing sends table or column
   // must not undo a successful enrolment, so swallow schema errors here.
   try {
+    // On re-enrolment, drop any leftover pending sends so we don't double-send.
+    await db.delete(leadSequenceSends).where(and(
+      eq(leadSequenceSends.enrollmentId, enrollment.id),
+      eq(leadSequenceSends.status, "pending"),
+    ));
+
     const [firstStep] = await db.select().from(leadSequenceSteps)
       .where(eq(leadSequenceSteps.sequenceId, sequenceId))
       .orderBy(asc(leadSequenceSteps.stepNumber))
