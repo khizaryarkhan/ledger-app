@@ -8,9 +8,12 @@ import {
   leadNotes,
 } from "@/db/schema";
 import { eq, and, lte } from "drizzle-orm";
-import { sendSystemEmail } from "@/lib/system-mailer";
+import { sendAdminEmail } from "@/lib/admin-mailbox";
 import { ok, bad } from "@/lib/api";
 import { NextRequest } from "next/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // Called by Vercel Cron every hour — also manually callable with the CRON_SECRET
 export async function POST(req: NextRequest) {
@@ -33,6 +36,7 @@ export async function POST(req: NextRequest) {
       stepSubject:  leadSequenceSteps.subject,
       stepBody:     leadSequenceSteps.body,
       sequenceId:   leadSequenceEnrollments.sequenceId,
+      enrolledBy:   leadSequenceEnrollments.enrolledBy,
       leadId:       leadSequenceEnrollments.leadId,
       seqName:      leadSequences.name,
       leadEmail:    landingPageRequests.email,
@@ -64,7 +68,9 @@ export async function POST(req: NextRequest) {
       const html = fill(item.stepBody)
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
 
-      await sendSystemEmail({ to: item.leadEmail, subject: fill(item.stepSubject), html });
+      // Send from the enrolling admin's own mailbox; fall back to the system
+      // mailer only if they have none connected (so automation doesn't stall).
+      await sendAdminEmail(item.enrolledBy, { to: item.leadEmail, subject: fill(item.stepSubject), html }, true);
 
       // Mark send as sent
       await db.update(leadSequenceSends)

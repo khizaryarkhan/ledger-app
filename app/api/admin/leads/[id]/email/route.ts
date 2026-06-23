@@ -1,9 +1,12 @@
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
-import { sendSystemEmail } from "@/lib/system-mailer";
+import { getMailbox, sendMessage } from "@/lib/admin-mailbox";
 import { db } from "@/db";
 import { landingPageRequests, leadNotes } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { error, session } = await requireAuth();
@@ -32,16 +35,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br>");
 
-  await sendSystemEmail({
-    to:      toAddress,
-    subject: subject.trim(),
-    html,
-    cc:      ccList.length > 0 ? ccList : undefined,
-  });
+  // Real 1:1 communication must go from the admin's OWN connected mailbox —
+  // never from the system support@ address. Require a connected mailbox.
+  const authorId   = (session as any).user?.id ?? null;
+  const mailbox = authorId ? await getMailbox(authorId) : null;
+  if (!mailbox) {
+    return bad("Connect your mailbox under Mail to send from your own email address.", 409);
+  }
+  try {
+    await sendMessage(mailbox, {
+      to: toAddress, cc: ccList.length ? ccList.join(", ") : undefined,
+      subject: subject.trim(), html,
+    });
+  } catch (e: any) {
+    return bad(`Send failed: ${e?.message ?? "unknown error"}`, 502);
+  }
 
   // Log the email as an activity note so it appears in the activity panel
   const authorName = (session as any).user?.name ?? "Admin";
-  const authorId   = (session as any).user?.id ?? null;
 
   try {
     await db.insert(leadNotes).values({

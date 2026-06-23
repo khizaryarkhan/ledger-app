@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { adminEmailAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { decryptSecret } from "@/lib/crypto";
+import { sendSystemEmail } from "@/lib/system-mailer";
 
 export type MailboxConfig = {
   emailAddress: string;
@@ -141,6 +142,33 @@ export async function getMessage(cfg: MailboxConfig, uid: number, mailbox = "INB
       };
     } finally { lock.release(); }
   } finally { await imap.logout(); }
+}
+
+/**
+ * Send real outbound communication on behalf of an admin.
+ * Prefers the admin's OWN connected mailbox (so it goes from their personal
+ * @primeaccountax.com address). Falls back to the system mailer only when
+ * `allowSystemFallback` is true and the admin has no mailbox connected — used
+ * for automated sequences so drips don't silently stop. Interactive 1:1 sends
+ * should pass allowSystemFallback=false to guarantee they never use support@.
+ */
+export async function sendAdminEmail(
+  userId: string | null,
+  msg: { to: string; cc?: string[] | string; subject: string; html?: string; text?: string },
+  allowSystemFallback = false,
+): Promise<{ from: string; viaPersonal: boolean }> {
+  const cfg = userId ? await getMailbox(userId) : null;
+  const ccArr = Array.isArray(msg.cc) ? msg.cc.filter(Boolean) : (msg.cc ? [msg.cc] : []);
+
+  if (cfg) {
+    await sendMessage(cfg, { to: msg.to, cc: ccArr.join(", ") || undefined, subject: msg.subject, html: msg.html, text: msg.text });
+    return { from: cfg.emailAddress, viaPersonal: true };
+  }
+  if (!allowSystemFallback) {
+    throw new Error("No personal mailbox connected. Connect your mailbox under Mail to send from your own address.");
+  }
+  await sendSystemEmail({ to: msg.to, subject: msg.subject, html: msg.html ?? msg.text ?? "", cc: ccArr.length ? ccArr : undefined });
+  return { from: "system", viaPersonal: false };
 }
 
 // Send a message via the admin's SMTP, and append a copy to Sent.
