@@ -10,13 +10,15 @@ function isSchemaMissing(e: unknown): boolean {
   return m.includes("does not exist") && (m.includes("relation") || m.includes("column"));
 }
 
-// GET — all opportunities, enriched with lead + owner names.
-export async function GET() {
+// GET — all opportunities, enriched with lead + owner names. Optional ?leadId=.
+export async function GET(req: NextRequest) {
   const { error } = await requirePlatformAdmin();
   if (error) return error;
 
+  const leadFilter = new URL(req.url).searchParams.get("leadId");
+
   try {
-    const rows = await db
+    const base = db
       .select({
         id: opportunities.id,
         leadId: opportunities.leadId,
@@ -39,7 +41,9 @@ export async function GET() {
       .from(opportunities)
       .leftJoin(landingPageRequests, eq(landingPageRequests.id, opportunities.leadId))
       .leftJoin(users, eq(users.id, opportunities.ownerId))
-      .orderBy(desc(opportunities.updatedAt));
+      .$dynamic();
+    const q = leadFilter ? base.where(eq(opportunities.leadId, leadFilter)) : base;
+    const rows = await q.orderBy(desc(opportunities.updatedAt));
     return NextResponse.json({ opportunities: rows });
   } catch (e) {
     if (isSchemaMissing(e)) return NextResponse.json({ opportunities: [], needsSetup: true });

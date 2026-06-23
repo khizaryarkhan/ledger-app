@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, FileText, Loader, X, Plus, Mail, Globe, UserPlus, Send,
@@ -2219,9 +2220,11 @@ export default function LeadsPage() {
                       className="rounded border-stone-600 bg-stone-800 accent-emerald-500 cursor-pointer"
                     />
                   </td>
-                  <td className="px-4 py-3 cursor-pointer" onClick={() => setActive(l)}>
-                    <p className="text-white text-xs font-medium">{l.fullName ?? "—"}</p>
-                    {l.companyName && <p className="text-[11px] text-stone-500 mt-0.5">{l.companyName}</p>}
+                  <td className="px-4 py-3">
+                    <Link href={`/admin/leads/${l.id}`} className="block group/name">
+                      <p className="text-white text-xs font-medium group-hover/name:text-emerald-400 transition-colors">{l.fullName ?? "—"}</p>
+                      {l.companyName && <p className="text-[11px] text-stone-500 mt-0.5">{l.companyName}</p>}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-xs text-stone-300 max-w-[160px]">
                     <span className="truncate block">{l.email}</span>

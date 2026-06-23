@@ -6,6 +6,15 @@ import { eq } from "drizzle-orm";
 
 const VALID_STATUSES = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
 
+// GET — a single lead record (for the 360° workspace).
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const { error } = await requirePlatformAdmin();
+  if (error) return error;
+  const [lead] = await db.select().from(landingPageRequests).where(eq(landingPageRequests.id, params.id)).limit(1);
+  if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(lead);
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { error } = await requirePlatformAdmin();
   if (error) return error;
