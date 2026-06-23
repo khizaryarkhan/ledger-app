@@ -336,6 +336,21 @@ export const opportunities = pgTable("opportunities", {
 export type Opportunity = typeof opportunities.$inferSelect;
 
 // =========================================================================
+// LEAD CONTACTS (people belonging to a Lead/company — the CRM relational spine)
+// =========================================================================
+export const leadContacts = pgTable("lead_contacts", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  leadId:    uuid("lead_id").notNull().references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  name:      varchar("name", { length: 255 }).notNull(),
+  email:     varchar("email", { length: 255 }),
+  phone:     varchar("phone", { length: 64 }),
+  title:     varchar("title", { length: 255 }),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type LeadContact = typeof leadContacts.$inferSelect;
+
+// =========================================================================
 // ADMIN EMAIL ACCOUNTS (per platform-admin mailbox — IMAP/SMTP, admin portal)
 // Each admin connects their own @primeaccountax.com mailbox to send/receive
 // inside the portal. The password is encrypted at rest via lib/crypto.

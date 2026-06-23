@@ -7,6 +7,7 @@ import { OPP_STAGES } from "@/lib/opportunities";
 import {
   ArrowLeft, Mail, StickyNote, CheckSquare, Trophy, Phone, Zap, Loader,
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
+  Sparkles, Users, Calendar, Trash2, Heart,
 } from "lucide-react";
 
 const STATUS = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
@@ -41,6 +42,7 @@ export default function LeadWorkspace() {
   const [notes, setNotes] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [opps, setOpps] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [sequences, setSequences] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,10 +59,12 @@ export default function LeadWorkspace() {
       fetch(`/api/admin/opportunities?leadId=${id}`).then(r => r.ok ? r.json() : { opportunities: [] }),
       fetch(`/api/admin/leads/${id}/enrollments`).then(r => r.ok ? r.json() : []),
       fetch(`/api/admin/sequences`).then(r => r.ok ? r.json() : []),
-    ]).then(([l, n, t, o, e, s]) => {
+      fetch(`/api/admin/leads/${id}/contacts`).then(r => r.ok ? r.json() : { contacts: [] }),
+    ]).then(([l, n, t, o, e, s, c]) => {
       setLead(l); setNotes(Array.isArray(n) ? n : []); setTasks(Array.isArray(t) ? t : []);
       setOpps(o.opportunities ?? []); setEnrollments(Array.isArray(e) ? e : []);
       setSequences((Array.isArray(s) ? s : []).filter((x: any) => x.isActive));
+      setContacts(c.contacts ?? []);
     }).finally(() => setLoading(false));
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -73,6 +77,19 @@ export default function LeadWorkspace() {
   }, [notes, filter]);
 
   const activeEnrollment = enrollments.find(e => e.status === "active");
+
+  // Computed "AI" insight from the lead's own relational data — deterministic
+  // today, an easy upgrade to an LLM summary later (same slot).
+  const insight = useMemo(() => {
+    const isEmail = (n: any) => { try { return JSON.parse(n.body)?._type === "email"; } catch { return false; } };
+    const emails = notes.filter(isEmail).length;
+    const openDeal = opps.find((o: any) => o.status === "open");
+    const engagement = Math.min(100, notes.length * 14);
+    let next = "No activity yet — send an intro email to open the conversation.";
+    if (openDeal) next = `Advance “${openDeal.title}” — currently in ${OPP_STAGES.find(s => s.key === openDeal.stage)?.label ?? openDeal.stage}.`;
+    if (activeEnrollment) next = `Enrolled in “${activeEnrollment.sequenceName}” — watch for a reply, then call.`;
+    return { emails, engagement, next, openDeal };
+  }, [notes, opps, activeEnrollment]);
 
   const setStatus = async (status: string) => {
     setSavingStatus(true);
@@ -107,18 +124,43 @@ export default function LeadWorkspace() {
         </div>
       </div>
 
+      {/* Quick action bar */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        {[
+          { label: "Email", icon: Mail, onClick: () => setTab("email") },
+          { label: "Note", icon: StickyNote, onClick: () => setTab("note") },
+          { label: "Call", icon: Phone, soon: true },
+          { label: "SMS", icon: MessageSquare, soon: true },
+          { label: "Meeting", icon: Calendar, soon: true },
+        ].map(a => (
+          <button key={a.label} onClick={a.onClick} disabled={(a as any).soon}
+            title={(a as any).soon ? "Coming soon" : undefined}
+            className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${(a as any).soon ? "border-stone-800 text-stone-600 cursor-default" : "border-stone-700 text-stone-200 hover:bg-stone-800"}`}>
+            <a.icon size={13} /> {a.label}
+          </button>
+        ))}
+      </div>
+
+      {/* AI summary strip */}
+      <div className="mb-4 rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3.5">
+        <div className="flex items-center gap-1.5 mb-1.5"><Sparkles size={13} className="text-violet-300" /><span className="text-[11px] font-semibold text-violet-300 uppercase tracking-wider">AI summary</span>
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stone-400"><Heart size={11} className="text-emerald-400" /> Engagement {insight.engagement}</span>
+        </div>
+        <p className="text-[13px] text-stone-300 leading-relaxed"><span className="text-stone-400">Next best action — </span>{insight.next}</p>
+      </div>
+
       <div className="grid lg:grid-cols-[320px_1fr] gap-5">
-        {/* ── Left: about + opportunities + tasks + sequence ── */}
+        {/* ── Left: about + contacts + opportunities + tasks + sequence ── */}
         <div className="space-y-4">
           <Panel title="About">
-            <Field label="Email" value={lead.email} />
-            <Field label="Phone" value={lead.phone || "—"} />
             <Field label="Company" value={lead.companyName || "—"} />
             <Field label="Country" value={lead.country || "—"} />
             <Field label="Service" value={lead.interestedService || "—"} />
             <Field label="Source" value={lead.source === "manual" ? "Manual" : "Website"} />
             <Field label="Received" value={new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
           </Panel>
+
+          <ContactsPanel leadId={id} contacts={contacts} onChange={load} onToast={setToast} />
 
           <OpportunitiesPanel leadId={id} opps={opps} onChange={load} onToast={setToast} />
 
@@ -311,6 +353,50 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
             <div key={t.id} className="flex items-start gap-2 text-[13px]">
               <CheckSquare size={13} className="text-stone-600 mt-0.5 shrink-0" />
               <div className="min-w-0"><p className="text-stone-300">{t.title}</p>{t.dueDate && <p className="text-[11px] text-stone-600">due {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// ── Contacts panel (relational: people belonging to this lead) ───────────────────
+function ContactsPanel({ leadId, contacts, onChange, onToast }: any) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [title, setTitle] = useState("");
+  const add = async () => {
+    if (!name.trim()) return;
+    const r = await fetch(`/api/admin/leads/${leadId}/contacts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, email, title }) });
+    if (r.ok) { setName(""); setEmail(""); setTitle(""); setAdding(false); onChange(); onToast({ ok: true, msg: "Contact added" }); }
+    else { const d = await r.json().catch(() => ({})); onToast({ ok: false, msg: d.error ?? "Failed" }); }
+  };
+  const del = async (cid: string) => {
+    if (cid === "primary") return;
+    await fetch(`/api/admin/leads/${leadId}/contacts/${cid}`, { method: "DELETE" });
+    onChange(); onToast({ ok: true, msg: "Contact removed" });
+  };
+  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  return (
+    <Panel title="Contacts" right={<button onClick={() => setAdding(a => !a)} className="text-stone-500 hover:text-emerald-400"><Plus size={14} /></button>}>
+      {adding && (
+        <div className="space-y-1.5 mb-3 pb-3 border-b border-stone-800">
+          <input className={inp} value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
+          <input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
+          <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder="Title / role" />
+          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Add contact</button>
+        </div>
+      )}
+      {contacts.length === 0 ? <p className="text-[12px] text-stone-600">No contacts.</p> : (
+        <div className="space-y-2">
+          {contacts.map((c: any) => (
+            <div key={c.id} className="flex items-center gap-2.5 group/c">
+              <span className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-[10px] text-stone-300 shrink-0">{(c.name || "?").slice(0, 2).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5"><p className="text-[13px] text-stone-200 truncate">{c.name}</p>{c.isPrimary && <span className="text-[9px] text-emerald-400 bg-emerald-500/10 rounded px-1 py-0.5">Primary</span>}</div>
+                <p className="text-[11px] text-stone-500 truncate">{c.title ? `${c.title} · ` : ""}{c.email || c.phone || "—"}</p>
+              </div>
+              {c.id !== "primary" && <button onClick={() => del(c.id)} className="opacity-0 group-hover/c:opacity-100 text-stone-600 hover:text-rose-400"><Trash2 size={12} /></button>}
             </div>
           ))}
         </div>

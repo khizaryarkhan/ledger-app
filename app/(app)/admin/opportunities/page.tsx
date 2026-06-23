@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { OPP_STAGES } from "@/lib/opportunities";
 import {
@@ -217,7 +218,11 @@ function OppTable({ opps, onOpen, onDelete }: { opps: Opp[]; onOpen: (o: Opp) =>
             return (
               <tr key={o.id} className="border-b border-stone-800/50 hover:bg-stone-800/20 group">
                 <td className="px-4 py-2.5 cursor-pointer" onClick={() => onOpen(o)}><span className="text-stone-200 font-medium">{o.title}</span></td>
-                <td className="px-4 py-2.5 text-stone-400">{o.leadCompany || o.leadName || "—"}</td>
+                <td className="px-4 py-2.5">
+                  {o.leadId
+                    ? <Link href={`/admin/leads/${o.leadId}`} className="text-stone-300 hover:text-emerald-400 transition-colors">{o.leadCompany || o.leadName || "View lead"}</Link>
+                    : <span className="text-stone-500">—</span>}
+                </td>
                 <td className="px-4 py-2.5 text-stone-200 tabular-nums font-medium">{money(o.value, o.currency)}</td>
                 <td className="px-4 py-2.5 text-stone-400 tabular-nums">{o.confidence}%</td>
                 <td className="px-4 py-2.5"><span className={`text-[11px] font-medium ${tone.text}`}>{OPP_STAGES.find(s => s.key === o.stage)?.label ?? o.stage}</span></td>
