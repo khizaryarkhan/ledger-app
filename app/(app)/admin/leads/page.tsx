@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { Card, Badge, Toast } from "@/components/ui";
 import { LeadsCommandCenter } from "./command-center";
+import { LeadsBoard } from "./board";
+import { LayoutGrid, List as ListIcon } from "lucide-react";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
 type LeadStatus = typeof STATUS_OPTIONS[number];
@@ -1840,6 +1842,7 @@ export default function LeadsPage() {
   const [selected, setSelected]             = useState<Set<string>>(new Set());
   const [showBatchEmail, setShowBatchEmail] = useState(false);
   const [seedingDefaults, setSeedingDefaults] = useState(false);
+  const [view, setView] = useState<"list" | "board">("list");
 
   const seedDefaults = async () => {
     setSeedingDefaults(true);
@@ -2030,9 +2033,24 @@ export default function LeadsPage() {
           className="h-8 px-3 text-xs text-stone-400 hover:text-stone-200 rounded-md border border-stone-700 bg-stone-800 hover:bg-stone-700 transition-colors flex items-center gap-1.5 disabled:opacity-50">
           {loading ? <Loader size={11} className="animate-spin" /> : "Refresh"}
         </button>
+        {/* List / Board toggle */}
+        <div className="ml-auto flex items-center gap-0.5 p-0.5 rounded-md border border-stone-700 bg-stone-800">
+          <button onClick={() => setView("list")} title="List"
+            className={`h-7 w-7 flex items-center justify-center rounded ${view === "list" ? "bg-stone-700 text-white" : "text-stone-500 hover:text-stone-300"}`}><ListIcon size={13} /></button>
+          <button onClick={() => { setStatusFilter("all"); setView("board"); }} title="Pipeline board"
+            className={`h-7 w-7 flex items-center justify-center rounded ${view === "board" ? "bg-stone-700 text-white" : "text-stone-500 hover:text-stone-300"}`}><LayoutGrid size={13} /></button>
+        </div>
       </div>
 
+      {/* Board view */}
+      {view === "board" && (
+        loading
+          ? <div className="h-64 rounded-xl bg-stone-900/40 border border-stone-800 animate-pulse" />
+          : <LeadsBoard leads={leads} onOpen={openLeadById} onReload={load} onToast={setToast} />
+      )}
+
       {/* Table */}
+      {view === "list" && (
       <Card padding="none">
         {loading ? (
           <div className="p-5 space-y-2.5">
@@ -2182,6 +2200,7 @@ export default function LeadsPage() {
           </table>
         )}
       </Card>
+      )}
 
       {showSequences  && <SequencesModal onClose={() => setShowSequences(false)} />}
       {showTemplates  && <TemplatesModal onClose={() => setShowTemplates(false)} />}

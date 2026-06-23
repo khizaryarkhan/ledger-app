@@ -216,10 +216,10 @@ export async function POST(_req: NextRequest) {
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  let templatesCreated = 0;
-  let sequencesCreated = 0;
+  let templatesCreated = 0, templatesUpdated = 0;
+  let sequencesCreated = 0, sequencesUpdated = 0;
 
-  // ── Insert missing stage templates ────────────────────────────────────────
+  // ── Upsert stage templates (refresh content so stale copy is replaced) ─────
   for (const tpl of STAGE_TEMPLATES) {
     const [existing] = await db
       .select({ id: leadEmailTemplates.id })
@@ -227,45 +227,45 @@ export async function POST(_req: NextRequest) {
       .where(eq(leadEmailTemplates.name, tpl.name))
       .limit(1);
 
-    if (!existing) {
-      await db.insert(leadEmailTemplates).values({
-        name:    tpl.name,
-        subject: tpl.subject,
-        body:    tpl.body,
-        stage:   tpl.stage,
-      });
+    if (existing) {
+      await db.update(leadEmailTemplates)
+        .set({ subject: tpl.subject, body: tpl.body, stage: tpl.stage })
+        .where(eq(leadEmailTemplates.id, existing.id));
+      templatesUpdated++;
+    } else {
+      await db.insert(leadEmailTemplates).values({ name: tpl.name, subject: tpl.subject, body: tpl.body, stage: tpl.stage });
       templatesCreated++;
     }
   }
 
-  // ── Insert sequence if it doesn't exist ───────────────────────────────────
+  // ── Upsert the nurture sequence ───────────────────────────────────────────
   const [existingSeq] = await db
     .select({ id: leadSequences.id })
     .from(leadSequences)
     .where(eq(leadSequences.name, DEFAULT_SEQUENCE.name))
     .limit(1);
 
-  if (!existingSeq) {
-    const [seq] = await db
-      .insert(leadSequences)
-      .values({
-        name:        DEFAULT_SEQUENCE.name,
-        description: DEFAULT_SEQUENCE.description,
-        isActive:    true,
-      })
-      .returning();
-
+  if (existingSeq) {
+    // Refresh content in place — update steps by stepNumber so we DON'T delete
+    // steps (that would cascade-delete send history for active enrolments).
+    await db.update(leadSequences).set({ description: DEFAULT_SEQUENCE.description }).where(eq(leadSequences.id, existingSeq.id));
+    const steps = await db.select().from(leadSequenceSteps).where(eq(leadSequenceSteps.sequenceId, existingSeq.id));
+    for (const ns of DEFAULT_SEQUENCE.steps) {
+      const match = steps.find(s => s.stepNumber === ns.stepNumber);
+      if (match) {
+        await db.update(leadSequenceSteps).set({ subject: ns.subject, body: ns.body, delayDays: ns.delayDays }).where(eq(leadSequenceSteps.id, match.id));
+      } else {
+        await db.insert(leadSequenceSteps).values({ sequenceId: existingSeq.id, stepNumber: ns.stepNumber, delayDays: ns.delayDays, subject: ns.subject, body: ns.body });
+      }
+    }
+    sequencesUpdated++;
+  } else {
+    const [seq] = await db.insert(leadSequences).values({ name: DEFAULT_SEQUENCE.name, description: DEFAULT_SEQUENCE.description, isActive: true }).returning();
     for (const step of DEFAULT_SEQUENCE.steps) {
-      await db.insert(leadSequenceSteps).values({
-        sequenceId: seq.id,
-        stepNumber: step.stepNumber,
-        delayDays:  step.delayDays,
-        subject:    step.subject,
-        body:       step.body,
-      });
+      await db.insert(leadSequenceSteps).values({ sequenceId: seq.id, stepNumber: step.stepNumber, delayDays: step.delayDays, subject: step.subject, body: step.body });
     }
     sequencesCreated++;
   }
 
-  return ok({ templatesCreated, sequencesCreated });
+  return ok({ templatesCreated, templatesUpdated, sequencesCreated, sequencesUpdated });
 }
