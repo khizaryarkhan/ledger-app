@@ -27,11 +27,11 @@ const NAV: NavSection[] = [
     { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
     { href: "/admin/discounts",     icon: Percent,    label: "Discounts" },
     { href: "/admin/cancellations", icon: XCircle,    label: "Cancellations" },
+    { href: "/admin/audit",         icon: ScrollText, label: "Audit Log" },
   ] },
   { label: "SETTINGS", items: [
     { href: "/admin/settings/email", icon: Plug,       label: "Email Integration" },
     { href: "/admin/team",           icon: Users,      label: "Admin Team" },
-    { href: "/admin/audit",          icon: ScrollText, label: "Audit Log" },
   ] },
   { items: [
     { href: "/admin/guide", icon: BookOpen, label: "Guide" },
