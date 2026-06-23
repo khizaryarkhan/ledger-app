@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Briefcase, FileText, Kanban, Filter, Inbox,
   CheckSquare, BarChart3, Upload, Zap, Settings, LogOut, Shield, TrendingUp, X,
   MessageSquare, ShoppingCart, Receipt, Building2, CreditCard,
-  ChevronDown, ArrowLeftRight, Bell, Workflow, Package
+  ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen
 } from "lucide-react";
 import { useData } from "./data-provider";
 
@@ -122,6 +122,11 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           href: department === "ap" ? "/payables/settings" : "/settings",
           label: "Settings",
           icon: Settings,
+        },
+        {
+          href: "/guide",
+          label: "Help & Guide",
+          icon: BookOpen,
         },
       ],
     },
