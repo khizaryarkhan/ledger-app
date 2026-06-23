@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
-  Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent,
+  Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -18,6 +18,7 @@ const NAV = [
   { href: "/admin/cancellations", icon: XCircle,       label: "Cancellations"                },
   { href: "/admin/audit",       icon: ScrollText,      label: "Audit Log"                    },
   { href: "/admin/team",        icon: Users,           label: "Admin Team"                   },
+  { href: "/admin/guide",       icon: BookOpen,        label: "Guide"                        },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
