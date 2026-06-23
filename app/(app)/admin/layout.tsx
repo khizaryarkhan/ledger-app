@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
   Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
-  Trophy, Mail, Plug,
+  Trophy, Mail, Plug, Search, Bell,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -14,9 +14,7 @@ type NavItem = { href: string; icon: any; label: string; exact?: boolean };
 type NavSection = { label?: string; items: NavItem[] };
 
 const NAV: NavSection[] = [
-  { items: [
-    { href: "/admin", icon: LayoutDashboard, label: "Overview", exact: true },
-  ] },
+  { items: [{ href: "/admin", icon: LayoutDashboard, label: "Overview", exact: true }] },
   { label: "CRM", items: [
     { href: "/admin/leads",         icon: FileText,  label: "Leads" },
     { href: "/admin/opportunities", icon: Trophy,    label: "Opportunities" },
@@ -30,17 +28,51 @@ const NAV: NavSection[] = [
     { href: "/admin/audit",         icon: ScrollText, label: "Audit Log" },
   ] },
   { label: "SETTINGS", items: [
-    { href: "/admin/settings/email", icon: Plug,       label: "Email Integration" },
-    { href: "/admin/team",           icon: Users,      label: "Admin Team" },
+    { href: "/admin/settings/email", icon: Plug,  label: "Email Integration" },
+    { href: "/admin/team",           icon: Users, label: "Admin Team" },
   ] },
-  { items: [
-    { href: "/admin/guide", icon: BookOpen, label: "Guide" },
-  ] },
+  { items: [{ href: "/admin/guide", icon: BookOpen, label: "Guide" }] },
 ];
 
+// Premium navy/indigo re-skin, scoped to .pa-admin so the customer app is
+// untouched. Remaps the warm "stone" palette the pages use to cool navy.
+const THEME_CSS = `
+.pa-admin{--pa-bg:#0B0E15;--pa-panel:#0E1320;--pa-ac:#7C7AF6}
+.pa-admin .bg-stone-950{background-color:#0B0E15 !important}
+.pa-admin .bg-stone-900{background-color:#111726 !important}
+.pa-admin .bg-stone-800{background-color:#1B2336 !important}
+.pa-admin .bg-stone-700{background-color:#243049 !important}
+.pa-admin .bg-stone-600{background-color:#2f3d59 !important}
+.pa-admin .bg-stone-900\\/40{background-color:rgba(17,23,38,.55) !important}
+.pa-admin .bg-stone-900\\/50{background-color:rgba(17,23,38,.65) !important}
+.pa-admin .bg-stone-900\\/60{background-color:rgba(17,23,38,.78) !important}
+.pa-admin .bg-stone-800\\/60{background-color:rgba(27,35,54,.6) !important}
+.pa-admin .bg-stone-800\\/50{background-color:rgba(27,35,54,.5) !important}
+.pa-admin .bg-stone-800\\/40{background-color:rgba(27,35,54,.4) !important}
+.pa-admin .bg-stone-800\\/30{background-color:rgba(27,35,54,.32) !important}
+.pa-admin .bg-stone-800\\/25{background-color:rgba(27,35,54,.28) !important}
+.pa-admin .bg-stone-800\\/20{background-color:rgba(27,35,54,.24) !important}
+.pa-admin .hover\\:bg-stone-800:hover{background-color:#1B2336 !important}
+.pa-admin .hover\\:bg-stone-900:hover{background-color:#111726 !important}
+.pa-admin .hover\\:bg-stone-800\\/70:hover{background-color:rgba(27,35,54,.7) !important}
+.pa-admin .hover\\:bg-stone-800\\/40:hover{background-color:rgba(27,35,54,.4) !important}
+.pa-admin .border-stone-800{border-color:#202A3E !important}
+.pa-admin .border-stone-700{border-color:#2A3650 !important}
+.pa-admin .border-stone-600{border-color:#3a4a66 !important}
+.pa-admin .border-stone-800\\/60{border-color:rgba(32,42,62,.6) !important}
+.pa-admin .border-stone-800\\/50{border-color:rgba(32,42,62,.5) !important}
+.pa-admin .ring-stone-800{--tw-ring-color:#202A3E !important}
+.pa-admin .ring-stone-700{--tw-ring-color:#2A3650 !important}
+.pa-admin .text-stone-200{color:#E8EBF4 !important}
+.pa-admin .text-stone-300{color:#CDD4E2 !important}
+.pa-admin .text-stone-400{color:#98A1B6 !important}
+.pa-admin .text-stone-500{color:#6F7A92 !important}
+.pa-admin .text-stone-600{color:#525C72 !important}
+.pa-admin .text-stone-700{color:#3d465a !important}
+`;
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const path    = usePathname();
-  const router  = useRouter();
+  const path = usePathname();
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const user = session?.user as any;
@@ -54,74 +86,82 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  const initials = (user?.name ?? "A").split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+
   const renderItem = ({ href, icon: Icon, label, exact }: NavItem) => {
     const active = exact ? path === href : (path === href || path.startsWith(href + "/"));
     return (
-      <Link
-        key={href}
-        href={href}
-        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors group ${
-          active ? "bg-stone-800 text-white font-medium" : "text-stone-500 hover:text-stone-200 hover:bg-stone-900"
-        }`}
-      >
-        <Icon size={14} className={active ? "text-emerald-400" : "text-stone-600 group-hover:text-stone-400"} />
+      <Link key={href} href={href}
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-colors group ${
+          active ? "text-white font-medium" : "text-stone-500 hover:text-stone-200"}`}
+        style={active ? { background: "rgba(124,122,246,0.14)", boxShadow: "inset 0 0 0 0.5px rgba(124,122,246,0.35)" } : undefined}>
+        <Icon size={15} className={active ? "text-violet-300" : "text-stone-600 group-hover:text-stone-400"} />
         <span className="flex-1">{label}</span>
-        {active && <ChevronRight size={11} className="text-stone-600" />}
+        {active && <ChevronRight size={12} className="text-violet-300/60" />}
       </Link>
     );
   };
 
   return (
-    <div className="flex gap-0 min-h-screen">
+    <div className="pa-admin flex min-h-screen" style={{ background: "#0B0E15" }}>
+      <style dangerouslySetInnerHTML={{ __html: THEME_CSS }} />
+
       {/* Sidebar */}
-      <aside className="w-56 shrink-0 flex flex-col border-r border-stone-800 bg-stone-950 pt-6 pb-4">
-        {/* Brand */}
-        <div className="px-4 mb-6">
+      <aside className="w-60 shrink-0 flex flex-col pt-5 pb-4" style={{ background: "#0E1320", borderRight: "0.5px solid #202A3E" }}>
+        <div className="px-4 mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-              <ShieldCheck size={14} className="text-emerald-400" />
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "#7C7AF6" }}>
+              <ShieldCheck size={16} className="text-white" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-white leading-none">Admin Portal</p>
-              <p className="text-[10px] text-stone-600 mt-0.5">Prime Accountax</p>
+              <p className="text-[13px] font-semibold text-white leading-none">Admin Portal</p>
+              <p className="text-[10px] text-stone-600 mt-1">Prime Accountax</p>
             </div>
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 space-y-3 overflow-y-auto">
+        <nav className="flex-1 px-2.5 space-y-3.5 overflow-y-auto">
           {NAV.map((section, i) => (
-            <div key={i} className="space-y-0.5">
-              {section.label && (
-                <p className="text-[9px] text-stone-700 font-semibold uppercase tracking-widest px-2 pb-1 pt-0.5">
-                  {section.label}
-                </p>
-              )}
+            <div key={i} className="space-y-1">
+              {section.label && <p className="text-[9px] text-stone-700 font-semibold uppercase tracking-[0.14em] px-2.5 pb-1 pt-0.5">{section.label}</p>}
               {section.items.map(renderItem)}
             </div>
           ))}
         </nav>
 
-        {/* Footer — user + sign out */}
-        <div className="px-2 pt-3 border-t border-stone-800/60 mt-3">
-          <div className="px-3 py-2 mb-1">
-            <p className="text-xs font-medium text-stone-300 truncate">{user?.name ?? "Admin"}</p>
-            <p className="text-[11px] text-stone-600 truncate">{user?.email ?? ""}</p>
+        <div className="px-2.5 pt-3 mt-3" style={{ borderTop: "0.5px solid rgba(32,42,62,0.6)" }}>
+          <div className="flex items-center gap-2.5 px-2.5 py-2">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-white shrink-0" style={{ background: "linear-gradient(135deg,#7C7AF6,#4F46E5)" }}>{initials}</div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium text-stone-300 truncate">{user?.name ?? "Admin"}</p>
+              <p className="text-[10px] text-stone-600 truncate">{user?.email ?? ""}</p>
+            </div>
+            <button onClick={() => signOut({ callbackUrl: "https://admin.primeaccountax.com/login" })}
+              className="p-1.5 rounded-lg text-stone-600 hover:text-rose-400 transition-colors" title="Sign out">
+              <LogOut size={14} />
+            </button>
           </div>
-          <button
-            onClick={() => signOut({ callbackUrl: "https://admin.primeaccountax.com/login" })}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-stone-600 hover:text-rose-400 hover:bg-rose-500/8 transition-colors group"
-          >
-            <LogOut size={13} className="group-hover:text-rose-400" />
-            Sign out
-          </button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 min-w-0 p-6 overflow-auto">
-        {children}
-      </main>
+      {/* Main column */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Command top bar */}
+        <header className="h-14 shrink-0 flex items-center gap-3 px-6" style={{ borderBottom: "0.5px solid #202A3E" }}>
+          <div className="flex-1 max-w-md h-9 rounded-xl flex items-center gap-2.5 px-3.5"
+            style={{ background: "#111726", border: "0.5px solid #202A3E" }}>
+            <Search size={14} className="text-stone-600" />
+            <span className="text-[12.5px] text-stone-600">Search leads, deals, customers…</span>
+            <span className="ml-auto text-[10px] text-stone-500 px-1.5 py-0.5 rounded-md" style={{ background: "#1B2336" }}>⌘K</span>
+          </div>
+          <div className="flex-1" />
+          <button className="w-9 h-9 rounded-xl flex items-center justify-center text-stone-500 hover:text-stone-200 transition-colors" style={{ background: "#111726", border: "0.5px solid #202A3E" }}>
+            <Bell size={15} />
+          </button>
+        </header>
+
+        <main className="flex-1 min-w-0 p-6 overflow-auto">{children}</main>
+      </div>
     </div>
   );
 }
