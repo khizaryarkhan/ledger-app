@@ -406,6 +406,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
   const [desc, setDesc] = useState(opp.title || "Services");
+  const [createAccount, setCreateAccount] = useState(true);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
 
@@ -433,7 +434,14 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
     try {
       const r = await fetch("/api/admin/billing/create-invoice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json().catch(() => ({}));
-      if (r.ok) onSent(); else { setErr(d.error || "Failed to create invoice"); onToast({ ok: false, msg: d.error || "Failed" }); }
+      if (!r.ok) { setErr(d.error || "Failed to create invoice"); onToast({ ok: false, msg: d.error || "Failed" }); setSending(false); return; }
+      // Tie an app account to the subscription + email a set-password link.
+      if (createAccount) {
+        try {
+          await fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provision: true, email: email.trim() }) });
+        } catch { /* invoice already created; account provisioning is best-effort */ }
+      }
+      onSent();
     } catch { setErr("Failed to create invoice"); } finally { setSending(false); }
   };
 
@@ -465,6 +473,10 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
                 <div><label className={lbl}>Billing email</label><input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="billing@customer.com" /></div>
                 <div><label className={lbl}>Country</label><input className={inp} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} placeholder="IE" maxLength={2} /></div>
               </div>
+              <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 bg-stone-800/40 px-3 py-2.5 cursor-pointer">
+                <input type="checkbox" checked={createAccount} onChange={e => setCreateAccount(e.target.checked)} className="mt-0.5 accent-emerald-500" />
+                <span className="text-[12px] text-stone-300">Create their app account and email a <span className="text-stone-200">set-password link</span><span className="block text-[11px] text-stone-500 mt-0.5">They can sign in right away but stay gated until the invoice is paid.</span></span>
+              </label>
               <p className="text-[11px] text-stone-600">Stripe issues and emails the invoice. {mode === "subscription" ? "After the first payment it auto-charges each period from the saved card." : "A one-off invoice the customer pays online."}</p>
               {err && <p className="text-[12px] text-rose-400">{err}</p>}
             </>
