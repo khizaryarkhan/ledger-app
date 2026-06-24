@@ -7,7 +7,7 @@ import { OPP_STAGES } from "@/lib/opportunities";
 import {
   ArrowLeft, Mail, StickyNote, CheckSquare, Trophy, Phone, Zap, Loader,
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
-  Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft,
+  Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X,
 } from "lucide-react";
 
 const STATUS = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
@@ -50,6 +50,8 @@ export default function LeadWorkspace() {
   const [tab, setTab] = useState<"note" | "email">("note");
   const [filter, setFilter] = useState<"all" | "email" | "note" | "call">("all");
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [reader, setReader] = useState<any>(null);   // email being viewed
+  const [compose, setCompose] = useState<any>(null); // {to, cc, bcc, subject, body}
   const [savingStatus, setSavingStatus] = useState(false);
 
   const load = useCallback(() => {
@@ -74,15 +76,34 @@ export default function LeadWorkspace() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
 
-  const activities = useMemo(() => {
-    const fromNotes = notes.map(parseActivity).map(a => ({ ...a, at: a.raw.createdAt, author: a.raw.authorName }));
-    // Inbound replies pulled live from the mailbox.
-    const fromInbox = inbound.map(m => ({
-      kind: "email", inbound: true, subject: m.subject, to: m.fromName || m.from,
-      preview: "", at: m.date, author: m.fromName || m.from,
-    }));
-    const all = [...fromNotes, ...fromInbox].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    return filter === "all" ? all : all.filter(a => a.kind === filter);
+  // Build the timeline: emails grouped into threads by subject; notes/calls
+  // stay as individual entries. Everything sorted by most-recent activity.
+  const timeline = useMemo(() => {
+    const parsed = notes.map(parseActivity).map(a => ({ ...a, at: a.raw.createdAt, author: a.raw.authorName }));
+    const emails: any[] = [];
+    const others: any[] = [];
+    for (const a of parsed) {
+      if (a.kind === "email") emails.push({ direction: "out", subject: a.subject, who: a.to, at: a.at, preview: a.preview, sequence: a.sequence });
+      else others.push({ type: "item", kind: a.kind, text: a.text, author: a.author, at: a.at });
+    }
+    for (const m of inbound) emails.push({ direction: "in", subject: m.subject, who: m.fromName || m.from, from: m.from, at: m.date, uid: m.uid });
+
+    // group emails by normalised subject
+    const norm = (s: string) => (s || "(no subject)").replace(/^((re|fwd|fw)\s*:\s*)+/i, "").trim().toLowerCase();
+    const byKey = new Map<string, any>();
+    for (const e of emails) {
+      const k = norm(e.subject);
+      if (!byKey.has(k)) byKey.set(k, { type: "thread", subject: e.subject.replace(/^((re|fwd|fw)\s*:\s*)+/i, ""), msgs: [], at: e.at });
+      const th = byKey.get(k);
+      th.msgs.push(e);
+      if (new Date(e.at).getTime() > new Date(th.at).getTime()) th.at = e.at;
+    }
+    for (const th of byKey.values()) th.msgs.sort((a: any, b: any) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    let merged = [...byKey.values(), ...others].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    if (filter === "email") merged = merged.filter(x => x.type === "thread");
+    else if (filter !== "all") merged = merged.filter(x => x.type === "item" && x.kind === filter);
+    return merged;
   }, [notes, inbound, filter]);
 
   const activeEnrollment = enrollments.find(e => e.status === "active");
@@ -152,7 +173,7 @@ export default function LeadWorkspace() {
       {/* Quick action bar */}
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
         {[
-          { label: "Email", icon: Mail, onClick: () => setTab("email") },
+          { label: "Email", icon: Mail, onClick: () => setCompose({ to: lead.email, cc: "", bcc: "", subject: "", body: "" }) },
           { label: "Note", icon: StickyNote, onClick: () => setTab("note") },
           { label: "Call", icon: Phone, soon: true },
           { label: "SMS", icon: MessageSquare, soon: true },
@@ -211,7 +232,8 @@ export default function LeadWorkspace() {
 
         {/* ── Right: composer + activity timeline ── */}
         <div className="space-y-4 min-w-0">
-          <Composer leadId={id} lead={lead} tab={tab} setTab={setTab} onSent={load} onToast={setToast} />
+          <Composer leadId={id} lead={lead} onSent={load} onToast={setToast}
+            onCompose={() => setCompose({ to: lead.email, cc: "", bcc: "", subject: "", body: "" })} />
 
           <Panel title="Activity" right={
             <div className="flex items-center gap-1">
@@ -221,20 +243,41 @@ export default function LeadWorkspace() {
               ))}
             </div>
           }>
-            {activities.length === 0 ? (
+            {timeline.length === 0 ? (
               <p className="text-[13px] text-stone-600 py-6 text-center">No activity yet. Log a note or send an email above.</p>
             ) : (
               <div className="space-y-3">
-                {activities.map((a, i) => <ActivityItem key={i} a={a} />)}
+                {timeline.map((x, i) => x.type === "thread"
+                  ? <EmailThread key={i} thread={x} onOpen={setReader} />
+                  : <ActivityItem key={i} a={x} />)}
               </div>
             )}
           </Panel>
         </div>
       </div>
 
+      {reader && (
+        <EmailReader email={reader} onClose={() => setReader(null)}
+          onReply={(all: boolean) => { const c = buildReply(reader, all, lead); setReader(null); setCompose(c); }} />
+      )}
+      {compose && (
+        <ComposeModal leadId={id} initial={compose} onClose={() => setCompose(null)}
+          onSent={() => { setCompose(null); load(); setToast({ ok: true, msg: "Email sent" }); }} onToast={setToast} />
+      )}
+
       {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
+}
+
+// Build a reply / reply-all draft from a viewed email.
+function buildReply(email: any, all: boolean, lead: any) {
+  const to = email.from || email.fullFrom || lead?.email || "";
+  const cc = all ? (email.fullCc || "") : "";
+  const subj = /^re:/i.test(email.subject || "") ? email.subject : `Re: ${email.subject || ""}`;
+  const when = email.at ? new Date(email.at).toLocaleString() : "";
+  const quote = `\n\n———\nOn ${when}, ${email.who || to} wrote:\n${(email.bodyText || email.preview || "").slice(0, 1500)}`;
+  return { to, cc, bcc: "", subject: subj, body: quote };
 }
 
 // ── Building blocks ───────────────────────────────────────────────────────────
@@ -287,50 +330,148 @@ function ActivityItem({ a }: { a: any }) {
   );
 }
 
-// ── Composer (Note / Email) ────────────────────────────────────────────────────
-function Composer({ leadId, lead, tab, setTab, onSent, onToast }: any) {
+// ── Composer (note inline; email opens the full modal) ───────────────────────────
+function Composer({ leadId, lead, onSent, onToast, onCompose }: any) {
   const [note, setNote] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-
   const saveNote = async () => {
     if (!note.trim()) return; setBusy(true);
     const r = await fetch(`/api/admin/leads/${leadId}/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ body: note.trim() }) });
     setBusy(false);
     if (r.ok) { setNote(""); onSent(); onToast({ ok: true, msg: "Note added" }); } else onToast({ ok: false, msg: "Failed" });
   };
-  const sendEmail = async () => {
-    if (!subject.trim() || !body.trim()) { onToast({ ok: false, msg: "Subject and body required" }); return; }
-    setBusy(true);
-    const r = await fetch(`/api/admin/leads/${leadId}/email`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subject, body }) });
-    const d = await r.json().catch(() => ({})); setBusy(false);
-    if (r.ok) { setSubject(""); setBody(""); onSent(); onToast({ ok: true, msg: "Email sent" }); }
-    else onToast({ ok: false, msg: d.error ?? "Send failed" });
-  };
-
   const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
   return (
-    <div className="rounded-xl border border-stone-800 bg-stone-900/40">
-      <div className="flex items-center gap-1 px-3 pt-3">
-        {[{ k: "note", label: "Note", icon: StickyNote }, { k: "email", label: "Email", icon: Mail }].map(t => (
-          <button key={t.k} onClick={() => setTab(t.k)} className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-t-lg ${tab === t.k ? "bg-stone-800 text-white" : "text-stone-500 hover:text-stone-300"}`}><t.icon size={13} /> {t.label}</button>
-        ))}
+    <div className="rounded-xl border border-stone-800 bg-stone-900/40 p-3">
+      <textarea className={`${inp} resize-none`} rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="Log a note about this lead…" />
+      <div className="flex justify-between items-center mt-2">
+        <button onClick={onCompose} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Compose email</button>
+        <button onClick={saveNote} disabled={busy || !note.trim()} className="h-8 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{busy ? <Loader size={12} className="animate-spin" /> : <Plus size={12} />} Add note</button>
       </div>
-      <div className="p-3 border-t border-stone-800">
-        {tab === "note" ? (
-          <div className="space-y-2">
-            <textarea className={`${inp} resize-none`} rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="Log a note about this lead…" />
-            <div className="flex justify-end"><button onClick={saveNote} disabled={busy || !note.trim()} className="h-8 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{busy ? <Loader size={12} className="animate-spin" /> : <Plus size={12} />} Add note</button></div>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-stone-500"><span>To: <span className="text-stone-300">{lead.email}</span></span><span className="text-emerald-400/80">sends from your connected mailbox</span></div>
-            <input className={inp} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" />
-            <textarea className={`${inp} resize-none`} rows={5} value={body} onChange={e => setBody(e.target.value)} placeholder={`Hi ${lead.fullName?.split(" ")[0] ?? ""},`} />
-            <div className="flex justify-end"><button onClick={sendEmail} disabled={busy} className="h-8 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{busy ? <Loader size={12} className="animate-spin" /> : <Send size={12} />} Send</button></div>
-          </div>
+    </div>
+  );
+}
+
+// ── Email thread (emails grouped by subject) ─────────────────────────────────────
+function EmailThread({ thread, onOpen }: { thread: any; onOpen: (m: any) => void }) {
+  const [open, setOpen] = useState(thread.msgs.length <= 2);
+  const shown = open ? thread.msgs : thread.msgs.slice(0, 1);
+  return (
+    <div className="rounded-lg border border-stone-800 bg-stone-900/60 overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 border-b border-stone-800/70 text-left">
+        <Mail size={12} className="text-sky-400 shrink-0" />
+        <span className="text-[12.5px] font-medium text-stone-200 truncate flex-1">{thread.subject || "(no subject)"}</span>
+        <span className="text-[10px] text-stone-500">{thread.msgs.length} msg{thread.msgs.length !== 1 ? "s" : ""}</span>
+        <ChevronDown size={13} className={`text-stone-600 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      <div className="divide-y divide-stone-800/50">
+        {shown.map((m: any, i: number) => (
+          <button key={i} onClick={() => onOpen(m)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-stone-800/40 text-left">
+            {m.direction === "in"
+              ? <CornerUpLeft size={12} className="text-emerald-400 shrink-0" />
+              : <Send size={12} className="text-sky-400/80 shrink-0" />}
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] text-stone-300 truncate">{m.direction === "in" ? `Reply from ${m.who}` : `Sent to ${m.who}`}{m.sequence ? ` · ${m.sequence}` : ""}</p>
+              {m.preview && <p className="text-[11px] text-stone-600 truncate">{m.preview}</p>}
+            </div>
+            <span className="text-[10px] text-stone-600 shrink-0">{timeAgo(m.at)}</span>
+          </button>
+        ))}
+        {!open && thread.msgs.length > 1 && (
+          <button onClick={() => setOpen(true)} className="w-full px-3 py-1.5 text-[11px] text-stone-500 hover:text-stone-300 text-left">+ {thread.msgs.length - 1} earlier</button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Email reader (opens a full message; Reply / Reply all) ───────────────────────
+function EmailReader({ email, onClose, onReply }: { email: any; onClose: () => void; onReply: (all: boolean) => void }) {
+  const [full, setFull] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (email.uid != null) {
+      setLoading(true);
+      fetch(`/api/admin/email/messages/${email.uid}?mailbox=INBOX`).then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.message) { setFull(d.message); email.from = d.message.from?.text || email.from; email.fullCc = d.message.cc || ""; email.bodyText = d.message.text || ""; } })
+        .catch(() => {}).finally(() => setLoading(false));
+    }
+  }, [email.uid]);
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3.5 border-b border-stone-800">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-sm font-semibold text-white">{email.subject || "(no subject)"}</h2>
+            <button onClick={onClose} className="text-stone-500 hover:text-stone-300 shrink-0"><X size={18} /></button>
+          </div>
+          <p className="text-[12px] text-stone-400 mt-1.5">{email.direction === "in" ? "From" : "To"} <span className="text-stone-300">{email.who}</span> · {email.at ? new Date(email.at).toLocaleString() : ""}</p>
+          {full?.cc && <p className="text-[12px] text-stone-500">Cc {full.cc}</p>}
+        </div>
+        <div className="flex-1 overflow-auto">
+          {loading ? <div className="flex items-center justify-center py-16"><Loader size={18} className="animate-spin text-stone-600" /></div>
+            : full?.html ? <div className="bg-white"><iframe title="email" sandbox="" srcDoc={full.html} className="w-full border-0" style={{ height: "50vh" }} /></div>
+            : <pre className="p-5 text-[13px] text-stone-300 whitespace-pre-wrap font-sans">{full?.text || email.preview || "(no preview available — open in Mail to read the full message)"}</pre>}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-stone-800">
+          <button onClick={() => onReply(false)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><CornerUpLeft size={13} /> Reply</button>
+          <button onClick={() => onReply(true)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><Users size={13} /> Reply all</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Compose / reply modal (To · Cc · Bcc · Subject · Body) ───────────────────────
+function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
+  const [to, setTo] = useState(initial.to || "");
+  const [cc, setCc] = useState(initial.cc || "");
+  const [bcc, setBcc] = useState(initial.bcc || "");
+  const [showCcBcc, setShowCcBcc] = useState(!!(initial.cc || initial.bcc));
+  const [subject, setSubject] = useState(initial.subject || "");
+  const [body, setBody] = useState(initial.body || "");
+  const [sending, setSending] = useState(false);
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+
+  const send = async () => {
+    if (!to.trim()) { onToast({ ok: false, msg: "Recipient required" }); return; }
+    if (!subject.trim() || !body.trim()) { onToast({ ok: false, msg: "Subject and body required" }); return; }
+    setSending(true);
+    try {
+      const r = await fetch(`/api/admin/leads/${leadId}/email`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to, cc, bcc, subject, body }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) onSent(); else onToast({ ok: false, msg: d.error ?? "Send failed" });
+    } catch { onToast({ ok: false, msg: "Send failed" }); } finally { setSending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-800">
+          <h2 className="text-sm font-semibold text-white">New email</h2>
+          <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
+        </div>
+        <div className="p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-stone-500 w-10 shrink-0">To</span>
+            <input className={inp} value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@email.com" />
+            {!showCcBcc && <button onClick={() => setShowCcBcc(true)} className="text-[11px] text-stone-500 hover:text-stone-300 shrink-0">Cc/Bcc</button>}
+          </div>
+          {showCcBcc && (
+            <>
+              <div className="flex items-center gap-2"><span className="text-[11px] text-stone-500 w-10 shrink-0">Cc</span><input className={inp} value={cc} onChange={e => setCc(e.target.value)} placeholder="comma-separated" /></div>
+              <div className="flex items-center gap-2"><span className="text-[11px] text-stone-500 w-10 shrink-0">Bcc</span><input className={inp} value={bcc} onChange={e => setBcc(e.target.value)} placeholder="comma-separated" /></div>
+            </>
+          )}
+          <div className="flex items-center gap-2"><span className="text-[11px] text-stone-500 w-10 shrink-0">Subject</span><input className={inp} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" /></div>
+          <textarea className={`${inp} resize-none`} rows={9} value={body} onChange={e => setBody(e.target.value)} placeholder="Write your message…" />
+          <p className="text-[11px] text-emerald-400/80">Sends from your connected mailbox.</p>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-stone-800">
+          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
+          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
+        </div>
       </div>
     </div>
   );

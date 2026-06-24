@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (error) return error;
   if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
-  const { subject, body, to: toOverride, cc } = await req.json().catch(() => ({}));
+  const { subject, body, to: toOverride, cc, bcc } = await req.json().catch(() => ({}));
   if (!subject?.trim()) return bad("Subject is required");
   if (!body?.trim())    return bad("Body is required");
 
@@ -26,7 +26,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!lead) return bad("Lead not found", 404);
 
   const toAddress = (toOverride as string)?.trim() || lead.email;
-  const ccList: string[] = Array.isArray(cc) ? cc.filter(Boolean) : [];
+  const ccList: string[]  = Array.isArray(cc)  ? cc.filter(Boolean)  : (typeof cc === "string" && cc.trim() ? cc.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean) : []);
+  const bccList: string[] = Array.isArray(bcc) ? bcc.filter(Boolean) : (typeof bcc === "string" && bcc.trim() ? bcc.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean) : []);
 
   const html = body
     .trim()
@@ -44,7 +45,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   try {
     await sendMessage(mailbox, {
-      to: toAddress, cc: ccList.length ? ccList.join(", ") : undefined,
+      to: toAddress,
+      cc: ccList.length ? ccList.join(", ") : undefined,
+      bcc: bccList.length ? bccList.join(", ") : undefined,
       subject: subject.trim(), html,
     });
   } catch (e: any) {

@@ -207,10 +207,10 @@ export async function sendAdminEmail(
 }
 
 // Send a message via the admin's SMTP, and append a copy to Sent.
-export async function sendMessage(cfg: MailboxConfig, msg: { to: string; cc?: string; subject: string; html?: string; text?: string }) {
+export async function sendMessage(cfg: MailboxConfig, msg: { to: string; cc?: string; bcc?: string; subject: string; html?: string; text?: string }) {
   const from = cfg.fromName ? `${cfg.fromName} <${cfg.emailAddress}>` : cfg.emailAddress;
   const info = await smtpTransport(cfg).sendMail({
-    from, to: msg.to, cc: msg.cc || undefined, subject: msg.subject,
+    from, to: msg.to, cc: msg.cc || undefined, bcc: msg.bcc || undefined, subject: msg.subject,
     text: msg.text || undefined, html: msg.html || undefined,
   });
 
