@@ -351,6 +351,23 @@ export const leadContacts = pgTable("lead_contacts", {
 export type LeadContact = typeof leadContacts.$inferSelect;
 
 // =========================================================================
+// CATALOG ITEMS (reusable products/services for invoices — admin portal)
+// =========================================================================
+export const catalogItems = pgTable("catalog_items", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  name:        varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  unitAmount:  integer("unit_amount").notNull().default(0), // smallest unit (cents)
+  currency:    varchar("currency", { length: 3 }).notNull().default("eur"),
+  taxRate:     integer("tax_rate"), // optional %, basis points not needed yet
+  active:      boolean("active").notNull().default(true),
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+});
+export type CatalogItem = typeof catalogItems.$inferSelect;
+
+// =========================================================================
 // ADMIN EMAIL ACCOUNTS (per platform-admin mailbox — IMAP/SMTP, admin portal)
 // Each admin connects their own @primeaccountax.com mailbox to send/receive
 // inside the portal. The password is encrypted at rest via lib/crypto.

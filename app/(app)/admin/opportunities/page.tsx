@@ -404,19 +404,25 @@ function matchCountryCode(val?: string | null): string {
   return byName ? byName.code : "";
 }
 
+type CatItem = { id: string; name: string; description: string | null; unitAmount: number; currency: string };
+type Line = { itemId: string; description: string; qty: string; unitPrice: string };
+
 function InvoiceModal({ opp, onClose, onSent, onToast }: {
   opp: Opp; onClose: () => void; onSent: () => void; onToast: (t: { ok: boolean; msg: string }) => void;
 }) {
   const [prep, setPrep] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(opp.orgId ?? null);
+  const [catalog, setCatalog] = useState<CatItem[]>([]);
   const [mode, setMode] = useState<"oneoff" | "subscription">("oneoff");
-  const [lineItems, setLineItems] = useState<{ description: string; amount: string }[]>([{ description: opp.title || "Services", amount: String(opp.value || "") }]);
+  const [lines, setLines] = useState<Line[]>([{ itemId: "", description: opp.title || "", qty: "1", unitPrice: String(opp.value || "") }]);
   const [subAmount, setSubAmount] = useState(String(opp.value || ""));
   const [planName, setPlanName] = useState(opp.title || "Subscription");
   const [currency, setCurrency] = useState((opp.currency || "EUR").toLowerCase());
   const [interval, setInterval] = useState<"month" | "year">("month");
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
+  const [dueDays, setDueDays] = useState("14");
+  const [memo, setMemo] = useState("");
   const [createAccount, setCreateAccount] = useState(true);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
@@ -427,31 +433,36 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
       .then(d => { setOrgId(d.orgId); if (d.billingEmail) setEmail(d.billingEmail); setCountry(matchCountryCode(d.country)); })
       .catch(e => setErr(e.message))
       .finally(() => setPrep(false));
+    fetch("/api/admin/items").then(r => r.ok ? r.json() : { items: [] }).then(d => setCatalog((d.items ?? []).filter((i: any) => i.active !== false))).catch(() => {});
   }, [opp.id]);
 
   const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
   const lbl = "text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1";
 
-  const setLine = (i: number, patch: Partial<{ description: string; amount: string }>) =>
-    setLineItems(items => items.map((li, j) => j === i ? { ...li, ...patch } : li));
-  const addLine = () => setLineItems(items => [...items, { description: "", amount: "" }]);
-  const delLine = (i: number) => setLineItems(items => items.length > 1 ? items.filter((_, j) => j !== i) : items);
-  const total = lineItems.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0);
-
+  const setLine = (i: number, patch: Partial<Line>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, ...patch } : l));
+  const pickItem = (i: number, itemId: string) => {
+    if (!itemId) { setLine(i, { itemId: "" }); return; }
+    const it = catalog.find(c => c.id === itemId);
+    if (it) { setLine(i, { itemId, description: it.name, unitPrice: String((it.unitAmount / 100).toFixed(2)) }); if (it.currency) setCurrency(it.currency); }
+  };
+  const addLine = () => setLines(ls => [...ls, { itemId: "", description: "", qty: "1", unitPrice: "" }]);
+  const delLine = (i: number) => setLines(ls => ls.length > 1 ? ls.filter((_, j) => j !== i) : ls);
+  const lineTotal = (l: Line) => (parseFloat(l.qty) || 0) * (parseFloat(l.unitPrice) || 0);
+  const total = lines.reduce((s, l) => s + lineTotal(l), 0);
   const cur = (n: number) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: currency.toUpperCase() }).format(n); } catch { return `${currency.toUpperCase()} ${n.toFixed(2)}`; } };
 
   const send = async () => {
     if (!orgId) { setErr("Customer not ready"); return; }
     if (!email.trim()) { onToast({ ok: false, msg: "Billing email required" }); return; }
     setSending(true); setErr("");
-    const body: any = { orgId, mode, billingEmail: email.trim(), currency, country: country || undefined };
+    const body: any = { orgId, mode, billingEmail: email.trim(), currency, country: country || undefined, daysUntilDue: parseInt(dueDays) || 14, memo: memo.trim() || undefined };
     if (mode === "subscription") {
       const amt = Math.round((parseFloat(subAmount) || 0) * 100);
       if (amt <= 0) { onToast({ ok: false, msg: "Enter a recurring amount" }); setSending(false); return; }
       body.amount = amt; body.interval = interval; body.planName = planName || "Subscription";
     } else {
-      const items = lineItems
-        .map(li => ({ description: (li.description || "Item").slice(0, 500), amount: Math.round((parseFloat(li.amount) || 0) * 100) }))
+      const items = lines
+        .map(l => { const qty = parseFloat(l.qty) || 0; const amt = Math.round(lineTotal(l) * 100); const desc = (l.description || "Item").slice(0, 480); return { description: qty > 1 ? `${desc} (×${qty})` : desc, amount: amt }; })
         .filter(li => li.amount > 0);
       if (!items.length) { onToast({ ok: false, msg: "Add at least one line item with an amount" }); setSending(false); return; }
       body.lineItems = items;
@@ -469,12 +480,12 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 rounded-xl w-full max-w-lg ring-1 ring-stone-800 shadow-xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 shrink-0">
+      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl flex flex-col" style={{ maxHeight: "92vh" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800 shrink-0">
           <div className="flex items-center gap-2"><Receipt size={15} className="text-emerald-400" /><h2 className="text-sm font-semibold text-white">Create invoice — {opp.title}</h2></div>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
         </div>
-        <div className="p-5 space-y-3 overflow-y-auto">
+        <div className="px-6 py-5 space-y-4 overflow-y-auto">
           {prep ? (
             <div className="flex items-center gap-2 text-[13px] text-stone-400 py-4"><Loader size={14} className="animate-spin" /> Setting up the customer…</div>
           ) : (
@@ -489,33 +500,46 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
 
               {mode === "oneoff" ? (
                 <div>
-                  <label className={lbl}>Line items</label>
+                  <div className="grid grid-cols-[1fr_64px_110px_96px_32px] gap-2 px-1 mb-1">
+                    {["Item / description", "Qty", "Unit price", "Amount", ""].map((h, i) => <span key={i} className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">{h}</span>)}
+                  </div>
                   <div className="space-y-1.5">
-                    {lineItems.map((li, i) => (
-                      <div key={i} className="flex gap-1.5">
-                        <input className={`${inp} flex-1`} value={li.description} onChange={e => setLine(i, { description: e.target.value })} placeholder="Description" />
-                        <input className={`${inp} w-28`} type="number" min={0} step="0.01" value={li.amount} onChange={e => setLine(i, { amount: e.target.value })} placeholder="0.00" />
-                        <button onClick={() => delLine(i)} disabled={lineItems.length === 1} className="shrink-0 w-9 rounded-md border border-stone-700 text-stone-500 hover:text-rose-400 disabled:opacity-30 flex items-center justify-center"><Trash2 size={13} /></button>
+                    {lines.map((l, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_64px_110px_96px_32px] gap-2 items-center">
+                        <div>
+                          {catalog.length > 0 && (
+                            <select className={`${inp} mb-1 !py-1.5 text-[12px]`} value={l.itemId} onChange={e => pickItem(i, e.target.value)}>
+                              <option value="">Custom / type below…</option>
+                              {catalog.map(c => <option key={c.id} value={c.id}>{c.name} — {cur(c.unitAmount / 100)}</option>)}
+                            </select>
+                          )}
+                          <input className={inp} value={l.description} onChange={e => setLine(i, { description: e.target.value, itemId: "" })} placeholder="Description" />
+                        </div>
+                        <input className={`${inp} text-center`} type="number" min={1} step="1" value={l.qty} onChange={e => setLine(i, { qty: e.target.value })} />
+                        <input className={inp} type="number" min={0} step="0.01" value={l.unitPrice} onChange={e => setLine(i, { unitPrice: e.target.value })} placeholder="0.00" />
+                        <span className="text-[13px] text-stone-200 tabular-nums text-right pr-1">{cur(lineTotal(l))}</span>
+                        <button onClick={() => delLine(i)} disabled={lines.length === 1} className="w-8 h-9 rounded-md border border-stone-700 text-stone-500 hover:text-rose-400 disabled:opacity-30 flex items-center justify-center"><Trash2 size={13} /></button>
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <button onClick={addLine} className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-1"><Plus size={12} /> Add line item</button>
-                    <span className="text-[12px] text-stone-300">Total <span className="font-semibold text-white tabular-nums">{cur(total)}</span></span>
+                  <div className="flex items-center justify-between mt-2.5">
+                    <button onClick={addLine} className="text-[12px] font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-1"><Plus size={13} /> Add line item</button>
+                    <span className="text-[13px] text-stone-300">Total <span className="font-semibold text-white tabular-nums ml-1">{cur(total)}</span></span>
                   </div>
+                  {catalog.length === 0 && <p className="text-[11px] text-stone-600 mt-2">Tip: add reusable products under <span className="text-stone-400">Items</span> to pick them here.</p>}
                 </div>
               ) : (
                 <>
                   <div><label className={lbl}>Plan name</label><input className={inp} value={planName} onChange={e => setPlanName(e.target.value)} /></div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-3">
                     <div><label className={lbl}>Recurring amount</label><input className={inp} type="number" min={0} step="0.01" value={subAmount} onChange={e => setSubAmount(e.target.value)} placeholder="0.00" /></div>
                     <div><label className={lbl}>Interval</label><select className={inp} value={interval} onChange={e => setInterval(e.target.value as any)}><option value="month">Monthly</option><option value="year">Annual</option></select></div>
                   </div>
                 </>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className={lbl}>Billing email</label><input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="billing@customer.com" /></div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2"><label className={lbl}>Billing email</label><input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="billing@customer.com" /></div>
                 <div><label className={lbl}>Country</label>
                   <select className={inp} value={country} onChange={e => setCountry(e.target.value)}>
                     <option value="">— select —</option>
@@ -523,6 +547,12 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
                   </select>
                 </div>
               </div>
+              {mode === "oneoff" && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div><label className={lbl}>Due in (days)</label><input className={inp} type="number" min={0} value={dueDays} onChange={e => setDueDays(e.target.value)} /></div>
+                  <div className="col-span-2"><label className={lbl}>Memo / notes <span className="text-stone-600 normal-case">(on the invoice)</span></label><input className={inp} value={memo} onChange={e => setMemo(e.target.value)} placeholder="e.g. Thank you for your business" /></div>
+                </div>
+              )}
 
               <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 bg-stone-800/40 px-3 py-2.5 cursor-pointer">
                 <input type="checkbox" checked={createAccount} onChange={e => setCreateAccount(e.target.checked)} className="mt-0.5 accent-emerald-500" />
@@ -533,7 +563,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
             </>
           )}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-stone-800 shrink-0">
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-stone-800 shrink-0">
           <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
           <button onClick={send} disabled={prep || sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Receipt size={13} />} Create &amp; send</button>
         </div>
