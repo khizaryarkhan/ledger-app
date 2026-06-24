@@ -210,15 +210,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "At least one line item is required for a one-off invoice" }, { status: 400 });
     }
 
-    for (const li of items) {
-      await stripe.invoiceItems.create({
-        customer:    customerId,
-        amount:      li.amount,
-        currency,
-        description: li.description,
-      });
-    }
-
+    // Create the draft invoice FIRST, then attach each line item directly to it
+    // via `invoice: draft.id`. (Creating floating invoice items and relying on
+    // the invoice to auto-collect them finalises at $0 on the current Stripe API.)
     const draft = await stripe.invoices.create({
       customer:          customerId,
       collection_method: "send_invoice",
@@ -227,7 +221,21 @@ export async function POST(req: Request) {
       metadata:          { orgId: org.id, createdBy: userId ?? "", kind: "oneoff" },
       auto_advance:      true,
     });
+
+    for (const li of items) {
+      await stripe.invoiceItems.create({
+        customer:    customerId,
+        invoice:     draft.id,
+        amount:      li.amount,
+        currency,
+        description: li.description,
+      });
+    }
+
     const finalised = await stripe.invoices.finalizeInvoice(draft.id);
+    if ((finalised.total ?? 0) <= 0) {
+      return NextResponse.json({ error: "Invoice total came out as zero — check the line item amounts." }, { status: 400 });
+    }
     let sent = finalised;
     try { sent = await stripe.invoices.sendInvoice(finalised.id); } catch { /* already sent on finalize */ }
 
@@ -241,6 +249,9 @@ export async function POST(req: Request) {
       ok:               true,
       mode:             "oneoff",
       invoiceId:        sent.id,
+      number:           sent.number ?? null,
+      total:            sent.total ?? 0,
+      currency,
       status:           sent.status,
       hostedInvoiceUrl: sent.hosted_invoice_url ?? null,
       invoicePdf:       sent.invoice_pdf ?? null,

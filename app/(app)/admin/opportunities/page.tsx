@@ -426,6 +426,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
   const [createAccount, setCreateAccount] = useState(true);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
+  const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
     fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST" })
@@ -474,7 +475,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
       if (createAccount) {
         try { await fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provision: true, email: email.trim() }) }); } catch {}
       }
-      onSent();
+      setResult(d); // show confirmation with the invoice link instead of closing
     } catch { setErr("Failed to create invoice"); } finally { setSending(false); }
   };
 
@@ -486,7 +487,22 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
           <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
         </div>
         <div className="px-6 py-5 space-y-4 overflow-y-auto">
-          {prep ? (
+          {result ? (
+            <div className="py-2">
+              <div className="flex items-center gap-2.5 mb-3"><span className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center"><Receipt size={16} className="text-emerald-400" /></span>
+                <div><p className="text-sm font-semibold text-white">Invoice created &amp; sent</p><p className="text-[12px] text-stone-500">Stripe emailed it to {email}</p></div></div>
+              <div className="rounded-lg border border-stone-800 bg-stone-900/60 divide-y divide-stone-800/60">
+                {result.number && <div className="flex justify-between px-3 py-2 text-[13px]"><span className="text-stone-500">Invoice</span><span className="text-stone-200 font-mono">{result.number}</span></div>}
+                {result.total != null && <div className="flex justify-between px-3 py-2 text-[13px]"><span className="text-stone-500">Total</span><span className="text-stone-100 font-semibold tabular-nums">{cur((result.total || 0) / 100)}</span></div>}
+                <div className="flex justify-between px-3 py-2 text-[13px]"><span className="text-stone-500">Status</span><span className="text-emerald-300 capitalize">{result.status || "open"}</span></div>
+              </div>
+              {result.hostedInvoiceUrl && (
+                <a href={result.hostedInvoiceUrl} target="_blank" rel="noopener noreferrer"
+                  className="mt-3 w-full inline-flex items-center justify-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><ChevronRight size={13} /> View / pay invoice</a>
+              )}
+              <p className="text-[11px] text-stone-600 mt-3">Track it anytime under <span className="text-stone-400">Customers</span> → this customer → Invoices.</p>
+            </div>
+          ) : prep ? (
             <div className="flex items-center gap-2 text-[13px] text-stone-400 py-4"><Loader size={14} className="animate-spin" /> Setting up the customer…</div>
           ) : (
             <>
@@ -564,8 +580,14 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
           )}
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-stone-800 shrink-0">
-          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
-          <button onClick={send} disabled={prep || sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Receipt size={13} />} Create &amp; send</button>
+          {result ? (
+            <button onClick={onSent} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Done</button>
+          ) : (
+            <>
+              <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
+              <button onClick={send} disabled={prep || sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Receipt size={13} />} Create &amp; send</button>
+            </>
+          )}
         </div>
       </div>
     </div>
