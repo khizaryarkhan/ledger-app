@@ -7,7 +7,7 @@ import { OPP_STAGES } from "@/lib/opportunities";
 import {
   ArrowLeft, Mail, StickyNote, CheckSquare, Trophy, Phone, Zap, Loader,
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
-  Sparkles, Users, Calendar, Trash2, Heart,
+  Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft,
 } from "lucide-react";
 
 const STATUS = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
@@ -43,6 +43,7 @@ export default function LeadWorkspace() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [opps, setOpps] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
+  const [inbound, setInbound] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [sequences, setSequences] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,15 +67,23 @@ export default function LeadWorkspace() {
       setSequences((Array.isArray(s) ? s : []).filter((x: any) => x.isActive));
       setContacts(c.contacts ?? []);
     }).finally(() => setLoading(false));
+    // Inbound replies are pulled live from the connected mailbox (slower) — load separately.
+    fetch(`/api/admin/leads/${id}/emails`).then(r => r.ok ? r.json() : { emails: [] })
+      .then(d => setInbound(Array.isArray(d.emails) ? d.emails : [])).catch(() => {});
   }, [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
 
   const activities = useMemo(() => {
-    const items = notes.map(parseActivity).map(a => ({ ...a, at: a.raw.createdAt, author: a.raw.authorName }));
-    const sorted = items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    return filter === "all" ? sorted : sorted.filter(a => a.kind === filter);
-  }, [notes, filter]);
+    const fromNotes = notes.map(parseActivity).map(a => ({ ...a, at: a.raw.createdAt, author: a.raw.authorName }));
+    // Inbound replies pulled live from the mailbox.
+    const fromInbox = inbound.map(m => ({
+      kind: "email", inbound: true, subject: m.subject, to: m.fromName || m.from,
+      preview: "", at: m.date, author: m.fromName || m.from,
+    }));
+    const all = [...fromNotes, ...fromInbox].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    return filter === "all" ? all : all.filter(a => a.kind === filter);
+  }, [notes, inbound, filter]);
 
   const activeEnrollment = enrollments.find(e => e.status === "active");
 
@@ -246,6 +255,14 @@ function Field({ label, value }: { label: string; value: string }) {
 
 function ActivityItem({ a }: { a: any }) {
   if (a.kind === "email") {
+    if (a.inbound) {
+      return (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3">
+          <div className="flex items-center gap-2 mb-1"><CornerUpLeft size={12} className="text-emerald-400" /><span className="text-[11px] font-medium text-emerald-300">Reply from {a.author}</span><span className="ml-auto text-[10px] text-stone-600">{timeAgo(a.at)}</span></div>
+          <p className="text-[13px] font-medium text-stone-200">{a.subject}</p>
+        </div>
+      );
+    }
     return (
       <div className="rounded-lg border border-stone-800 bg-stone-900/60 p-3">
         <div className="flex items-center gap-2 mb-1"><Mail size={12} className="text-sky-400" /><span className="text-[11px] font-medium text-sky-300">Email{a.sequence ? ` · ${a.sequence}` : ""}</span><span className="ml-auto text-[10px] text-stone-600">{timeAgo(a.at)}</span></div>

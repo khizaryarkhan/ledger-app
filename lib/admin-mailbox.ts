@@ -117,6 +117,41 @@ function hasAttach(struct: any): boolean {
   return false;
 }
 
+// Find inbound messages in INBOX sent FROM any of the given addresses — used to
+// surface a lead's replies on their CRM timeline.
+export async function searchInboundFrom(cfg: MailboxConfig, emails: string[], limit = 25): Promise<MessageSummary[]> {
+  const addrs = emails.map(e => e.trim().toLowerCase()).filter(Boolean);
+  if (!addrs.length) return [];
+  const imap = imapClient(cfg);
+  const out: MessageSummary[] = [];
+  await imap.connect();
+  try {
+    const lock = await imap.getMailboxLock("INBOX");
+    try {
+      let uids: number[] = [];
+      for (const em of addrs) {
+        try { const found = await imap.search({ from: em }, { uid: true }); if (Array.isArray(found)) uids.push(...found); } catch {}
+      }
+      uids = [...new Set(uids)].sort((a, b) => b - a).slice(0, limit);
+      if (uids.length) {
+        for await (const msg of imap.fetch(uids, { envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
+          const env = msg.envelope; const from = env?.from?.[0];
+          out.push({
+            uid: msg.uid, seq: msg.seq,
+            subject: env?.subject || "(no subject)",
+            from: from?.address || "", fromName: from?.name || from?.address || "",
+            to: (env?.to || []).map((t: any) => t.address).join(", "),
+            date: env?.date ? new Date(env.date).toISOString() : null,
+            seen: msg.flags?.has("\\Seen") ?? false,
+            hasAttachments: hasAttach(msg.bodyStructure), preview: "",
+          });
+        }
+      }
+    } finally { lock.release(); }
+  } finally { await imap.logout(); }
+  return out.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+}
+
 // Fetch a single message's full content (parsed) by UID.
 export async function getMessage(cfg: MailboxConfig, uid: number, mailbox = "INBOX") {
   const imap = imapClient(cfg);
