@@ -50,6 +50,7 @@ export default function OpportunitiesPage() {
   const [view, setView] = useState<"pipeline" | "list" | "forecast" | "health">("pipeline");
   const [editing, setEditing] = useState<Opp | null>(null);
   const [creating, setCreating] = useState(false);
+  const [invoicing, setInvoicing] = useState<Opp | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -139,9 +140,9 @@ export default function OpportunitiesPage() {
       {loading ? (
         <div className="h-72 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" />
       ) : view === "pipeline" ? (
-        <Board opps={opps} dragId={dragId} setDragId={setDragId} onDrop={moveStage} onOpen={setEditing} onNew={() => setCreating(true)} />
+        <Board opps={opps} dragId={dragId} setDragId={setDragId} onDrop={moveStage} onOpen={setEditing} onNew={() => setCreating(true)} onInvoice={setInvoicing} />
       ) : view === "list" ? (
-        <OppTable opps={opps} onOpen={setEditing} onDelete={remove} />
+        <OppTable opps={opps} onOpen={setEditing} onDelete={remove} onInvoice={setInvoicing} />
       ) : view === "forecast" ? (
         <Forecast opps={opps} />
       ) : (
@@ -152,6 +153,12 @@ export default function OpportunitiesPage() {
         <OppModal opp={editing} leads={leads}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={() => { setCreating(false); setEditing(null); load(); setToast({ ok: true, msg: "Saved" }); }}
+          onInvoice={(o: Opp) => { setEditing(null); setInvoicing(o); }}
+          onToast={setToast} />
+      )}
+      {invoicing && (
+        <InvoiceModal opp={invoicing} onClose={() => setInvoicing(null)}
+          onSent={() => { setInvoicing(null); load(); setToast({ ok: true, msg: "Invoice created & sent via Stripe" }); }}
           onToast={setToast} />
       )}
       {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
@@ -160,7 +167,7 @@ export default function OpportunitiesPage() {
 }
 
 // ── Board ──────────────────────────────────────────────────────────────────────
-function Board({ opps, dragId, setDragId, onDrop, onOpen, onNew }: any) {
+function Board({ opps, dragId, setDragId, onDrop, onOpen, onNew, onInvoice }: any) {
   return (
     <div className="overflow-x-auto pb-2">
       <div className="flex gap-3 min-w-[1180px]">
@@ -204,6 +211,12 @@ function Board({ opps, dragId, setDragId, onDrop, onOpen, onNew }: any) {
                           <span className="w-5 h-5 rounded-full bg-stone-800 flex items-center justify-center text-[9px] text-stone-400" title={o.ownerName || ""}>{initials(o.ownerName)}</span>
                         </div>
                       </div>
+                      {o.status === "won" && (
+                        <button onClick={e => { e.stopPropagation(); onInvoice(o); }}
+                          className="mt-2.5 ml-4 inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-semibold rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white">
+                          <Receipt size={12} /> Create invoice
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -220,7 +233,7 @@ function Board({ opps, dragId, setDragId, onDrop, onOpen, onNew }: any) {
 }
 
 // ── List ──────────────────────────────────────────────────────────────────────
-function OppTable({ opps, onOpen, onDelete }: any) {
+function OppTable({ opps, onOpen, onDelete, onInvoice }: any) {
   if (!opps.length) return <Empty onText="No deals yet — create your first with “New deal”." />;
   return (
     <div className="rounded-xl border border-stone-800 overflow-hidden">
@@ -242,7 +255,12 @@ function OppTable({ opps, onOpen, onDelete }: any) {
                 <td className="px-4 py-2.5"><span className={`inline-flex items-center gap-1 text-[11px] ${rt.text}`}><span className={`w-1.5 h-1.5 rounded-full ${rt.dot}`} /> {rk.label}</span></td>
                 <td className="px-4 py-2.5 text-stone-500 text-xs whitespace-nowrap">{o.expectedCloseDate ? new Date(o.expectedCloseDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500 text-xs">{o.ownerName || "—"}</td>
-                <td className="px-4 py-2.5 text-right"><button onClick={() => onDelete(o.id)} className="p-1 rounded hover:bg-rose-500/15 text-stone-600 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button></td>
+                <td className="px-4 py-2.5 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    {o.status === "won" && <button onClick={() => onInvoice(o)} title="Create invoice" className="p-1 rounded hover:bg-emerald-500/15 text-stone-500 hover:text-emerald-400"><Receipt size={13} /></button>}
+                    <button onClick={() => onDelete(o.id)} className="p-1 rounded hover:bg-rose-500/15 text-stone-600 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button>
+                  </div>
+                </td>
               </tr>
             );
           })}
@@ -311,8 +329,8 @@ function Empty({ onText, icon: Icon = Receipt }: { onText: string; icon?: any })
 }
 
 // ── Create / edit modal ────────────────────────────────────────────────────────
-function OppModal({ opp, leads, onClose, onSaved, onToast }: {
-  opp: Opp | null; leads: Lead[]; onClose: () => void; onSaved: () => void; onToast: (t: { ok: boolean; msg: string }) => void;
+function OppModal({ opp, leads, onClose, onSaved, onInvoice, onToast }: {
+  opp: Opp | null; leads: Lead[]; onClose: () => void; onSaved: () => void; onInvoice: (o: Opp) => void; onToast: (t: { ok: boolean; msg: string }) => void;
 }) {
   const [title, setTitle] = useState(opp?.title ?? "");
   const [leadId, setLeadId] = useState(opp?.leadId ?? "");
@@ -359,12 +377,102 @@ function OppModal({ opp, leads, onClose, onSaved, onToast }: {
           </div>
           <div><label className={lbl}>Expected close date</label><input className={inp} type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} /></div>
           {isWon && (
-            <div className="rounded-lg ring-1 ring-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 flex items-center gap-2"><Receipt size={14} className="text-emerald-400 shrink-0" /><span className="text-[12px] text-emerald-300">Deal won — create the customer's first Stripe invoice from the billing cockpit.</span></div>
+            <div className="rounded-lg ring-1 ring-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 flex items-center gap-2.5">
+              <Receipt size={14} className="text-emerald-400 shrink-0" />
+              <span className="text-[12px] text-emerald-300 flex-1">This deal is won — invoice the customer in one click.</span>
+              <button onClick={() => opp && onInvoice(opp)} className="h-7 px-2.5 text-[11px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white whitespace-nowrap">Create invoice</button>
+            </div>
           )}
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-stone-800">
           <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
           <button onClick={save} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {opp ? "Save" : "Create deal"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Create invoice from a won deal (Lead → Customer bridge → Stripe) ─────────────
+function InvoiceModal({ opp, onClose, onSent, onToast }: {
+  opp: Opp; onClose: () => void; onSent: () => void; onToast: (t: { ok: boolean; msg: string }) => void;
+}) {
+  const [prep, setPrep] = useState(true);
+  const [orgId, setOrgId] = useState<string | null>(opp.orgId ?? null);
+  const [mode, setMode] = useState<"oneoff" | "subscription">("oneoff");
+  const [amount, setAmount] = useState(String(opp.value || ""));
+  const [currency, setCurrency] = useState((opp.currency || "EUR").toLowerCase());
+  const [interval, setInterval] = useState<"month" | "year">("month");
+  const [email, setEmail] = useState("");
+  const [country, setCountry] = useState("");
+  const [desc, setDesc] = useState(opp.title || "Services");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
+
+  // Ensure the deal's lead exists as a billing customer (org) and prefill defaults.
+  useEffect(() => {
+    fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST" })
+      .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || "Could not set up customer"); return d; })
+      .then(d => { setOrgId(d.orgId); if (d.billingEmail) setEmail(d.billingEmail); if (d.country) setCountry(d.country); })
+      .catch(e => setErr(e.message))
+      .finally(() => setPrep(false));
+  }, [opp.id]);
+
+  const inp = "w-full px-3 py-2 text-[13px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const lbl = "text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1";
+
+  const send = async () => {
+    if (!orgId) { setErr("Customer not ready"); return; }
+    if (!email.trim()) { onToast({ ok: false, msg: "Billing email required" }); return; }
+    const amt = Math.round((parseFloat(amount) || 0) * 100);
+    if (amt <= 0) { onToast({ ok: false, msg: "Enter an amount" }); return; }
+    setSending(true); setErr("");
+    const body: any = { orgId, mode, billingEmail: email.trim(), currency, country: country || undefined };
+    if (mode === "subscription") { body.amount = amt; body.interval = interval; body.planName = desc; }
+    else { body.lineItems = [{ description: desc || "Services", amount: amt }]; }
+    try {
+      const r = await fetch("/api/admin/billing/create-invoice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) onSent(); else { setErr(d.error || "Failed to create invoice"); onToast({ ok: false, msg: d.error || "Failed" }); }
+    } catch { setErr("Failed to create invoice"); } finally { setSending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-stone-900 rounded-xl w-full max-w-lg ring-1 ring-stone-800 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
+          <div className="flex items-center gap-2"><Receipt size={15} className="text-emerald-400" /><h2 className="text-sm font-semibold text-white">Create invoice — {opp.title}</h2></div>
+          <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          {prep ? (
+            <div className="flex items-center gap-2 text-[13px] text-stone-400 py-4"><Loader size={14} className="animate-spin" /> Setting up the customer…</div>
+          ) : (
+            <>
+              <div className="flex rounded-lg border border-stone-700 overflow-hidden w-fit">
+                <button onClick={() => setMode("oneoff")} className={`h-8 px-3 text-xs font-medium ${mode === "oneoff" ? "bg-stone-800 text-white" : "text-stone-400"}`}>One-off</button>
+                <button onClick={() => setMode("subscription")} className={`h-8 px-3 text-xs font-medium ${mode === "subscription" ? "bg-stone-800 text-white" : "text-stone-400"}`}>Recurring</button>
+              </div>
+              <div><label className={lbl}>Description</label><input className={inp} value={desc} onChange={e => setDesc(e.target.value)} /></div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2"><label className={lbl}>Amount</label><input className={inp} type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></div>
+                <div><label className={lbl}>Currency</label><select className={inp} value={currency} onChange={e => setCurrency(e.target.value)}>{["eur","usd","gbp","cad","aud"].map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}</select></div>
+              </div>
+              {mode === "subscription" && (
+                <div><label className={lbl}>Billing interval</label><select className={inp} value={interval} onChange={e => setInterval(e.target.value as any)}><option value="month">Monthly</option><option value="year">Annual</option></select></div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className={lbl}>Billing email</label><input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="billing@customer.com" /></div>
+                <div><label className={lbl}>Country</label><input className={inp} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} placeholder="IE" maxLength={2} /></div>
+              </div>
+              <p className="text-[11px] text-stone-600">Stripe issues and emails the invoice. {mode === "subscription" ? "After the first payment it auto-charges each period from the saved card." : "A one-off invoice the customer pays online."}</p>
+              {err && <p className="text-[12px] text-rose-400">{err}</p>}
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-stone-800">
+          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
+          <button onClick={send} disabled={prep || sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Receipt size={13} />} Create & send</button>
         </div>
       </div>
     </div>
