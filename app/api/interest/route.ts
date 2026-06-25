@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
   // One company = one account (account_id is NOT NULL) — resolve before insert.
   const { ensureAccount } = await import("@/lib/admin/accounts");
   const accountId = await ensureAccount({ name: companyName || fullName, email, country });
+  // Campaign attribution from UTM / source.
+  const { resolveCampaignId } = await import("@/lib/admin/campaigns");
+  const campaignId = await resolveCampaignId({ utmCampaign, utmSource, source: "landing_page" });
 
   await db.insert(landingPageRequests).values({
     fullName,
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
     source:    "landing_page",
     status:    "new",
     accountId,
+    campaignId,
     utmSource,
     utmMedium,
     utmCampaign,

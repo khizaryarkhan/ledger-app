@@ -203,6 +203,7 @@ export const landingPageRequests = pgTable("landing_page_requests", {
   utmSource:        varchar("utm_source", { length: 128 }),
   utmMedium:        varchar("utm_medium", { length: 128 }),
   utmCampaign:      varchar("utm_campaign", { length: 128 }),
+  campaignId:       uuid("campaign_id"), // → crm_campaigns.id (attribution; soft link)
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
 });
@@ -448,6 +449,26 @@ export const crmEmails = pgTable("crm_emails", {
   createdAt:     timestamp("created_at").notNull().defaultNow(),
 });
 export type CrmEmail = typeof crmEmails.$inferSelect;
+
+// =========================================================================
+// CRM CAMPAIGNS — first-class marketing campaigns + attribution. A lead is
+// attributed to a campaign when its utm_campaign / utm_source / source matches
+// the campaign's utmKey (or by manual assignment). Powers source/campaign ROI.
+// =========================================================================
+export const crmCampaigns = pgTable("crm_campaigns", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  name:      varchar("name", { length: 200 }).notNull(),
+  channel:   varchar("channel", { length: 32 }).notNull().default("other"), // email | ads | social | event | referral | content | other
+  utmKey:    varchar("utm_key", { length: 120 }),  // matched against utm_campaign / utm_source / source
+  status:    varchar("status", { length: 16 }).notNull().default("active"),  // active | ended
+  startDate: varchar("start_date", { length: 16 }),
+  endDate:   varchar("end_date", { length: 16 }),
+  budget:    integer("budget"),       // minor units (optional)
+  notes:     text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type CrmCampaign = typeof crmCampaigns.$inferSelect;
 
 // =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)
