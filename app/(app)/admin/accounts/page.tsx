@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Building2, Search, Users, Loader, Plus, Pencil, Trash2, CreditCard,
-  Download, X, ArrowUp, ArrowDown, ChevronsUpDown, TrendingUp, ExternalLink,
+  Download, X, ArrowUp, ArrowDown, ChevronsUpDown, TrendingUp, ExternalLink, GitMerge,
 } from "lucide-react";
 import { Badge, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -213,6 +213,7 @@ export default function AccountsPage() {
         </div>
         <div className="flex items-center gap-3">
           {msg && <span className="text-[12px] text-emerald-400">{msg}</span>}
+          <button onClick={() => router.push("/admin/accounts/duplicates")} className="flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><GitMerge size={13} /> Duplicates</button>
           <button onClick={exportCsv} className="flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-stone-700 bg-stone-800/50 text-stone-300 hover:bg-stone-700"><Download size={13} /> Export</button>
           <button onClick={sync} disabled={syncing}
             className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 disabled:opacity-60">
