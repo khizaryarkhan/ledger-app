@@ -18,7 +18,7 @@ import { logBillingEvent } from "@/lib/billing";
 export async function activateOrgOnPayment(orgId: string): Promise<{ activated: boolean; invited: number }> {
   if (!orgId) return { activated: false, invited: 0 };
 
-  const [org] = await db.select({ id: organisations.id, status: organisations.status }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const [org] = await db.select({ id: organisations.id, status: organisations.status, accountId: organisations.accountId }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
   if (!org) return { activated: false, invited: 0 };
 
   const wasPending = org.status !== "Active";
@@ -53,6 +53,11 @@ export async function activateOrgOnPayment(orgId: string): Promise<{ activated: 
       if (opp.leadId) {
         await db.update(landingPageRequests).set({ status: "converted", updatedAt: new Date() }).where(eq(landingPageRequests.id, opp.leadId));
       }
+    }
+    // Payment received → the company is now a customer.
+    if (org.accountId) {
+      const { advanceAccountLifecycle } = await import("@/lib/admin/accounts");
+      await advanceAccountLifecycle(org.accountId, "customer");
     }
   } catch { /* non-fatal */ }
 

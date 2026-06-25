@@ -98,6 +98,15 @@ export async function POST(req: NextRequest) {
           eq(landingPageRequests.id, b.leadId),
           inArray(landingPageRequests.status, status === "won" ? ["new", "contacted", "qualified"] : ["new", "contacted"]),
         ));
+      // Link the deal to the lead's account + advance lifecycle (one company spine).
+      try {
+        const [l] = await db.select({ accountId: landingPageRequests.accountId }).from(landingPageRequests).where(eq(landingPageRequests.id, b.leadId)).limit(1);
+        if (l?.accountId) {
+          await db.update(opportunities).set({ accountId: l.accountId }).where(eq(opportunities.id, row.id));
+          const { advanceAccountLifecycle } = await import("@/lib/admin/accounts");
+          await advanceAccountLifecycle(l.accountId, "qualified");
+        }
+      } catch { /* non-fatal */ }
     }
     return NextResponse.json(row, { status: 201 });
   } catch (e) {

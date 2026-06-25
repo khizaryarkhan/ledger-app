@@ -63,3 +63,14 @@ export async function ensureAccount(input: {
   const [again] = await db.select({ id: crmAccounts.id }).from(crmAccounts).where(eq(crmAccounts.matchKey, mk.key)).limit(1);
   return again?.id ?? null;
 }
+
+// Advance the account's lifecycle, never regress (lead → … → customer).
+const LIFECYCLE_ORDER = ["lead", "prospect", "qualified", "customer"];
+export async function advanceAccountLifecycle(accountId: string | null | undefined, stage: string): Promise<void> {
+  if (!accountId) return;
+  const [a] = await db.select({ lifecycleStage: crmAccounts.lifecycleStage }).from(crmAccounts).where(eq(crmAccounts.id, accountId)).limit(1);
+  if (!a) return;
+  if (LIFECYCLE_ORDER.indexOf(stage) > LIFECYCLE_ORDER.indexOf(a.lifecycleStage)) {
+    await db.update(crmAccounts).set({ lifecycleStage: stage, updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
+  }
+}
