@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, Users, Trophy, Target, BarChart3, Activity } from "lucide-react";
+import { TrendingUp, Users, Trophy, Target, BarChart3, Activity, LineChart } from "lucide-react";
 import { fmt } from "@/lib/format";
 
 const STAGE_ORDER = ["lead", "prospect", "qualified", "customer"];
@@ -19,6 +19,22 @@ function Card({ title, icon: Icon, children }: any) {
       </div>
       <div className="p-4">{children}</div>
     </div>
+  );
+}
+
+// Multi-series sparkline (SVG line chart) over the snapshot trend.
+function Trend({ points }: { points: any[] }) {
+  const W = 720, H = 120, pad = 6;
+  const xs = points.length;
+  const maxV = Math.max(1, ...points.map(p => Math.max(p.openPipeline ?? 0, p.weightedPipeline ?? 0)));
+  const x = (i: number) => pad + (i * (W - 2 * pad)) / Math.max(1, xs - 1);
+  const y = (v: number) => H - pad - ((v / maxV) * (H - 2 * pad));
+  const path = (key: string) => points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p[key] ?? 0).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 120 }} preserveAspectRatio="none">
+      <path d={path("openPipeline")} fill="none" stroke="#38bdf8" strokeWidth={2} />
+      <path d={path("weightedPipeline")} fill="none" stroke="#34d399" strokeWidth={2} />
+    </svg>
   );
 }
 
@@ -84,6 +100,20 @@ export default function ReportsPage() {
           </div>
         ))}
       </div>
+
+      {/* Pipeline trend */}
+      {(d.trend?.length ?? 0) >= 2 && (
+        <div className="mb-4">
+          <Card title="Pipeline trend" icon={LineChart}>
+            <div className="flex items-center gap-4 mb-2 text-[11px]">
+              <span className="flex items-center gap-1.5 text-stone-400"><span className="w-3 h-0.5 bg-sky-400 inline-block" /> Open pipeline</span>
+              <span className="flex items-center gap-1.5 text-stone-400"><span className="w-3 h-0.5 bg-emerald-400 inline-block" /> Weighted forecast</span>
+              <span className="ml-auto text-stone-600">{d.trend[0].date} → {d.trend[d.trend.length - 1].date}</span>
+            </div>
+            <Trend points={d.trend} />
+          </Card>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Lifecycle funnel */}

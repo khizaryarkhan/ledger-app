@@ -1,7 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, opportunities, crmActivities, users } from "@/db/schema";
-import { eq, sql, gte } from "drizzle-orm";
+import { crmAccounts, landingPageRequests, opportunities, crmActivities, users, forecastSnapshots } from "@/db/schema";
+import { eq, sql, gte, desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 const safe = async <T>(p: Promise<T>, fb: T): Promise<T> => { try { return await p; } catch { return fb; } };
@@ -55,5 +55,13 @@ export async function GET() {
   const activity = await safe(db.select({ type: crmActivities.type, n: sql<number>`count(*)::int` })
     .from(crmActivities).where(gte(crmActivities.occurredAt, since)).groupBy(crmActivities.type), [] as any[]);
 
-  return NextResponse.json({ funnel, sources, pipeline, outcomes, owners, activity });
+  // 7. Forecast trend — last 30 daily snapshots (chronological).
+  const snaps = await safe(db.select({
+    date: forecastSnapshots.snapshotDate, openPipeline: forecastSnapshots.openPipeline,
+    weightedPipeline: forecastSnapshots.weightedPipeline, mrr: forecastSnapshots.mrr,
+    customers: forecastSnapshots.customers,
+  }).from(forecastSnapshots).orderBy(desc(forecastSnapshots.snapshotDate)).limit(30), [] as any[]);
+  const trend = snaps.reverse();
+
+  return NextResponse.json({ funnel, sources, pipeline, outcomes, owners, activity, trend });
 }

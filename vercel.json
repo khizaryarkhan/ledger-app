@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/forecast-snapshot",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron/sync-inbound",
       "schedule": "30 7 * * *"
     },

@@ -471,6 +471,26 @@ export const crmCampaigns = pgTable("crm_campaigns", {
 export type CrmCampaign = typeof crmCampaigns.$inferSelect;
 
 // =========================================================================
+// FORECAST SNAPSHOTS — a daily point-in-time capture of pipeline & funnel
+// metrics, so leaders can see TRENDS (is pipeline growing? win rate moving?).
+// One row per day (idempotent re-capture). Written by the forecast cron.
+// =========================================================================
+export const forecastSnapshots = pgTable("forecast_snapshots", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  snapshotDate:     varchar("snapshot_date", { length: 16 }).notNull(), // YYYY-MM-DD
+  openPipeline:     integer("open_pipeline").notNull().default(0),       // major units
+  weightedPipeline: integer("weighted_pipeline").notNull().default(0),
+  wonValue:         integer("won_value").notNull().default(0),
+  openDeals:        integer("open_deals").notNull().default(0),
+  customers:        integer("customers").notNull().default(0),
+  activeLeads:      integer("active_leads").notNull().default(0),
+  mrr:              integer("mrr").notNull().default(0),                 // minor units
+  byStage:          jsonb("by_stage"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+});
+export type ForecastSnapshot = typeof forecastSnapshots.$inferSelect;
+
+// =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)
 // =========================================================================
 export const catalogItems = pgTable("catalog_items", {
