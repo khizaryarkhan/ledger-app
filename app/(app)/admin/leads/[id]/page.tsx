@@ -44,6 +44,7 @@ export default function LeadWorkspace() {
   const [opps, setOpps] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [inbound, setInbound] = useState<any[]>([]);
+  const [account, setAccount] = useState<any>(null);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [sequences, setSequences] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +73,8 @@ export default function LeadWorkspace() {
     // Inbound replies are pulled live from the connected mailbox (slower) — load separately.
     fetch(`/api/admin/leads/${id}/emails`).then(r => r.ok ? r.json() : { emails: [] })
       .then(d => setInbound(Array.isArray(d.emails) ? d.emails : [])).catch(() => {});
+    // Account 360 billing facet (org / subscription / invoices).
+    fetch(`/api/admin/leads/${id}/account`).then(r => r.ok ? r.json() : null).then(setAccount).catch(() => {});
   }, [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
@@ -220,6 +223,8 @@ export default function LeadWorkspace() {
             <Field label="Source" value={lead.source === "manual" ? "Manual" : "Website"} />
             <Field label="Received" value={new Date(lead.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
           </Panel>
+
+          <AccountPanel lead={lead} account={account} />
 
           <ContactsPanel leadId={id} contacts={contacts} onChange={load} onToast={setToast} />
 
@@ -544,6 +549,70 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
               <div className="min-w-0"><p className="text-stone-300">{t.title}</p>{t.dueDate && <p className="text-[11px] text-stone-600">due {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>}</div>
             </div>
           ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// ── Account & billing (Phase 0 Account 360: the full company lifecycle) ──────────
+function centsMoney(cents: number, ccy = "usd") {
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: (ccy || "usd").toUpperCase(), maximumFractionDigits: 0 }).format((cents || 0) / 100); }
+  catch { return `${(ccy || "USD").toUpperCase()} ${(cents / 100).toFixed(0)}`; }
+}
+function AccountPanel({ lead, account }: { lead: any; account: any }) {
+  const won = lead.status === "converted";
+  const invoiced = account?.invoiced;
+  const paid = account?.invoices?.some((i: any) => i.status === "paid") || account?.subscription?.status === "active";
+  const activated = account?.activated;
+  // lifecycle steps with done-state
+  const steps = [
+    { k: "Lead", done: true },
+    { k: "Deal", done: !!account?.hasDeal || won },
+    { k: "Invoiced", done: !!invoiced },
+    { k: "Paid", done: !!paid },
+    { k: "Active", done: !!activated },
+  ];
+  return (
+    <Panel title="Customer & billing">
+      <div className="flex items-center gap-1 mb-3">
+        {steps.map((s, i) => (
+          <div key={s.k} className="flex items-center gap-1 flex-1 min-w-0">
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.done ? "bg-emerald-400" : "bg-stone-700"}`} />
+            <span className={`text-[10px] truncate ${s.done ? "text-stone-300" : "text-stone-600"}`}>{s.k}</span>
+            {i < steps.length - 1 && <span className={`flex-1 h-px ${s.done ? "bg-emerald-500/30" : "bg-stone-800"}`} />}
+          </div>
+        ))}
+      </div>
+      {!account?.hasDeal ? (
+        <p className="text-[12px] text-stone-600">No deal yet — convert this lead to start the billing flow.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {account?.organisation && (
+            <div className="flex items-center justify-between text-[12.5px]">
+              <span className="text-stone-400">Customer</span>
+              <span className="flex items-center gap-2 min-w-0"><span className="text-stone-200 truncate">{account.organisation.name}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${activated ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{activated ? "Active" : "Pending"}</span></span>
+            </div>
+          )}
+          {account?.subscription && (
+            <div className="flex items-center justify-between text-[12.5px]">
+              <span className="text-stone-400">Subscription</span>
+              <span className="text-stone-300 truncate">{account.subscription.planName || "Plan"}{account.subscription.planAmount != null ? ` · ${centsMoney(account.subscription.planAmount, account.subscription.planCurrency)}/${account.subscription.planInterval === "year" ? "yr" : "mo"}` : ""} <span className="text-stone-500">({account.subscription.status})</span></span>
+            </div>
+          )}
+          {account?.invoices?.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Invoices</p>
+              {account.invoices.map((inv: any, i: number) => (
+                <div key={i} className="flex items-center justify-between text-[12px] py-0.5">
+                  <span className="text-stone-300">{inv.total != null ? money(inv.total, inv.currency) : "Invoice"}</span>
+                  <span className="flex items-center gap-2"><span className={`text-[10px] px-1.5 py-0.5 rounded ${inv.status === "paid" ? "bg-emerald-500/15 text-emerald-300" : "bg-sky-500/15 text-sky-300"}`}>{inv.status}</span>
+                    {inv.url && <a href={inv.url} target="_blank" rel="noopener noreferrer" className="text-stone-500 hover:text-emerald-400">view</a>}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Panel>

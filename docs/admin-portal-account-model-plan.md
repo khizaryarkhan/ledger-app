@@ -130,3 +130,15 @@ Start with **Phase 0 (Account 360 read view)** — it removes the day-to-day con
 3. Whether to mirror Stripe invoices locally (`billing_invoices`) or always read live from Stripe (latency vs. offline/reporting).
 4. Granular admin roles (Sales/Billing/Support) — in scope now or later?
 5. Target order of Phase 3 page cutovers by business priority.
+
+## 11. Architect decisions (resolved — to build against)
+
+1. **Dedup/match key:** `match_key = lower(email domain)` when the domain is non-generic; otherwise `lower(normalized company name)`; otherwise the lowercased email. Existing `opportunities.org_id` / `lead_id` links win over key-matching. A manual "merge accounts" tool handles ambiguous cases.
+2. **Leads:** no separate `crm_leads` table — fold into `crm_accounts.lifecycle_stage` (`lead → prospect → qualified → customer → churned`). `landing_page_requests` is kept as the raw inbound-origin record only.
+3. **Invoices:** keep a lightweight local mirror (`billing_invoices`) populated from Stripe webhooks for listing/reporting/timeline; Stripe stays the money source of truth. (Phase 0 reads live where needed.)
+4. **Granular roles:** later — keep `platform_admin` / `super_admin` for now.
+5. **Cutover order:** Leads → Customers → Opportunities → Subscriptions → Invoices.
+
+## 12. Build start — Phase 0 (in progress)
+Phase 0 delivers the unified company story with **zero schema change** by enhancing the existing Lead cockpit (`/admin/leads/[id]`) into the full Account 360: it now also shows the **billing/customer facet** (organisation status, subscription, invoice + payment state, activation) by traversing the existing links (lead → opportunity → organisation → subscription). This makes the cockpit answer the whole lifecycle on one screen before any data migration.
+
