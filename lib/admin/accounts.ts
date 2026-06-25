@@ -11,6 +11,10 @@ const GENERIC = new Set([
 
 const normName = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 
+// Canonical, patterned Account/Organisation ID for display: PA-00001.
+export const formatAccountRef = (seq: number | null | undefined) =>
+  seq ? `PA-${String(seq).padStart(5, "0")}` : "";
+
 /**
  * Dedup key for a company (the resolved architecture decision):
  *   non-generic email domain → normalized company name → email.

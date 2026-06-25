@@ -12,7 +12,7 @@ import { fmt } from "@/lib/format";
 import { CreateOrgModal, EditOrgModal, DeleteOrgModal, CopyId } from "../_org-management";
 
 type Account = {
-  id: string; name: string; lifecycleStage: string; billingEmail: string | null; domain: string | null;
+  id: string; ref: string; name: string; lifecycleStage: string; billingEmail: string | null; domain: string | null;
   country: string | null; organisationId: string | null; orgStatus: string | null; leadId: string | null;
   deals: number; userCount: number; org: any | null;
 };
@@ -28,7 +28,7 @@ type Customer = {
 
 // One flat row per company — CRM attributes + billing attributes joined together.
 type Row = {
-  accountId: string; name: string; email: string | null; slug: string | null; orgId: string | null;
+  accountId: string; ref: string; name: string; email: string | null; slug: string | null; orgId: string | null;
   leadId: string | null; stage: string; deals: number; country: string | null;
   // billing facet (null when not yet a customer)
   status: string; source: string | null; billing: string; planName: string | null;
@@ -51,7 +51,7 @@ const STATUS_BADGE: Record<string, string> = {
   canceled: "neutral", cancelled: "neutral", incomplete: "yellow", none: "neutral",
 };
 
-type SortKey = "name" | "stage" | "status" | "planName" | "billing" | "source" | "mrr" | "deals" | "renewsAt";
+type SortKey = "ref" | "name" | "email" | "stage" | "status" | "planName" | "billing" | "source" | "mrr" | "deals" | "renewsAt";
 const fmtDate = (t: number | null) => t ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—";
 
 export default function AccountsPage() {
@@ -115,7 +115,7 @@ export default function AccountsPage() {
     return accounts.map(a => {
       const c = a.organisationId ? custByOrg.get(a.organisationId) : undefined;
       return {
-        accountId: a.id, name: a.name, email: a.billingEmail ?? c?.email ?? null,
+        accountId: a.id, ref: a.ref, name: a.name, email: a.billingEmail ?? c?.email ?? null,
         slug: a.org?.slug ?? null, orgId: a.organisationId, leadId: a.leadId,
         stage: a.lifecycleStage, deals: a.deals, country: a.country,
         status: c?.status ?? "none", source: c?.source ?? null, billing: c?.billing ?? "—",
@@ -129,7 +129,7 @@ export default function AccountsPage() {
 
   const rows = useMemo(() => {
     let r = allRows.filter(c => {
-      if (q && !`${c.name} ${c.email ?? ""} ${c.planName ?? ""} ${c.slug ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      if (q && !`${c.ref} ${c.name} ${c.email ?? ""} ${c.planName ?? ""} ${c.slug ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
       if (fStage && c.stage !== fStage) return false;
       if (fStatus && c.status !== fStatus) return false;
       if (fSource && (c.source ?? "none") !== fSource) return false;
@@ -157,9 +157,9 @@ export default function AccountsPage() {
   };
 
   const exportCsv = () => {
-    const head = ["Company", "Email", "Org ID", "Stage", "Status", "Plan", "Billing", "Source", "MRR", "Deals", "Country", "Last payment", "Renews/Expires"];
+    const head = ["Account ID", "Company", "Email", "Slug", "Stage", "Status", "Plan", "Billing", "Source", "MRR", "Deals", "Country", "Last payment", "Renews/Expires"];
     const lines = rows.map(c => [
-      c.name, c.email ?? "", c.slug ?? "", c.stage, c.status, c.planName ?? "", c.billing, c.source ?? "",
+      c.ref, c.name, c.email ?? "", c.slug ?? "", c.stage, c.status, c.planName ?? "", c.billing, c.source ?? "",
       c.mrr ? (c.mrr / 100).toFixed(2) : "0", String(c.deals), c.country ?? "",
       c.lastPayment ? new Date(c.lastPayment).toISOString().slice(0, 10) : "",
       c.renewsAt ? new Date(c.renewsAt).toISOString().slice(0, 10) : "",
@@ -246,10 +246,12 @@ export default function AccountsPage() {
         <div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" />
       ) : (
         <div className="rounded-xl border border-stone-800 overflow-x-auto">
-          <table className="w-full text-sm min-w-[1180px]">
+          <table className="w-full text-sm min-w-[1320px]">
             <thead>
               <tr className="border-b border-stone-800 bg-stone-900/40">
+                <SortHead k="ref" label="Account ID" />
                 <SortHead k="name" label="Company" />
+                <SortHead k="email" label="Email" />
                 <SortHead k="stage" label="Stage" />
                 <SortHead k="status" label="Status" />
                 <SortHead k="planName" label="Plan" />
@@ -262,7 +264,7 @@ export default function AccountsPage() {
               </tr>
               {/* Column filters */}
               <tr className="border-b border-stone-800 bg-stone-900/30">
-                <td />
+                <td /><td /><td />
                 <td className="px-3 py-1.5">
                   <select value={fStage} onChange={e => setFStage(e.target.value)} className={selCls}>
                     <option value="">All stages</option>
@@ -291,29 +293,24 @@ export default function AccountsPage() {
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={10} className="py-14 text-center text-sm text-stone-500">No companies match these filters.</td></tr>
+                <tr><td colSpan={12} className="py-14 text-center text-sm text-stone-500">No companies match these filters.</td></tr>
               ) : rows.map(c => {
                 const s = STAGE[c.stage] ?? { label: c.stage, cls: "bg-stone-700 text-stone-400" };
                 return (
                   <tr key={c.accountId} onClick={() => open(c)} className="border-b border-stone-800/50 hover:bg-stone-800/30 cursor-pointer">
-                    <td className="px-3 py-2.5">
-                      <div className="min-w-0">
-                        <span className="text-stone-100 font-medium block leading-tight">{c.name}</span>
-                        {c.email && <span className="text-[11px] text-stone-500 truncate block max-w-[200px]">{c.email}</span>}
-                        {c.slug && <span className="text-[11px] text-stone-600 font-mono flex items-center leading-tight" onClick={e => e.stopPropagation()}>/{c.slug}<CopyId id={c.orgId!} /></span>}
-                      </div>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <span className="font-mono text-[12px] text-stone-300 inline-flex items-center" onClick={e => e.stopPropagation()}>{c.ref || "—"}{c.ref && <CopyId id={c.ref} />}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-stone-100 font-medium whitespace-nowrap">{c.name}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-stone-400 whitespace-nowrap">{c.email || "—"}</td>
                     <td className="px-3 py-2.5"><span className={`text-[11px] px-2 py-0.5 rounded ${s.cls}`}>{s.label}</span></td>
                     <td className="px-3 py-2.5">{c.orgId ? <Badge variant={(STATUS_BADGE[c.status] ?? "neutral") as any}>{c.status === "none" ? "no sub" : c.status}</Badge> : <span className="text-stone-600 text-[11px]">—</span>}</td>
-                    <td className="px-3 py-2.5 text-xs text-stone-300">
-                      {c.planName ?? <span className="text-stone-600">—</span>}
-                      {c.planAmount ? <div className="text-[11px] text-stone-500">{fmt.money(c.planAmount / 100, c.planCurrency)}{c.planInterval ? `/${c.planInterval}` : ""}</div> : null}
-                    </td>
+                    <td className="px-3 py-2.5 text-xs text-stone-300 whitespace-nowrap">{c.planName ? `${c.planName}${c.planAmount ? ` · ${fmt.money(c.planAmount / 100, c.planCurrency)}${c.planInterval ? `/${c.planInterval}` : ""}` : ""}` : <span className="text-stone-600">—</span>}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400">{c.billing}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400 capitalize">{c.source ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-200 tabular-nums text-right">{c.mrr ? fmt.money(c.mrr / 100, c.planCurrency) : "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400 tabular-nums text-right">{c.deals || "—"}</td>
-                    <td className="px-3 py-2.5 text-[11px] text-stone-400">{fmtDate(c.renewsAt)}</td>
+                    <td className="px-3 py-2.5 text-[11px] text-stone-400 whitespace-nowrap">{fmtDate(c.renewsAt)}</td>
                     <td className="px-3 py-2.5">
                       {c.orgId && (
                         <div className="flex items-center gap-1 justify-end" onClick={e => e.stopPropagation()}>

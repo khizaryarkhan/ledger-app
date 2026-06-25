@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { crmAccounts, landingPageRequests, opportunities, organisations, subscriptions, userOrganisations } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { formatAccountRef } from "@/lib/admin/accounts";
 
 function schemaMissing(e: unknown) {
   return ((e as any)?.message ?? "").toLowerCase().includes("does not exist");
@@ -69,7 +70,7 @@ export async function GET() {
     const out = accounts.map(a => {
       const org = a.organisationId ? orgById.get(a.organisationId) : null;
       return {
-        id: a.id, name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
+        id: a.id, ref: formatAccountRef(a.refSeq), name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
         domain: a.domain, country: a.country,
         organisationId: a.organisationId, orgStatus: org?.status ?? null,
         leadId: leadByAccount.get(a.id) ?? null,

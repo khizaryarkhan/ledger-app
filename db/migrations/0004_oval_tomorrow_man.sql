@@ -1,0 +1,1 @@
+ALTER TABLE "crm_accounts" ADD COLUMN "ref_seq" serial NOT NULL;

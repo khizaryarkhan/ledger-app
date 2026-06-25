@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
@@ -368,6 +368,9 @@ export type LeadContact = typeof leadContacts.$inferSelect;
 // =========================================================================
 export const crmAccounts = pgTable("crm_accounts", {
   id:              uuid("id").defaultRandom().primaryKey(),
+  // Human-friendly sequential reference (display: PA-00001). Auto-assigned by the
+  // DB sequence on insert; the canonical, patterned Organisation/Account ID.
+  refSeq:          serial("ref_seq"),
   name:            varchar("name", { length: 255 }).notNull(),
   matchKey:        varchar("match_key", { length: 255 }).notNull().unique(),
   domain:          varchar("domain", { length: 255 }),
