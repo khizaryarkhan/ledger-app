@@ -10,6 +10,7 @@ import {
 import { eq, and, lte } from "drizzle-orm";
 import { sendAdminEmail } from "@/lib/admin-mailbox";
 import { logActivity } from "@/lib/admin/activities";
+import { recordEmail } from "@/lib/admin/emails";
 import { ok, bad } from "@/lib/api";
 import { NextRequest } from "next/server";
 
@@ -73,12 +74,18 @@ export async function POST(req: NextRequest) {
 
       // Send from the enrolling admin's own mailbox; fall back to the system
       // mailer only if they have none connected (so automation doesn't stall).
-      await sendAdminEmail(item.enrolledBy, { to: item.leadEmail, subject: fill(item.stepSubject), html }, true);
+      const sendRes = await sendAdminEmail(item.enrolledBy, { to: item.leadEmail, subject: fill(item.stepSubject), html }, true);
 
       // Mark send as sent
       await db.update(leadSequenceSends)
         .set({ status: "sent", sentAt: now })
         .where(eq(leadSequenceSends.id, item.sendId));
+
+      // Durable threaded email store.
+      await recordEmail({
+        direction: "outbound", fromAddr: sendRes?.from || "system", toAddr: item.leadEmail,
+        subject: fill(item.stepSubject), bodyHtml: html, leadId: item.leadId, mailboxUserId: item.enrolledBy ?? undefined,
+      });
 
       await logActivity({
         type: "sequence_sent", title: `Sequence email sent: ${fill(item.stepSubject)}`.slice(0, 300),

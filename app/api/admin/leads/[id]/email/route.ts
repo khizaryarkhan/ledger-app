@@ -1,6 +1,7 @@
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { logActivity } from "@/lib/admin/activities";
+import { recordEmail } from "@/lib/admin/emails";
 import { getMailbox, sendMessage } from "@/lib/admin-mailbox";
 import { db } from "@/db";
 import { landingPageRequests, leadNotes } from "@/db/schema";
@@ -44,16 +45,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!mailbox) {
     return bad("Connect your mailbox under Mail to send from your own email address.", 409);
   }
+  let sentMessageId: string | null = null;
   try {
-    await sendMessage(mailbox, {
+    const info = await sendMessage(mailbox, {
       to: toAddress,
       cc: ccList.length ? ccList.join(", ") : undefined,
       bcc: bccList.length ? bccList.join(", ") : undefined,
       subject: subject.trim(), html,
     });
+    sentMessageId = info?.messageId ?? null;
   } catch (e: any) {
     return bad(`Send failed: ${e?.message ?? "unknown error"}`, 502);
   }
+
+  // Durable, threaded email store — the conversation lives in the CRM.
+  await recordEmail({
+    direction: "outbound", fromAddr: mailbox.emailAddress, toAddr: toAddress,
+    cc: ccList.length ? ccList.join(", ") : null, subject: subject.trim(),
+    bodyHtml: html, messageId: sentMessageId, leadId: params.id, mailboxUserId: authorId ?? undefined,
+  });
 
   // Log the email as an activity note so it appears in the activity panel
   const authorName = userName ?? "Admin";

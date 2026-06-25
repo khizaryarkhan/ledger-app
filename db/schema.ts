@@ -422,6 +422,34 @@ export const crmActivities = pgTable("crm_activities", {
 export type CrmActivity = typeof crmActivities.$inferSelect;
 
 // =========================================================================
+// CRM EMAILS — durable, threaded email store (admin portal). Every outbound
+// 1:1 / sequence email and every captured inbound reply is persisted here and
+// linked to its account, so the conversation lives in the CRM (not just the
+// mailbox). Threaded by a normalized-subject key + RFC Message-ID / In-Reply-To.
+// =========================================================================
+export const crmEmails = pgTable("crm_emails", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  accountId:     uuid("account_id").references(() => crmAccounts.id, { onDelete: "cascade" }),
+  leadId:        uuid("lead_id"),   // soft link
+  orgId:         uuid("org_id"),    // soft link
+  direction:     varchar("direction", { length: 8 }).notNull(),   // outbound | inbound
+  threadKey:     varchar("thread_key", { length: 255 }).notNull(), // normalized subject (groups a conversation)
+  messageId:     varchar("message_id", { length: 998 }),           // RFC Message-ID (dedup)
+  inReplyTo:     varchar("in_reply_to", { length: 998 }),
+  fromAddr:      varchar("from_addr", { length: 320 }).notNull(),
+  toAddr:        text("to_addr").notNull(),
+  cc:            text("cc"),
+  subject:       varchar("subject", { length: 500 }),
+  snippet:       varchar("snippet", { length: 500 }),
+  bodyHtml:      text("body_html"),
+  bodyText:      text("body_text"),
+  mailboxUserId: uuid("mailbox_user_id"), // the admin mailbox involved
+  occurredAt:    timestamp("occurred_at").notNull().defaultNow(), // sent/received time
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+});
+export type CrmEmail = typeof crmEmails.$inferSelect;
+
+// =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)
 // =========================================================================
 export const catalogItems = pgTable("catalog_items", {

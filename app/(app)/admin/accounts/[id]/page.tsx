@@ -160,6 +160,23 @@ export default function Account360Page() {
             )) : <p className="text-xs text-stone-600 py-2">No tasks.</p>}
           </Panel>
 
+          <Panel title="Emails" count={data.emailThreads?.length ?? 0}>
+            {data.emailThreads?.length ? data.emailThreads.slice(0, 8).map((t: any) => (
+              <div key={t.threadKey} className="py-1.5 border-b border-stone-800/40 last:border-0">
+                <div className="flex items-center gap-1.5">
+                  <Mail size={11} className="text-stone-500 shrink-0" />
+                  <span className="text-[13px] text-stone-200 truncate flex-1">{t.subject || "(no subject)"}</span>
+                  {t.count > 1 && <span className="text-[10px] text-stone-600">{t.count}</span>}
+                </div>
+                {t.messages?.[0] && (
+                  <p className="text-[11px] text-stone-500 truncate mt-0.5 pl-[18px]">
+                    <span className={t.messages[0].direction === "inbound" ? "text-emerald-400" : "text-sky-400"}>{t.messages[0].direction === "inbound" ? "↓" : "↑"}</span> {t.messages[0].snippet || t.messages[0].fromAddr}
+                  </p>
+                )}
+              </div>
+            )) : <p className="text-xs text-stone-600 py-2">No emails yet.</p>}
+          </Panel>
+
           {sub && (
             <Panel title="Billing">
               <div className="space-y-1.5 text-sm">

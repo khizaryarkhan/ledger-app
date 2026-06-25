@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, users } from "@/db/schema";
+import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, crmEmails, users } from "@/db/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { logActivity } from "@/lib/admin/activities";
@@ -48,6 +48,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const activities = await safe(db.select().from(crmActivities)
     .where(eq(crmActivities.accountId, params.id)).orderBy(desc(crmActivities.occurredAt)).limit(100), [] as any[]);
 
+  // Durable emails, newest first, grouped into threads (most recent thread first).
+  const emailRows = await safe(db.select({
+    id: crmEmails.id, direction: crmEmails.direction, threadKey: crmEmails.threadKey,
+    subject: crmEmails.subject, snippet: crmEmails.snippet, fromAddr: crmEmails.fromAddr,
+    toAddr: crmEmails.toAddr, occurredAt: crmEmails.occurredAt,
+  }).from(crmEmails).where(eq(crmEmails.accountId, params.id)).orderBy(desc(crmEmails.occurredAt)).limit(100), [] as any[]);
+  const threadMap = new Map<string, any>();
+  for (const e of emailRows) {
+    const t = threadMap.get(e.threadKey) ?? { threadKey: e.threadKey, subject: e.subject, lastAt: e.occurredAt, count: 0, messages: [] };
+    t.messages.push(e); t.count++;
+    threadMap.set(e.threadKey, t);
+  }
+  const emailThreads = Array.from(threadMap.values());
+
   return NextResponse.json({
     account: {
       id: account.id, ref: formatAccountRef(account.refSeq), name: account.name,
@@ -57,7 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       leadId: lead?.id ?? null,
     },
     lead: lead ? { id: lead.id, fullName: lead.fullName, email: lead.email, phone: lead.phone, companyName: lead.companyName, status: lead.status } : null,
-    contacts, opportunities: opps, tasks, subscription, activities, admins,
+    contacts, opportunities: opps, tasks, subscription, activities, admins, emailThreads,
   });
 }
 
