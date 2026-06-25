@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { pendingRegistrations, organisations, users, userOrganisations, subscriptions } from "@/db/schema";
+import { pendingRegistrations, organisations, users, userOrganisations, subscriptions, stripeWebhookEvents } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
@@ -21,6 +21,17 @@ export async function POST(req: NextRequest) {
     console.error("[stripe-webhook] signature verification failed:", err.message);
     return new Response(`Webhook error: ${err.message}`, { status: 400 });
   }
+
+  // ── Idempotency + audit: record the event; skip if already processed. ──
+  // Best-effort: if the table doesn't exist yet, processing still proceeds.
+  try {
+    const [existing] = await db.select({ status: stripeWebhookEvents.status })
+      .from(stripeWebhookEvents).where(eq(stripeWebhookEvents.stripeEventId, event.id)).limit(1);
+    if (existing?.status === "processed") return new Response("OK (already processed)", { status: 200 });
+    if (!existing) {
+      await db.insert(stripeWebhookEvents).values({ stripeEventId: event.id, eventType: event.type, status: "processing", payload: event as any }).onConflictDoNothing();
+    }
+  } catch { /* table missing — proceed without the idempotency guard */ }
 
   try {
     // ── Initial checkout ──────────────────────────────────────────────────
@@ -66,6 +77,9 @@ export async function POST(req: NextRequest) {
             } catch (e) { console.error("[stripe-webhook] org-checkout sync:", e); }
           }
           await logBillingEvent({ organizationId: metaOrgId, action: "subscription_created", stripeEventId: event.id });
+          // Unified provisioning: activate the (pending) org + send invites once paid.
+          try { await activateOrgOnPayment(metaOrgId); } catch (e) { console.error("[stripe-webhook] checkout activation:", e); }
+          try { await db.update(stripeWebhookEvents).set({ status: "processed", processedAt: new Date() }).where(eq(stripeWebhookEvents.stripeEventId, event.id)); } catch {}
           return new Response("OK", { status: 200 });
         }
         console.warn("[stripe-webhook] no pendingId/orgId in session metadata");
@@ -322,8 +336,10 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error("[stripe-webhook] handler error:", err);
+    try { await db.update(stripeWebhookEvents).set({ status: "error", error: String(err?.message ?? err).slice(0, 1000), processedAt: new Date() }).where(eq(stripeWebhookEvents.stripeEventId, event.id)); } catch {}
     return new Response("Handler error", { status: 500 });
   }
 
+  try { await db.update(stripeWebhookEvents).set({ status: "processed", processedAt: new Date() }).where(eq(stripeWebhookEvents.stripeEventId, event.id)); } catch {}
   return new Response("OK", { status: 200 });
 }

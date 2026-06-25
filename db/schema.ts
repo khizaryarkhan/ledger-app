@@ -368,6 +368,21 @@ export const catalogItems = pgTable("catalog_items", {
 export type CatalogItem = typeof catalogItems.$inferSelect;
 
 // =========================================================================
+// STRIPE WEBHOOK EVENTS (idempotency guard + audit/replay of webhooks)
+// =========================================================================
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  stripeEventId: varchar("stripe_event_id", { length: 255 }).notNull().unique(),
+  eventType:     varchar("event_type", { length: 100 }).notNull(),
+  status:        varchar("status", { length: 20 }).notNull().default("processing"), // processing | processed | error
+  error:         text("error"),
+  payload:       jsonb("payload"),
+  receivedAt:    timestamp("received_at").notNull().defaultNow(),
+  processedAt:   timestamp("processed_at"),
+});
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
+
+// =========================================================================
 // ADMIN EMAIL ACCOUNTS (per platform-admin mailbox — IMAP/SMTP, admin portal)
 // Each admin connects their own @primeaccountax.com mailbox to send/receive
 // inside the portal. The password is encrypted at rest via lib/crypto.
