@@ -53,7 +53,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   await logActivity({
     type: "email_received", title: "Lead replied",
     body: cancelled.length > 0 ? `${cancelled.length} active sequence(s) auto-stopped` : undefined,
-    leadId: params.id, actorId: authorId, actorName,
+    leadId: params.id, actorId: authorId, actorName: authorName,
   });
 
   return ok({

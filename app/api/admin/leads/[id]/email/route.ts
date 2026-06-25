@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   await logActivity({
     type: "email_sent", title: `Email sent: ${subject.trim()}`.slice(0, 300),
-    body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName,
+    body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName: authorName,
     meta: { to: toAddress, cc: ccList.length ? ccList : undefined },
   });
 

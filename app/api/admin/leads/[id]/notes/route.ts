@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       body:       body.trim(),
     }).returning();
 
-    await logActivity({ type: "note_added", title: "Note added", body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName });
+    await logActivity({ type: "note_added", title: "Note added", body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName: authorName });
 
     return ok(note);
   } catch (e) {
