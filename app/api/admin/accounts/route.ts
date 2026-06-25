@@ -1,7 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, opportunities, organisations, subscriptions, userOrganisations } from "@/db/schema";
-import { desc, eq, sql } from "drizzle-orm";
+import { crmAccounts, landingPageRequests, opportunities, organisations, subscriptions, userOrganisations, users } from "@/db/schema";
+import { desc, eq, sql, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { formatAccountRef } from "@/lib/admin/accounts";
 
@@ -20,11 +20,17 @@ export async function GET() {
     const accounts = await db.select().from(crmAccounts).orderBy(desc(crmAccounts.updatedAt));
     if (accounts.length === 0) return NextResponse.json({ accounts: [] });
 
-    // One lead per account (most recent), for routing.
-    const leadRows = await db.select({ accountId: landingPageRequests.accountId, id: landingPageRequests.id })
+    // One lead per account (most recent), for routing + last-activity.
+    const leadRows = await db.select({ accountId: landingPageRequests.accountId, id: landingPageRequests.id, updatedAt: landingPageRequests.updatedAt })
       .from(landingPageRequests).orderBy(desc(landingPageRequests.createdAt));
     const leadByAccount = new Map<string, string>();
-    for (const l of leadRows) if (l.accountId && !leadByAccount.has(l.accountId)) leadByAccount.set(l.accountId, l.id);
+    const leadActivityByAccount = new Map<string, number>();
+    for (const l of leadRows) {
+      if (!l.accountId) continue;
+      if (!leadByAccount.has(l.accountId)) leadByAccount.set(l.accountId, l.id);
+      const t = l.updatedAt ? new Date(l.updatedAt).getTime() : 0;
+      leadActivityByAccount.set(l.accountId, Math.max(leadActivityByAccount.get(l.accountId) ?? 0, t));
+    }
 
     // Org + subscription per linked organisation (left-join so the directory
     // carries the billing signal — the org table used to show this separately).
@@ -61,14 +67,31 @@ export async function GET() {
       .from(userOrganisations).groupBy(userOrganisations.orgId);
     const usersByOrg = new Map(userRows.map(u => [u.orgId, Number(u.c)]));
 
-    // Deal counts per account.
-    const dealRows = await db.select({ accountId: opportunities.accountId, c: sql<number>`count(*)::int` })
-      .from(opportunities).groupBy(opportunities.accountId);
+    // Deal counts + latest deal activity per account.
+    const dealRows = await db.select({
+      accountId: opportunities.accountId,
+      c: sql<number>`count(*)::int`,
+      lastAt: sql<string | null>`max(${opportunities.updatedAt})`,
+    }).from(opportunities).groupBy(opportunities.accountId);
     const dealsByAccount = new Map<string, number>();
-    for (const d of dealRows) if (d.accountId) dealsByAccount.set(d.accountId, Number(d.c));
+    const dealActivityByAccount = new Map<string, number>();
+    for (const d of dealRows) if (d.accountId) {
+      dealsByAccount.set(d.accountId, Number(d.c));
+      dealActivityByAccount.set(d.accountId, d.lastAt ? new Date(d.lastAt).getTime() : 0);
+    }
+
+    // Owner directory: platform/super admins (for display + the owner picker).
+    const adminRows = await db.select({ id: users.id, name: users.name, email: users.email })
+      .from(users).where(inArray(users.role, ["super_admin", "platform_admin"]));
+    const adminById = new Map(adminRows.map(u => [u.id, u.name || u.email]));
 
     const out = accounts.map(a => {
       const org = a.organisationId ? orgById.get(a.organisationId) : null;
+      const lastActivity = Math.max(
+        a.updatedAt ? new Date(a.updatedAt).getTime() : 0,
+        leadActivityByAccount.get(a.id) ?? 0,
+        dealActivityByAccount.get(a.id) ?? 0,
+      );
       return {
         id: a.id, ref: formatAccountRef(a.refSeq), name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
         domain: a.domain, country: a.country,
@@ -76,12 +99,16 @@ export async function GET() {
         leadId: leadByAccount.get(a.id) ?? null,
         deals: dealsByAccount.get(a.id) ?? 0,
         userCount: a.organisationId ? (usersByOrg.get(a.organisationId) ?? 0) : 0,
+        ownerAdminId: a.ownerAdminId ?? null,
+        ownerName: a.ownerAdminId ? (adminById.get(a.ownerAdminId) ?? null) : null,
+        createdAt: a.createdAt,
+        lastActivity: lastActivity || null,
         updatedAt: a.updatedAt,
         // Billing signal (null when not yet a customer) — for the org modals + columns.
         org: org ? { ...org } : null,
       };
     });
-    return NextResponse.json({ accounts: out });
+    return NextResponse.json({ accounts: out, admins: adminRows });
   } catch (e) {
     if (schemaMissing(e)) return NextResponse.json({ accounts: [], needsSetup: true });
     throw e;
