@@ -1,9 +1,65 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, users } from "@/db/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { logActivity } from "@/lib/admin/activities";
+import { formatAccountRef } from "@/lib/admin/accounts";
+
+const safe = async <T>(p: Promise<T>, fallback: T): Promise<T> => { try { return await p; } catch { return fallback; } };
+
+// GET — the Account 360 payload: header, contacts, opportunities, tasks,
+// billing summary, and the activity timeline. One call powers the workspace.
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const { error } = await requirePlatformAdmin();
+  if (error) return error;
+
+  const [account] = await db.select().from(crmAccounts).where(eq(crmAccounts.id, params.id)).limit(1);
+  if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+  // Owner + admin directory (for the owner picker).
+  const admins = await safe(db.select({ id: users.id, name: users.name, email: users.email })
+    .from(users).where(inArray(users.role, ["super_admin", "platform_admin"])), [] as any[]);
+  const ownerName = account.ownerAdminId ? (admins.find(a => a.id === account.ownerAdminId)?.name ?? null) : null;
+
+  // The most recent lead for this account (contacts/tasks hang off it).
+  const [lead] = await safe(db.select().from(landingPageRequests)
+    .where(eq(landingPageRequests.accountId, params.id)).orderBy(desc(landingPageRequests.createdAt)).limit(1), [] as any[]);
+
+  const contacts = lead ? await safe(db.select().from(leadContacts).where(eq(leadContacts.leadId, lead.id)).orderBy(desc(leadContacts.isPrimary)), [] as any[]) : [];
+  const tasks = lead ? await safe(db.select().from(leadTasks).where(eq(leadTasks.leadId, lead.id)).orderBy(desc(leadTasks.createdAt)), [] as any[]) : [];
+
+  const opps = await safe(db.select({
+    id: opportunities.id, title: opportunities.title, stage: opportunities.stage, status: opportunities.status,
+    value: opportunities.value, currency: opportunities.currency, invoiceStatus: opportunities.invoiceStatus,
+    invoiceUrl: opportunities.invoiceUrl, updatedAt: opportunities.updatedAt,
+  }).from(opportunities).where(eq(opportunities.accountId, params.id)).orderBy(desc(opportunities.updatedAt)), [] as any[]);
+
+  // Billing summary (subscription) for the linked org.
+  let subscription: any = null;
+  let orgStatus: string | null = null;
+  if (account.organisationId) {
+    const [org] = await safe(db.select({ status: organisations.status }).from(organisations).where(eq(organisations.id, account.organisationId)).limit(1), [] as any[]);
+    orgStatus = org?.status ?? null;
+    const [sub] = await safe(db.select().from(subscriptions).where(eq(subscriptions.orgId, account.organisationId)).limit(1), [] as any[]);
+    subscription = sub ?? null;
+  }
+
+  const activities = await safe(db.select().from(crmActivities)
+    .where(eq(crmActivities.accountId, params.id)).orderBy(desc(crmActivities.occurredAt)).limit(100), [] as any[]);
+
+  return NextResponse.json({
+    account: {
+      id: account.id, ref: formatAccountRef(account.refSeq), name: account.name,
+      lifecycleStage: account.lifecycleStage, country: account.country, domain: account.domain,
+      billingEmail: account.billingEmail, ownerAdminId: account.ownerAdminId, ownerName,
+      organisationId: account.organisationId, orgStatus, createdAt: account.createdAt,
+      leadId: lead?.id ?? null,
+    },
+    lead: lead ? { id: lead.id, fullName: lead.fullName, email: lead.email, phone: lead.phone, companyName: lead.companyName, status: lead.status } : null,
+    contacts, opportunities: opps, tasks, subscription, activities, admins,
+  });
+}
 
 // PATCH — update account facets (currently the owner). Platform-admin only.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {

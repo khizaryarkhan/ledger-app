@@ -159,10 +159,8 @@ export default function AccountsPage() {
   const anyFilter = q || fStage || fStatus || fSource || fBilling;
   const clearAll = () => { setQ(""); setFStage(""); setFStatus(""); setFSource(""); setFBilling(""); };
 
-  const open = (r: Row) => {
-    if (r.leadId) router.push(`/admin/leads/${r.leadId}`);
-    else if (r.orgId) router.push(`/admin/customers/${r.orgId}`);
-  };
+  // One destination: the Account 360 workspace (no more lead-vs-customer split).
+  const open = (r: Row) => router.push(`/admin/accounts/${r.accountId}`);
 
   // Assign / change the account owner (optimistic).
   const assignOwner = async (accountId: string, ownerAdminId: string) => {
