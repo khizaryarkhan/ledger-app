@@ -129,13 +129,19 @@ export default function CustomerDetailPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-stone-800 flex items-center justify-center"><Building2 size={18} className="text-stone-400" /></div>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold text-white">{org.name}</h1>
           <p className="text-xs text-stone-500">
             {data.admins?.[0]?.email ?? sub?.billingEmail ?? "—"}
             {sub && <> · <Badge variant={(STATUS_BADGE[sub.status] ?? "neutral") as any} size="sm">{sub.isActive ? "active" : sub.status}</Badge></>}
           </p>
         </div>
+        {data.crmLeadId && (
+          <Link href={`/admin/leads/${data.crmLeadId}`}
+            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 transition-colors">
+            <ExternalLink size={13} /> View in CRM
+          </Link>
+        )}
       </div>
 
       {/* Stats */}

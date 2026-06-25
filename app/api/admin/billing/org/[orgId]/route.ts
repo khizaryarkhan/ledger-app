@@ -35,6 +35,16 @@ export async function GET(_req: Request, { params }: { params: { orgId: string }
     .limit(1);
   if (!org) return NextResponse.json({ error: "Organisation not found" }, { status: 404 });
 
+  // CRM link: the lead this customer originated from (via its opportunity), so the
+  // Customers page can open the same unified company 360. (Phase 0 unification.)
+  let crmLeadId: string | null = null;
+  try {
+    const { opportunities } = await import("@/db/schema");
+    const [opp] = await db.select({ leadId: opportunities.leadId }).from(opportunities)
+      .where(eq(opportunities.orgId, params.orgId)).limit(1);
+    crmLeadId = opp?.leadId ?? null;
+  } catch { /* opportunities table may not exist */ }
+
   const [sub] = await db
     .select()
     .from(subscriptions)
@@ -125,6 +135,7 @@ export async function GET(_req: Request, { params }: { params: { orgId: string }
 
   return NextResponse.json({
     org,
+    crmLeadId,
     admins,
     subscription: sub
       ? {
