@@ -18,6 +18,9 @@ export async function GET() {
     .where(eq(subscriptions.orgId, orgId!))
     .limit(1);
 
+  const CANCELLED = ["canceled", "cancelled"];
+  const AWAITING  = ["incomplete", "incomplete_expired"]; // first payment never completed
+
   // Manual subscriptions: check expiry date
   if (sub?.source === "manual") {
     const expired = sub.manualExpiresAt ? sub.manualExpiresAt <= new Date() : false;
@@ -26,12 +29,20 @@ export async function GET() {
     }
     // expired manual — fall through to temp access check
   } else {
-    // Stripe subscriptions: check status
-    const isCanceled = sub?.status === "canceled" || sub?.status === "cancelled";
-    if (!isCanceled) {
-      return NextResponse.json({ blocked: false, status: sub?.status ?? "none" });
+    // Stripe subscriptions: block cancelled + never-paid (incomplete). past_due
+    // is intentionally NOT hard-blocked here (dunning grace) — surfaced only.
+    const status = sub?.status ?? "none";
+    const shouldBlock = CANCELLED.includes(status) || AWAITING.includes(status);
+    if (!shouldBlock) {
+      return NextResponse.json({ blocked: false, status });
     }
   }
+
+  // Reason for the gate message.
+  const reason = sub?.source === "manual" ? "expired"
+    : AWAITING.includes(sub?.status ?? "") ? "awaiting_payment"
+    : CANCELLED.includes(sub?.status ?? "") ? "cancelled"
+    : "blocked";
 
   // Check for an approved, non-expired temp access grant
   const now = new Date();
@@ -49,6 +60,7 @@ export async function GET() {
     return NextResponse.json({
       blocked: false,
       status: sub?.source === "manual" ? "manual:expired" : sub?.status,
+      reason,
       hasTempAccess: true,
       tempAccessExpiresAt: tempAccess.expiresAt,
     });
@@ -67,6 +79,7 @@ export async function GET() {
   return NextResponse.json({
     blocked: true,
     status: sub?.source === "manual" ? "manual:expired" : sub?.status,
+    reason,
     hasTempAccess: false,
     pendingTempAccess: !!pendingReq,
   });

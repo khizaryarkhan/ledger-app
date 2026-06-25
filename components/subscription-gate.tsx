@@ -104,6 +104,20 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   if (!access?.blocked) return <>{children}</>;
 
   // ── Blocking overlay ──────────────────────────────────────────────────────
+  const gateReason: string = access?.reason
+    ?? (access?.status === "incomplete" || access?.status === "incomplete_expired" ? "awaiting_payment"
+      : access?.status === "past_due" || access?.status === "unpaid" ? "past_due"
+      : access?.status === "manual:expired" ? "expired" : "cancelled");
+  const COPY: Record<string, { title: string; body: string }> = {
+    awaiting_payment: { title: "Your invoice is awaiting payment", body: "We've emailed your invoice with a secure payment link. Your access unlocks automatically as soon as it's paid." },
+    past_due:         { title: "Payment is past due", body: "We couldn't take your latest payment. Please complete it to keep your access, or request temporary access." },
+    expired:          { title: "Your access has expired", body: "Your access period has ended. Renew to restore full access, or request temporary access." },
+    cancelled:        { title: "Subscription cancelled", body: "Your subscription has ended. Renew to restore full access, or request temporary access while you decide." },
+    blocked:          { title: "Access paused", body: "Your subscription isn't active. Renew to restore access, or request temporary access." },
+  };
+  const copy = COPY[gateReason] ?? COPY.cancelled;
+  const isAwaiting = gateReason === "awaiting_payment" || gateReason === "past_due";
+
   return (
     <>
       {/* Blurred background content */}
@@ -118,10 +132,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
             <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle size={24} className="text-amber-400" />
             </div>
-            <h2 className="text-lg font-semibold text-white">Subscription Cancelled</h2>
-            <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">
-              Your subscription has ended. Renew to restore full access, or request temporary access while you decide.
-            </p>
+            <h2 className="text-lg font-semibold text-white">{copy.title}</h2>
+            <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">{copy.body}</p>
           </div>
 
           {/* Body */}
@@ -142,21 +154,39 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
 
-                <button
-                  onClick={loadPlans}
-                  className="w-full flex items-center justify-between p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                      <RefreshCw size={15} className="text-emerald-400" />
+                {isAwaiting ? (
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="w-full flex items-center justify-between p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                        <RefreshCw size={15} className="text-emerald-400" />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-white">I've paid — refresh</p>
+                        <p className="text-xs text-stone-400">Check the invoice email if you haven't paid yet</p>
+                      </div>
                     </div>
-                    <div className="text-left">
-                      <p className="text-sm font-semibold text-white">Renew Subscription</p>
-                      <p className="text-xs text-stone-400">Choose a plan and restore full access instantly</p>
+                    <ChevronRight size={15} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={loadPlans}
+                    className="w-full flex items-center justify-between p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                        <RefreshCw size={15} className="text-emerald-400" />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-white">Renew Subscription</p>
+                        <p className="text-xs text-stone-400">Choose a plan and restore full access instantly</p>
+                      </div>
                     </div>
-                  </div>
-                  <ChevronRight size={15} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
-                </button>
+                    <ChevronRight size={15} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
+                  </button>
+                )}
 
                 {!access.pendingTempAccess && (
                   <button
