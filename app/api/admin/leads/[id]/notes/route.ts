@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { leadNotes } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { eq, asc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
@@ -10,9 +11,8 @@ function isTableMissingError(e: unknown): boolean {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   try {
     const notes = await db
@@ -35,15 +35,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error, userId, userName } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { body } = await req.json().catch(() => ({}));
   if (!body?.trim()) return bad("Note body is required");
 
-  const authorName = (session as any).user?.name ?? "Admin";
-  const authorId   = (session as any).user?.id ?? null;
+  const authorName = userName ?? "Admin";
+  const authorId   = userId ?? null;
 
   try {
     const [note] = await db.insert(leadNotes).values({

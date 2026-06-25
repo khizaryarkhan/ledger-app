@@ -80,7 +80,10 @@ export default auth((req) => {
     path.endsWith("-alternative") ||
     MARKETING_PATHS.has(path);
   const isPublic = isHome || isMarketing || path === "/login" || path === "/admin-login" || path === "/forgot-password" || path === "/reset-password" || path === "/register" || path === "/register/success" || path.startsWith("/api/register") || path.startsWith("/api/auth") || path.startsWith("/api/public/") || path === "/api/qbo/callback" || path === "/api/xero/callback" || path === "/api/gmail/callback" || path === "/api/microsoft/callback" || path === "/api/debug-auth" || path === "/api/interest" || path === "/api/health" || isPortal || isLegal;
-  const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks");
+  // Cron/webhook paths bypass session auth (they authenticate via CRON_SECRET /
+  // signed payloads instead). The sequence processor lives under /api/admin for
+  // historical reasons but is a Vercel cron — let it through so it actually runs.
+  const isCron = path.startsWith("/api/cron") || path.startsWith("/api/webhooks") || path === "/api/admin/sequences/process";
   const isApi = path.startsWith("/api/");
   const isRepPortal = path === "/rep-portal" || path.startsWith("/rep-portal/");
   const isAdmin = path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/admin/");

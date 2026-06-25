@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { landingPageRequests } from "@/db/schema";
 import { NextRequest } from "next/server";
@@ -6,9 +7,8 @@ import { NextRequest } from "next/server";
 const VALID_STAGES = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
 
 export async function POST(req: NextRequest) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { rows } = await req.json().catch(() => ({}));
   if (!Array.isArray(rows) || rows.length === 0) return bad("No rows to import");

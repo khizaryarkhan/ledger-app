@@ -15,13 +15,15 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Called by Vercel Cron every hour — also manually callable with the CRON_SECRET
+// Called by Vercel Cron (vercel.json → /api/admin/sequences/process). This path
+// is bypassed in middleware, so the ONLY guard is the CRON_SECRET below: it must
+// be set AND match, or the request is rejected. (Vercel sends it automatically as
+// a Bearer token when CRON_SECRET is configured in the project.)
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) return bad("Unauthorized", 401);
-  }
+  if (!cronSecret) return bad("Unauthorized", 401);
+  const auth = req.headers.get("authorization");
+  if (auth !== `Bearer ${cronSecret}`) return bad("Unauthorized", 401);
 
   const now = new Date();
 

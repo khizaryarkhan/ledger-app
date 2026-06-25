@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { getMailbox, sendMessage } from "@/lib/admin-mailbox";
 import { db } from "@/db";
 import { landingPageRequests, leadNotes } from "@/db/schema";
@@ -9,9 +10,8 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error, userId, userName } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { subject, body, to: toOverride, cc, bcc } = await req.json().catch(() => ({}));
   if (!subject?.trim()) return bad("Subject is required");
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Real 1:1 communication must go from the admin's OWN connected mailbox —
   // never from the system support@ address. Require a connected mailbox.
-  const authorId   = (session as any).user?.id ?? null;
+  const authorId   = userId ?? null;
   const mailbox = authorId ? await getMailbox(authorId) : null;
   if (!mailbox) {
     return bad("Connect your mailbox under Mail to send from your own email address.", 409);
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // Log the email as an activity note so it appears in the activity panel
-  const authorName = (session as any).user?.name ?? "Admin";
+  const authorName = userName ?? "Admin";
 
   try {
     await db.insert(leadNotes).values({

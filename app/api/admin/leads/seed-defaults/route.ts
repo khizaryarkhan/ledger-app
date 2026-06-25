@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { leadEmailTemplates, leadSequences, leadSequenceSteps } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -212,9 +213,8 @@ Wishing you well,
 };
 
 export async function POST(_req: NextRequest) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   let templatesCreated = 0, templatesUpdated = 0;
   let sequencesCreated = 0, sequencesUpdated = 0;

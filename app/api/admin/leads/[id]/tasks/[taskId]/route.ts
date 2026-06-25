@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { leadTasks } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -8,9 +9,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; taskId: string } },
 ) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { completed } = await req.json().catch(() => ({}));
 
@@ -28,9 +28,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; taskId: string } },
 ) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   await db.delete(leadTasks).where(
     and(eq(leadTasks.id, params.taskId), eq(leadTasks.leadId, params.id)),

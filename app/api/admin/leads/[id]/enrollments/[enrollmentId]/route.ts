@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { leadSequenceEnrollments } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -8,9 +9,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; enrollmentId: string } },
 ) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   // Cancel rather than hard-delete so history is preserved
   const [enrollment] = await db

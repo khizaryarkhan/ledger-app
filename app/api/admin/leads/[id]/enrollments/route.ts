@@ -1,4 +1,5 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import {
   leadSequenceEnrollments,
@@ -21,9 +22,8 @@ function isMissingColumn(e: unknown, col: string): boolean {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const enrollments = await db
     .select({
@@ -43,9 +43,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error, userId } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   try {
   const { sequenceId } = await req.json().catch(() => ({}));
@@ -56,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .where(and(eq(leadSequences.id, sequenceId), eq(leadSequences.isActive, true))).limit(1);
   if (!seq) return bad("Sequence not found or not active", 404);
 
-  const enrolledBy = (session as any).user?.id ?? null;
+  const enrolledBy = userId ?? null;
 
   // There is a UNIQUE(lead_id, sequence_id) constraint, so at most one row can
   // exist per lead+sequence. Find ANY existing row (regardless of status): if
