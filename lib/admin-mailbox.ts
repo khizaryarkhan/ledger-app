@@ -171,6 +171,8 @@ export async function getMessage(cfg: MailboxConfig, uid: number, mailbox = "INB
         to: parsed.to ? addrText(parsed.to).text : "",
         cc: parsed.cc ? addrText(parsed.cc).text : "",
         date: parsed.date ? parsed.date.toISOString() : null,
+        messageId: parsed.messageId || null,
+        inReplyTo: parsed.inReplyTo || null,
         html: parsed.html || null,
         text: parsed.text || "",
         attachments: (parsed.attachments || []).map(a => ({ filename: a.filename || "attachment", size: a.size, contentType: a.contentType })),
