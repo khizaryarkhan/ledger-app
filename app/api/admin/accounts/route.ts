@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, opportunities, organisations } from "@/db/schema";
+import { crmAccounts, landingPageRequests, opportunities, organisations, subscriptions, userOrganisations } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -25,9 +25,40 @@ export async function GET() {
     const leadByAccount = new Map<string, string>();
     for (const l of leadRows) if (l.accountId && !leadByAccount.has(l.accountId)) leadByAccount.set(l.accountId, l.id);
 
-    // Org status per linked organisation.
-    const orgRows = await db.select({ id: organisations.id, status: organisations.status }).from(organisations);
-    const orgById = new Map(orgRows.map(o => [o.id, o.status]));
+    // Org + subscription per linked organisation (left-join so the directory
+    // carries the billing signal — the org table used to show this separately).
+    const orgRows = await db
+      .select({
+        id:               organisations.id,
+        slug:             organisations.slug,
+        name:             organisations.name,
+        status:           organisations.status,
+        subId:            subscriptions.id,
+        subStatus:        subscriptions.status,
+        subSource:        subscriptions.source,
+        planName:         subscriptions.planName,
+        planAmount:       subscriptions.planAmount,
+        planCurrency:     subscriptions.planCurrency,
+        planInterval:     subscriptions.planInterval,
+        currentPeriodEnd: subscriptions.currentPeriodEnd,
+        cancelAtPeriodEnd:subscriptions.cancelAtPeriodEnd,
+        trialEnd:         subscriptions.trialEnd,
+        lastPaymentStatus:subscriptions.lastPaymentStatus,
+        manualExpiresAt:  subscriptions.manualExpiresAt,
+        paymentMethodBrand:subscriptions.paymentMethodBrand,
+        paymentMethodLast4:subscriptions.paymentMethodLast4,
+        billingEmail:     subscriptions.billingEmail,
+      })
+      .from(organisations)
+      .leftJoin(subscriptions, eq(subscriptions.orgId, organisations.id))
+      .orderBy(desc(subscriptions.createdAt));
+    const orgById = new Map<string, any>();
+    for (const o of orgRows) if (!orgById.has(o.id)) orgById.set(o.id, o); // latest sub wins
+
+    // Users per org.
+    const userRows = await db.select({ orgId: userOrganisations.orgId, c: sql<number>`count(*)::int` })
+      .from(userOrganisations).groupBy(userOrganisations.orgId);
+    const usersByOrg = new Map(userRows.map(u => [u.orgId, Number(u.c)]));
 
     // Deal counts per account.
     const dealRows = await db.select({ accountId: opportunities.accountId, c: sql<number>`count(*)::int` })
@@ -35,14 +66,20 @@ export async function GET() {
     const dealsByAccount = new Map<string, number>();
     for (const d of dealRows) if (d.accountId) dealsByAccount.set(d.accountId, Number(d.c));
 
-    const out = accounts.map(a => ({
-      id: a.id, name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
-      domain: a.domain, country: a.country,
-      organisationId: a.organisationId, orgStatus: a.organisationId ? (orgById.get(a.organisationId) ?? null) : null,
-      leadId: leadByAccount.get(a.id) ?? null,
-      deals: dealsByAccount.get(a.id) ?? 0,
-      updatedAt: a.updatedAt,
-    }));
+    const out = accounts.map(a => {
+      const org = a.organisationId ? orgById.get(a.organisationId) : null;
+      return {
+        id: a.id, name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
+        domain: a.domain, country: a.country,
+        organisationId: a.organisationId, orgStatus: org?.status ?? null,
+        leadId: leadByAccount.get(a.id) ?? null,
+        deals: dealsByAccount.get(a.id) ?? 0,
+        userCount: a.organisationId ? (usersByOrg.get(a.organisationId) ?? 0) : 0,
+        updatedAt: a.updatedAt,
+        // Billing signal (null when not yet a customer) — for the org modals + columns.
+        org: org ? { ...org } : null,
+      };
+    });
     return NextResponse.json({ accounts: out });
   } catch (e) {
     if (schemaMissing(e)) return NextResponse.json({ accounts: [], needsSetup: true });

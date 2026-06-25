@@ -2,11 +2,14 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Search, Users, Loader } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Building2, Search, Users, Loader, Plus, Pencil, Trash2, CreditCard } from "lucide-react";
+import { SubStatusBadge, fmtPlan, CreateOrgModal, EditOrgModal, DeleteOrgModal } from "../_org-management";
 
 type Account = {
   id: string; name: string; lifecycleStage: string; billingEmail: string | null; domain: string | null;
-  country: string | null; organisationId: string | null; orgStatus: string | null; leadId: string | null; deals: number;
+  country: string | null; organisationId: string | null; orgStatus: string | null; leadId: string | null;
+  deals: number; userCount: number; org: any | null;
 };
 
 const STAGE: Record<string, { label: string; cls: string }> = {
@@ -20,6 +23,9 @@ const STAGE: Record<string, { label: string; cls: string }> = {
 
 export default function AccountsPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as any)?.role === "super_admin";
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -27,6 +33,9 @@ export default function AccountsPage() {
   const [stage, setStage] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingOrg, setEditingOrg] = useState<any | null>(null);
+  const [deletingOrg, setDeletingOrg] = useState<any | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,6 +81,12 @@ export default function AccountsPage() {
             className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 disabled:opacity-60">
             {syncing ? <Loader size={13} className="animate-spin" /> : <Users size={13} />} {syncing ? "Linking…" : "Sync accounts"}
           </button>
+          {isSuperAdmin && (
+            <button onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">
+              <Plus size={14} /> New organisation
+            </button>
+          )}
         </div>
       </div>
 
@@ -101,19 +116,44 @@ export default function AccountsPage() {
         <div className="rounded-xl border border-stone-800 overflow-hidden">
           <table className="w-full text-sm">
             <thead><tr className="border-b border-stone-800 bg-stone-900/40">
-              {["Company", "Stage", "Customer", "Deals", "Email", "Country"].map(h => <th key={h} className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">{h}</th>)}
+              {["Company", "Stage", "Subscription", "Plan", "Deals", "Country"].map(h => <th key={h} className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">{h}</th>)}
+              <th className="px-4 py-2.5 w-24"></th>
             </tr></thead>
             <tbody>
               {rows.map(a => {
                 const s = STAGE[a.lifecycleStage] ?? { label: a.lifecycleStage, cls: "bg-stone-700 text-stone-400" };
                 return (
                   <tr key={a.id} onClick={() => open(a)} className="border-b border-stone-800/50 hover:bg-stone-800/30 cursor-pointer">
-                    <td className="px-4 py-3"><div className="flex items-center gap-2.5"><div className="w-7 h-7 rounded-lg bg-stone-800 flex items-center justify-center text-[10px] text-stone-300">{(a.name || "?").slice(0, 2).toUpperCase()}</div><span className="text-stone-100 font-medium">{a.name}</span></div></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-stone-800 flex items-center justify-center text-[10px] text-stone-300">{(a.name || "?").slice(0, 2).toUpperCase()}</div>
+                        <div className="min-w-0">
+                          <span className="text-stone-100 font-medium block leading-tight">{a.name}</span>
+                          {a.billingEmail && <span className="text-[11px] text-stone-500 truncate block max-w-[220px]">{a.billingEmail}</span>}
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded ${s.cls}`}>{s.label}</span></td>
-                    <td className="px-4 py-3">{a.organisationId ? <span className={`text-[11px] ${a.orgStatus === "Active" ? "text-emerald-400" : "text-amber-400"}`}>{a.orgStatus === "Active" ? "Active" : "Pending"}</span> : <span className="text-stone-600 text-[11px]">—</span>}</td>
+                    <td className="px-4 py-3">{a.org ? <SubStatusBadge org={a.org} /> : <span className="text-stone-600 text-[11px]">—</span>}</td>
+                    <td className="px-4 py-3">{a.org && fmtPlan(a.org) ? <span className="text-xs text-stone-300">{fmtPlan(a.org)}</span> : <span className="text-stone-600 text-xs">—</span>}</td>
                     <td className="px-4 py-3 text-stone-400 tabular-nums">{a.deals || "—"}</td>
-                    <td className="px-4 py-3 text-stone-400 text-xs truncate max-w-[220px]">{a.billingEmail || "—"}</td>
                     <td className="px-4 py-3 text-stone-500 text-xs">{a.country || "—"}</td>
+                    <td className="px-4 py-3">
+                      {a.organisationId && (
+                        <div className="flex items-center gap-1 justify-end" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => router.push(`/admin/customers/${a.organisationId}`)} title="Billing & invoices"
+                            className="p-1.5 hover:bg-stone-800 rounded text-stone-500 hover:text-stone-200 transition-colors"><CreditCard size={13} /></button>
+                          {isSuperAdmin && a.org && (
+                            <>
+                              <button onClick={() => setEditingOrg(a.org)} title="Edit organisation"
+                                className="p-1.5 hover:bg-stone-800 rounded text-stone-400 hover:text-stone-200 transition-colors"><Pencil size={13} /></button>
+                              <button onClick={() => setDeletingOrg(a.org)} title="Delete organisation"
+                                className="p-1.5 hover:bg-rose-500/15 rounded text-stone-500 hover:text-rose-400 transition-colors"><Trash2 size={13} /></button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -121,6 +161,10 @@ export default function AccountsPage() {
           </table>
         </div>
       )}
+
+      {showCreate && <CreateOrgModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {editingOrg && <EditOrgModal org={editingOrg} onClose={() => setEditingOrg(null)} onSaved={() => { load(); setEditingOrg(null); }} />}
+      {deletingOrg && <DeleteOrgModal org={deletingOrg} onClose={() => setDeletingOrg(null)} onDeleted={load} />}
     </div>
   );
 }
