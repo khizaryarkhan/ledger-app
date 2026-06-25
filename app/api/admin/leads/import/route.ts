@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
   const { rows } = await req.json().catch(() => ({}));
   if (!Array.isArray(rows) || rows.length === 0) return bad("No rows to import");
 
+  const { ensureAccount } = await import("@/lib/admin/accounts");
   const valid: any[] = [];
   let skipped = 0;
 
@@ -21,16 +22,22 @@ export async function POST(req: NextRequest) {
     const email    = String(row.email    ?? "").trim().toLowerCase();
     if (!fullName || !email || !email.includes("@")) { skipped++; continue; }
 
+    const companyName = row.companyName?.trim() || null;
+    const country     = row.country?.trim()     || null;
+    // One company = one account (account_id is NOT NULL); dedups across the import.
+    const accountId = await ensureAccount({ name: companyName || fullName, email, country });
+
     valid.push({
       fullName,
       email,
-      companyName:       row.companyName?.trim()       || null,
+      companyName,
       phone:             row.phone?.trim()             || null,
-      country:           row.country?.trim()           || null,
+      country,
       interestedService: row.interestedService?.trim() || null,
       message:           row.message?.trim()           || null,
       source:            "import",
       status:            VALID_STAGES.includes(row.status?.toLowerCase()) ? row.status.toLowerCase() : "new",
+      accountId,
     });
   }
 

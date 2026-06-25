@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { opportunities, organisations, landingPageRequests, users, userOrganisations } from "@/db/schema";
+import { opportunities, organisations, landingPageRequests, users, userOrganisations, crmAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, randomBytes } from "crypto";
@@ -32,6 +32,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const overrideName = typeof body.name === "string" ? body.name.trim() : "";
   const name = (overrideName || lead?.companyName || lead?.fullName || opp.title || "Customer").trim();
 
+  // One company = one account. Resolve it first; reuse the opp's existing account
+  // when present (so the deal, lead, org all share one spine). account_id is NOT NULL.
+  const { ensureAccount } = await import("@/lib/admin/accounts");
+  const accountId = opp.accountId
+    || await ensureAccount({ name, email: lead?.email, country: lead?.country, organisationId: opp.orgId });
+
   // ── ensure the organisation ──
   let orgId = opp.orgId;
   if (!orgId) {
@@ -39,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Pending shell: created Inactive. Access is granted only when the invoice
     // is paid (Stripe invoice.paid → activateOrgOnPayment).
     const [org] = await db.insert(organisations).values({
-      name, slug, status: "Inactive", currency: (opp.currency || "EUR").toUpperCase().slice(0, 8),
+      name, slug, status: "Inactive", accountId, currency: (opp.currency || "EUR").toUpperCase().slice(0, 8),
     }).returning({ id: organisations.id });
     orgId = org.id;
     await db.update(opportunities).set({ orgId, updatedAt: new Date() }).where(eq(opportunities.id, params.id));
@@ -48,15 +54,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await db.update(organisations).set({ name: overrideName, updatedAt: new Date() }).where(eq(organisations.id, orgId));
   }
 
-  // Dual-write (Phase 1): one company = one account. Link org/opp/lead to it.
+  // Link the account back to org/opp/lead (find-or-create already done above).
   try {
-    const { ensureAccount } = await import("@/lib/admin/accounts");
-    const accountId = await ensureAccount({ name, email: lead?.email, country: lead?.country, organisationId: orgId });
-    if (accountId) {
-      await db.update(organisations).set({ accountId }).where(eq(organisations.id, orgId!));
-      await db.update(opportunities).set({ accountId }).where(eq(opportunities.id, params.id));
-      if (opp.leadId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, opp.leadId));
-    }
+    await db.update(crmAccounts).set({ organisationId: orgId, updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
+    await db.update(organisations).set({ accountId }).where(eq(organisations.id, orgId!));
+    await db.update(opportunities).set({ accountId }).where(eq(opportunities.id, params.id));
+    if (opp.leadId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, opp.leadId));
   } catch { /* non-fatal */ }
 
   // ── provision the PENDING shell user (Inactive, no invite email) ──

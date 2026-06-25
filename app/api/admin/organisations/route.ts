@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { organisations, users, userOrganisations, subscriptions } from "@/db/schema";
+import { organisations, users, userOrganisations, subscriptions, crmAccounts } from "@/db/schema";
 import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { eq, desc, sql, and } from "drizzle-orm";
@@ -75,8 +75,11 @@ export async function POST(req: Request) {
     const [existingOrg] = await db.select().from(organisations).where(eq(organisations.slug, data.slug)).limit(1);
     if (existingOrg) return bad(`Slug "${data.slug}" is already taken`, 409);
 
-    // Create the org
-    const [org] = await db.insert(organisations).values({ name: data.name, slug: data.slug }).returning();
+    // Create the org — one company = one account (account_id is NOT NULL).
+    const { ensureAccount } = await import("@/lib/admin/accounts");
+    const accountId = await ensureAccount({ name: data.name, email: data.adminEmail });
+    const [org] = await db.insert(organisations).values({ name: data.name, slug: data.slug, accountId }).returning();
+    try { await db.update(crmAccounts).set({ organisationId: org.id, lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, accountId)); } catch {}
 
     // Check if admin email already exists
     const [existingUser] = await db.select().from(users).where(eq(users.email, data.adminEmail.toLowerCase().trim())).limit(1);

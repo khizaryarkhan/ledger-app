@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { crmAccounts, organisations, landingPageRequests, opportunities } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 // Generic mailbox providers — a shared domain here does NOT mean same company.
 const GENERIC = new Set([
@@ -33,9 +34,11 @@ export function deriveMatchKey(input: { name?: string | null; email?: string | n
 export async function ensureAccount(input: {
   name?: string | null; email?: string | null; country?: string | null;
   organisationId?: string | null; stripeCustomerId?: string | null;
-}): Promise<string | null> {
-  const mk = deriveMatchKey(input);
-  if (!mk) return null;
+}): Promise<string> {
+  // Phase 4: account_id is required everywhere, so this must always resolve to an
+  // id. Keyable input dedups by matchKey; truly anonymous input (no name/email)
+  // gets its own non-colliding account rather than blocking the insert.
+  const mk = deriveMatchKey(input) ?? { key: `anon:${randomUUID()}`, domain: null };
 
   const [existing] = await db.select({ id: crmAccounts.id, organisationId: crmAccounts.organisationId, stripeCustomerId: crmAccounts.stripeCustomerId, billingEmail: crmAccounts.billingEmail })
     .from(crmAccounts).where(eq(crmAccounts.matchKey, mk.key)).limit(1);
@@ -61,7 +64,8 @@ export async function ensureAccount(input: {
 
   // Lost a race — re-read.
   const [again] = await db.select({ id: crmAccounts.id }).from(crmAccounts).where(eq(crmAccounts.matchKey, mk.key)).limit(1);
-  return again?.id ?? null;
+  if (again) return again.id;
+  throw new Error(`ensureAccount: could not resolve account for key ${mk.key}`);
 }
 
 // Advance the account's lifecycle, never regress (lead → … → customer).

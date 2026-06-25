@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { opportunities, landingPageRequests, users } from "@/db/schema";
+import { opportunities, landingPageRequests, users, organisations } from "@/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { OPP_STAGE_KEYS, stageStatus, defaultConfidence } from "@/lib/opportunities";
@@ -70,9 +70,24 @@ export async function POST(req: NextRequest) {
     : defaultConfidence(stage);
   const status = stageStatus(stage);
 
+  // Resolve the company account BEFORE insert (account_id is NOT NULL): inherit
+  // from the linked lead, then org, else find-or-create from the deal title.
+  const { ensureAccount, advanceAccountLifecycle } = await import("@/lib/admin/accounts");
+  let accountId: string | null = null;
+  if (b.leadId) {
+    const [l] = await db.select({ accountId: landingPageRequests.accountId }).from(landingPageRequests).where(eq(landingPageRequests.id, b.leadId)).limit(1);
+    accountId = l?.accountId ?? null;
+  }
+  if (!accountId && b.orgId) {
+    const [o] = await db.select({ accountId: organisations.accountId }).from(organisations).where(eq(organisations.id, b.orgId)).limit(1);
+    accountId = o?.accountId ?? null;
+  }
+  if (!accountId) accountId = await ensureAccount({ name: title });
+
   try {
     const [row] = await db.insert(opportunities).values({
       title,
+      accountId,
       leadId: b.leadId || null,
       orgId: b.orgId || null,
       value: b.value != null && !isNaN(Number(b.value)) ? Math.max(0, parseInt(String(b.value))) : 0,
@@ -98,15 +113,8 @@ export async function POST(req: NextRequest) {
           eq(landingPageRequests.id, b.leadId),
           inArray(landingPageRequests.status, status === "won" ? ["new", "contacted", "qualified"] : ["new", "contacted"]),
         ));
-      // Link the deal to the lead's account + advance lifecycle (one company spine).
-      try {
-        const [l] = await db.select({ accountId: landingPageRequests.accountId }).from(landingPageRequests).where(eq(landingPageRequests.id, b.leadId)).limit(1);
-        if (l?.accountId) {
-          await db.update(opportunities).set({ accountId: l.accountId }).where(eq(opportunities.id, row.id));
-          const { advanceAccountLifecycle } = await import("@/lib/admin/accounts");
-          await advanceAccountLifecycle(l.accountId, "qualified");
-        }
-      } catch { /* non-fatal */ }
+      // Opening a deal on a company advances its lifecycle (one company spine).
+      try { await advanceAccountLifecycle(accountId, "qualified"); } catch { /* non-fatal */ }
     }
     return NextResponse.json(row, { status: 201 });
   } catch (e) {

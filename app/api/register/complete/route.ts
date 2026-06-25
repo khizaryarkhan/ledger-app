@@ -106,10 +106,12 @@ export async function POST(req: NextRequest) {
       finalSlug = `${baseSlug}-${attempt}`;
     }
 
-    // Create organisation
+    // Create organisation — one company = one account (account_id is NOT NULL).
+    const { ensureAccount } = await import("@/lib/admin/accounts");
+    const accountId = await ensureAccount({ name: reg.companyName, email: reg.adminEmail });
     const [org] = await db
       .insert(organisations)
-      .values({ name: reg.companyName, slug: finalSlug })
+      .values({ name: reg.companyName, slug: finalSlug, accountId })
       .returning();
 
     // Create admin user with password-reset token (no password yet)

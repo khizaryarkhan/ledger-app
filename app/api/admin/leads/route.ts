@@ -82,6 +82,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
   }
 
+  // One company = one account: resolve (find-or-create) the account BEFORE the
+  // insert so account_id (NOT NULL) is always set.
+  const { ensureAccount } = await import("@/lib/admin/accounts");
+  const accountId = await ensureAccount({ name: companyName?.trim() || fullName, email, country });
+
   const [row] = await db.insert(landingPageRequests).values({
     id:               randomUUID(),
     fullName:         fullName.trim(),
@@ -93,14 +98,8 @@ export async function POST(req: NextRequest) {
     message:          message?.trim() || null,
     source:           "manual",
     status:           "new",
+    accountId,
   }).returning();
-
-  // Dual-write (Phase 1): link this lead to its company account (find-or-create).
-  try {
-    const { ensureAccount } = await import("@/lib/admin/accounts");
-    const accountId = await ensureAccount({ name: companyName?.trim() || fullName, email, country });
-    if (accountId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, row.id));
-  } catch { /* non-fatal — account linking is additive */ }
 
   return NextResponse.json(row, { status: 201 });
 }

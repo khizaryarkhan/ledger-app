@@ -115,9 +115,13 @@ export async function POST(req: NextRequest) {
         finalSlug = `${slug}-${attempt}`;
       }
 
+      // One company = one account (account_id is NOT NULL) — resolve before insert.
+      const { ensureAccount } = await import("@/lib/admin/accounts");
+      const accountId = await ensureAccount({ name: reg.companyName, email: reg.adminEmail });
       const [org] = await db.insert(organisations).values({
         name: reg.companyName,
         slug: finalSlug,
+        accountId,
       }).returning();
 
       const resetToken  = crypto.randomBytes(32).toString("hex");

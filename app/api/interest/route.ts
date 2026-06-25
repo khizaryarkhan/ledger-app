@@ -38,6 +38,10 @@ export async function POST(req: NextRequest) {
   if (!fullName) return NextResponse.json({ error: "Full name is required" }, { status: 400 });
   if (!email || !validateEmail(email)) return NextResponse.json({ error: "A valid email address is required" }, { status: 400 });
 
+  // One company = one account (account_id is NOT NULL) — resolve before insert.
+  const { ensureAccount } = await import("@/lib/admin/accounts");
+  const accountId = await ensureAccount({ name: companyName || fullName, email, country });
+
   await db.insert(landingPageRequests).values({
     fullName,
     email,
@@ -49,6 +53,7 @@ export async function POST(req: NextRequest) {
     message,
     source:    "landing_page",
     status:    "new",
+    accountId,
     utmSource,
     utmMedium,
     utmCampaign,
