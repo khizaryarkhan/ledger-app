@@ -25,6 +25,8 @@ export default function AccountsPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [msg, setMsg] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -32,6 +34,17 @@ export default function AccountsPage() {
       .then(d => { setAccounts(d.accounts ?? []); setNeedsSetup(!!d.needsSetup); }).finally(() => setLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // One-click backfill: links existing orgs/leads/deals to accounts (idempotent).
+  const sync = async () => {
+    setSyncing(true); setMsg("");
+    try {
+      const r = await fetch("/api/admin/accounts/backfill", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setMsg(`Linked ${d.orgs} customers, ${d.leads} leads, ${d.opps} deals.`); load(); }
+      else setMsg(d.error || "Backfill failed");
+    } catch { setMsg("Backfill failed"); } finally { setSyncing(false); }
+  };
 
   // Route to the best available 360 for this company.
   const open = (a: Account) => {
@@ -52,7 +65,14 @@ export default function AccountsPage() {
           <h1 className="text-xl font-bold text-white">Accounts</h1>
           <p className="text-xs text-stone-500 mt-0.5">Every company in one place — prospects through customers. The single source of truth.</p>
         </div>
-        <span className="text-[12px] text-stone-500">{accounts.length} companies</span>
+        <div className="flex items-center gap-3">
+          {msg && <span className="text-[12px] text-emerald-400">{msg}</span>}
+          <span className="text-[12px] text-stone-500">{accounts.length} companies</span>
+          <button onClick={sync} disabled={syncing}
+            className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 disabled:opacity-60">
+            {syncing ? <Loader size={13} className="animate-spin" /> : <Users size={13} />} {syncing ? "Linking…" : "Sync accounts"}
+          </button>
+        </div>
       </div>
 
       {needsSetup && (
