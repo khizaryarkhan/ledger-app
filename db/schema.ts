@@ -247,6 +247,9 @@ export const leadTasks = pgTable("lead_tasks", {
   assignedTo:  uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
   createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   completedAt: timestamp("completed_at"),
+  // Richer tasks (P2): priority drives queue ordering; type drives the icon.
+  priority:    varchar("priority", { length: 12 }).notNull().default("normal"), // low | normal | high
+  type:        varchar("type", { length: 16 }).notNull().default("todo"),       // todo | call | email | follow_up
   createdAt:   timestamp("created_at").notNull().defaultNow(),
 });
 export type LeadTask = typeof leadTasks.$inferSelect;

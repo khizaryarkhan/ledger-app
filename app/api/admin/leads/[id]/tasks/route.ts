@@ -23,15 +23,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { error, userId } = await requirePlatformAdmin();
   if (error) return error;
 
-  const { title, dueDate } = await req.json().catch(() => ({}));
+  const { title, dueDate, priority, type } = await req.json().catch(() => ({}));
   if (!title?.trim()) return bad("Task title is required");
 
   const createdBy = userId ?? null;
+  const prio = ["low", "normal", "high"].includes(priority) ? priority : "normal";
+  const kind = ["todo", "call", "email", "follow_up"].includes(type) ? type : "todo";
 
   const [task] = await db.insert(leadTasks).values({
     leadId:    params.id,
     title:     title.trim(),
     dueDate:   dueDate ? new Date(dueDate) : null,
+    priority:  prio,
+    type:      kind,
     createdBy,
   }).returning();
 
