@@ -1902,8 +1902,10 @@ export async function syncTargetedEntities(
   }
 
   // --- RefundReceipt: upsert ---
+  // Declared at this scope so the "refresh linked invoices" block below can also use it.
+  let qboRefunds: any[] = [];
   if (refundIds.length > 0) {
-    const qboRefunds = await Promise.all(
+    qboRefunds = await Promise.all(
       refundIds.map((id) =>
         qboApiGet(accessToken, realmId, `refundreceipt/${id}`)
           .then((r) => r.RefundReceipt)
