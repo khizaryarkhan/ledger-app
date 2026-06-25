@@ -95,5 +95,12 @@ export async function POST(req: NextRequest) {
     status:           "new",
   }).returning();
 
+  // Dual-write (Phase 1): link this lead to its company account (find-or-create).
+  try {
+    const { ensureAccount } = await import("@/lib/admin/accounts");
+    const accountId = await ensureAccount({ name: companyName?.trim() || fullName, email, country });
+    if (accountId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, row.id));
+  } catch { /* non-fatal — account linking is additive */ }
+
   return NextResponse.json(row, { status: 201 });
 }

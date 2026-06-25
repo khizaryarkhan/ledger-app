@@ -48,6 +48,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await db.update(organisations).set({ name: overrideName, updatedAt: new Date() }).where(eq(organisations.id, orgId));
   }
 
+  // Dual-write (Phase 1): one company = one account. Link org/opp/lead to it.
+  try {
+    const { ensureAccount } = await import("@/lib/admin/accounts");
+    const accountId = await ensureAccount({ name, email: lead?.email, country: lead?.country, organisationId: orgId });
+    if (accountId) {
+      await db.update(organisations).set({ accountId }).where(eq(organisations.id, orgId!));
+      await db.update(opportunities).set({ accountId }).where(eq(opportunities.id, params.id));
+      if (opp.leadId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, opp.leadId));
+    }
+  } catch { /* non-fatal */ }
+
   // ── provision the PENDING shell user (Inactive, no invite email) ──
   // The set-password invite + activation happen on payment, never at creation.
   let provisioned = false;

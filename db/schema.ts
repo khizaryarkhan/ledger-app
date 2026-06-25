@@ -9,6 +9,7 @@ export const organisations = pgTable("organisations", {
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
+  accountId: uuid("account_id"), // → crm_accounts.id (Phase 1, nullable during transition)
   classificationLevel: varchar("classification_level", { length: 32 }).notNull().default("customer"), // 'customer' | 'project'
   colRefSeq: integer("col_ref_seq").notNull().default(0),
   dateFormat: varchar("date_format", { length: 32 }).notNull().default("DD MMM YYYY"), // date format preference
@@ -196,6 +197,7 @@ export const landingPageRequests = pgTable("landing_page_requests", {
   source:           varchar("source", { length: 64 }).notNull().default("landing_page"),
   // 'new' | 'contacted' | 'qualified' | 'converted' | 'rejected' | 'archived'
   status:           varchar("status", { length: 32 }).notNull().default("new"),
+  accountId:        uuid("account_id"), // → crm_accounts.id (Phase 1, nullable during transition)
   assignedToAdminId: uuid("assigned_to_admin_id").references(() => users.id, { onDelete: "set null" }),
   adminNotes:       text("admin_notes"),
   utmSource:        varchar("utm_source", { length: 128 }),
@@ -318,6 +320,7 @@ export const opportunities = pgTable("opportunities", {
   id:               uuid("id").defaultRandom().primaryKey(),
   leadId:           uuid("lead_id").references(() => landingPageRequests.id, { onDelete: "set null" }),
   orgId:            uuid("org_id").references(() => organisations.id, { onDelete: "set null" }),
+  accountId:        uuid("account_id"), // → crm_accounts.id (Phase 1)
   title:            varchar("title", { length: 255 }).notNull(),
   value:            integer("value").notNull().default(0),
   currency:         varchar("currency", { length: 3 }).notNull().default("USD"),
@@ -357,6 +360,31 @@ export const leadContacts = pgTable("lead_contacts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type LeadContact = typeof leadContacts.$inferSelect;
+
+// =========================================================================
+// CRM ACCOUNTS (the company spine — one row per real company, whole lifecycle)
+// Everything (leads, contacts, opportunities, the billing org, subscription)
+// links to this. matchKey enforces dedup (domain → normalized name → email).
+// =========================================================================
+export const crmAccounts = pgTable("crm_accounts", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  name:            varchar("name", { length: 255 }).notNull(),
+  matchKey:        varchar("match_key", { length: 255 }).notNull().unique(),
+  domain:          varchar("domain", { length: 255 }),
+  billingEmail:    varchar("billing_email", { length: 255 }),
+  phone:           varchar("phone", { length: 64 }),
+  country:         varchar("country", { length: 100 }),
+  industry:        varchar("industry", { length: 128 }),
+  // lead | prospect | qualified | customer | churned | archived
+  lifecycleStage:  varchar("lifecycle_stage", { length: 32 }).notNull().default("lead"),
+  organisationId:  uuid("organisation_id").references(() => organisations.id, { onDelete: "set null" }),
+  stripeCustomerId: text("stripe_customer_id"),
+  ownerAdminId:    uuid("owner_admin_id").references(() => users.id, { onDelete: "set null" }),
+  status:          varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+});
+export type CrmAccount = typeof crmAccounts.$inferSelect;
 
 // =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)

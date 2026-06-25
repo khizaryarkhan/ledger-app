@@ -15,6 +15,13 @@
       "when": 1782382873829,
       "tag": "0001_odd_war_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782393888334,
+      "tag": "0002_secret_carlie_cooper",
+      "breakpoints": true
     }
   ]
 }
