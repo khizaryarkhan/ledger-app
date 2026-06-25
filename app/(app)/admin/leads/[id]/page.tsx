@@ -523,13 +523,20 @@ function OpportunitiesPanel({ leadId, opps, onChange, onToast }: any) {
 }
 
 // ── Tasks panel ────────────────────────────────────────────────────────────────
+const PRIO_DOT: Record<string, string> = { high: "bg-rose-500", normal: "bg-stone-600", low: "bg-stone-700" };
+const TASK_TYPE_LABEL: Record<string, string> = { todo: "To-do", call: "Call", email: "Email", follow_up: "Follow-up" };
+
 function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
-  const [adding, setAdding] = useState(false); const [title, setTitle] = useState(""); const [due, setDue] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState("");
+  const [type, setType] = useState("todo");
+  const [prio, setPrio] = useState("normal");
   const open = tasks.filter((t: any) => !t.completedAt);
   const add = async () => {
     if (!title.trim()) return;
-    const r = await fetch(`/api/admin/leads/${leadId}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, dueDate: due || null }) });
-    if (r.ok) { setTitle(""); setDue(""); setAdding(false); onChange(); onToast({ ok: true, msg: "Task added" }); } else onToast({ ok: false, msg: "Failed" });
+    const r = await fetch(`/api/admin/leads/${leadId}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, dueDate: due || null, type, priority: prio }) });
+    if (r.ok) { setTitle(""); setDue(""); setType("todo"); setPrio("normal"); setAdding(false); onChange(); onToast({ ok: true, msg: "Task added" }); } else onToast({ ok: false, msg: "Failed" });
   };
   const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
   return (
@@ -537,7 +544,15 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
       {adding && (
         <div className="space-y-1.5 mb-3 pb-3 border-b border-stone-800">
           <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder="Follow up with…" />
-          <input className={inp} type="date" value={due} onChange={e => setDue(e.target.value)} />
+          <div className="grid grid-cols-2 gap-1.5">
+            <select className={inp} value={type} onChange={e => setType(e.target.value)}>
+              <option value="todo">To-do</option><option value="call">Call</option><option value="email">Email</option><option value="follow_up">Follow-up</option>
+            </select>
+            <select className={inp} value={prio} onChange={e => setPrio(e.target.value)}>
+              <option value="normal">Normal priority</option><option value="high">High priority</option><option value="low">Low priority</option>
+            </select>
+          </div>
+          <input className={inp} type="datetime-local" value={due} onChange={e => setDue(e.target.value)} />
           <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Add task</button>
         </div>
       )}
@@ -545,8 +560,16 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
         <div className="space-y-2">
           {open.map((t: any) => (
             <div key={t.id} className="flex items-start gap-2 text-[13px]">
+              <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${PRIO_DOT[t.priority] ?? PRIO_DOT.normal}`} title={`${t.priority ?? "normal"} priority`} />
               <CheckSquare size={13} className="text-stone-600 mt-0.5 shrink-0" />
-              <div className="min-w-0"><p className="text-stone-300">{t.title}</p>{t.dueDate && <p className="text-[11px] text-stone-600">due {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>}</div>
+              <div className="min-w-0">
+                <p className="text-stone-300">{t.title}</p>
+                <p className="text-[11px] text-stone-600">
+                  {t.type && t.type !== "todo" ? `${TASK_TYPE_LABEL[t.type] ?? t.type}` : ""}
+                  {t.type && t.type !== "todo" && t.dueDate ? " · " : ""}
+                  {t.dueDate ? `due ${new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}
+                </p>
+              </div>
             </div>
           ))}
         </div>

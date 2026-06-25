@@ -1483,6 +1483,15 @@ function SequencesModal({ onClose }: { onClose: () => void }) {
                         <span className="text-[10px] text-stone-600">{s.stepCount ?? 0} step{s.stepCount !== 1 ? "s" : ""}</span>
                       </div>
                       {s.description && <p className="text-[11px] text-stone-500 mt-0.5 truncate">{s.description}</p>}
+                      {/* Performance stats */}
+                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-stone-500">
+                        <span><span className="text-stone-300 font-semibold tabular-nums">{s.enrolled ?? 0}</span> enrolled</span>
+                        <span><span className="text-emerald-400 font-semibold tabular-nums">{s.active ?? 0}</span> active</span>
+                        <span><span className="text-sky-400 font-semibold tabular-nums">{s.sent ?? 0}</span> sent</span>
+                        <span><span className="text-stone-300 font-semibold tabular-nums">{s.completed ?? 0}</span> completed</span>
+                        {(s.failed ?? 0) > 0 && <span className="text-rose-400">{s.failed} failed</span>}
+                        {(s.pending ?? 0) > 0 && <span><span className="text-amber-400 font-semibold tabular-nums">{s.pending}</span> queued</span>}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                       <button onClick={() => toggleActive(s)} title={s.isActive ? "Pause" : "Activate"}

@@ -1,13 +1,13 @@
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { leadSequenceSteps } from "@/db/schema";
 import { eq, asc, count } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const steps = await db.select().from(leadSequenceSteps)
     .where(eq(leadSequenceSteps.sequenceId, params.id))
@@ -17,9 +17,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { delayDays, subject, body } = await req.json().catch(() => ({}));
   if (!subject?.trim()) return bad("Subject is required");
