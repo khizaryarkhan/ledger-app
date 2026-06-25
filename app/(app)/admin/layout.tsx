@@ -16,6 +16,7 @@ type NavSection = { label?: string; items: NavItem[] };
 const NAV: NavSection[] = [
   { items: [{ href: "/admin", icon: LayoutDashboard, label: "Overview", exact: true }] },
   { label: "CRM", items: [
+    { href: "/admin/accounts",      icon: Building2, label: "Accounts" },
     { href: "/admin/leads",         icon: FileText,  label: "Leads" },
     { href: "/admin/opportunities", icon: Trophy,    label: "Opportunities" },
     { href: "/admin/inbox",         icon: Mail,      label: "Mail" },
