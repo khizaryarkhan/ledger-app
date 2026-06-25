@@ -27,6 +27,32 @@ export function deriveMatchKey(input: { name?: string | null; email?: string | n
 }
 
 /**
+ * Find-or-create a crm_accounts row that belongs to EXACTLY this organisation.
+ * Keyed on the org id, so two distinct billing tenants never collapse into one
+ * account (even if they share a name) — every organisation gets its own row in
+ * the Accounts directory. Idempotent.
+ */
+export async function ensureDedicatedOrgAccount(org: { id: string; name?: string | null; email?: string | null; country?: string | null; stripeCustomerId?: string | null }): Promise<string> {
+  const key = `org:${org.id}`;
+  const [existing] = await db.select({ id: crmAccounts.id }).from(crmAccounts).where(eq(crmAccounts.matchKey, key)).limit(1);
+  if (existing) {
+    await db.update(crmAccounts).set({ organisationId: org.id, lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, existing.id));
+    return existing.id;
+  }
+  const [row] = await db.insert(crmAccounts).values({
+    name: (org.name || "Company").trim(), matchKey: key,
+    billingEmail: org.email?.trim().toLowerCase() || null,
+    country: org.country || null,
+    organisationId: org.id, stripeCustomerId: org.stripeCustomerId || null,
+    lifecycleStage: "customer",
+  }).onConflictDoNothing({ target: crmAccounts.matchKey }).returning({ id: crmAccounts.id });
+  if (row) return row.id;
+  const [again] = await db.select({ id: crmAccounts.id }).from(crmAccounts).where(eq(crmAccounts.matchKey, key)).limit(1);
+  if (again) return again.id;
+  throw new Error(`ensureDedicatedOrgAccount: could not resolve account for org ${org.id}`);
+}
+
+/**
  * Find-or-create the crm_accounts row for a company. Idempotent (unique matchKey
  * + onConflictDoNothing). Links the billing org / Stripe customer when newly known.
  * This is the single entry point write paths use to keep one company = one account.
@@ -44,6 +70,11 @@ export async function ensureAccount(input: {
     .from(crmAccounts).where(eq(crmAccounts.matchKey, mk.key)).limit(1);
 
   if (existing) {
+    // One account per organisation: if this account already belongs to a DIFFERENT
+    // org, don't merge two distinct tenants — give this org its own dedicated row.
+    if (input.organisationId && existing.organisationId && existing.organisationId !== input.organisationId) {
+      return ensureDedicatedOrgAccount({ id: input.organisationId, name: input.name, email: input.email, country: input.country, stripeCustomerId: input.stripeCustomerId });
+    }
     const patch: Record<string, any> = {};
     if (input.organisationId && !existing.organisationId) patch.organisationId = input.organisationId;
     if (input.stripeCustomerId && !existing.stripeCustomerId) patch.stripeCustomerId = input.stripeCustomerId;
@@ -87,15 +118,41 @@ export async function advanceAccountLifecycle(accountId: string | null | undefin
 export async function backfillAllAccounts(): Promise<{ orgs: number; leads: number; opps: number }> {
   let orgs = 0, leads = 0, opps = 0;
 
+  // Every organisation must own exactly one account row. Repair three cases:
+  //  (a) no account yet            → create/claim one,
+  //  (b) account owned by ANOTHER org (name collision, e.g. two "EDC" orgs)
+  //                                → split into a dedicated org account,
+  //  (c) account exists but unclaimed → claim it for this org.
   const allOrgs = await db.select({ id: organisations.id, name: organisations.name, accountId: organisations.accountId }).from(organisations);
   for (const o of allOrgs) {
-    if (o.accountId) continue;
-    const accountId = await ensureAccount({ name: o.name, organisationId: o.id });
-    if (accountId) {
-      await db.update(organisations).set({ accountId }).where(eq(organisations.id, o.id));
-      await db.update(crmAccounts).set({ organisationId: o.id, lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
-      orgs++;
+    const acc = o.accountId
+      ? (await db.select({ id: crmAccounts.id, organisationId: crmAccounts.organisationId }).from(crmAccounts).where(eq(crmAccounts.id, o.accountId)).limit(1))[0]
+      : null;
+
+    if (acc && acc.organisationId === o.id) {
+      // Already 1:1 — make sure it's marked a customer.
+      await db.update(crmAccounts).set({ lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, acc.id));
+      continue;
     }
+
+    let accountId: string;
+    if (acc && acc.organisationId && acc.organisationId !== o.id) {
+      // (b) shared with another org → dedicate.
+      accountId = await ensureDedicatedOrgAccount({ id: o.id, name: o.name });
+    } else if (acc && !acc.organisationId) {
+      // (c) unclaimed → claim.
+      accountId = acc.id;
+      await db.update(crmAccounts).set({ organisationId: o.id, lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
+    } else {
+      // (a) no account → find-or-create (routes to dedicated on collision).
+      accountId = await ensureAccount({ name: o.name, organisationId: o.id });
+      await db.update(crmAccounts).set({ organisationId: o.id, lifecycleStage: "customer", updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
+    }
+
+    await db.update(organisations).set({ accountId }).where(eq(organisations.id, o.id));
+    // This org's deals follow it onto the (possibly new) account.
+    await db.update(opportunities).set({ accountId }).where(eq(opportunities.orgId, o.id));
+    orgs++;
   }
 
   const allLeads = await db.select({ id: landingPageRequests.id, companyName: landingPageRequests.companyName, fullName: landingPageRequests.fullName, email: landingPageRequests.email, country: landingPageRequests.country, accountId: landingPageRequests.accountId }).from(landingPageRequests);
