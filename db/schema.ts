@@ -390,6 +390,35 @@ export const crmAccounts = pgTable("crm_accounts", {
 export type CrmAccount = typeof crmAccounts.$inferSelect;
 
 // =========================================================================
+// CRM ACTIVITIES — the durable, typed activity timeline (admin portal).
+// One row per event on an account: email sent/received, call logged, note,
+// task created/completed, status/stage change, sequence enrolled/sent, deal
+// created/moved, invoice issued, payment received, account created, owner set.
+// This is the single source of truth for "what happened" on a company — the
+// Account 360 timeline reads from here. Write via lib/admin/activities.logActivity.
+// =========================================================================
+export const crmActivities = pgTable("crm_activities", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  accountId:     uuid("account_id").references(() => crmAccounts.id, { onDelete: "cascade" }),
+  leadId:        uuid("lead_id"),         // soft link (no FK — leads may be pruned)
+  orgId:         uuid("org_id"),          // soft link
+  opportunityId: uuid("opportunity_id"),  // soft link
+  // email_sent | email_received | call_logged | note_added | task_created |
+  // task_completed | status_changed | sequence_enrolled | sequence_sent |
+  // deal_created | deal_moved | invoice_issued | payment_received |
+  // account_created | owner_assigned | customer_activated
+  type:          varchar("type", { length: 40 }).notNull(),
+  title:         varchar("title", { length: 300 }).notNull(),
+  body:          text("body"),
+  meta:          jsonb("meta"),           // type-specific extras (amounts, ids, links)
+  actorId:       uuid("actor_id"),        // admin who did it (null = system/automation)
+  actorName:     varchar("actor_name", { length: 255 }),
+  occurredAt:    timestamp("occurred_at").notNull().defaultNow(),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+});
+export type CrmActivity = typeof crmActivities.$inferSelect;
+
+// =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)
 // =========================================================================
 export const catalogItems = pgTable("catalog_items", {
