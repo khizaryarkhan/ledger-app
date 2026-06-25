@@ -4,7 +4,6 @@ import { opportunities, organisations, landingPageRequests, users, userOrganisat
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, randomBytes } from "crypto";
-import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
 
 const slugify = (s: string) =>
   (s || "customer").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "customer";
@@ -35,47 +34,39 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let orgId = opp.orgId;
   if (!orgId) {
     const slug = `${slugify(name)}-${randomUUID().slice(0, 6)}`;
+    // Pending shell: created Inactive. Access is granted only when the invoice
+    // is paid (Stripe invoice.paid → activateOrgOnPayment).
     const [org] = await db.insert(organisations).values({
-      name, slug, status: "Active", currency: (opp.currency || "EUR").toUpperCase().slice(0, 8),
+      name, slug, status: "Inactive", currency: (opp.currency || "EUR").toUpperCase().slice(0, 8),
     }).returning({ id: organisations.id });
     orgId = org.id;
     await db.update(opportunities).set({ orgId, updatedAt: new Date() }).where(eq(opportunities.id, params.id));
   }
 
-  // ── optionally provision the app account + set-password email ──
-  let provisioned = false, emailed = false;
+  // ── provision the PENDING shell user (Inactive, no invite email) ──
+  // The set-password invite + activation happen on payment, never at creation.
+  let provisioned = false;
   if (wantProvision) {
     const accountEmail = String(body.email || lead?.email || "").trim().toLowerCase();
     const accountName  = String(body.name || lead?.fullName || name).trim();
     if (accountEmail) {
       const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, accountEmail)).limit(1);
       if (existing) {
-        // Link the existing user to this org; don't re-send a welcome.
         await db.insert(userOrganisations).values({ userId: existing.id, orgId: orgId!, role: "company_admin" }).onConflictDoNothing();
         provisioned = true;
       } else {
-        const resetToken = randomBytes(32).toString("hex");
         const [u] = await db.insert(users).values({
           orgId: orgId!, name: accountName, email: accountEmail,
-          passwordHash: randomBytes(32).toString("hex"), // unusable until they set one
-          role: "company_admin", status: "Active",
-          resetToken, resetTokenExpiry: new Date(Date.now() + 72 * 60 * 60 * 1000),
-        }).returning({ id: users.id, name: users.name, email: users.email });
+          passwordHash: randomBytes(32).toString("hex"), // unusable until activation
+          role: "company_admin", status: "Inactive", // pending invite — no access yet
+        }).returning({ id: users.id });
         await db.insert(userOrganisations).values({ userId: u.id, orgId: orgId!, role: "company_admin" }).onConflictDoNothing();
-        try {
-          await sendSystemEmail({
-            to: u.email,
-            subject: "Welcome to Prime Accountax — set your password to get started",
-            html: renderPasswordResetEmail({ name: u.name, resetUrl: `${getAppUrl()}/reset-password?token=${resetToken}` }),
-          });
-          emailed = true;
-        } catch { /* account still created; email is best-effort */ }
         provisioned = true;
       }
     }
   }
 
   return NextResponse.json({
-    orgId, billingEmail: lead?.email ?? "", country: lead?.country ?? "", name, provisioned, emailed,
+    orgId, billingEmail: lead?.email ?? "", country: lead?.country ?? "", name, provisioned, pending: true,
   });
 }

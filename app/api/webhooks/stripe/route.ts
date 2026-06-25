@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { sendSystemEmail, renderPasswordResetEmail, getAppUrl } from "@/lib/system-mailer";
 import { syncSubscriptionFromStripe, syncCustomerBillingEmail, logBillingEvent } from "@/lib/billing";
+import { activateOrgOnPayment, orgIdForStripeCustomer } from "@/lib/admin/provisioning/provision-customer";
 import crypto from "crypto";
 
 export async function POST(req: NextRequest) {
@@ -270,6 +271,18 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.error("[stripe-webhook] invoice.paid subscription re-sync error:", err);
         }
+      }
+
+      // Payment received → activate the org + send set-password invites (idempotent).
+      // Single provisioning path for both subscription and one-off invoices.
+      try {
+        let orgId: string | null = null;
+        const [subRow2] = await db.select({ orgId: subscriptions.orgId }).from(subscriptions).where(eq(subscriptions.stripeCustomerId, customerId)).limit(1);
+        orgId = subRow2?.orgId ?? null;
+        if (!orgId) { const cust = await stripe.customers.retrieve(customerId); orgId = await orgIdForStripeCustomer(cust); }
+        if (orgId) await activateOrgOnPayment(orgId);
+      } catch (err) {
+        console.error("[stripe-webhook] invoice.paid activation error:", err);
       }
     }
 

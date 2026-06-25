@@ -572,7 +572,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
 
               <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 bg-stone-800/40 px-3 py-2.5 cursor-pointer">
                 <input type="checkbox" checked={createAccount} onChange={e => setCreateAccount(e.target.checked)} className="mt-0.5 accent-emerald-500" />
-                <span className="text-[12px] text-stone-300">Create their app account and email a <span className="text-stone-200">set-password link</span><span className="block text-[11px] text-stone-500 mt-0.5">They can sign in right away but stay gated until the invoice is paid.</span></span>
+                <span className="text-[12px] text-stone-300">Set up their app account <span className="text-stone-200">(activated on payment)</span><span className="block text-[11px] text-stone-500 mt-0.5">A pending account is created now; the set-password invite is sent automatically once the invoice is paid.</span></span>
               </label>
               <p className="text-[11px] text-stone-600">Stripe issues and emails the invoice. {mode === "subscription" ? "After the first payment it auto-charges each period from the saved card." : "A one-off invoice the customer pays online."}</p>
               {err && <p className="text-[12px] text-rose-400">{err}</p>}
