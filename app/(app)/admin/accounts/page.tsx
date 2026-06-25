@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Building2, Search, Users, Loader, Plus, Pencil, Trash2, CreditCard,
-  Download, X, ArrowUp, ArrowDown, ChevronsUpDown, TrendingUp,
+  Download, X, ArrowUp, ArrowDown, ChevronsUpDown, TrendingUp, ExternalLink,
 } from "lucide-react";
 import { Badge, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -34,6 +34,7 @@ type Row = {
   leadId: string | null; stage: string; deals: number; country: string | null;
   ownerId: string | null; owner: string | null; createdAt: number | null; lastActivity: number | null;
   // billing facet (null when not yet a customer)
+  stripeSubId: string | null; stripeCustomerId: string | null;
   status: string; source: string | null; billing: string; planName: string | null;
   planAmount: number | null; planCurrency: string; planInterval: string | null;
   mrr: number; lastPayment: number | null; lastPaymentStatus: string | null; renewsAt: number | null;
@@ -124,6 +125,7 @@ export default function AccountsPage() {
         stage: a.lifecycleStage, deals: a.deals, country: a.country,
         ownerId: a.ownerAdminId, owner: a.ownerName,
         createdAt: a.createdAt ? new Date(a.createdAt).getTime() : null, lastActivity: a.lastActivity ?? null,
+        stripeSubId: a.org?.stripeSubscriptionId ?? null, stripeCustomerId: a.org?.stripeCustomerId ?? null,
         status: c?.status ?? "none", source: c?.source ?? null, billing: c?.billing ?? "—",
         planName: c?.planName ?? null, planAmount: c?.planAmount ?? null,
         planCurrency: c?.planCurrency ?? "USD", planInterval: c?.planInterval ?? null,
@@ -176,9 +178,10 @@ export default function AccountsPage() {
 
   const exportCsv = () => {
     const iso = (t: number | null) => t ? new Date(t).toISOString().slice(0, 10) : "";
-    const head = ["Account ID", "Company", "Email", "Slug", "Stage", "Status", "Plan", "Billing", "Source", "MRR", "Deals", "Country", "Owner", "Created", "Last activity", "Last payment", "Renews/Expires"];
+    const head = ["Account ID", "Company", "Email", "Slug", "Stage", "Status", "Plan", "Billing", "Source", "Stripe Subscription", "Stripe Customer", "MRR", "Deals", "Country", "Owner", "Created", "Last activity", "Last payment", "Renews/Expires"];
     const lines = rows.map(c => [
       c.ref, c.name, c.email ?? "", c.slug ?? "", c.stage, c.status, c.planName ?? "", c.billing, c.source ?? "",
+      c.stripeSubId ?? "", c.stripeCustomerId ?? "",
       c.mrr ? (c.mrr / 100).toFixed(2) : "0", String(c.deals), c.country ?? "", c.owner ?? "",
       iso(c.createdAt), iso(c.lastActivity), iso(c.lastPayment), iso(c.renewsAt),
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -264,7 +267,7 @@ export default function AccountsPage() {
         <div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" />
       ) : (
         <div className="rounded-xl border border-stone-800 overflow-x-auto">
-          <table className="w-full text-sm min-w-[1600px]">
+          <table className="w-full text-sm min-w-[1750px]">
             <thead>
               <tr className="border-b border-stone-800 bg-stone-900/40">
                 <SortHead k="ref" label="Account ID" />
@@ -275,6 +278,7 @@ export default function AccountsPage() {
                 <SortHead k="planName" label="Plan" />
                 <SortHead k="billing" label="Billing" />
                 <SortHead k="source" label="Source" />
+                <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider text-stone-500 font-semibold text-left">Stripe Sub</th>
                 <SortHead k="mrr" label="MRR" right />
                 <SortHead k="deals" label="Deals" right />
                 <SortHead k="renewsAt" label="Renews / Expires" />
@@ -309,12 +313,12 @@ export default function AccountsPage() {
                     <option value="">All</option><option value="stripe">Stripe</option><option value="manual">Manual</option><option value="none">No sub</option>
                   </select>
                 </td>
-                <td /><td /><td /><td /><td /><td /><td />
+                <td /><td /><td /><td /><td /><td /><td /><td />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={15} className="py-14 text-center text-sm text-stone-500">No companies match these filters.</td></tr>
+                <tr><td colSpan={16} className="py-14 text-center text-sm text-stone-500">No companies match these filters.</td></tr>
               ) : rows.map(c => {
                 const s = STAGE[c.stage] ?? { label: c.stage, cls: "bg-stone-700 text-stone-400" };
                 return (
@@ -329,6 +333,18 @@ export default function AccountsPage() {
                     <td className="px-3 py-2.5 text-xs text-stone-300 whitespace-nowrap">{c.planName ? `${c.planName}${c.planAmount ? ` · ${fmt.money(c.planAmount / 100, c.planCurrency)}${c.planInterval ? `/${c.planInterval}` : ""}` : ""}` : <span className="text-stone-600">—</span>}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400">{c.billing}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400 capitalize">{c.source ?? "—"}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                      {c.stripeSubId ? (
+                        <span className="inline-flex items-center gap-1">
+                          <a href={`https://dashboard.stripe.com/subscriptions/${c.stripeSubId}`} target="_blank" rel="noreferrer"
+                            title={c.stripeSubId}
+                            className="font-mono text-[11px] text-sky-400 hover:text-sky-300 inline-flex items-center gap-1">
+                            {c.stripeSubId.slice(0, 14)}…<ExternalLink size={10} />
+                          </a>
+                          <CopyId id={c.stripeSubId} />
+                        </span>
+                      ) : <span className="text-stone-600 text-[11px]">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 text-xs text-stone-200 tabular-nums text-right">{c.mrr ? fmt.money(c.mrr / 100, c.planCurrency) : "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-stone-400 tabular-nums text-right">{c.deals || "—"}</td>
                     <td className="px-3 py-2.5 text-[11px] text-stone-400 whitespace-nowrap">{fmtDate(c.renewsAt)}</td>

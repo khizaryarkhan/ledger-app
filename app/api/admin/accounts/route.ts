@@ -41,6 +41,8 @@ export async function GET() {
         name:             organisations.name,
         status:           organisations.status,
         subId:            subscriptions.id,
+        stripeSubscriptionId: subscriptions.stripeSubscriptionId,
+        stripeCustomerId: subscriptions.stripeCustomerId,
         subStatus:        subscriptions.status,
         subSource:        subscriptions.source,
         planName:         subscriptions.planName,
