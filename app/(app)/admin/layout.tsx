@@ -6,7 +6,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
   Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
-  Trophy, Mail, Plug, Search, Bell, Package, ListTodo,
+  Trophy, Mail, Plug, Search, Bell, Package, ListTodo, BarChart3,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -20,6 +20,7 @@ const NAV: NavSection[] = [
     { href: "/admin/accounts",      icon: Building2, label: "Accounts" },
     { href: "/admin/leads",         icon: FileText,  label: "Leads" },
     { href: "/admin/opportunities", icon: Trophy,    label: "Opportunities" },
+    { href: "/admin/reports",       icon: BarChart3, label: "Reports" },
     { href: "/admin/inbox",         icon: Mail,      label: "Mail" },
   ] },
   { label: "BILLING", items: [
