@@ -15,6 +15,7 @@ type Opp = {
   title: string; value: number; currency: string; confidence: number;
   stage: string; status: string; expectedCloseDate: string | null; updatedAt: string | null;
   leadName?: string | null; leadCompany?: string | null; ownerName?: string | null;
+  invoiceStatus?: string | null; invoiceTotal?: number | null; invoiceCurrency?: string | null; invoiceUrl?: string | null;
 };
 type Lead = { id: string; fullName: string; companyName?: string | null };
 
@@ -213,10 +214,19 @@ function Board({ opps, dragId, setDragId, onDrop, onOpen, onNew, onInvoice }: an
                         </div>
                       </div>
                       {o.status === "won" && (
-                        <button onClick={e => { e.stopPropagation(); onInvoice(o); }}
-                          className="mt-2.5 ml-4 inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-semibold rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white">
-                          <Receipt size={12} /> Create invoice
-                        </button>
+                        o.invoiceStatus ? (
+                          <div className="mt-2.5 ml-4 flex items-center gap-1.5 text-[11px]">
+                            <Receipt size={12} className={o.invoiceStatus === "paid" ? "text-emerald-400" : "text-sky-400"} />
+                            <span className="text-stone-300">{o.invoiceTotal != null ? money((o.invoiceTotal || 0) / 100, (o.invoiceCurrency || o.currency || "USD").toUpperCase()) : "Invoiced"}</span>
+                            <span className={`px-1.5 py-0.5 rounded ${o.invoiceStatus === "paid" ? "bg-emerald-500/15 text-emerald-300" : "bg-sky-500/15 text-sky-300"}`}>{o.invoiceStatus}</span>
+                            {o.invoiceUrl && <a href={o.invoiceUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="ml-auto text-stone-500 hover:text-emerald-400">view</a>}
+                          </div>
+                        ) : (
+                          <button onClick={e => { e.stopPropagation(); onInvoice(o); }}
+                            className="mt-2.5 ml-4 inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-semibold rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white">
+                            <Receipt size={12} /> Create invoice
+                          </button>
+                        )
                       )}
                     </div>
                   );
@@ -472,6 +482,12 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
       const r = await fetch("/api/admin/billing/create-invoice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(d.error || "Failed to create invoice"); onToast({ ok: false, msg: d.error || "Failed" }); setSending(false); return; }
+      // Record the invoice on the deal itself (single source of truth on the opportunity).
+      const sentTotal = d.total ?? (mode === "subscription" ? Math.round((parseFloat(subAmount) || 0) * 100) : Math.round(total * 100));
+      try {
+        await fetch(`/api/admin/opportunities/${opp.id}`, { method: "PATCH", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ stripeInvoiceId: d.invoiceId ?? null, invoiceUrl: d.hostedInvoiceUrl ?? null, invoiceTotal: sentTotal, invoiceCurrency: d.currency ?? currency, invoiceStatus: d.status ?? "open", invoicedAt: new Date().toISOString() }) });
+      } catch {}
       if (createAccount) {
         try { await fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provision: true, email: email.trim() }) }); } catch {}
       }

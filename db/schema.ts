@@ -330,6 +330,14 @@ export const opportunities = pgTable("opportunities", {
   lostReason:       text("lost_reason"),
   ownerId:          uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
   createdBy:        uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  // Billing link — the deal's own record of what was invoiced (single source of
+  // truth on the deal; Stripe remains the source of truth for the money itself).
+  stripeInvoiceId:  varchar("stripe_invoice_id", { length: 255 }),
+  invoiceUrl:       text("invoice_url"),
+  invoiceTotal:     integer("invoice_total"),   // smallest unit (cents)
+  invoiceCurrency:  varchar("invoice_currency", { length: 3 }),
+  invoiceStatus:    varchar("invoice_status", { length: 20 }), // open | paid | void | ...
+  invoicedAt:       timestamp("invoiced_at"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
 });

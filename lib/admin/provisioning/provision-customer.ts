@@ -45,11 +45,14 @@ export async function activateOrgOnPayment(orgId: string): Promise<{ activated: 
     } catch { /* activation stands even if the email transport fails */ }
   }
 
-  // Mark the linked CRM lead/opportunity as won-customer (best-effort).
+  // Mark the linked CRM lead/opportunity as won-customer + invoice paid (best-effort).
   try {
     const [opp] = await db.select({ id: opportunities.id, leadId: opportunities.leadId }).from(opportunities).where(eq(opportunities.orgId, orgId)).limit(1);
-    if (opp?.leadId) {
-      await db.update(landingPageRequests).set({ status: "converted", updatedAt: new Date() }).where(eq(landingPageRequests.id, opp.leadId));
+    if (opp) {
+      await db.update(opportunities).set({ invoiceStatus: "paid", updatedAt: new Date() }).where(eq(opportunities.id, opp.id));
+      if (opp.leadId) {
+        await db.update(landingPageRequests).set({ status: "converted", updatedAt: new Date() }).where(eq(landingPageRequests.id, opp.leadId));
+      }
     }
   } catch { /* non-fatal */ }
 

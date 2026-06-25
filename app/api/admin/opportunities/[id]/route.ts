@@ -33,6 +33,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (b.orgId !== undefined) updates.orgId = b.orgId || null;
   if (b.ownerId !== undefined) updates.ownerId = b.ownerId || null;
   if (typeof b.lostReason === "string") updates.lostReason = b.lostReason.slice(0, 2000);
+  // Billing link (set after an invoice is created from the deal).
+  if (typeof b.stripeInvoiceId === "string") updates.stripeInvoiceId = b.stripeInvoiceId;
+  if (typeof b.invoiceUrl === "string") updates.invoiceUrl = b.invoiceUrl;
+  if (b.invoiceTotal != null && !isNaN(Number(b.invoiceTotal))) updates.invoiceTotal = parseInt(String(b.invoiceTotal));
+  if (typeof b.invoiceCurrency === "string") updates.invoiceCurrency = b.invoiceCurrency.toLowerCase().slice(0, 3);
+  if (typeof b.invoiceStatus === "string") updates.invoiceStatus = b.invoiceStatus.slice(0, 20);
+  if (b.invoicedAt !== undefined) updates.invoicedAt = b.invoicedAt ? new Date(b.invoicedAt) : null;
 
   try {
     const [row] = await db.update(opportunities).set(updates).where(eq(opportunities.id, params.id)).returning();
