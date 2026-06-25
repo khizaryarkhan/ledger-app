@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "npm run db:migrate && next build",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
@@ -18,6 +19,7 @@
     "@vercel/blob": "^0.27.3",
     "@vercel/functions": "^3.7.1",
     "bcryptjs": "^2.4.3",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.30.10",
     "groq-sdk": "^1.2.0",
     "imapflow": "^1.4.2",
