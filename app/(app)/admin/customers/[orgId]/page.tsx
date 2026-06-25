@@ -62,6 +62,28 @@ export default function CustomerDetailPage() {
   const money = (n: number) => fmt.money((n ?? 0) / 100, ccy);
   const date = (t: number | null) => t ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : "—";
 
+  // Record an offline-collected payment against a Stripe invoice (one ledger:
+  // marks it paid out-of-band, no card charged, access syncs via invoice.paid).
+  const [payInv, setPayInv]       = useState<any | null>(null);
+  const [payMethod, setPayMethod] = useState("bank_transfer");
+  const [payDate, setPayDate]     = useState("");
+  const [payNote, setPayNote]     = useState("");
+  const [payingOff, setPayingOff] = useState(false);
+
+  const submitMarkPaid = async () => {
+    if (!payInv) return;
+    setPayingOff(true);
+    try {
+      const r = await fetch(`/api/admin/billing/invoices/${payInv.id}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid", method: payMethod, receivedDate: payDate, note: payNote.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (r.ok) { setToast({ type: "success", message: "Offline payment recorded" }); setPayInv(null); load(); }
+      else setToast({ type: "error", message: d.error ?? "Failed" });
+    } finally { setPayingOff(false); }
+  };
+
   const invoiceAction = async (invId: string, body: any, confirmMsg?: string, promptNote?: boolean) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
     if (promptNote) { const n = window.prompt("Note / reference (optional):") ?? ""; body.note = n.trim() || undefined; }
@@ -237,6 +259,7 @@ export default function CustomerDetailPage() {
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-1.5">
                               {inv.hostedInvoiceUrl && <a href={inv.hostedInvoiceUrl} target="_blank" rel="noreferrer" className="text-stone-500 hover:text-sky-400 p-1"><ExternalLink size={13} /></a>}
+                              {(inv.status === "open" || inv.status === "draft") && <button onClick={() => { setPayInv(inv); setPayMethod("bank_transfer"); setPayDate(new Date().toISOString().slice(0, 10)); setPayNote(""); }} disabled={acting === inv.id} className="text-[11px] px-2 py-1 rounded border border-emerald-700/50 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 flex items-center gap-1"><CheckCircle2 size={11} /> Mark paid</button>}
                               {canVoid && <button onClick={() => invoiceAction(inv.id, { action: "void" }, `Void invoice ${inv.number ?? ""}?`)} disabled={acting === inv.id} className="text-[11px] px-2 py-1 rounded border border-rose-700/50 text-rose-400 hover:bg-rose-500/10 disabled:opacity-40 flex items-center gap-1"><Ban size={11} /> Void</button>}
                               {inv.status === "paid" && !inv.refunded && <button onClick={() => invoiceAction(inv.id, { action: "refund" }, `Refund ${money(inv.total)} to ${org.name}?${inv.isSubscription ? " The subscription will be cancelled." : ""}`, true)} disabled={acting === inv.id} className="text-[11px] px-2 py-1 rounded border border-amber-700/50 text-amber-400 hover:bg-amber-500/10 disabled:opacity-40 flex items-center gap-1"><Undo2 size={11} /> Refund</button>}
                             </div>
@@ -319,6 +342,34 @@ export default function CustomerDetailPage() {
             <input type="checkbox" checked={prorate} onChange={e => setProrate(e.target.checked)} className="accent-emerald-500" />
             Prorate the change for the current period
           </label>
+        </div>
+      </Modal>
+
+      <Modal open={!!payInv} onClose={() => setPayInv(null)} title="Record offline payment"
+        footer={<><Button variant="secondary" onClick={() => setPayInv(null)}>Cancel</Button>
+          <Button variant="primary" onClick={submitMarkPaid} disabled={payingOff || !payDate}>{payingOff ? "Recording…" : "Mark as paid"}</Button></>}>
+        <div className="px-5 py-5 space-y-4">
+          <p className="text-[12px] text-stone-500">Records payment received outside Stripe (bank transfer, cheque, cash…). The Stripe invoice is marked paid <span className="text-stone-300">out-of-band</span> — no card is charged — and access syncs as normal. Stripe stays the single ledger.</p>
+          {payInv && <p className="text-xs text-stone-400">Invoice <span className="font-mono text-stone-200">{payInv.number ?? payInv.id?.slice(0, 12)}</span> · <span className="text-stone-200">{money(payInv.total)}</span></p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-stone-400 block mb-1.5">Method</label>
+              <select value={payMethod} onChange={e => setPayMethod(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none">
+                {["bank_transfer", "cheque", "cash", "card_external", "other"].map(m => <option key={m} value={m}>{METHOD_LABEL[m] ?? m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-stone-400 block mb-1.5">Received date</label>
+              <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-stone-400 block mb-1.5">Reference / note (optional)</label>
+            <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="e.g. bank ref 12345 / cheque no."
+              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+          </div>
         </div>
       </Modal>
 
