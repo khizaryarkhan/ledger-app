@@ -28,7 +28,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .from(landingPageRequests).where(eq(landingPageRequests.id, opp.leadId)).limit(1)
     : [undefined as any];
 
-  const name = (lead?.companyName || lead?.fullName || opp.title || "Customer").trim();
+  // Admin-supplied company name takes priority over the guessed one.
+  const overrideName = typeof body.name === "string" ? body.name.trim() : "";
+  const name = (overrideName || lead?.companyName || lead?.fullName || opp.title || "Customer").trim();
 
   // ── ensure the organisation ──
   let orgId = opp.orgId;
@@ -41,6 +43,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }).returning({ id: organisations.id });
     orgId = org.id;
     await db.update(opportunities).set({ orgId, updatedAt: new Date() }).where(eq(opportunities.id, params.id));
+  } else if (overrideName) {
+    // Org already exists — keep its name in sync with what the admin typed.
+    await db.update(organisations).set({ name: overrideName, updatedAt: new Date() }).where(eq(organisations.id, orgId));
   }
 
   // ── provision the PENDING shell user (Inactive, no invite email) ──

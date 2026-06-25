@@ -430,6 +430,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
   const [currency, setCurrency] = useState((opp.currency || "EUR").toLowerCase());
   const [interval, setInterval] = useState<"month" | "year">("month");
   const [email, setEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState("");
   const [dueDays, setDueDays] = useState("14");
   const [memo, setMemo] = useState("");
@@ -441,7 +442,7 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
   useEffect(() => {
     fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST" })
       .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || "Could not set up customer"); return d; })
-      .then(d => { setOrgId(d.orgId); if (d.billingEmail) setEmail(d.billingEmail); setCountry(matchCountryCode(d.country)); })
+      .then(d => { setOrgId(d.orgId); if (d.billingEmail) setEmail(d.billingEmail); setCountry(matchCountryCode(d.country)); setCompanyName(d.name || ""); })
       .catch(e => setErr(e.message))
       .finally(() => setPrep(false));
     fetch("/api/admin/items").then(r => r.ok ? r.json() : { items: [] }).then(d => setCatalog((d.items ?? []).filter((i: any) => i.active !== false))).catch(() => {});
@@ -464,8 +465,12 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
 
   const send = async () => {
     if (!orgId) { setErr("Customer not ready"); return; }
+    if (!companyName.trim()) { onToast({ ok: false, msg: "Company name is required" }); return; }
     if (!email.trim()) { onToast({ ok: false, msg: "Billing email required" }); return; }
     setSending(true); setErr("");
+    // Set the customer/organisation name first so the Stripe customer + Customers
+    // list use the name the admin typed (not the guessed one).
+    try { await fetch(`/api/admin/opportunities/${opp.id}/customer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: companyName.trim() }) }); } catch {}
     const body: any = { orgId, mode, billingEmail: email.trim(), currency, country: country || undefined, daysUntilDue: parseInt(dueDays) || 14, memo: memo.trim() || undefined };
     if (mode === "subscription") {
       const amt = Math.round((parseFloat(subAmount) || 0) * 100);
@@ -529,6 +534,8 @@ function InvoiceModal({ opp, onClose, onSent, onToast }: {
                 </div>
                 <select className="h-8 px-2 text-xs rounded-md bg-stone-800 border border-stone-700 text-stone-200" value={currency} onChange={e => setCurrency(e.target.value)}>{["eur","usd","gbp","cad","aud"].map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}</select>
               </div>
+
+              <div><label className={lbl}>Company / customer name</label><input className={inp} value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="e.g. Acme Foods Ltd" /></div>
 
               {mode === "oneoff" ? (
                 <div>
