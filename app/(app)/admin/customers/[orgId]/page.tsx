@@ -182,6 +182,16 @@ export default function CustomerDetailPage() {
                 {sub.cancelAtPeriodEnd && <span className="text-amber-400 text-[11px] ml-1">(cancelling)</span>}
               </div>
             </div>
+            {sub.stripeSubscriptionId && (
+              <div><div className="text-[11px] text-stone-500 mb-0.5">Stripe Subscription</div>
+                <a href={`https://dashboard.stripe.com/subscriptions/${sub.stripeSubscriptionId}`} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300 font-mono text-xs inline-flex items-center gap-1">{String(sub.stripeSubscriptionId).slice(0, 18)}… <ExternalLink size={11} /></a>
+              </div>
+            )}
+            {sub.stripeCustomerId && (
+              <div><div className="text-[11px] text-stone-500 mb-0.5">Stripe Customer</div>
+                <a href={`https://dashboard.stripe.com/customers/${sub.stripeCustomerId}`} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300 font-mono text-xs inline-flex items-center gap-1">{String(sub.stripeCustomerId).slice(0, 18)}… <ExternalLink size={11} /></a>
+              </div>
+            )}
           </div>
         )}
       </Card>
