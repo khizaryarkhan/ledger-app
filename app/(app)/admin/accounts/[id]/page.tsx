@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft, Loader, Building2, Mail, StickyNote, CheckSquare, Send, Trophy,
-  FileText, CheckCircle2, User, ArrowRight, ExternalLink, CreditCard, Phone, Clock,
+  FileText, CheckCircle2, User, ArrowRight, ExternalLink, CreditCard, Phone, Clock, Sparkles,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -78,6 +78,18 @@ export default function Account360Page() {
     await fetch(`/api/admin/accounts/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerAdminId: ownerAdminId || null }) }).catch(() => {});
   };
 
+  // AI next-best-action (on demand).
+  const [nba, setNba] = useState<any>(null);
+  const [nbaLoading, setNbaLoading] = useState(false);
+  const suggest = async () => {
+    setNbaLoading(true); setNba(null);
+    try {
+      const r = await fetch(`/api/admin/accounts/${id}/next-action`, { method: "POST" });
+      const d = await r.json();
+      setNba(r.ok ? d : { error: d.error || "Failed" });
+    } catch { setNba({ error: "Failed" }); } finally { setNbaLoading(false); }
+  };
+
   if (loading) return <div className="max-w-[1300px] mx-auto"><div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" /></div>;
   if (!data?.account) return <div className="max-w-[1300px] mx-auto py-16 text-center text-stone-500">Account not found.</div>;
 
@@ -120,6 +132,33 @@ export default function Account360Page() {
             {a.organisationId && <Link href={`/admin/customers/${a.organisationId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CreditCard size={13} /> Billing</Link>}
             {a.leadId && <Link href={`/admin/leads/${a.leadId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Lead cockpit</Link>}
           </div>
+        </div>
+      </div>
+
+      {/* AI next-best-action */}
+      <div className="rounded-xl border border-violet-500/25 bg-violet-500/5 p-4 mb-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Sparkles size={15} className="text-violet-400 shrink-0" />
+            {nbaLoading ? (
+              <span className="text-sm text-stone-400">Thinking…</span>
+            ) : nba?.error ? (
+              <span className="text-sm text-rose-400">{nba.error}</span>
+            ) : nba?.action ? (
+              <div className="min-w-0">
+                <p className="text-sm text-stone-100">{nba.action}
+                  {nba.urgency && <span className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded ${nba.urgency === "high" ? "bg-rose-500/15 text-rose-300" : nba.urgency === "low" ? "bg-stone-700 text-stone-400" : "bg-amber-500/15 text-amber-300"}`}>{nba.urgency}</span>}
+                </p>
+                {nba.reason && <p className="text-[12px] text-stone-500 mt-0.5">{nba.reason}</p>}
+              </div>
+            ) : (
+              <span className="text-sm text-stone-400">Next best action</span>
+            )}
+          </div>
+          <button onClick={suggest} disabled={nbaLoading}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg bg-violet-600/80 hover:bg-violet-600 text-white shrink-0 disabled:opacity-60">
+            {nbaLoading ? <Loader size={13} className="animate-spin" /> : <Sparkles size={13} />} {nba?.action ? "Refresh" : "Suggest"}
+          </button>
         </div>
       </div>
 
