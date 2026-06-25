@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Building2, Search, Users, Loader, Plus, Pencil, Trash2, CreditCard } from "lucide-react";
-import { SubStatusBadge, fmtPlan, CreateOrgModal, EditOrgModal, DeleteOrgModal } from "../_org-management";
+import { SubStatusBadge, fmtPlan, CreateOrgModal, EditOrgModal, DeleteOrgModal, CopyId } from "../_org-management";
 
 type Account = {
   id: string; name: string; lifecycleStage: string; billingEmail: string | null; domain: string | null;
@@ -130,6 +130,12 @@ export default function AccountsPage() {
                         <div className="min-w-0">
                           <span className="text-stone-100 font-medium block leading-tight">{a.name}</span>
                           {a.billingEmail && <span className="text-[11px] text-stone-500 truncate block max-w-[220px]">{a.billingEmail}</span>}
+                          {/* Internal organisation ID is the real identity — names can collide at scale. */}
+                          {a.org?.slug && (
+                            <span className="text-[11px] text-stone-600 font-mono flex items-center leading-tight">
+                              /{a.org.slug}<CopyId id={a.organisationId!} />
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
