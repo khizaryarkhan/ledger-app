@@ -28,6 +28,7 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { logBillingEvent } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 
 export const maxDuration = 60;
 
@@ -191,6 +192,11 @@ export async function POST(req: Request) {
         newStatus:      sub.status,
         metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id },
       });
+      await logActivity({
+        type: "invoice_issued", title: `Invoice issued — ${d.planName ?? "subscription"} (${d.interval})`.slice(0, 300),
+        orgId: org.id, actorId: userId,
+        meta: { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id, stripeSubscriptionId: sub.id, hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null },
+      });
 
       return NextResponse.json({
         ok:               true,
@@ -243,6 +249,11 @@ export async function POST(req: Request) {
       organizationId: org.id,
       action:         "manual_invoice_sent",
       metadata:       { mode: "oneoff", invoiceId: sent.id, total: sent.total, currency },
+    });
+    await logActivity({
+      type: "invoice_issued", title: `Invoice issued${sent.number ? ` ${sent.number}` : ""} (one-off)`.slice(0, 300),
+      orgId: org.id, actorId: userId,
+      meta: { mode: "oneoff", invoiceId: sent.id, total: sent.total, currency, hostedInvoiceUrl: sent.hosted_invoice_url ?? null },
     });
 
     return NextResponse.json({

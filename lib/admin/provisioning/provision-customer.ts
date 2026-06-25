@@ -59,6 +59,11 @@ export async function activateOrgOnPayment(orgId: string): Promise<{ activated: 
       const { advanceAccountLifecycle } = await import("@/lib/admin/accounts");
       await advanceAccountLifecycle(org.accountId, "customer");
     }
+    const { logActivity } = await import("@/lib/admin/activities");
+    await logActivity({
+      type: "customer_activated", title: "Payment received — account activated",
+      accountId: org.accountId, orgId, meta: { invited },
+    });
   } catch { /* non-fatal */ }
 
   if (wasPending || invited > 0) {

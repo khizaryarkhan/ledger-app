@@ -1,5 +1,6 @@
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { getMailbox, sendMessage } from "@/lib/admin-mailbox";
 import { db } from "@/db";
 import { landingPageRequests, leadNotes } from "@/db/schema";
@@ -73,6 +74,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch {
     // Don't fail the send if the activity log write fails
   }
+
+  await logActivity({
+    type: "email_sent", title: `Email sent: ${subject.trim()}`.slice(0, 300),
+    body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName,
+    meta: { to: toAddress, cc: ccList.length ? ccList : undefined },
+  });
 
   return ok({ sent: true });
 }

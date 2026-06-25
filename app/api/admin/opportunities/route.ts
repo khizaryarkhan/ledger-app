@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
   // Resolve the company account BEFORE insert (account_id is NOT NULL): inherit
   // from the linked lead, then org, else find-or-create from the deal title.
   const { ensureAccount, advanceAccountLifecycle } = await import("@/lib/admin/accounts");
+  const { logActivity } = await import("@/lib/admin/activities");
   let accountId: string | null = null;
   if (b.leadId) {
     const [l] = await db.select({ accountId: landingPageRequests.accountId }).from(landingPageRequests).where(eq(landingPageRequests.id, b.leadId)).limit(1);
@@ -116,6 +117,13 @@ export async function POST(req: NextRequest) {
       // Opening a deal on a company advances its lifecycle (one company spine).
       try { await advanceAccountLifecycle(accountId, "qualified"); } catch { /* non-fatal */ }
     }
+
+    await logActivity({
+      type: status === "won" ? "deal_won" : "deal_created",
+      title: `Deal ${status === "won" ? "won" : "created"}: ${title}`.slice(0, 300),
+      accountId, leadId: b.leadId || null, orgId: b.orgId || null, opportunityId: row.id, actorId: (userId as string) || null,
+      meta: { value: row.value, currency: row.currency, stage },
+    });
     return NextResponse.json(row, { status: 201 });
   } catch (e) {
     if (isSchemaMissing(e)) {

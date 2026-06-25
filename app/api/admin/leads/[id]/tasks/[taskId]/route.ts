@@ -1,5 +1,6 @@
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { db } from "@/db";
 import { leadTasks } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -21,6 +22,7 @@ export async function PATCH(
     .returning();
 
   if (!task) return bad("Task not found", 404);
+  if (completed) await logActivity({ type: "task_completed", title: `Task completed: ${task.title}`.slice(0, 300), leadId: params.id });
   return ok(task);
 }
 

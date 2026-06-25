@@ -1,5 +1,6 @@
 import { ok } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { db } from "@/db";
 import { landingPageRequests, leadSequenceEnrollments, leadNotes } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -48,6 +49,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         : "Lead replied — marked as contacted",
     }),
   }).catch(() => {});
+
+  await logActivity({
+    type: "email_received", title: "Lead replied",
+    body: cancelled.length > 0 ? `${cancelled.length} active sequence(s) auto-stopped` : undefined,
+    leadId: params.id, actorId: authorId, actorName,
+  });
 
   return ok({
     sequencesCancelled: cancelled.length,

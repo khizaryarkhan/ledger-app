@@ -1,5 +1,6 @@
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { db } from "@/db";
 import { leadTasks } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
@@ -33,6 +34,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     dueDate:   dueDate ? new Date(dueDate) : null,
     createdBy,
   }).returning();
+
+  await logActivity({ type: "task_created", title: `Task: ${title.trim()}`.slice(0, 300), leadId: params.id, actorId: createdBy, meta: dueDate ? { dueDate } : undefined });
 
   return ok(task);
 }

@@ -1,5 +1,6 @@
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { db } from "@/db";
 import {
   leadSequenceEnrollments,
@@ -132,6 +133,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!isSchemaMissingError(e)) throw e;
     // sends table/column missing — enrolment still stands.
   }
+
+  await logActivity({ type: "sequence_enrolled", title: `Enrolled in sequence: ${seq.name}`.slice(0, 300), leadId: params.id, actorId: enrolledBy });
 
   return ok({ ...enrollment, sequenceName: seq.name });
   } catch (e) {

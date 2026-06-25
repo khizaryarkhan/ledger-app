@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { leadNotes } from "@/db/schema";
 import { ok, bad } from "@/lib/api";
 import { requirePlatformAdmin } from "@/lib/billing";
+import { logActivity } from "@/lib/admin/activities";
 import { eq, asc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       authorName,
       body:       body.trim(),
     }).returning();
+
+    await logActivity({ type: "note_added", title: "Note added", body: body.trim().slice(0, 300), leadId: params.id, actorId: authorId, actorName });
 
     return ok(note);
   } catch (e) {

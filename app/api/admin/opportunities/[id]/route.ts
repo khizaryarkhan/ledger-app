@@ -52,6 +52,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         .set({ status: "converted", updatedAt: new Date() })
         .where(and(eq(landingPageRequests.id, row.leadId), inArray(landingPageRequests.status, ["new", "contacted", "qualified"])));
     }
+
+    // Log a stage move (won/lost/other) to the activity timeline.
+    if (updates.stage !== undefined) {
+      const { logActivity } = await import("@/lib/admin/activities");
+      const t = updates.status === "won" ? "deal_won" : updates.status === "lost" ? "deal_lost" : "deal_moved";
+      await logActivity({
+        type: t as any, title: `Deal ${updates.status === "won" ? "won" : updates.status === "lost" ? "lost" : `moved to ${updates.stage}`}: ${row.title}`.slice(0, 300),
+        accountId: row.accountId, leadId: row.leadId, orgId: row.orgId, opportunityId: row.id,
+        meta: { stage: updates.stage, value: row.value, currency: row.currency },
+      });
+    }
     return NextResponse.json(row);
   } catch (e) {
     const m = ((e as any)?.message ?? "").toLowerCase();

@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { eq, and, lte } from "drizzle-orm";
 import { sendAdminEmail } from "@/lib/admin-mailbox";
+import { logActivity } from "@/lib/admin/activities";
 import { ok, bad } from "@/lib/api";
 import { NextRequest } from "next/server";
 
@@ -78,6 +79,12 @@ export async function POST(req: NextRequest) {
       await db.update(leadSequenceSends)
         .set({ status: "sent", sentAt: now })
         .where(eq(leadSequenceSends.id, item.sendId));
+
+      await logActivity({
+        type: "sequence_sent", title: `Sequence email sent: ${fill(item.stepSubject)}`.slice(0, 300),
+        leadId: item.leadId, actorId: item.enrolledBy,
+        meta: { sequence: item.seqName, step: item.stepNumber },
+      });
 
       // Log as activity note
       try {
