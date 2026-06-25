@@ -10,8 +10,8 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { landingPageRequests, leadTasks, leadSequenceSends, users } from "@/db/schema";
-import { eq, and, isNull, isNotNull, gte, lte } from "drizzle-orm";
+import { landingPageRequests, leadTasks, leadSequenceSends, users, crmEmails, crmActivities, opportunities } from "@/db/schema";
+import { eq, and, isNull, isNotNull, gte, lte, sql } from "drizzle-orm";
 import { requirePlatformAdmin } from "@/lib/billing";
 
 export const maxDuration = 60;
@@ -67,18 +67,56 @@ export async function GET() {
     })
     .sort((a, b) => a.dueDate - b.dueDate);
 
-  // ── Hot leads (prioritised open leads) ──────────────────────────────────
+  // ── Engagement signals (from the durable email + activity + deal spine) ───
+  const emailAgg = await db.select({
+    leadId:   crmEmails.leadId,
+    inbound:  sql<number>`(count(*) filter (where ${crmEmails.direction} = 'inbound'))::int`,
+    outbound: sql<number>`(count(*) filter (where ${crmEmails.direction} = 'outbound'))::int`,
+  }).from(crmEmails).groupBy(crmEmails.leadId);
+  const repliesByLead = new Map<string, number>();
+  const sentByLead = new Map<string, number>();
+  for (const e of emailAgg) if (e.leadId) { repliesByLead.set(e.leadId, e.inbound); sentByLead.set(e.leadId, e.outbound); }
+
+  const actAgg = await db.select({ leadId: crmActivities.leadId, lastAt: sql<string | null>`max(${crmActivities.occurredAt})` })
+    .from(crmActivities).groupBy(crmActivities.leadId);
+  const lastActByLead = new Map<string, number>();
+  for (const a of actAgg) if (a.leadId && a.lastAt) lastActByLead.set(a.leadId, new Date(a.lastAt).getTime());
+
+  const dealAgg = await db.select({
+    leadId: opportunities.leadId,
+    open:   sql<number>`(count(*) filter (where ${opportunities.status} = 'open'))::int`,
+    maxVal: sql<number>`coalesce(max(${opportunities.value}), 0)::int`,
+  }).from(opportunities).groupBy(opportunities.leadId);
+  const dealByLead = new Map<string, { open: number; maxVal: number }>();
+  for (const d of dealAgg) if (d.leadId) dealByLead.set(d.leadId, { open: d.open, maxVal: d.maxVal });
+
+  // ── Hot leads — multi-signal score (0–100) ────────────────────────────────
+  // stage + recency-of-last-touch + replies (strong intent) + outreach engaged
+  // + open task + open deal/value, minus a staleness penalty.
   const leadsWithOpenTask = new Set(tasks.map(t => t.leadId));
   const hotLeads = leads
     .filter(l => OPEN_STATUSES.includes(l.status))
     .map(l => {
       const ageDays = l.createdAt ? (now - new Date(l.createdAt).getTime()) / 86400000 : 999;
-      const recency = Math.max(0, 20 - ageDays);              // fresher = hotter
-      const score = (STAGE_WEIGHT[l.status] ?? 0) + recency + (leadsWithOpenTask.has(l.id) ? 8 : 0);
+      const lastAct = lastActByLead.get(l.id) ?? (l.updatedAt ? new Date(l.updatedAt).getTime() : 0);
+      const daysSinceActivity = lastAct ? (now - lastAct) / 86400000 : ageDays;
+      const replies = repliesByLead.get(l.id) ?? 0;
+      const sent = sentByLead.get(l.id) ?? 0;
+      const deal = dealByLead.get(l.id);
+      let score = STAGE_WEIGHT[l.status] ?? 0;
+      score += Math.max(0, 20 - daysSinceActivity);            // recent touch = hotter
+      score += replies * 15;                                   // a reply is the strongest signal
+      score += Math.min(sent, 5) * 2;                          // engaged in a conversation
+      if (leadsWithOpenTask.has(l.id)) score += 8;
+      if (deal && deal.open > 0) score += 20;                  // active deal
+      if (deal && deal.maxVal) score += Math.min(deal.maxVal / 1000, 15); // deal size
+      if (daysSinceActivity > 14) score -= 10;                 // going cold
+      score = Math.max(0, Math.min(100, score));
       return {
         id: l.id, fullName: l.fullName, companyName: l.companyName, email: l.email, status: l.status,
         createdAt: l.createdAt ? new Date(l.createdAt).getTime() : null,
-        ageDays: Math.round(ageDays), hasTask: leadsWithOpenTask.has(l.id), score: Math.round(score),
+        ageDays: Math.round(ageDays), hasTask: leadsWithOpenTask.has(l.id),
+        replies, daysSinceActivity: Math.round(daysSinceActivity), score: Math.round(score),
       };
     })
     .sort((a, b) => b.score - a.score)
