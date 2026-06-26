@@ -3,15 +3,15 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { OPP_STAGES } from "@/lib/opportunities";
+import { PIPELINE_STAGES, OFF_PIPELINE, isDealStage, stageLabel } from "@/lib/pipeline";
 import {
   ArrowLeft, Mail, StickyNote, CheckSquare, Trophy, Phone, Zap, Loader,
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
   Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X,
 } from "lucide-react";
 
-const STATUS = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
-const STATUS_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", qualified: "Qualified", converted: "Won", rejected: "Lost", archived: "Archived" };
+const STATUS = [...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => s.key);
+const STATUS_LABEL = Object.fromEntries([...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => [s.key, s.label])) as Record<string, string>;
 
 function money(v: number, ccy = "USD") {
   try { return new Intl.NumberFormat(undefined, { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(v || 0); } catch { return `${ccy} ${v}`; }
@@ -41,7 +41,6 @@ export default function LeadWorkspace() {
   const [lead, setLead] = useState<any>(null);
   const [notes, setNotes] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
-  const [opps, setOpps] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [inbound, setInbound] = useState<any[]>([]);
   const [account, setAccount] = useState<any>(null);
@@ -60,13 +59,12 @@ export default function LeadWorkspace() {
       fetch(`/api/admin/leads/${id}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/admin/leads/${id}/notes`).then(r => r.ok ? r.json() : []),
       fetch(`/api/admin/leads/${id}/tasks`).then(r => r.ok ? r.json() : []),
-      fetch(`/api/admin/opportunities?leadId=${id}`).then(r => r.ok ? r.json() : { opportunities: [] }),
       fetch(`/api/admin/leads/${id}/enrollments`).then(r => r.ok ? r.json() : []),
       fetch(`/api/admin/sequences`).then(r => r.ok ? r.json() : []),
       fetch(`/api/admin/leads/${id}/contacts`).then(r => r.ok ? r.json() : { contacts: [] }),
-    ]).then(([l, n, t, o, e, s, c]) => {
+    ]).then(([l, n, t, e, s, c]) => {
       setLead(l); setNotes(Array.isArray(n) ? n : []); setTasks(Array.isArray(t) ? t : []);
-      setOpps(o.opportunities ?? []); setEnrollments(Array.isArray(e) ? e : []);
+      setEnrollments(Array.isArray(e) ? e : []);
       setSequences((Array.isArray(s) ? s : []).filter((x: any) => x.isActive));
       setContacts(c.contacts ?? []);
     }).finally(() => setLoading(false));
@@ -116,35 +114,19 @@ export default function LeadWorkspace() {
   const insight = useMemo(() => {
     const isEmail = (n: any) => { try { return JSON.parse(n.body)?._type === "email"; } catch { return false; } };
     const emails = notes.filter(isEmail).length;
-    const openDeal = opps.find((o: any) => o.status === "open");
+    const dealActive = !!lead && isDealStage(lead.status);
     const engagement = Math.min(100, notes.length * 14);
     let next = "No activity yet — send an intro email to open the conversation.";
-    if (openDeal) next = `Advance “${openDeal.title}” — currently in ${OPP_STAGES.find(s => s.key === openDeal.stage)?.label ?? openDeal.stage}.`;
+    if (dealActive) next = `Advance this deal - currently in ${stageLabel(lead.status)}.`;
     if (activeEnrollment) next = `Enrolled in “${activeEnrollment.sequenceName}” — watch for a reply, then call.`;
-    return { emails, engagement, next, openDeal };
-  }, [notes, opps, activeEnrollment]);
+    return { emails, engagement, next, dealActive };
+  }, [notes, lead, activeEnrollment]);
 
   const setStatus = async (status: string) => {
     setSavingStatus(true);
     setLead((l: any) => ({ ...l, status }));
     await fetch(`/api/admin/leads/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
     setSavingStatus(false); setToast({ ok: true, msg: `Marked ${STATUS_LABEL[status]}` });
-  };
-
-  const [converting, setConverting] = useState(false);
-  // One-click lead → opportunity: create the deal (server auto-qualifies the lead).
-  const convertToOpportunity = async () => {
-    setConverting(true);
-    try {
-      const r = await fetch("/api/admin/opportunities", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ leadId: id, title: `${lead.companyName || lead.fullName} — deal`, stage: "discovery", currency: "USD" }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) { load(); setToast({ ok: true, msg: "Converted to opportunity" }); }
-      else setToast({ ok: false, msg: d.error ?? "Could not convert" });
-    } catch { setToast({ ok: false, msg: "Could not convert" }); }
-    finally { setConverting(false); }
   };
 
   if (loading) return <div className="max-w-6xl mx-auto"><div className="h-24 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse mb-4" /><div className="grid grid-cols-3 gap-4">{[1,2,3].map(i => <div key={i} className="h-80 bg-stone-900/40 border border-stone-800 rounded-xl animate-pulse" />)}</div></div>;
@@ -194,8 +176,8 @@ export default function LeadWorkspace() {
       {lead.status === "converted" && (
         <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3.5 flex items-center gap-2.5">
           <Trophy size={15} className="text-emerald-400 shrink-0" />
-          <p className="text-[13px] text-emerald-300 flex-1">This company is <b>won</b> — it's now a customer. Manage its billing under Customers.</p>
-          <Link href="/admin/customers" className="text-[12px] font-medium text-emerald-300 hover:text-emerald-200 whitespace-nowrap">Open Customers →</Link>
+          <p className="text-[13px] text-emerald-300 flex-1">This company is <b>won</b>. It now belongs in Accounts until an invoice or subscription is created.</p>
+          <Link href="/admin/accounts" className="text-[12px] font-medium text-emerald-300 hover:text-emerald-200 whitespace-nowrap">Open Accounts</Link>
         </div>
       )}
 
@@ -205,10 +187,10 @@ export default function LeadWorkspace() {
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stone-400"><Heart size={11} className="text-emerald-400" /> Engagement {insight.engagement}</span>
         </div>
         <p className="text-[13px] text-stone-300 leading-relaxed"><span className="text-stone-400">Next best action — </span>{insight.next}</p>
-        {lead.status !== "converted" && !insight.openDeal && (
-          <button onClick={convertToOpportunity} disabled={converting}
+        {lead.status !== "converted" && !insight.dealActive && (
+          <button onClick={() => setStatus("proposal")} disabled={savingStatus}
             className="mt-2.5 inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:bg-stone-700 text-white transition-colors">
-            {converting ? <Loader size={12} className="animate-spin" /> : <Trophy size={13} />} Convert to opportunity
+            {savingStatus ? <Loader size={12} className="animate-spin" /> : <Trophy size={13} />} Start deal stage
           </button>
         )}
       </div>
@@ -228,7 +210,7 @@ export default function LeadWorkspace() {
 
           <ContactsPanel leadId={id} contacts={contacts} onChange={load} onToast={setToast} />
 
-          <OpportunitiesPanel leadId={id} opps={opps} onChange={load} onToast={setToast} />
+          <DealPanel lead={lead} onChange={load} onToast={setToast} />
 
           <TasksPanel leadId={id} tasks={tasks} onChange={load} onToast={setToast} />
 
@@ -482,47 +464,73 @@ function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
   );
 }
 
-// ── Opportunities panel ────────────────────────────────────────────────────────
-function OpportunitiesPanel({ leadId, opps, onChange, onToast }: any) {
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState(""); const [value, setValue] = useState(""); const [stage, setStage] = useState("discovery");
-  const add = async () => {
-    if (!title.trim()) return;
-    const r = await fetch("/api/admin/opportunities", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, leadId, value: value ? parseInt(value) : 0, stage }) });
-    if (r.ok) { setTitle(""); setValue(""); setAdding(false); onChange(); onToast({ ok: true, msg: "Deal added" }); }
+// Deal panel - edits the lead's own deal fields; no separate opportunity object.
+function DealPanel({ lead, onChange, onToast }: any) {
+  const [editing, setEditing] = useState(false);
+  const [stage, setStage] = useState(isDealStage(lead.status) ? lead.status : "proposal");
+  const [value, setValue] = useState(lead.value != null ? String(lead.value) : "");
+  const [currency, setCurrency] = useState((lead.dealCurrency || "USD").toUpperCase());
+  const [expectedCloseDate, setExpectedCloseDate] = useState(lead.expectedCloseDate ? new Date(lead.expectedCloseDate).toISOString().slice(0, 10) : "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setStage(isDealStage(lead.status) ? lead.status : "proposal");
+    setValue(lead.value != null ? String(lead.value) : "");
+    setCurrency((lead.dealCurrency || "USD").toUpperCase());
+    setExpectedCloseDate(lead.expectedCloseDate ? new Date(lead.expectedCloseDate).toISOString().slice(0, 10) : "");
+  }, [lead.id, lead.status, lead.value, lead.dealCurrency, lead.expectedCloseDate]);
+
+  const save = async () => {
+    setSaving(true);
+    const r = await fetch(`/api/admin/leads/${lead.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        status: stage,
+        value: value === "" ? null : parseInt(value),
+        dealCurrency: currency,
+        expectedCloseDate: expectedCloseDate || null,
+      }),
+    });
+    setSaving(false);
+    if (r.ok) { setEditing(false); onChange(); onToast({ ok: true, msg: "Deal updated" }); }
     else { const d = await r.json().catch(() => ({})); onToast({ ok: false, msg: d.error ?? "Failed" }); }
   };
+
+  const hasDeal = isDealStage(lead.status) || lead.value != null || !!lead.expectedCloseDate;
   const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+  const startEditing = () => { if (!isDealStage(lead.status)) setStage("proposal"); setEditing(true); };
+
   return (
-    <Panel title="Opportunities" right={<button onClick={() => setAdding(a => !a)} className="text-stone-500 hover:text-emerald-400"><Plus size={14} /></button>}>
-      {adding && (
-        <div className="space-y-1.5 mb-3 pb-3 border-b border-stone-800">
-          <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder="Deal title" />
+    <Panel title="Deal" right={<button onClick={() => editing ? setEditing(false) : startEditing()} className="text-stone-500 hover:text-emerald-400">{editing ? <X size={14} /> : <Plus size={14} />}</button>}>
+      {editing ? (
+        <div className="space-y-1.5">
+          <select className={inp} value={stage} onChange={e => setStage(e.target.value)}>
+            {PIPELINE_STAGES.filter(s => s.deal).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
           <div className="grid grid-cols-2 gap-1.5">
-            <input className={inp} type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="Value" />
-            <select className={inp} value={stage} onChange={e => setStage(e.target.value)}>{OPP_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
+            <input className={inp} type="number" min="0" value={value} onChange={e => setValue(e.target.value)} placeholder="Value" />
+            <select className={inp} value={currency} onChange={e => setCurrency(e.target.value)}>{["USD", "EUR", "GBP"].map(c => <option key={c}>{c}</option>)}</select>
           </div>
-          <button onClick={add} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Add deal</button>
+          <input className={inp} type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} />
+          <button onClick={save} disabled={saving} className="w-full h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white">{saving ? "Saving..." : "Save deal"}</button>
         </div>
-      )}
-      {opps.length === 0 ? <p className="text-[12px] text-stone-600">No deals yet.</p> : (
+      ) : hasDeal ? (
+        <div className="space-y-2 text-[12px]">
+          <div className="flex justify-between"><span className="text-stone-500">Stage</span><span className="text-stone-200">{stageLabel(lead.status)}</span></div>
+          <div className="flex justify-between"><span className="text-stone-500">Value</span><span className="text-stone-200">{lead.value ? money(lead.value, lead.dealCurrency || "USD") : "-"}</span></div>
+          <div className="flex justify-between"><span className="text-stone-500">Expected close</span><span className="text-stone-200">{lead.expectedCloseDate ? new Date(lead.expectedCloseDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span></div>
+        </div>
+      ) : (
         <div className="space-y-2">
-          {opps.map((o: any) => {
-            const st = OPP_STAGES.find(s => s.key === o.stage);
-            return (
-              <Link key={o.id} href="/admin/opportunities" className="block rounded-lg border border-stone-800 hover:border-stone-600 p-2.5">
-                <div className="flex items-center justify-between gap-2"><span className="text-[12.5px] text-stone-200 truncate">{o.title}</span><span className="text-[12px] font-semibold text-stone-200">{money(o.value, o.currency)}</span></div>
-                <div className="flex items-center gap-2 mt-1"><span className="text-[10px] text-stone-500">{st?.label}</span><span className="text-[10px] text-stone-600">· {o.confidence}%</span></div>
-              </Link>
-            );
-          })}
+          <p className="text-[12px] text-stone-600">No deal fields yet. This lead becomes a deal by moving into Proposal, Negotiation, or Won.</p>
+          <button onClick={startEditing} className="w-full h-7 text-[11px] font-semibold rounded-md border border-stone-700 text-stone-300 hover:bg-stone-800">Start deal</button>
         </div>
       )}
     </Panel>
   );
 }
-
-// ── Tasks panel ────────────────────────────────────────────────────────────────
+// Tasks panel ────────────────────────────────────────────────────────────────
 const PRIO_DOT: Record<string, string> = { high: "bg-rose-500", normal: "bg-stone-600", low: "bg-stone-700" };
 const TASK_TYPE_LABEL: Record<string, string> = { todo: "To-do", call: "Call", email: "Email", follow_up: "Follow-up" };
 

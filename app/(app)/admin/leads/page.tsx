@@ -1926,7 +1926,7 @@ export default function LeadsPage() {
   const [selected, setSelected]             = useState<Set<string>>(new Set());
   const [showBatchEmail, setShowBatchEmail] = useState(false);
   const [seedingDefaults, setSeedingDefaults] = useState(false);
-  const [view, setView] = useState<"list" | "board">("list");
+  const [view, setView] = useState<"list" | "board">("board");
   const [sequences, setSequences] = useState<any[]>([]);
   const [colF, setColF] = useState({ name: "", email: "", service: "", status: "", source: "" });
 
