@@ -11,7 +11,7 @@ const safe = async <T>(p: Promise<T>, fallback: T): Promise<T> => { try { return
 // GET — the Account 360 payload: header, contacts, opportunities, tasks,
 // billing summary, and the activity timeline. One call powers the workspace.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { error } = await requirePlatformAdmin();
+  const { error, userId } = await requirePlatformAdmin();
   if (error) return error;
 
   const [account] = await db.select().from(crmAccounts).where(eq(crmAccounts.id, params.id)).limit(1);
@@ -21,6 +21,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const admins = await safe(db.select({ id: users.id, name: users.name, email: users.email })
     .from(users).where(inArray(users.role, ["super_admin", "platform_admin"])), [] as any[]);
   const ownerName = account.ownerAdminId ? (admins.find(a => a.id === account.ownerAdminId)?.name ?? null) : null;
+  // The signed-in rep's own scheduling link (for the "Book meeting" action).
+  const [viewer] = await safe(db.select({ schedulingUrl: users.schedulingUrl }).from(users).where(eq(users.id, userId!)).limit(1), [] as any[]);
+  const viewerSchedulingUrl = viewer?.schedulingUrl ?? null;
 
   // The most recent lead for this account (contacts/tasks hang off it).
   const [lead] = await safe(db.select().from(landingPageRequests)
@@ -79,6 +82,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
     lead: lead ? { id: lead.id, fullName: lead.fullName, email: lead.email, phone: lead.phone, companyName: lead.companyName, status: lead.status } : null,
     contacts, opportunities: opps, tasks, subscription, activities, admins, emailThreads, quotes,
+    viewerSchedulingUrl,
   });
 }
 

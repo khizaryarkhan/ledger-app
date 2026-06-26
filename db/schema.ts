@@ -77,6 +77,7 @@ export const users = pgTable("users", {
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  schedulingUrl: text("scheduling_url"), // rep's Calendly (or similar) booking link
   // TOTP multi-factor auth (currently enforced for super_admins who enrol).
   // mfaSecret is encrypted at rest (lib/crypto); recovery codes are bcrypt-hashed.
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),

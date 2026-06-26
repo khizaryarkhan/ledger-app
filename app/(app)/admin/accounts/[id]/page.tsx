@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Loader, Building2, Mail, StickyNote, CheckSquare, Send, Trophy,
   FileText, CheckCircle2, User, ArrowRight, ExternalLink, CreditCard, Phone, Clock, Sparkles,
-  Plus, X, Trash2,
+  Plus, X, Trash2, MessageCircle, CalendarCheck,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -45,6 +45,8 @@ const ACT: Record<string, { icon: any; cls: string }> = {
   customer_activated: { icon: CheckCircle2, cls: "text-emerald-400" },
   owner_assigned: { icon: User, cls: "text-stone-400" },
   account_created: { icon: Building2, cls: "text-stone-400" },
+  whatsapp_sent: { icon: MessageCircle, cls: "text-emerald-400" },
+  meeting_booked: { icon: CalendarCheck, cls: "text-sky-400" },
 };
 
 const when = (t: string | number | null) => {
@@ -175,6 +177,26 @@ export default function Account360Page() {
     } catch { setNba({ error: "Failed" }); } finally { setNbaLoading(false); }
   };
 
+  // Manual touches — call / whatsapp / meeting.
+  const [logKind, setLogKind] = useState<"call" | "whatsapp" | null>(null);
+  const [logOutcome, setLogOutcome] = useState("");
+  const [logNote, setLogNote] = useState("");
+  const [logFollowup, setLogFollowup] = useState("");
+  const [logSaving, setLogSaving] = useState(false);
+
+  const logTouch = async (type: string, extra: any = {}) => {
+    await fetch(`/api/admin/accounts/${id}/log-touch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, ...extra }) }).catch(() => {});
+    load();
+  };
+  const submitLog = async () => {
+    if (!logKind) return;
+    setLogSaving(true);
+    try {
+      await logTouch(logKind, { outcome: logOutcome || undefined, note: logNote || undefined, followupTitle: logFollowup || undefined });
+      setLogKind(null); setLogOutcome(""); setLogNote(""); setLogFollowup("");
+    } finally { setLogSaving(false); }
+  };
+
   if (loading) return <div className="max-w-[1300px] mx-auto"><div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" /></div>;
   if (!data?.account) return <div className="max-w-[1300px] mx-auto py-16 text-center text-stone-500">Account not found.</div>;
 
@@ -214,6 +236,12 @@ export default function Account360Page() {
                 {data.admins?.map((ad: any) => <option key={ad.id} value={ad.id}>{ad.name || ad.email}</option>)}
               </select>
             </div>
+            <button onClick={() => { const p = data.lead?.phone; if (p) window.open(`tel:${p}`); setLogKind("call"); }}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Phone size={13} /> Call</button>
+            <button onClick={() => { const p = (data.lead?.phone || "").replace(/\D/g, ""); if (p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(`Hi ${data.lead?.fullName ?? ""}`.trim())}`, "_blank"); setLogKind("whatsapp"); }}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-emerald-300 hover:bg-stone-800"><MessageCircle size={13} /> WhatsApp</button>
+            <button onClick={() => { if (data.viewerSchedulingUrl) { window.open(data.viewerSchedulingUrl, "_blank"); logTouch("meeting", { outcome: "booking link sent" }); } else alert("Add your Calendly link first: Settings → Email Integration → Scheduling link."); }}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CalendarCheck size={13} /> Book</button>
             {a.organisationId && <Link href={`/admin/customers/${a.organisationId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CreditCard size={13} /> Billing</Link>}
             {a.leadId && <Link href={`/admin/leads/${a.leadId}`} className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Lead cockpit</Link>}
           </div>
@@ -246,6 +274,33 @@ export default function Account360Page() {
           </button>
         </div>
       </div>
+
+      {/* Log-touch modal */}
+      {logKind && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-stone-900 rounded-xl w-full max-w-sm ring-1 ring-stone-800">
+            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+              <h2 className="font-semibold text-white flex items-center gap-2">{logKind === "call" ? <><Phone size={15} /> Log call</> : <><MessageCircle size={15} className="text-emerald-400" /> Log WhatsApp</>}</h2>
+              <button onClick={() => setLogKind(null)} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-xs text-stone-400 block mb-1.5">Outcome</label>
+                <select value={logOutcome} onChange={e => setLogOutcome(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200">
+                  <option value="">— select —</option>
+                  {(logKind === "call" ? ["Connected", "Left voicemail", "No answer", "Wrong number", "Not interested", "Interested", "Demo booked"] : ["Replied", "Sent", "No response"]).map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div><label className="text-xs text-stone-400 block mb-1.5">Note</label><textarea value={logNote} onChange={e => setLogNote(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="What happened…" /></div>
+              <div><label className="text-xs text-stone-400 block mb-1.5">Follow-up task (optional)</label><input value={logFollowup} onChange={e => setLogFollowup(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="e.g. Call back Friday" /></div>
+            </div>
+            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+              <button onClick={() => setLogKind(null)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+              <button onClick={submitLog} disabled={logSaving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">{logSaving ? "Saving…" : "Log it"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4">
         {/* Left: relations */}

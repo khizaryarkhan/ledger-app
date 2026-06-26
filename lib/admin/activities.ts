@@ -3,7 +3,7 @@ import { crmActivities, landingPageRequests, organisations, opportunities } from
 import { eq } from "drizzle-orm";
 
 export type ActivityType =
-  | "email_sent" | "email_received" | "call_logged" | "note_added"
+  | "email_sent" | "email_received" | "call_logged" | "whatsapp_sent" | "meeting_booked" | "note_added"
   | "task_created" | "task_completed" | "status_changed"
   | "sequence_enrolled" | "sequence_sent" | "sequence_stopped"
   | "deal_created" | "deal_moved" | "deal_won" | "deal_lost"
