@@ -41,8 +41,15 @@ export default function CampaignsPage() {
   };
 
   const toggle = async (c: Campaign) => {
-    setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: x.status === "active" ? "ended" : "active" } : x));
-    await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, status: c.status === "active" ? "ended" : "active" }) }).catch(() => {});
+    const prev = c.status;
+    const next = prev === "active" ? "ended" : "active";
+    setCampaigns(p => p.map(x => x.id === c.id ? { ...x, status: next } : x));
+    try {
+      const r = await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, status: next }) });
+      if (!r.ok) setCampaigns(p => p.map(x => x.id === c.id ? { ...x, status: prev } : x));
+    } catch {
+      setCampaigns(p => p.map(x => x.id === c.id ? { ...x, status: prev } : x));
+    }
   };
 
   const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";

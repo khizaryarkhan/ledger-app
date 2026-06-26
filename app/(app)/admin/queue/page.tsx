@@ -22,18 +22,32 @@ export default function QueuePage() {
   const [scope, setScope] = useState<"all" | "me">("all");
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
 
+  const [error, setError] = useState("");
+
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`/api/admin/queue?owner=${scope}`).then(r => r.ok ? r.json() : { tasks: [] })
-      .then(d => { setTasks(d.tasks ?? []); setDoneIds(new Set()); }).finally(() => setLoading(false));
+    setError("");
+    fetch(`/api/admin/queue?owner=${scope}`)
+      .then(async r => {
+        if (!r.ok) throw new Error("Failed to load queue");
+        return r.json();
+      })
+      .then(d => { setTasks(d.tasks ?? []); setDoneIds(new Set()); })
+      .catch(() => setError("Failed to load task queue"))
+      .finally(() => setLoading(false));
   }, [scope]);
   useEffect(() => { load(); }, [load]);
 
   const complete = async (t: Task) => {
     setDoneIds(prev => new Set(prev).add(t.id));
-    await fetch(`/api/admin/leads/${t.leadId}/tasks/${t.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed: true }),
-    }).catch(() => {});
+    try {
+      const r = await fetch(`/api/admin/leads/${t.leadId}/tasks/${t.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed: true }),
+      });
+      if (!r.ok) setDoneIds(prev => { const n = new Set(prev); n.delete(t.id); return n; });
+    } catch {
+      setDoneIds(prev => { const n = new Set(prev); n.delete(t.id); return n; });
+    }
   };
 
   const buckets = useMemo(() => {
@@ -109,6 +123,10 @@ export default function QueuePage() {
           ))}
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{error}</div>
+      )}
 
       {loading ? (
         <div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" />

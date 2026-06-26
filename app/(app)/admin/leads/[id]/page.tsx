@@ -7,7 +7,7 @@ import { PIPELINE_STAGES, OFF_PIPELINE, isDealStage, stageLabel } from "@/lib/pi
 import {
   ArrowLeft, Mail, StickyNote, CheckSquare, Trophy, Phone, Zap, Loader,
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
-  Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X,
+  Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X, CalendarCheck,
 } from "lucide-react";
 
 const STATUS = [...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => s.key);
@@ -53,6 +53,34 @@ export default function LeadWorkspace() {
   const [reader, setReader] = useState<any>(null);   // email being viewed
   const [compose, setCompose] = useState<any>(null); // {to, cc, bcc, subject, body}
   const [savingStatus, setSavingStatus] = useState(false);
+  const [schedulingUrl, setSchedulingUrl] = useState<string | null>(null);
+  const [logKind, setLogKind] = useState<"call" | "sms" | null>(null);
+  const [logOutcome, setLogOutcome] = useState("");
+  const [logNote, setLogNote] = useState("");
+  const [logFollowup, setLogFollowup] = useState("");
+  const [logSaving, setLogSaving] = useState(false);
+
+  const phone = lead?.phone || contacts.find((c: any) => c.isPrimary)?.phone || contacts[0]?.phone || "";
+
+  const logTouch = async (kind: "call" | "sms" | "meeting", extra: { outcome?: string; note?: string; followupTitle?: string } = {}) => {
+    const label = kind === "call" ? "Call" : kind === "sms" ? "SMS" : "Meeting";
+    const body = `${label} — ${extra.outcome || "logged"}${extra.note ? `: ${extra.note}` : ""}`;
+    await fetch(`/api/admin/leads/${id}/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ body }) });
+    if (extra.followupTitle?.trim()) {
+      const due = new Date(); due.setDate(due.getDate() + 1);
+      await fetch(`/api/admin/leads/${id}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: extra.followupTitle.trim(), dueDate: due.toISOString() }) });
+    }
+    load();
+  };
+
+  const submitLog = async () => {
+    if (!logKind) return;
+    setLogSaving(true);
+    try {
+      await logTouch(logKind, { outcome: logOutcome || undefined, note: logNote || undefined, followupTitle: logFollowup || undefined });
+      setLogKind(null); setLogOutcome(""); setLogNote(""); setLogFollowup("");
+    } finally { setLogSaving(false); }
+  };
 
   const load = useCallback(() => {
     Promise.all([
@@ -73,6 +101,7 @@ export default function LeadWorkspace() {
       .then(d => setInbound(Array.isArray(d.emails) ? d.emails : [])).catch(() => {});
     // Account 360 billing facet (org / subscription / invoices).
     fetch(`/api/admin/leads/${id}/account`).then(r => r.ok ? r.json() : null).then(setAccount).catch(() => {});
+    fetch("/api/admin/profile").then(r => r.ok ? r.json() : null).then(d => setSchedulingUrl(d?.schedulingUrl ?? null)).catch(() => {});
   }, [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t); } }, [toast]);
@@ -157,20 +186,73 @@ export default function LeadWorkspace() {
 
       {/* Quick action bar */}
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
-        {[
-          { label: "Email", icon: Mail, onClick: () => setCompose({ to: lead.email, cc: "", bcc: "", subject: "", body: "" }) },
-          { label: "Note", icon: StickyNote, onClick: () => setTab("note") },
-          { label: "Call", icon: Phone, soon: true },
-          { label: "SMS", icon: MessageSquare, soon: true },
-          { label: "Meeting", icon: Calendar, soon: true },
-        ].map(a => (
-          <button key={a.label} onClick={a.onClick} disabled={(a as any).soon}
-            title={(a as any).soon ? "Coming soon" : undefined}
-            className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${(a as any).soon ? "border-stone-800 text-stone-600 cursor-default" : "border-stone-700 text-stone-200 hover:bg-stone-800"}`}>
-            <a.icon size={13} /> {a.label}
-          </button>
-        ))}
+        <button onClick={() => setCompose({ to: lead.email, cc: "", bcc: "", subject: "", body: "" })}
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800">
+          <Mail size={13} /> Email
+        </button>
+        <button onClick={() => setTab("note")}
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800">
+          <StickyNote size={13} /> Note
+        </button>
+        <button disabled={!phone} title={!phone ? "No phone number on file" : undefined}
+          onClick={() => { if (phone) window.open(`tel:${phone}`); setLogKind("call"); }}
+          className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${phone ? "border-stone-700 text-stone-200 hover:bg-stone-800" : "border-stone-800 text-stone-600 cursor-default"}`}>
+          <Phone size={13} /> Call
+        </button>
+        <button disabled={!phone} title={!phone ? "No phone number on file" : undefined}
+          onClick={() => { if (phone) window.open(`sms:${phone}`); setLogKind("sms"); }}
+          className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${phone ? "border-stone-700 text-stone-200 hover:bg-stone-800" : "border-stone-800 text-stone-600 cursor-default"}`}>
+          <MessageSquare size={13} /> SMS
+        </button>
+        <button
+          onClick={() => {
+            if (schedulingUrl) { window.open(schedulingUrl, "_blank"); logTouch("meeting", { outcome: "booking link sent" }); }
+            else setToast({ ok: false, msg: "Add your Calendly link in Settings → Email Integration." });
+          }}
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800">
+          <CalendarCheck size={13} /> Meeting
+        </button>
       </div>
+
+      {/* Log call / SMS modal */}
+      {logKind && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-stone-900 rounded-xl w-full max-w-sm ring-1 ring-stone-800">
+            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+              <h2 className="font-semibold text-white flex items-center gap-2">
+                {logKind === "call" ? <><Phone size={15} /> Log call</> : <><MessageSquare size={15} /> Log SMS</>}
+              </h2>
+              <button onClick={() => setLogKind(null)} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-xs text-stone-400 block mb-1.5">Outcome</label>
+                <select value={logOutcome} onChange={e => setLogOutcome(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200">
+                  <option value="">Select…</option>
+                  {(logKind === "call"
+                    ? ["Connected", "Left voicemail", "No answer", "Wrong number", "Not interested", "Interested", "Demo booked"]
+                    : ["Sent", "Replied", "No response"]
+                  ).map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-stone-400 block mb-1.5">Notes (optional)</label>
+                <textarea value={logNote} onChange={e => setLogNote(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 resize-none" />
+              </div>
+              <div>
+                <label className="text-xs text-stone-400 block mb-1.5">Follow-up task (optional)</label>
+                <input value={logFollowup} onChange={e => setLogFollowup(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="e.g. Call back Friday" />
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+              <button onClick={() => setLogKind(null)} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200">Cancel</button>
+              <button onClick={submitLog} disabled={logSaving} className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">
+                {logSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Won → customer banner */}
       {lead.status === "converted" && (

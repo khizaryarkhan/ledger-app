@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const opps = await safe(db.select({
     id: opportunities.id, title: opportunities.title, stage: opportunities.stage, status: opportunities.status,
     value: opportunities.value, currency: opportunities.currency, invoiceStatus: opportunities.invoiceStatus,
-    invoiceUrl: opportunities.invoiceUrl, updatedAt: opportunities.updatedAt,
+    invoiceUrl: opportunities.invoiceUrl, leadId: opportunities.leadId, updatedAt: opportunities.updatedAt,
   }).from(opportunities).where(eq(opportunities.accountId, params.id)).orderBy(desc(opportunities.updatedAt)), [] as any[]);
 
   // Billing summary (subscription) for the linked org.

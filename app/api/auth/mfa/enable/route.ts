@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     .where(eq(users.id, userId))
     .limit(1);
   if (!u) return bad("Account not found", 404);
-  if (u.role !== "super_admin") return bad("MFA is available to super admins", 403);
+  if (u.role !== "super_admin" && u.role !== "platform_admin") return bad("MFA is available to platform admins", 403);
   if (u.mfaEnabled) return bad("MFA is already enabled", 409);
   if (!u.mfaSecret) return bad("Start setup first", 400);
 

@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { requireAuth, isSuperAdmin, isPlatformAdmin, ok, bad } from "@/lib/api";
 import { eq, or, desc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
@@ -10,7 +10,7 @@ const PLATFORM_ROLES = ["super_admin", "platform_admin"] as const;
 export async function GET() {
   const { error, session } = await requireAuth();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   const rows = await db
     .select({

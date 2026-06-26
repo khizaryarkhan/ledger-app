@@ -1,13 +1,13 @@
 import { db } from "@/db";
 import { leadEmailTemplates } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { requireAuth, isPlatformAdmin, ok, bad } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { error, session } = await requireAuth();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   const { name, subject, body, stage } = await req.json().catch(() => ({}));
   if (!name?.trim())    return bad("Name is required");
@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const { error, session } = await requireAuth();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   await db.delete(leadEmailTemplates).where(eq(leadEmailTemplates.id, params.id));
   return ok({ deleted: true });

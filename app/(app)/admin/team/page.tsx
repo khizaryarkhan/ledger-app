@@ -104,6 +104,7 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
 export default function TeamPage() {
   const { data: session } = useSession();
   const selfId = (session?.user as any)?.id;
+  const isSuperAdmin = (session?.user as any)?.role === "super_admin";
   const [admins, setAdmins] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -112,9 +113,15 @@ export default function TeamPage() {
 
   const load = async () => {
     setLoading(true);
+    setError("");
     try {
       const r = await fetch("/api/admin/platform-users");
-      if (r.ok) setAdmins(await r.json());
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(data.error ?? "Failed to load admin team"); setAdmins([]); return; }
+      setAdmins(Array.isArray(data) ? data : []);
+    } catch {
+      setError("Failed to load admin team");
+      setAdmins([]);
     } finally { setLoading(false); }
   };
 
@@ -152,8 +159,8 @@ export default function TeamPage() {
           <h1 className="text-base font-semibold text-white">Admin Team</h1>
           <p className="text-xs text-stone-500 mt-0.5">Platform admins with access to this portal</p>
         </div>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">
+        <button onClick={() => setShowAdd(true)} disabled={!isSuperAdmin} title={!isSuperAdmin ? "Only super admins can add team members" : undefined}
+          className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors">
           <Plus size={13} /> Add admin
         </button>
       </div>
@@ -184,6 +191,7 @@ export default function TeamPage() {
                   isSelf={admin.id === selfId}
                   toggling={toggling === admin.id}
                   onToggle={() => toggleStatus(admin)}
+                  canManage={isSuperAdmin}
                 />
               ))}
             </div>
@@ -203,6 +211,7 @@ export default function TeamPage() {
                     isSelf={admin.id === selfId}
                     toggling={toggling === admin.id}
                     onToggle={() => toggleStatus(admin)}
+                    canManage={isSuperAdmin}
                   />
                 ))}
               </div>
@@ -216,8 +225,8 @@ export default function TeamPage() {
   );
 }
 
-function AdminRow({ admin, isSelf, toggling, onToggle }: {
-  admin: any; isSelf: boolean; toggling: boolean; onToggle: () => void;
+function AdminRow({ admin, isSelf, toggling, onToggle, canManage }: {
+  admin: any; isSelf: boolean; toggling: boolean; onToggle: () => void; canManage: boolean;
 }) {
   const initials = admin.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const isSuper  = admin.role === "super_admin";
@@ -255,7 +264,7 @@ function AdminRow({ admin, isSelf, toggling, onToggle }: {
       </span>
 
       {/* Toggle */}
-      {!isSelf && (
+      {!isSelf && canManage && (
         <button onClick={onToggle} disabled={toggling}
           className={`flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[11px] font-medium transition-colors ${
             isActive

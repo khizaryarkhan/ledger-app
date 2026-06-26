@@ -319,7 +319,7 @@ export default function Account360Page() {
 
           <Panel title="Deals" count={data.opportunities?.length ?? 0}>
             {data.opportunities?.length ? data.opportunities.map((o: any) => (
-              <Link key={o.id} href="/admin/leads" className="flex items-center justify-between py-1.5 hover:bg-stone-800/30 rounded px-1 -mx-1">
+              <Link key={o.id} href={o.leadId ? `/admin/leads/${o.leadId}` : (data.account.leadId ? `/admin/leads/${data.account.leadId}` : "/admin/leads")} className="flex items-center justify-between py-1.5 hover:bg-stone-800/30 rounded px-1 -mx-1">
                 <div className="min-w-0">
                   <div className="text-sm text-stone-200 truncate">{o.title}</div>
                   <div className="text-[11px] text-stone-500 capitalize">{o.stage}{o.invoiceStatus ? ` · invoice ${o.invoiceStatus}` : ""}</div>

@@ -6,9 +6,11 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
   Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
-  Mail, Plug, Search, Bell, Package, ListTodo, BarChart3, Megaphone,
+  Mail, Plug, Search, Package, ListTodo, BarChart3, Megaphone, Receipt, Clock, Copy,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { AdminCommandPalette, useCommandPalette } from "./_command-palette";
+import { AdminNotifications } from "./_notifications";
 
 type NavItem = { href: string; icon: any; label: string; exact?: boolean };
 type NavSection = { label?: string; items: NavItem[] };
@@ -17,18 +19,21 @@ const NAV: NavSection[] = [
   { items: [{ href: "/admin", icon: LayoutDashboard, label: "Overview", exact: true }] },
   { label: "CRM", items: [
     { href: "/admin/queue",         icon: ListTodo,  label: "Today" },
-    { href: "/admin/accounts",      icon: Building2, label: "Accounts" },
+    { href: "/admin/accounts",      icon: Building2, label: "Billing actions" },
     { href: "/admin/leads",         icon: FileText,  label: "Pipeline" },
     { href: "/admin/reports",       icon: BarChart3, label: "Reports" },
     { href: "/admin/campaigns",     icon: Megaphone, label: "Campaigns" },
     { href: "/admin/inbox",         icon: Mail,      label: "Mail" },
+    { href: "/admin/accounts/duplicates", icon: Copy, label: "Duplicates" },
   ] },
   { label: "BILLING", items: [
     { href: "/admin/customers",     icon: Building2,  label: "Customers" },
     { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
+    { href: "/admin/invoices",      icon: Receipt,    label: "Invoices" },
     { href: "/admin/discounts",     icon: Percent,    label: "Discounts" },
     { href: "/admin/settings/items", icon: Package,   label: "Items" },
     { href: "/admin/cancellations", icon: XCircle,    label: "Cancellations" },
+    { href: "/admin/temp-access",   icon: Clock,      label: "Temp access" },
     { href: "/admin/audit",         icon: ScrollText, label: "Audit Log" },
   ] },
   { label: "SETTINGS", items: [
@@ -80,6 +85,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const user = session?.user as any;
+  const { open: searchOpen, setOpen: setSearchOpen } = useCommandPalette();
 
   if (role !== "super_admin" && role !== "platform_admin") {
     return (
@@ -152,17 +158,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Command top bar */}
         <header className="h-14 shrink-0 flex items-center gap-3 px-6" style={{ borderBottom: "0.5px solid #202A3E" }}>
-          <div className="flex-1 max-w-md h-9 rounded-xl flex items-center gap-2.5 px-3.5"
+          <button type="button" onClick={() => setSearchOpen(true)}
+            className="flex-1 max-w-md h-9 rounded-xl flex items-center gap-2.5 px-3.5 text-left transition-colors hover:border-stone-600"
             style={{ background: "#111726", border: "0.5px solid #202A3E" }}>
             <Search size={14} className="text-stone-600" />
             <span className="text-[12.5px] text-stone-600">Search leads, deals, customers…</span>
             <span className="ml-auto text-[10px] text-stone-500 px-1.5 py-0.5 rounded-md" style={{ background: "#1B2336" }}>⌘K</span>
-          </div>
-          <div className="flex-1" />
-          <button className="w-9 h-9 rounded-xl flex items-center justify-center text-stone-500 hover:text-stone-200 transition-colors" style={{ background: "#111726", border: "0.5px solid #202A3E" }}>
-            <Bell size={15} />
           </button>
+          <div className="flex-1" />
+          <AdminNotifications />
         </header>
+
+        <AdminCommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
 
         <main className="flex-1 min-w-0 p-6 overflow-auto">{children}</main>
       </div>

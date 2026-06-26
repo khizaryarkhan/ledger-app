@@ -27,6 +27,11 @@ export function isSuperAdmin(session: any) {
   return (session?.user as any)?.role === "super_admin";
 }
 
+export function isPlatformAdmin(session: any) {
+  const role = (session?.user as any)?.role;
+  return role === "super_admin" || role === "platform_admin";
+}
+
 // Returns orgId, role, repId for the ACTIVE org — strict membership-validated.
 //
 // Hardening (CRITICAL for multi-tenant safety):

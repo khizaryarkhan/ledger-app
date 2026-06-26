@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { leadEmailTemplates } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { requireAuth, isPlatformAdmin, ok, bad } from "@/lib/api";
 import { desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
@@ -12,7 +12,7 @@ function isTableMissingError(e: unknown): boolean {
 export async function GET() {
   const { error, session } = await requireAuth();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   try {
     const templates = await db
@@ -29,7 +29,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const { error, session } = await requireAuth();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
+  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   const { name, subject, body, stage } = await req.json().catch(() => ({}));
   if (!name?.trim())    return bad("Name is required");

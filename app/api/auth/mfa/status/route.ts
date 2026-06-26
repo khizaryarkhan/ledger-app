@@ -16,6 +16,6 @@ export async function GET() {
     .limit(1);
   if (!u) return bad("Account not found", 404);
 
-  // MFA is currently offered to super admins (highest-privilege accounts).
-  return ok({ eligible: u.role === "super_admin", enabled: !!u.mfaEnabled });
+  // MFA is offered to platform administrators.
+  return ok({ eligible: u.role === "super_admin" || u.role === "platform_admin", enabled: !!u.mfaEnabled });
 }

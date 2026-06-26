@@ -37,8 +37,8 @@ export default function AccountsActionQueue() {
   return (
     <div className="max-w-[1000px] mx-auto">
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-white">Accounts</h1>
-        <p className="text-xs text-stone-500 mt-0.5">Companies needing a billing action — won deals to invoice, and payment problems to fix. Everything else lives in <button onClick={() => router.push("/admin/leads")} className="text-sky-400 hover:text-sky-300">Pipeline</button> or <button onClick={() => router.push("/admin/customers")} className="text-sky-400 hover:text-sky-300">Customers</button>.</p>
+        <h1 className="text-xl font-bold text-white">Billing actions</h1>
+        <p className="text-xs text-stone-500 mt-0.5">Companies needing a billing action — won deals to invoice, and payment problems to fix. Browse all companies in <button onClick={() => router.push("/admin/leads")} className="text-sky-400 hover:text-sky-300">Pipeline</button> or <button onClick={() => router.push("/admin/customers")} className="text-sky-400 hover:text-sky-300">Customers</button>.</p>
       </div>
 
       {toast && <div className="mb-4 text-[12px] text-emerald-400">{toast}</div>}

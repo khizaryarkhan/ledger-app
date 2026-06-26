@@ -35,8 +35,8 @@ function AdminDashboard() {
     { label: "Pending cancellations", key: "pendingCancellations", icon: XCircle,       color: "amber",   href: "/admin/cancellations", alert: true },
     { label: "New leads",             key: "newLeads",             icon: FileText,      color: "blue",    href: "/admin/leads", alert: true },
     { label: "Failed payments",       key: "failedPayments",       icon: CreditCard,    color: "rose",    href: "/admin/subscriptions", alert: true },
-    { label: "Customers",             key: "totalOrgs",            icon: Building2,     color: "stone",   href: "/admin/accounts" },
-    { label: "Total users",           key: "totalUsers",           icon: Users,         color: "stone",   href: "/admin/accounts" },
+    { label: "Customers",             key: "totalOrgs",            icon: Building2,     color: "stone",   href: "/admin/customers" },
+    { label: "Total users",           key: "totalUsers",           icon: Users,         color: "stone",   href: "/admin/team" },
   ];
 
   const colorMap: Record<StatColor, { bg: string; icon: string; val: string }> = {
@@ -171,23 +171,23 @@ function AdminDashboard() {
 }
 
 // ============================================================
-// MAIN ADMIN PAGE — command center only. The company directory lives on Accounts.
+// MAIN ADMIN PAGE — command center for platform administrators.
 // ============================================================
 export default function AdminPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const role = (session?.user as any)?.role;
   const isSuperAdmin = role === "super_admin";
-  const isAdmin = ["super_admin", "company_admin"].includes(role);
+  const isPlatformAdmin = role === "super_admin" || role === "platform_admin";
 
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin && session) router.push("/dashboard");
-  }, [isAdmin, session, router]);
+    if (!isPlatformAdmin && session) router.push("/dashboard");
+  }, [isPlatformAdmin, session, router]);
 
-  if (!isAdmin) return null;
+  if (!isPlatformAdmin) return null;
 
   return (
     <div className="max-w-[1100px]">
@@ -202,30 +202,41 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Command-center KPIs + worklist */}
-      {isSuperAdmin && <AdminDashboard key={refreshKey} />}
+      <AdminDashboard key={refreshKey} />
 
-      {/* Single directory pointer — companies live in one place: Accounts. */}
-      {isSuperAdmin && (
-        <Link href="/admin/accounts"
-          className="group mt-4 flex items-center gap-3 rounded-xl border border-stone-800 bg-stone-900 px-4 py-3.5 hover:border-stone-600 transition-colors">
+      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+        <Link href="/admin/leads"
+          className="group flex items-center gap-3 rounded-xl border border-stone-800 bg-stone-900 px-4 py-3.5 hover:border-stone-600 transition-colors">
+          <div className="w-9 h-9 rounded-lg bg-stone-800 flex items-center justify-center shrink-0">
+            <FileText size={16} className="text-stone-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white">Pipeline</p>
+            <p className="text-[11px] text-stone-500">Browse all leads and deals across every stage.</p>
+          </div>
+          <span className="text-xs text-stone-400 group-hover:text-stone-200 flex items-center gap-1 shrink-0">
+            Open <ArrowUpRight size={12} />
+          </span>
+        </Link>
+        <Link href="/admin/customers"
+          className="group flex items-center gap-3 rounded-xl border border-stone-800 bg-stone-900 px-4 py-3.5 hover:border-stone-600 transition-colors">
           <div className="w-9 h-9 rounded-lg bg-stone-800 flex items-center justify-center shrink-0">
             <Building2 size={16} className="text-stone-400" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white">All companies</p>
-            <p className="text-[11px] text-stone-500">Leads, prospects and customers in one directory — the single source of truth.</p>
+            <p className="text-sm font-medium text-white">Customers</p>
+            <p className="text-[11px] text-stone-500">Provisioned organisations with subscriptions and billing.</p>
           </div>
           <span className="text-xs text-stone-400 group-hover:text-stone-200 flex items-center gap-1 shrink-0">
-            Open Accounts <ArrowUpRight size={12} />
+            Open <ArrowUpRight size={12} />
           </span>
         </Link>
-      )}
+      </div>
 
       {showCreateOrg && (
         <CreateOrgModal
           onClose={() => setShowCreateOrg(false)}
-          onCreated={() => router.push("/admin/accounts")}
+          onCreated={() => router.push("/admin/customers")}
         />
       )}
     </div>
