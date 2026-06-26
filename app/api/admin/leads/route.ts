@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { landingPageRequests, users, leadSequenceEnrollments, leadSequences } from "@/db/schema";
+import { landingPageRequests, users, leadSequenceEnrollments, leadSequences, crmAccounts, organisations, subscriptions } from "@/db/schema";
 import { requirePlatformAdmin } from "@/lib/billing";
-import { eq, desc, ilike, or } from "drizzle-orm";
+import { eq, desc, ilike, or, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export async function GET(req: NextRequest) {
@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       message:          landingPageRequests.message,
       source:           landingPageRequests.source,
       status:           landingPageRequests.status,
+      accountId:        landingPageRequests.accountId,
       value:            landingPageRequests.value,
       dealCurrency:     landingPageRequests.dealCurrency,
       expectedCloseDate: landingPageRequests.expectedCloseDate,
@@ -67,9 +68,21 @@ export async function GET(req: NextRequest) {
     .where(eq(leadSequenceEnrollments.status, "active"));
   const activeByLead = new Map(active.map(a => [a.leadId, a]));
 
+  // "Billed" accounts (invoice OR subscription exists) — these have become
+  // Customers and must drop off the Pipeline's Won column.
+  const billed = new Set<string>();
+  try {
+    const inv = await db.select({ id: crmAccounts.id }).from(crmAccounts).where(isNotNull(crmAccounts.firstInvoicedAt));
+    for (const a of inv) billed.add(a.id);
+    const subs = await db.select({ accountId: organisations.accountId })
+      .from(organisations).innerJoin(subscriptions, eq(subscriptions.orgId, organisations.id));
+    for (const s of subs) if (s.accountId) billed.add(s.accountId);
+  } catch { /* tables may not exist yet */ }
+
   const leads = (rows as any[]).map(l => ({
     ...l,
     activeSequence: activeByLead.get(l.id) ?? null,
+    billed: l.accountId ? billed.has(l.accountId) : false,
   }));
   return NextResponse.json({ leads });
 }

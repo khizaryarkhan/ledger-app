@@ -1,0 +1,1 @@
+ALTER TABLE "crm_accounts" ADD COLUMN "first_invoiced_at" timestamp;

@@ -22,7 +22,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { subscriptions, organisations } from "@/db/schema";
+import { subscriptions, organisations, crmAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { stripe } from "@/lib/stripe";
@@ -73,11 +73,18 @@ export async function POST(req: Request) {
 
   // ── Org ─────────────────────────────────────────────────────────────────
   const [org] = await db
-    .select({ id: organisations.id, name: organisations.name })
+    .select({ id: organisations.id, name: organisations.name, accountId: organisations.accountId })
     .from(organisations)
     .where(eq(organisations.id, d.orgId))
     .limit(1);
   if (!org) return NextResponse.json({ error: "Organisation not found" }, { status: 404 });
+
+  // "Billed" trigger: stamp the account's first-invoiced time so it moves out of
+  // the Accounts action-queue into the Customers book. Best-effort, set-once.
+  const markBilled = async () => {
+    if (!org.accountId) return;
+    try { await db.update(crmAccounts).set({ firstInvoicedAt: new Date(), updatedAt: new Date() }).where(eq(crmAccounts.id, org.accountId)); } catch {}
+  };
 
   // ── Existing subscription row (for a reusable Stripe customer) ────────────
   const [existingSub] = await db
@@ -197,6 +204,7 @@ export async function POST(req: Request) {
         orgId: org.id, actorId: userId,
         meta: { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id, stripeSubscriptionId: sub.id, hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null },
       });
+      await markBilled();
 
       return NextResponse.json({
         ok:               true,
@@ -255,6 +263,7 @@ export async function POST(req: Request) {
       orgId: org.id, actorId: userId,
       meta: { mode: "oneoff", invoiceId: sent.id, total: sent.total, currency, hostedInvoiceUrl: sent.hosted_invoice_url ?? null },
     });
+    await markBilled();
 
     return NextResponse.json({
       ok:               true,

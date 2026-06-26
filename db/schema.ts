@@ -394,6 +394,9 @@ export const crmAccounts = pgTable("crm_accounts", {
   stripeCustomerId: text("stripe_customer_id"),
   ownerAdminId:    uuid("owner_admin_id").references(() => users.id, { onDelete: "set null" }),
   status:          varchar("status", { length: 20 }).notNull().default("active"),
+  // Set when the first invoice/subscription is created — flips a Won deal out of
+  // the Accounts action-queue and into the Customers book (the "billed" trigger).
+  firstInvoicedAt: timestamp("first_invoiced_at"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
 });

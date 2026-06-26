@@ -6,7 +6,7 @@ import { Phone, Loader, GripVertical } from "lucide-react";
 import { PIPELINE_STAGES, OFF_PIPELINE } from "@/lib/pipeline";
 import { fmt } from "@/lib/format";
 
-type Lead = { id: string; fullName: string; companyName?: string | null; email?: string; status: string; createdAt?: string; value?: number | null; dealCurrency?: string | null };
+type Lead = { id: string; fullName: string; companyName?: string | null; email?: string; status: string; createdAt?: string; value?: number | null; dealCurrency?: string | null; billed?: boolean };
 
 const TONE: Record<string, { color: string; dot: string }> = {
   sky:     { color: "border-sky-500/40",     dot: "bg-sky-400" },
@@ -73,7 +73,7 @@ export function LeadsBoard({ leads, onOpen, onReload, onToast }: {
     <div className="overflow-x-auto pb-2">
       <div className="flex gap-3 min-w-[1000px]">
         {COLUMNS.map(col => {
-          const cards = local.filter(l => l.status === col.key);
+          const cards = local.filter(l => l.status === col.key && !l.billed);
           return (
             <div key={col.key}
               onDragOver={e => e.preventDefault()}

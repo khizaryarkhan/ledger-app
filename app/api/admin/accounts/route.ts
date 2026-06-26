@@ -1,118 +1,82 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, opportunities, organisations, subscriptions, userOrganisations, users } from "@/db/schema";
-import { desc, eq, sql, inArray } from "drizzle-orm";
+import { crmAccounts, landingPageRequests, organisations, subscriptions, users } from "@/db/schema";
+import { desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { formatAccountRef } from "@/lib/admin/accounts";
+import { billingBucket, isPaymentFailed } from "@/lib/admin/billing-state";
 
 function schemaMissing(e: unknown) {
   return ((e as any)?.message ?? "").toLowerCase().includes("does not exist");
 }
 
-// GET — the unified company directory. One row per crm_accounts, enriched with a
-// lead link (if any), the billing org + its status, and a deal count. Each row
-// routes to the right 360 (lead cockpit when a lead exists, else customer detail).
+// GET — the Accounts ACTION QUEUE (not a directory). Every company lives in one
+// place by state: selling → Pipeline, billed → Customers, and here only the ones
+// that need a billing action:
+//   • won_unbilled  — a Won deal with no invoice/subscription yet → create one
+//   • payment_failed — a billed customer whose auto-payment failed → fix it
 export async function GET() {
   const { error } = await requirePlatformAdmin();
   if (error) return error;
 
   try {
-    const accounts = await db.select().from(crmAccounts).orderBy(desc(crmAccounts.updatedAt));
-    if (accounts.length === 0) return NextResponse.json({ accounts: [] });
+    const accounts = await db.select({
+      id: crmAccounts.id, refSeq: crmAccounts.refSeq, name: crmAccounts.name,
+      billingEmail: crmAccounts.billingEmail, organisationId: crmAccounts.organisationId,
+      ownerAdminId: crmAccounts.ownerAdminId, lifecycleStage: crmAccounts.lifecycleStage,
+      firstInvoicedAt: crmAccounts.firstInvoicedAt,
+    }).from(crmAccounts).orderBy(desc(crmAccounts.updatedAt));
+    if (accounts.length === 0) return NextResponse.json({ wonUnbilled: [], paymentFailed: [] });
 
-    // One lead per account (most recent), for routing + last-activity.
-    const leadRows = await db.select({ accountId: landingPageRequests.accountId, id: landingPageRequests.id, updatedAt: landingPageRequests.updatedAt })
-      .from(landingPageRequests).orderBy(desc(landingPageRequests.createdAt));
-    const leadByAccount = new Map<string, string>();
-    const leadActivityByAccount = new Map<string, number>();
-    for (const l of leadRows) {
-      if (!l.accountId) continue;
-      if (!leadByAccount.has(l.accountId)) leadByAccount.set(l.accountId, l.id);
-      const t = l.updatedAt ? new Date(l.updatedAt).getTime() : 0;
-      leadActivityByAccount.set(l.accountId, Math.max(leadActivityByAccount.get(l.accountId) ?? 0, t));
-    }
+    // Most-recent lead per account (for stage + deal value).
+    const leadRows = await db.select({
+      accountId: landingPageRequests.accountId, id: landingPageRequests.id, status: landingPageRequests.status,
+      fullName: landingPageRequests.fullName, email: landingPageRequests.email,
+      value: landingPageRequests.value, dealCurrency: landingPageRequests.dealCurrency,
+    }).from(landingPageRequests).orderBy(desc(landingPageRequests.createdAt));
+    const leadByAccount = new Map<string, any>();
+    for (const l of leadRows) if (l.accountId && !leadByAccount.has(l.accountId)) leadByAccount.set(l.accountId, l);
 
-    // Org + subscription per linked organisation (left-join so the directory
-    // carries the billing signal — the org table used to show this separately).
-    const orgRows = await db
-      .select({
-        id:               organisations.id,
-        slug:             organisations.slug,
-        name:             organisations.name,
-        status:           organisations.status,
-        subId:            subscriptions.id,
-        stripeSubscriptionId: subscriptions.stripeSubscriptionId,
-        stripeCustomerId: subscriptions.stripeCustomerId,
-        subStatus:        subscriptions.status,
-        subSource:        subscriptions.source,
-        planName:         subscriptions.planName,
-        planAmount:       subscriptions.planAmount,
-        planCurrency:     subscriptions.planCurrency,
-        planInterval:     subscriptions.planInterval,
-        currentPeriodEnd: subscriptions.currentPeriodEnd,
-        cancelAtPeriodEnd:subscriptions.cancelAtPeriodEnd,
-        trialEnd:         subscriptions.trialEnd,
-        lastPaymentStatus:subscriptions.lastPaymentStatus,
-        manualExpiresAt:  subscriptions.manualExpiresAt,
-        paymentMethodBrand:subscriptions.paymentMethodBrand,
-        paymentMethodLast4:subscriptions.paymentMethodLast4,
-        billingEmail:     subscriptions.billingEmail,
-      })
-      .from(organisations)
-      .leftJoin(subscriptions, eq(subscriptions.orgId, organisations.id))
-      .orderBy(desc(subscriptions.createdAt));
+    // Org + subscription per linked org.
+    const orgRows = await db.select({
+      id: organisations.id, status: organisations.status,
+      subId: subscriptions.id, subStatus: subscriptions.status,
+      lastPaymentStatus: subscriptions.lastPaymentStatus, planName: subscriptions.planName,
+      planAmount: subscriptions.planAmount, planCurrency: subscriptions.planCurrency, planInterval: subscriptions.planInterval,
+    }).from(organisations).leftJoin(subscriptions, eq(subscriptions.orgId, organisations.id)).orderBy(desc(subscriptions.createdAt));
     const orgById = new Map<string, any>();
-    for (const o of orgRows) if (!orgById.has(o.id)) orgById.set(o.id, o); // latest sub wins
+    for (const o of orgRows) if (!orgById.has(o.id)) orgById.set(o.id, o);
 
-    // Users per org.
-    const userRows = await db.select({ orgId: userOrganisations.orgId, c: sql<number>`count(*)::int` })
-      .from(userOrganisations).groupBy(userOrganisations.orgId);
-    const usersByOrg = new Map(userRows.map(u => [u.orgId, Number(u.c)]));
-
-    // Deal counts + latest deal activity per account.
-    const dealRows = await db.select({
-      accountId: opportunities.accountId,
-      c: sql<number>`count(*)::int`,
-      lastAt: sql<string | null>`max(${opportunities.updatedAt})`,
-    }).from(opportunities).groupBy(opportunities.accountId);
-    const dealsByAccount = new Map<string, number>();
-    const dealActivityByAccount = new Map<string, number>();
-    for (const d of dealRows) if (d.accountId) {
-      dealsByAccount.set(d.accountId, Number(d.c));
-      dealActivityByAccount.set(d.accountId, d.lastAt ? new Date(d.lastAt).getTime() : 0);
-    }
-
-    // Owner directory: platform/super admins (for display + the owner picker).
     const adminRows = await db.select({ id: users.id, name: users.name, email: users.email })
       .from(users).where(inArray(users.role, ["super_admin", "platform_admin"]));
-    const adminById = new Map(adminRows.map(u => [u.id, u.name || u.email]));
+    const nameOf = new Map(adminRows.map(u => [u.id, u.name || u.email]));
 
-    const out = accounts.map(a => {
+    const wonUnbilled: any[] = [];
+    const paymentFailed: any[] = [];
+
+    for (const a of accounts) {
       const org = a.organisationId ? orgById.get(a.organisationId) : null;
-      const lastActivity = Math.max(
-        a.updatedAt ? new Date(a.updatedAt).getTime() : 0,
-        leadActivityByAccount.get(a.id) ?? 0,
-        dealActivityByAccount.get(a.id) ?? 0,
-      );
-      return {
-        id: a.id, ref: formatAccountRef(a.refSeq), name: a.name, lifecycleStage: a.lifecycleStage, billingEmail: a.billingEmail,
-        domain: a.domain, country: a.country,
-        organisationId: a.organisationId, orgStatus: org?.status ?? null,
-        leadId: leadByAccount.get(a.id) ?? null,
-        deals: dealsByAccount.get(a.id) ?? 0,
-        userCount: a.organisationId ? (usersByOrg.get(a.organisationId) ?? 0) : 0,
-        ownerAdminId: a.ownerAdminId ?? null,
-        ownerName: a.ownerAdminId ? (adminById.get(a.ownerAdminId) ?? null) : null,
-        createdAt: a.createdAt,
-        lastActivity: lastActivity || null,
-        updatedAt: a.updatedAt,
-        // Billing signal (null when not yet a customer) — for the org modals + columns.
-        org: org ? { ...org } : null,
+      const lead = leadByAccount.get(a.id);
+      const paymentFail = org ? isPaymentFailed(org.subStatus, org.lastPaymentStatus) : false;
+      const bucket = billingBucket({
+        leadStatus: lead?.status, lifecycleStage: a.lifecycleStage,
+        firstInvoicedAt: a.firstInvoicedAt, hasSubscription: !!org?.subId, paymentFailed: paymentFail,
+      });
+      const base = {
+        accountId: a.id, ref: formatAccountRef(a.refSeq), name: a.name,
+        email: a.billingEmail || lead?.email || null, organisationId: a.organisationId,
+        owner: a.ownerAdminId ? (nameOf.get(a.ownerAdminId) ?? null) : null,
       };
-    });
-    return NextResponse.json({ accounts: out, admins: adminRows });
+      if (bucket === "won_unbilled") {
+        wonUnbilled.push({ ...base, leadId: lead?.id ?? null, value: lead?.value ?? null, currency: lead?.dealCurrency ?? "USD" });
+      } else if (bucket === "payment_failed") {
+        paymentFailed.push({ ...base, planName: org?.planName ?? null, subStatus: org?.subStatus ?? null, lastPaymentStatus: org?.lastPaymentStatus ?? null });
+      }
+    }
+
+    return NextResponse.json({ wonUnbilled, paymentFailed, admins: adminRows });
   } catch (e) {
-    if (schemaMissing(e)) return NextResponse.json({ accounts: [], needsSetup: true });
+    if (schemaMissing(e)) return NextResponse.json({ wonUnbilled: [], paymentFailed: [], needsSetup: true });
     throw e;
   }
 }
