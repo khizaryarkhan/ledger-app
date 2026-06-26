@@ -491,6 +491,31 @@ export const forecastSnapshots = pgTable("forecast_snapshots", {
 export type ForecastSnapshot = typeof forecastSnapshots.$inferSelect;
 
 // =========================================================================
+// CRM QUOTES (CPQ) — a priced proposal for an account/deal with line items.
+// Lives in the CRM; an accepted quote can be converted into a Stripe invoice
+// via the existing billing flow. Amounts in MINOR units (cents).
+// =========================================================================
+export const crmQuotes = pgTable("crm_quotes", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  refSeq:        serial("ref_seq"), // display: Q-00001
+  accountId:     uuid("account_id").references(() => crmAccounts.id, { onDelete: "cascade" }),
+  opportunityId: uuid("opportunity_id"), // soft link
+  orgId:         uuid("org_id"),         // soft link
+  status:        varchar("status", { length: 16 }).notNull().default("draft"), // draft|sent|accepted|declined|expired
+  currency:      varchar("currency", { length: 3 }).notNull().default("USD"),
+  lineItems:     jsonb("line_items").notNull().default([]), // [{description, qty, unitPrice}]
+  subtotal:      integer("subtotal").notNull().default(0),
+  total:         integer("total").notNull().default(0),
+  validUntil:    varchar("valid_until", { length: 16 }),
+  notes:         text("notes"),
+  invoiceId:     varchar("invoice_id", { length: 255 }), // set when converted to a Stripe invoice
+  createdBy:     uuid("created_by"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+});
+export type CrmQuote = typeof crmQuotes.$inferSelect;
+
+// =========================================================================
 // CATALOG ITEMS (reusable products/services for invoices — admin portal)
 // =========================================================================
 export const catalogItems = pgTable("catalog_items", {

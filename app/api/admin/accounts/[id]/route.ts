@@ -1,6 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
-import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, crmEmails, users } from "@/db/schema";
+import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, crmEmails, crmQuotes, users } from "@/db/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { logActivity } from "@/lib/admin/activities";
@@ -62,6 +62,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
   const emailThreads = Array.from(threadMap.values());
 
+  // Quotes (CPQ) for this account.
+  const quoteRows = await safe(db.select().from(crmQuotes).where(eq(crmQuotes.accountId, params.id)).orderBy(desc(crmQuotes.createdAt)), [] as any[]);
+  const quotes = quoteRows.map(q => ({
+    id: q.id, ref: q.refSeq ? `Q-${String(q.refSeq).padStart(5, "0")}` : "", status: q.status,
+    total: q.total, currency: q.currency, validUntil: q.validUntil, lineItems: q.lineItems, createdAt: q.createdAt,
+  }));
+
   return NextResponse.json({
     account: {
       id: account.id, ref: formatAccountRef(account.refSeq), name: account.name,
@@ -71,7 +78,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       leadId: lead?.id ?? null,
     },
     lead: lead ? { id: lead.id, fullName: lead.fullName, email: lead.email, phone: lead.phone, companyName: lead.companyName, status: lead.status } : null,
-    contacts, opportunities: opps, tasks, subscription, activities, admins, emailThreads,
+    contacts, opportunities: opps, tasks, subscription, activities, admins, emailThreads, quotes,
   });
 }
 

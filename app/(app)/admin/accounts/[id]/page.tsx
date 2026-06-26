@@ -6,8 +6,14 @@ import Link from "next/link";
 import {
   ChevronLeft, Loader, Building2, Mail, StickyNote, CheckSquare, Send, Trophy,
   FileText, CheckCircle2, User, ArrowRight, ExternalLink, CreditCard, Phone, Clock, Sparkles,
+  Plus, X, Trash2,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
+
+const QUOTE_STATUS: Record<string, string> = {
+  draft: "bg-stone-700 text-stone-300", sent: "bg-sky-500/15 text-sky-300",
+  accepted: "bg-emerald-500/15 text-emerald-300", declined: "bg-rose-500/15 text-rose-300", expired: "bg-stone-700 text-stone-500",
+};
 
 const STAGE: Record<string, { label: string; cls: string }> = {
   lead: { label: "Lead", cls: "bg-sky-500/15 text-sky-300" },
@@ -56,6 +62,85 @@ function Panel({ title, count, action, children }: { title: string; count?: numb
         {action}
       </div>
       <div className="p-3">{children}</div>
+    </div>
+  );
+}
+
+function QuotesPanel({ accountId, orgId, quotes, onChange }: { accountId: string; orgId: string | null; quotes: any[]; onChange: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<{ description: string; qty: string; unitPrice: string }[]>([{ description: "", qty: "1", unitPrice: "" }]);
+  const [currency, setCurrency] = useState("USD");
+  const [saving, setSaving] = useState(false);
+  const m = (minor: number, c: string) => fmt.money((minor ?? 0) / 100, (c || "USD").toUpperCase());
+  const total = lines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.unitPrice) || 0), 0);
+
+  const setLine = (i: number, k: string, v: string) => setLines(ls => ls.map((l, j) => j === i ? { ...l, [k]: v } : l));
+  const addLine = () => setLines(ls => [...ls, { description: "", qty: "1", unitPrice: "" }]);
+  const rmLine = (i: number) => setLines(ls => ls.filter((_, j) => j !== i));
+
+  const create = async () => {
+    const lineItems = lines
+      .map(l => ({ description: l.description.trim(), qty: parseFloat(l.qty) || 0, unitPrice: Math.round((parseFloat(l.unitPrice) || 0) * 100) }))
+      .filter(l => l.description && l.qty > 0 && l.unitPrice > 0);
+    if (!lineItems.length) return;
+    setSaving(true);
+    try {
+      const r = await fetch("/api/admin/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId, orgId, currency, lineItems }) });
+      if (r.ok) { setOpen(false); setLines([{ description: "", qty: "1", unitPrice: "" }]); onChange(); }
+    } finally { setSaving(false); }
+  };
+  const setStatus = async (id: string, status: string) => {
+    await fetch(`/api/admin/quotes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }).catch(() => {});
+    onChange();
+  };
+  const inp = "w-full px-2.5 py-1.5 text-[12px] rounded-md bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
+
+  return (
+    <div className="rounded-xl border border-stone-800 bg-stone-900/40">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
+        <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Quotes<span className="ml-1.5 text-stone-600">{quotes.length}</span></span>
+        <button onClick={() => setOpen(o => !o)} className="text-stone-500 hover:text-emerald-400"><Plus size={14} /></button>
+      </div>
+      <div className="p-3">
+        {open && (
+          <div className="space-y-1.5 mb-3 pb-3 border-b border-stone-800">
+            {lines.map((l, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input className={inp} value={l.description} onChange={e => setLine(i, "description", e.target.value)} placeholder="Item / service" />
+                <input className={`${inp} w-12 text-center`} value={l.qty} onChange={e => setLine(i, "qty", e.target.value)} placeholder="1" />
+                <input className={`${inp} w-20`} value={l.unitPrice} onChange={e => setLine(i, "unitPrice", e.target.value)} placeholder="0.00" inputMode="decimal" />
+                {lines.length > 1 && <button onClick={() => rmLine(i)} className="text-stone-600 hover:text-rose-400 shrink-0"><Trash2 size={12} /></button>}
+              </div>
+            ))}
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={addLine} className="text-[11px] text-stone-400 hover:text-stone-200 flex items-center gap-1"><Plus size={11} /> Line</button>
+              <span className="text-[12px] text-stone-300">Total {fmt.money(total, currency)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <select className={`${inp} w-20`} value={currency} onChange={e => setCurrency(e.target.value)}>
+                {["USD", "EUR", "GBP"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <button onClick={create} disabled={saving} className="flex-1 h-7 text-[11px] font-semibold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">{saving ? "Saving…" : "Create quote"}</button>
+            </div>
+          </div>
+        )}
+        {quotes.length === 0 ? <p className="text-xs text-stone-600">No quotes.</p> : (
+          <div className="space-y-2">
+            {quotes.map((q: any) => (
+              <div key={q.id} className="flex items-center gap-2 text-[13px]">
+                <FileText size={13} className="text-stone-500 shrink-0" />
+                <span className="font-mono text-[11px] text-stone-500">{q.ref}</span>
+                <span className="text-stone-200 tabular-nums">{m(q.total, q.currency)}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${QUOTE_STATUS[q.status] ?? QUOTE_STATUS.draft}`}>{q.status}</span>
+                <div className="ml-auto flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  {q.status === "draft" && <button onClick={() => setStatus(q.id, "sent")} className="text-[10px] text-sky-400 hover:text-sky-300">Send</button>}
+                  {q.status === "sent" && <button onClick={() => setStatus(q.id, "accepted")} className="text-[10px] text-emerald-400 hover:text-emerald-300">Accept</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -188,6 +273,8 @@ export default function Account360Page() {
               </Link>
             )) : <p className="text-xs text-stone-600 py-2">No deals.</p>}
           </Panel>
+
+          <QuotesPanel accountId={a.id} orgId={a.organisationId} quotes={data.quotes ?? []} onChange={load} />
 
           <Panel title="Tasks" count={data.tasks?.length ?? 0}>
             {data.tasks?.length ? data.tasks.map((t: any) => (
