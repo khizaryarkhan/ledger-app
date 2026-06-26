@@ -12,25 +12,29 @@ import { LeadsCommandCenter } from "./command-center";
 import { LeadsBoard } from "./board";
 import { LayoutGrid, List as ListIcon } from "lucide-react";
 
-const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted", "rejected", "archived"] as const;
+const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "negotiation", "converted", "rejected", "archived"] as const;
 type LeadStatus = typeof STATUS_OPTIONS[number];
 
 const STATUS_COLOR: Record<LeadStatus, string> = {
-  new:       "blue",
-  contacted: "yellow",
-  qualified: "green",
-  converted: "emerald",
-  rejected:  "neutral",
-  archived:  "neutral",
+  new:         "blue",
+  contacted:   "yellow",
+  qualified:   "green",
+  proposal:    "purple",
+  negotiation: "orange",
+  converted:   "emerald",
+  rejected:    "neutral",
+  archived:    "neutral",
 };
 
 const STATUS_LABEL: Record<LeadStatus, string> = {
-  new:       "New",
-  contacted: "Contacted",
-  qualified: "Qualified",
-  converted: "Converted",
-  rejected:  "Rejected",
-  archived:  "Archived",
+  new:         "New",
+  contacted:   "Contacted",
+  qualified:   "Qualified",
+  proposal:    "Proposal",
+  negotiation: "Negotiation",
+  converted:   "Won",
+  rejected:    "Lost",
+  archived:    "Archived",
 };
 
 // ── Inline status changer ──────────────────────────────────────────────────
@@ -2070,8 +2074,8 @@ export default function LeadsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-base font-semibold text-white">Leads</h1>
-          <p className="text-xs text-stone-500 mt-0.5">Prospects and enquiries — landing page &amp; manually added</p>
+          <h1 className="text-base font-semibold text-white">Pipeline</h1>
+          <p className="text-xs text-stone-500 mt-0.5">One pipeline — leads through deals to won. New → Contacted → Qualified → Proposal → Negotiation → Won.</p>
         </div>
         <div className="flex items-center gap-2">
           <button

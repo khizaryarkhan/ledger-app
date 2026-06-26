@@ -18,7 +18,7 @@ const NAV: NavSection[] = [
   { label: "CRM", items: [
     { href: "/admin/queue",         icon: ListTodo,  label: "Today" },
     { href: "/admin/accounts",      icon: Building2, label: "Accounts" },
-    { href: "/admin/leads",         icon: FileText,  label: "Leads" },
+    { href: "/admin/leads",         icon: FileText,  label: "Pipeline" },
     { href: "/admin/opportunities", icon: Trophy,    label: "Opportunities" },
     { href: "/admin/reports",       icon: BarChart3, label: "Reports" },
     { href: "/admin/campaigns",     icon: Megaphone, label: "Campaigns" },

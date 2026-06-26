@@ -3,8 +3,9 @@ import { db } from "@/db";
 import { landingPageRequests } from "@/db/schema";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { eq } from "drizzle-orm";
+import { ALL_LEAD_STATUSES } from "@/lib/pipeline";
 
-const VALID_STATUSES = ["new", "contacted", "qualified", "converted", "rejected", "archived"];
+const VALID_STATUSES = ALL_LEAD_STATUSES;
 
 // GET — a single lead record (for the 360° workspace).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -30,6 +31,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if (typeof body.adminNotes === "string") updates.adminNotes = body.adminNotes.slice(0, 5000);
   if (typeof body.assignedToAdminId === "string") updates.assignedToAdminId = body.assignedToAdminId;
+  // Unified pipeline deal fields (set once the lead reaches a deal stage).
+  if (body.value !== undefined) updates.value = body.value === null || body.value === "" ? null : Math.max(0, parseInt(String(body.value)) || 0);
+  if (typeof body.dealCurrency === "string") updates.dealCurrency = body.dealCurrency.toUpperCase().slice(0, 3);
+  if (body.expectedCloseDate !== undefined) updates.expectedCloseDate = body.expectedCloseDate ? new Date(body.expectedCloseDate) : null;
 
   await db.update(landingPageRequests).set(updates).where(eq(landingPageRequests.id, params.id));
   return NextResponse.json({ success: true });

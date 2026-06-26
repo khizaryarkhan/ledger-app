@@ -205,6 +205,11 @@ export const landingPageRequests = pgTable("landing_page_requests", {
   utmMedium:        varchar("utm_medium", { length: 128 }),
   utmCampaign:      varchar("utm_campaign", { length: 128 }),
   campaignId:       uuid("campaign_id"), // → crm_campaigns.id (attribution; soft link)
+  // Unified pipeline: a lead carries its own deal value once it reaches a deal
+  // stage (proposal+). Replaces the separate opportunities object. Major units.
+  value:            integer("value"),
+  dealCurrency:     varchar("deal_currency", { length: 3 }),
+  expectedCloseDate: timestamp("expected_close_date"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
 });

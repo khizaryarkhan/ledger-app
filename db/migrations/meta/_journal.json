@@ -85,6 +85,13 @@
       "when": 1782474430332,
       "tag": "0011_wandering_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782491551314,
+      "tag": "0012_open_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

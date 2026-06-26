@@ -3,16 +3,24 @@
 import { useState, useEffect } from "react";
 import { Modal, Button } from "@/components/ui";
 import { Phone, Loader, GripVertical } from "lucide-react";
+import { PIPELINE_STAGES, OFF_PIPELINE } from "@/lib/pipeline";
+import { fmt } from "@/lib/format";
 
-type Lead = { id: string; fullName: string; companyName?: string | null; email?: string; status: string; createdAt?: string };
+type Lead = { id: string; fullName: string; companyName?: string | null; email?: string; status: string; createdAt?: string; value?: number | null; dealCurrency?: string | null };
 
-const COLUMNS = [
-  { key: "new",       label: "New",       color: "border-sky-500/40",     dot: "bg-sky-400" },
-  { key: "contacted", label: "Contacted", color: "border-blue-500/40",    dot: "bg-blue-400" },
-  { key: "qualified", label: "Qualified", color: "border-violet-500/40",  dot: "bg-violet-400" },
-  { key: "converted", label: "Won",       color: "border-emerald-500/40", dot: "bg-emerald-400" },
-  { key: "rejected",  label: "Lost",      color: "border-rose-500/40",    dot: "bg-rose-400" },
-];
+const TONE: Record<string, { color: string; dot: string }> = {
+  sky:     { color: "border-sky-500/40",     dot: "bg-sky-400" },
+  blue:    { color: "border-blue-500/40",    dot: "bg-blue-400" },
+  violet:  { color: "border-violet-500/40",  dot: "bg-violet-400" },
+  amber:   { color: "border-amber-500/40",   dot: "bg-amber-400" },
+  orange:  { color: "border-orange-500/40",  dot: "bg-orange-400" },
+  emerald: { color: "border-emerald-500/40", dot: "bg-emerald-400" },
+  rose:    { color: "border-rose-500/40",    dot: "bg-rose-400" },
+};
+// One unified pipeline: lead stages → deal stages → Won, with Lost as terminal.
+const lostStage = OFF_PIPELINE.find(s => s.key === "rejected")!;
+const COLUMNS = [...PIPELINE_STAGES, lostStage].map(s => ({ key: s.key, label: s.label, deal: s.deal, ...TONE[s.tone] }));
+const money = (v: number, c?: string | null) => fmt.money(v ?? 0, (c || "USD").toUpperCase());
 
 // outcome → suggested status + whether to schedule a next step
 const OUTCOMES: { key: string; label: string; status: string; next: boolean }[] = [
@@ -50,6 +58,17 @@ export function LeadsBoard({ leads, onOpen, onReload, onToast }: {
     }
   };
 
+  // Set/replace a deal value (a lead becomes an "opportunity" once it has one).
+  const setValue = async (id: string, current?: number | null, currency?: string | null) => {
+    const input = window.prompt("Deal value (whole number, e.g. 5000):", current ? String(current) : "");
+    if (input === null) return;
+    const value = Math.max(0, parseInt(input) || 0);
+    setLocal(ls => ls.map(l => l.id === id ? { ...l, value } : l));
+    try {
+      await fetch(`/api/admin/leads/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ value, dealCurrency: currency || "USD" }) });
+    } catch { onToast({ type: "error", message: "Failed to save value" }); }
+  };
+
   return (
     <div className="overflow-x-auto pb-2">
       <div className="flex gap-3 min-w-[1000px]">
@@ -81,12 +100,17 @@ export function LeadsBoard({ leads, onOpen, onReload, onToast }: {
                       </div>
                       <div className="flex items-center justify-between mt-2 pl-4">
                         <span className="text-[10px] text-stone-600">{age != null ? `${age}d old` : ""}</span>
-                        {(col.key === "new" || col.key === "contacted" || col.key === "qualified") && (
+                        {col.deal ? (
+                          <button onClick={() => setValue(l.id, l.value, l.dealCurrency)}
+                            className={`text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded border ${l.value ? "border-emerald-700/50 text-emerald-300" : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
+                            {l.value ? money(l.value, l.dealCurrency) : "+ value"}
+                          </button>
+                        ) : (col.key === "new" || col.key === "contacted" || col.key === "qualified") ? (
                           <button onClick={() => setDispo(l)}
                             className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded border border-stone-700 text-stone-400 hover:text-emerald-300 hover:border-emerald-700/50 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Phone size={9} /> Log
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   );
