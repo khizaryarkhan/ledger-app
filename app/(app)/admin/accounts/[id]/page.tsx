@@ -153,10 +153,18 @@ export default function Account360Page() {
   const id = params?.id as string;
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [billing, setBilling] = useState<any>(null); // Stripe invoices/payments (when the account has an org)
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`/api/admin/accounts/${id}`).then(r => r.ok ? r.json() : null).then(d => setData(d)).finally(() => setLoading(false));
+    fetch(`/api/admin/accounts/${id}`).then(r => r.ok ? r.json() : null).then(d => {
+      setData(d);
+      // Pull the full billing history into the cockpit so everything's in one place.
+      const orgId = d?.account?.organisationId;
+      if (orgId) {
+        fetch(`/api/admin/billing/org/${orgId}`).then(r => r.ok ? r.json() : null).then(setBilling).catch(() => {});
+      } else setBilling(null);
+    }).finally(() => setLoading(false));
   }, [id]);
   useEffect(() => { if (id) load(); }, [id, load]);
 
@@ -366,6 +374,23 @@ export default function Account360Page() {
                 <div className="flex justify-between"><span className="text-stone-500 text-xs">Status</span><span className="text-stone-200 capitalize">{sub.status}</span></div>
                 <div className="flex justify-between"><span className="text-stone-500 text-xs">Source</span><span className="text-stone-200 capitalize">{sub.source}</span></div>
               </div>
+            </Panel>
+          )}
+
+          {/* Invoice history — the full billing record, in the cockpit. */}
+          {a.organisationId && (
+            <Panel title="Invoices" count={billing?.invoices?.length ?? 0}
+              action={<Link href={`/admin/customers/${a.organisationId}`} className="text-[11px] text-sky-400 hover:text-sky-300">Billing tools →</Link>}>
+              {billing?.invoices?.length ? billing.invoices.slice(0, 8).map((inv: any) => (
+                <div key={inv.id} className="flex items-center gap-2 py-1.5 border-b border-stone-800/40 last:border-0">
+                  <FileText size={12} className="text-stone-500 shrink-0" />
+                  <span className="font-mono text-[11px] text-stone-400 shrink-0">{inv.number ?? inv.id.slice(0, 10)}</span>
+                  <span className="text-sm text-stone-200 tabular-nums">{money((inv.total ?? 0) / 100, inv.currency)}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${inv.status === "paid" ? "bg-emerald-500/15 text-emerald-300" : inv.status === "open" ? "bg-amber-500/15 text-amber-300" : "bg-stone-700 text-stone-400"}`}>{inv.status}</span>
+                  <span className="ml-auto text-[11px] text-stone-600 shrink-0">{inv.created ? new Date(inv.created).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : ""}</span>
+                  {inv.hostedInvoiceUrl && <a href={inv.hostedInvoiceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-stone-500 hover:text-sky-400 shrink-0"><ExternalLink size={12} /></a>}
+                </div>
+              )) : <p className="text-xs text-stone-600 py-2">No invoices yet.</p>}
             </Panel>
           )}
         </div>

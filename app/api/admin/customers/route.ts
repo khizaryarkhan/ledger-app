@@ -23,7 +23,7 @@ export async function GET() {
   const { error } = await requirePlatformAdmin();
   if (error) return error;
 
-  const orgs = await db.select({ id: organisations.id, name: organisations.name }).from(organisations);
+  const orgs = await db.select({ id: organisations.id, name: organisations.name, accountId: organisations.accountId }).from(organisations);
 
   const subs = await db.select().from(subscriptions);
   const subByOrg = new Map(subs.map(s => [s.orgId, s]));
@@ -49,6 +49,7 @@ export async function GET() {
     const renewsAt = s ? (s.source === "manual" ? s.manualExpiresAt : s.currentPeriodEnd) : null;
     return {
       orgId:        o.id,
+      accountId:    o.accountId ?? null,
       name:         o.name,
       email:        emailByOrg.get(o.id) ?? s?.billingEmail ?? null,
       hasSub:       !!s,

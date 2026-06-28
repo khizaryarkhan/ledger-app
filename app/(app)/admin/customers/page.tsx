@@ -7,6 +7,7 @@ import { fmt } from "@/lib/format";
 
 type Customer = {
   orgId: string;
+  accountId: string | null;
   name: string;
   email: string | null;
   status: string;
@@ -126,7 +127,7 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {filtered.map(c => (
-                <tr key={c.orgId} onClick={() => router.push(`/admin/customers/${c.orgId}`)}
+                <tr key={c.orgId} onClick={() => router.push(c.accountId ? `/admin/accounts/${c.accountId}` : `/admin/customers/${c.orgId}`)}
                   className="border-b border-stone-800/50 hover:bg-stone-800/20 cursor-pointer">
                   <td className="px-4 py-3">
                     <div className="text-stone-100 font-medium">{c.name}</div>
