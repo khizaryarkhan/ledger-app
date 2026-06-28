@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Loader, Building2, Mail, StickyNote, CheckSquare, Send, Trophy,
   FileText, CheckCircle2, User, ArrowRight, ExternalLink, CreditCard, Phone, Clock, Sparkles,
-  Plus, X, Trash2, MessageCircle, CalendarCheck,
+  Plus, X, Trash2, MessageCircle, CalendarCheck, Activity, Zap, AlertCircle, TrendingUp, XCircle,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -153,17 +153,19 @@ export default function Account360Page() {
   const id = params?.id as string;
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [billing, setBilling] = useState<any>(null); // Stripe invoices/payments (when the account has an org)
+  const [billing, setBilling] = useState<any>(null);
+  const [usageHealth, setUsageHealth] = useState<any>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     fetch(`/api/admin/accounts/${id}`).then(r => r.ok ? r.json() : null).then(d => {
       setData(d);
-      // Pull the full billing history into the cockpit so everything's in one place.
       const orgId = d?.account?.organisationId;
       if (orgId) {
         fetch(`/api/admin/billing/org/${orgId}`).then(r => r.ok ? r.json() : null).then(setBilling).catch(() => {});
-      } else setBilling(null);
+        fetch(`/api/admin/customers/health?orgId=${orgId}`).then(r => r.ok ? r.json() : null)
+          .then((arr: any[]) => setUsageHealth(arr?.[0] ?? null)).catch(() => {});
+      } else { setBilling(null); setUsageHealth(null); }
     }).finally(() => setLoading(false));
   }, [id]);
   useEffect(() => { if (id) load(); }, [id, load]);
@@ -447,6 +449,64 @@ export default function Account360Page() {
                 <div className="flex justify-between"><span className="text-stone-500 text-xs">Price</span><span className="text-stone-200">{sub.planAmount ? `${money(sub.planAmount / 100, sub.planCurrency)}${sub.planInterval ? `/${sub.planInterval}` : ""}` : "—"}</span></div>
                 <div className="flex justify-between"><span className="text-stone-500 text-xs">Status</span><span className="text-stone-200 capitalize">{sub.status}</span></div>
                 <div className="flex justify-between"><span className="text-stone-500 text-xs">Source</span><span className="text-stone-200 capitalize">{sub.source}</span></div>
+              </div>
+            </Panel>
+          )}
+
+          {/* Product usage / health — only shown when the account has a provisioned org */}
+          {usageHealth && (
+            <Panel title="Product usage">
+              <div className="space-y-2.5">
+                {/* Last login */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><User size={11} /> Last login</div>
+                  <span className={`text-[12px] font-medium ${usageHealth.daysSinceLogin === null || usageHealth.daysSinceLogin > 30 ? "text-rose-300" : usageHealth.daysSinceLogin > 14 ? "text-amber-300" : "text-emerald-300"}`}>
+                    {usageHealth.daysSinceLogin === null ? "Never" : usageHealth.daysSinceLogin === 0 ? "Today" : `${usageHealth.daysSinceLogin}d ago`}
+                  </span>
+                </div>
+                {/* Invoices */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><FileText size={11} /> Invoices</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] text-stone-300 tabular-nums">{usageHealth.totalInvoices} total</span>
+                    {usageHealth.overdueInvoices > 0 && <span className="text-[11px] text-rose-300">{usageHealth.overdueInvoices} overdue</span>}
+                  </div>
+                </div>
+                {/* Open AR */}
+                {usageHealth.arValue > 0 && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><TrendingUp size={11} /> Open AR</div>
+                    <span className="text-[12px] font-semibold text-amber-300">{money(usageHealth.arValue)}</span>
+                  </div>
+                )}
+                {/* Emails (30d) */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><Activity size={11} /> Reminders (30d)</div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[12px] font-semibold tabular-nums ${usageHealth.emails30d > 0 ? "text-sky-300" : "text-stone-600"}`}>{usageHealth.emails30d}</span>
+                    <span className="text-[10px] text-stone-600">{usageHealth.emailsTotal} total</span>
+                  </div>
+                </div>
+                {/* Integration */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><Zap size={11} /> Integration</div>
+                  {usageHealth.integrationConnected ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${usageHealth.integrationType === "QBO" ? "bg-green-500/15 text-green-300" : usageHealth.integrationType === "Xero" ? "bg-blue-500/15 text-blue-300" : "bg-violet-500/15 text-violet-300"}`}>{usageHealth.integrationType}</span>
+                      {usageHealth.integrationStatus === "success" ? <CheckCircle2 size={11} className="text-emerald-400" /> : <XCircle size={11} className="text-rose-400" />}
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-stone-600">Not connected</span>
+                  )}
+                </div>
+                {/* Cron / automations */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500"><Clock size={11} /> Last automation</div>
+                  <span className="text-[12px] text-stone-400">
+                    {usageHealth.lastCronRun ? `${Math.floor((Date.now() - usageHealth.lastCronRun) / 3_600_000)}h ago` : "—"}
+                    {usageHealth.emailsSentByCron > 0 && <span className="text-stone-600 ml-1">· {usageHealth.emailsSentByCron} sent</span>}
+                  </span>
+                </div>
               </div>
             </Panel>
           )}
