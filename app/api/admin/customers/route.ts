@@ -16,7 +16,9 @@ import { requirePlatformAdmin } from "@/lib/billing";
 
 function toMonthly(amount: number | null, interval: string | null): number {
   if (!amount) return 0;
-  return interval === "year" ? Math.round(amount / 12) : amount;
+  // planAmount is stored in minor units (cents/pence); convert to major units first.
+  const major = amount / 100;
+  return interval === "year" ? major / 12 : major;
 }
 
 export async function GET() {
