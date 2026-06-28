@@ -41,7 +41,7 @@ export default function QueuePage() {
   const complete = async (t: Task) => {
     setDoneIds(prev => new Set(prev).add(t.id));
     try {
-      const r = await fetch(`/api/admin/leads/${t.leadId}/tasks/${t.id}`, {
+      const r = await fetch(`/api/admin/tasks/${t.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed: true }),
       });
       if (!r.ok) setDoneIds(prev => { const n = new Set(prev); n.delete(t.id); return n; });

@@ -205,6 +205,33 @@ export default function Account360Page() {
     } finally { setLogSaving(false); }
   };
 
+  // Inline compose — Note / Task / Email (account-scoped; works for any company).
+  const [compose, setCompose] = useState<null | "note" | "task" | "email">(null);
+  const [noteText, setNoteText] = useState("");
+  const [taskForm, setTaskForm] = useState({ title: "", type: "todo", priority: "normal", due: "" });
+  const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
+  const [acting, setActing] = useState(false);
+  const closeCompose = () => { setCompose(null); setNoteText(""); setTaskForm({ title: "", type: "todo", priority: "normal", due: "" }); setEmailForm({ subject: "", body: "" }); };
+
+  const postNote = async () => {
+    if (!noteText.trim()) return; setActing(true);
+    try { await fetch(`/api/admin/accounts/${id}/note`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: noteText }) }); closeCompose(); load(); }
+    finally { setActing(false); }
+  };
+  const postTask = async () => {
+    if (!taskForm.title.trim()) return; setActing(true);
+    try { await fetch(`/api/admin/accounts/${id}/task`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: taskForm.title, type: taskForm.type, priority: taskForm.priority, dueDate: taskForm.due || null }) }); closeCompose(); load(); }
+    finally { setActing(false); }
+  };
+  const sendEmail = async () => {
+    const leadId = data?.lead?.id; if (!leadId || !emailForm.subject.trim() || !emailForm.body.trim()) return; setActing(true);
+    try {
+      const r = await fetch(`/api/admin/leads/${leadId}/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject: emailForm.subject, body: emailForm.body }) });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "Send failed"); return; }
+      closeCompose(); load();
+    } finally { setActing(false); }
+  };
+
   if (loading) return <div className="max-w-[1300px] mx-auto"><div className="h-64 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" /></div>;
   if (!data?.account) return <div className="max-w-[1300px] mx-auto py-16 text-center text-stone-500">Account not found.</div>;
 
@@ -244,6 +271,12 @@ export default function Account360Page() {
                 {data.admins?.map((ad: any) => <option key={ad.id} value={ad.id}>{ad.name || ad.email}</option>)}
               </select>
             </div>
+            <button onClick={() => setCompose("note")}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><StickyNote size={13} /> Note</button>
+            <button onClick={() => { if (data.lead?.id) setCompose("email"); else alert("No lead/contact on this account to email from."); }}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Mail size={13} /> Email</button>
+            <button onClick={() => setCompose("task")}
+              className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><CheckSquare size={13} /> Task</button>
             <button onClick={() => { const p = data.lead?.phone; if (p) window.open(`tel:${p}`); setLogKind("call"); }}
               className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800"><Phone size={13} /> Call</button>
             <button onClick={() => { const p = (data.lead?.phone || "").replace(/\D/g, ""); if (p) window.open(`https://wa.me/${p}?text=${encodeURIComponent(`Hi ${data.lead?.fullName ?? ""}`.trim())}`, "_blank"); setLogKind("whatsapp"); }}
@@ -282,6 +315,47 @@ export default function Account360Page() {
           </button>
         </div>
       </div>
+
+      {/* Compose modal — Note / Task / Email */}
+      {compose && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-stone-900 rounded-xl w-full max-w-md ring-1 ring-stone-800">
+            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
+              <h2 className="font-semibold text-white capitalize">{compose === "email" ? "Send email" : compose === "task" ? "New task" : "Add note"}</h2>
+              <button onClick={closeCompose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              {compose === "note" && (
+                <textarea autoFocus value={noteText} onChange={e => setNoteText(e.target.value)} rows={4} placeholder="Log a note about this company…"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
+              )}
+              {compose === "task" && (<>
+                <input autoFocus value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} placeholder="Task title"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={taskForm.type} onChange={e => setTaskForm(f => ({ ...f, type: e.target.value }))} className="px-2 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200"><option value="todo">To-do</option><option value="call">Call</option><option value="email">Email</option><option value="follow_up">Follow-up</option></select>
+                  <select value={taskForm.priority} onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value }))} className="px-2 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200"><option value="normal">Normal</option><option value="high">High</option><option value="low">Low</option></select>
+                  <input type="datetime-local" value={taskForm.due} onChange={e => setTaskForm(f => ({ ...f, due: e.target.value }))} className="px-2 py-2 text-xs rounded-lg bg-stone-800 border border-stone-700 text-stone-200" />
+                </div>
+              </>)}
+              {compose === "email" && (<>
+                <p className="text-[11px] text-stone-500">To <span className="text-stone-300">{data.lead?.email}</span> — sent from your connected mailbox.</p>
+                <input autoFocus value={emailForm.subject} onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))} placeholder="Subject"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
+                <textarea value={emailForm.body} onChange={e => setEmailForm(f => ({ ...f, body: e.target.value }))} rows={6} placeholder="Write your message…"
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
+              </>)}
+            </div>
+            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+              <button onClick={closeCompose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+              <button onClick={compose === "note" ? postNote : compose === "task" ? postTask : sendEmail} disabled={acting}
+                className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">
+                {acting ? <Loader size={14} className="animate-spin" /> : null}{compose === "email" ? "Send" : compose === "task" ? "Add task" : "Save note"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Log-touch modal */}
       {logKind && (

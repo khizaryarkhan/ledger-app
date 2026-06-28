@@ -1,7 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/billing";
 import { db } from "@/db";
 import { crmAccounts, landingPageRequests, leadContacts, leadTasks, opportunities, organisations, subscriptions, crmActivities, crmEmails, crmQuotes, users } from "@/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, or } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { logActivity } from "@/lib/admin/activities";
 import { formatAccountRef } from "@/lib/admin/accounts";
@@ -30,7 +30,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     .where(eq(landingPageRequests.accountId, params.id)).orderBy(desc(landingPageRequests.createdAt)).limit(1), [] as any[]);
 
   const contacts = lead ? await safe(db.select().from(leadContacts).where(eq(leadContacts.leadId, lead.id)).orderBy(desc(leadContacts.isPrimary)), [] as any[]) : [];
-  const tasks = lead ? await safe(db.select().from(leadTasks).where(eq(leadTasks.leadId, lead.id)).orderBy(desc(leadTasks.createdAt)), [] as any[]) : [];
+  // Tasks are account-scoped; fall back to the lead link for older rows.
+  const tasks = await safe(db.select().from(leadTasks)
+    .where(or(eq(leadTasks.accountId, params.id), lead ? eq(leadTasks.leadId, lead.id) : eq(leadTasks.accountId, params.id)))
+    .orderBy(desc(leadTasks.createdAt)), [] as any[]);
 
   const opps = await safe(db.select({
     id: opportunities.id, title: opportunities.title, stage: opportunities.stage, status: opportunities.status,

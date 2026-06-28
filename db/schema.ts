@@ -248,7 +248,11 @@ export type LeadEmailTemplate = typeof leadEmailTemplates.$inferSelect;
 // =========================================================================
 export const leadTasks = pgTable("lead_tasks", {
   id:          uuid("id").defaultRandom().primaryKey(),
-  leadId:      uuid("lead_id").notNull().references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  // Account-scoped: a task belongs to a company. leadId is optional (kept for the
+  // lead cockpit + back-compat); accountId is the durable owner so tasks work for
+  // any company — including customers with no lead record.
+  leadId:      uuid("lead_id").references(() => landingPageRequests.id, { onDelete: "cascade" }),
+  accountId:   uuid("account_id"),
   title:       varchar("title", { length: 500 }).notNull(),
   dueDate:     timestamp("due_date"),
   assignedTo:  uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
