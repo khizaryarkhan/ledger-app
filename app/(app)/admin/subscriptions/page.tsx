@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   CreditCard, Loader, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle,
-  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText, Ban,
+  Plus, Pencil, Clock, Zap, Hand, ChevronDown, X, FileText, Ban, Trash2,
 } from "lucide-react";
 import { Card, Badge, Button, Modal, Toast } from "@/components/ui";
 import { fmt } from "@/lib/format";
@@ -690,6 +690,9 @@ export default function SubscriptionsPage() {
   const [showInvoice, setShowInvoice] = useState(false);
   const [editing, setEditing]       = useState<any>(null);
   const [toast, setToast]           = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null); // org to delete
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleting, setDeleting]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -733,6 +736,25 @@ export default function SubscriptionsPage() {
     } catch (e: any) {
       setToast({ type: "error", message: e?.message ?? "Network error" });
     }
+  };
+
+  const deleteOrg = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const r = await fetch(`/api/admin/organisations/${deleteTarget.orgId}`, { method: "DELETE" });
+      const d = await r.json();
+      if (r.ok) {
+        setToast({ type: "success", message: `"${deleteTarget.orgName}" deleted — all data removed.` });
+        setDeleteTarget(null);
+        setDeleteConfirmName("");
+        load();
+      } else {
+        setToast({ type: "error", message: d.error ?? "Delete failed" });
+      }
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
+    } finally { setDeleting(false); }
   };
 
   const handleQuickAction = async (subId: string, action: string) => {
@@ -955,6 +977,9 @@ export default function SubscriptionsPage() {
                         {s.billingEmail && (
                           <p className="text-[11px] text-stone-500 truncate max-w-[150px]">{s.billingEmail}</p>
                         )}
+                        {s.orgId && (
+                          <p className="font-mono text-[10px] text-stone-600 select-all mt-0.5" title={s.orgId}>{s.orgId.slice(0, 8)}…</p>
+                        )}
                       </td>
 
                       {/* Source */}
@@ -1091,6 +1116,15 @@ export default function SubscriptionsPage() {
                               )}
                             </>
                           )}
+                          {s.orgId && (
+                            <button
+                              onClick={() => { setDeleteTarget(s); setDeleteConfirmName(""); }}
+                              className="text-stone-600 hover:text-rose-400 p-1 transition-colors"
+                              title="Delete organisation and all its data"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1125,6 +1159,60 @@ export default function SubscriptionsPage() {
           onSaved={() => { load(); setToast({ type: "success", message: "Subscription updated" }); }}
           existing={editing}
         />
+      )}
+
+      {/* Delete Organisation Modal */}
+      {deleteTarget && (
+        <Modal
+          open={!!deleteTarget}
+          onClose={() => { setDeleteTarget(null); setDeleteConfirmName(""); }}
+          title="Delete organisation"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => { setDeleteTarget(null); setDeleteConfirmName(""); }}>Cancel</Button>
+              <button
+                onClick={deleteOrg}
+                disabled={deleting || deleteConfirmName !== deleteTarget.orgName}
+                className="flex items-center gap-1.5 h-9 px-4 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {deleting && <Loader size={12} className="animate-spin" />}
+                {deleting ? "Deleting…" : "Delete permanently"}
+              </button>
+            </>
+          }
+        >
+          <div className="px-5 py-5 space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20">
+              <AlertTriangle size={16} className="text-rose-400 mt-0.5 shrink-0" />
+              <div className="text-xs text-rose-300 space-y-1">
+                <p className="font-semibold">This cannot be undone.</p>
+                <p>Deleting <span className="text-white font-medium">"{deleteTarget.orgName}"</span> will permanently remove:</p>
+                <ul className="list-disc list-inside text-rose-300/80 space-y-0.5 mt-1">
+                  <li>All users and login access</li>
+                  <li>All invoices, communications, and tasks</li>
+                  <li>All sync data (QBO, Xero, Sage)</li>
+                  <li>The subscription record</li>
+                  {deleteTarget.source === "stripe" && <li className="text-rose-200 font-medium">Stripe subscription will be cancelled immediately</li>}
+                </ul>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-stone-400 block mb-2">
+                Type <span className="text-white font-mono font-semibold">{deleteTarget.orgName}</span> to confirm
+              </label>
+              <input
+                value={deleteConfirmName}
+                onChange={e => setDeleteConfirmName(e.target.value)}
+                placeholder={deleteTarget.orgName}
+                className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-600 focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                autoFocus
+              />
+              {deleteConfirmName && deleteConfirmName !== deleteTarget.orgName && (
+                <p className="text-[11px] text-rose-400 mt-1">Name doesn't match exactly</p>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
 
       <Toast toast={toast} onClose={() => setToast(null)} />

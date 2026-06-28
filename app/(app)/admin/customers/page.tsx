@@ -291,7 +291,7 @@ export default function CustomersPage() {
             <table className="w-full text-sm min-w-[960px]">
               <thead>
                 <tr className="border-b border-stone-800 bg-stone-900/60">
-                  {["Customer", "Plan / Status", "Health", "Last Active", "Emails (30d)", "Integration", "MRR"].map(h => (
+                  {["Customer", "Org ID", "Plan / Status", "Health", "Last Active", "Emails (30d)", "Integration", "MRR"].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-[10px] uppercase tracking-wider text-stone-500 font-semibold">{h}</th>
                   ))}
                   <th className="w-8" />
@@ -313,6 +313,11 @@ export default function CustomersPage() {
                       <td className="px-4 py-3.5">
                         <div className="font-medium text-stone-100 group-hover:text-white">{r.name}</div>
                         <div className="text-[11px] text-stone-500 truncate max-w-[180px]">{r.email ?? "—"}</div>
+                      </td>
+
+                      {/* Org ID */}
+                      <td className="px-4 py-3.5">
+                        <span className="font-mono text-[10px] text-stone-500 select-all">{r.orgId.slice(0, 8)}…</span>
                       </td>
 
                       {/* Plan / Status */}
@@ -374,9 +379,9 @@ export default function CustomersPage() {
                         <div className={`text-[13px] font-semibold tabular-nums ${r.mrr > 0 ? "text-white" : "text-stone-600"}`}>
                           {r.mrr > 0 ? money(r.mrr, r.planCurrency) : "—"}
                         </div>
-                        {r.health && r.health.arValue > 0 && (
-                          <div className="text-[10px] text-amber-400 mt-0.5">
-                            {money(r.health.arValue, r.planCurrency)} AR open
+                        {r.renewsAt && (
+                          <div className="text-[10px] text-stone-600 mt-0.5">
+                            renews {new Date(r.renewsAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                           </div>
                         )}
                       </td>
