@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Zap, Plus, X, Loader, Pause, Play, Pencil, Trash2, ChevronLeft, Mail } from "lucide-react";
+import { Zap, Plus, X, Loader, Pause, Play, Pencil, Trash2, ChevronLeft, Mail, RefreshCw } from "lucide-react";
 
 type Seq = {
   id: string; name: string; description: string | null; isActive: boolean; stepCount: number;
@@ -13,6 +13,7 @@ export default function WorkflowsPage() {
   const [seqs, setSeqs] = useState<Seq[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Seq | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -30,6 +31,15 @@ export default function WorkflowsPage() {
     setSeqs(p => p.map(x => x.id === s.id ? { ...x, isActive: !x.isActive } : x));
     await fetch(`/api/admin/sequences/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !s.isActive }) }).catch(() => {});
   };
+  const refreshDefaults = async () => {
+    if (!confirm("Refresh built-in workflows with Prime Accountax copy? Step content will be overwritten; enrolment history is preserved.")) return;
+    setRefreshing(true);
+    try {
+      const r = await fetch("/api/admin/leads/seed-defaults", { method: "POST" });
+      if (r.ok) { await load(); }
+    } finally { setRefreshing(false); }
+  };
+
   const remove = async (s: Seq) => {
     if (!confirm(`Delete workflow "${s.name}"? Active enrolments stop.`)) return;
     setSeqs(p => p.filter(x => x.id !== s.id));
@@ -45,7 +55,12 @@ export default function WorkflowsPage() {
           <h1 className="text-xl font-bold text-white">Workflows</h1>
           <p className="text-xs text-stone-500 mt-0.5">Automated email sequences — enrol a lead and steps send on schedule. A reply auto-stops the workflow.</p>
         </div>
-        <button onClick={create} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> New workflow</button>
+        <div className="flex items-center gap-2">
+          <button onClick={refreshDefaults} disabled={refreshing} title="Overwrite built-in workflows with correct Prime Accountax copy" className="flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-600 disabled:opacity-50">
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} /> Refresh defaults
+          </button>
+          <button onClick={create} className="flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={14} /> New workflow</button>
+        </div>
       </div>
 
       {loading ? (
@@ -54,7 +69,10 @@ export default function WorkflowsPage() {
         <div className="py-20 text-center border border-stone-800 rounded-xl">
           <Zap size={26} className="text-stone-700 mx-auto mb-3" />
           <p className="text-sm text-stone-400">No workflows yet.</p>
-          <p className="text-xs text-stone-600 mt-1">Create one, add steps, then enrol leads from the Pipeline.</p>
+          <p className="text-xs text-stone-600 mt-1 mb-4">Load the built-in Prime Accountax sequence or create one from scratch.</p>
+          <button onClick={refreshDefaults} disabled={refreshing} className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 disabled:opacity-50">
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} /> Load defaults
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
