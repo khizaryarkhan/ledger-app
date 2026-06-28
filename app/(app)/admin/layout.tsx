@@ -6,7 +6,7 @@ import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard, XCircle, CreditCard, ScrollText, Users,
   Building2, FileText, LogOut, ShieldCheck, ChevronRight, Percent, BookOpen,
-  Mail, Plug, Search, Package, ListTodo, BarChart3, Megaphone, Receipt, Clock, Copy,
+  Mail, Plug, Search, Package, ListTodo, BarChart3, Megaphone, Receipt, Clock, Copy, Zap,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminCommandPalette, useCommandPalette } from "./_command-palette";
@@ -21,6 +21,7 @@ const NAV: NavSection[] = [
     { href: "/admin/queue",         icon: ListTodo,  label: "Today" },
     { href: "/admin/accounts",      icon: Building2, label: "Billing actions" },
     { href: "/admin/leads",         icon: FileText,  label: "Pipeline" },
+    { href: "/admin/workflows",     icon: Zap,       label: "Workflows" },
     { href: "/admin/reports",       icon: BarChart3, label: "Reports" },
     { href: "/admin/campaigns",     icon: Megaphone, label: "Campaigns" },
     { href: "/admin/inbox",         icon: Mail,      label: "Mail" },
