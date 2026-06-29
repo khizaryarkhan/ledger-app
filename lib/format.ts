@@ -96,3 +96,33 @@ export const daysFromNow = (n: number) => {
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 };
+
+// ── Source discriminator helpers ──────────────────────────────────────────────
+export type RecordSource = "native" | "qbo" | "xero" | "sage";
+
+const SOURCE_LABELS: Record<string, string> = {
+  native: "Native",
+  qbo:    "QBO",
+  xero:   "Xero",
+  sage:   "Sage",
+};
+const SOURCE_VARIANTS: Record<string, string> = {
+  native: "stone",
+  qbo:    "blue",
+  xero:   "green",
+  sage:   "amber",
+};
+
+export function sourceLabel(source: string | null | undefined): string {
+  if (!source) return "Native";
+  return SOURCE_LABELS[source.toLowerCase()] ?? source;
+}
+
+export function sourceBadgeVariant(source: string | null | undefined): string {
+  if (!source) return "stone";
+  return SOURCE_VARIANTS[source.toLowerCase()] ?? "stone";
+}
+
+export function isConnectedRecord(source: string | null | undefined): boolean {
+  return !!source && source !== "native";
+}

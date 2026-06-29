@@ -440,6 +440,7 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       invoiceDate,
       dueDate,
       lineItems,
+      source: "xero" as const,
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
 
@@ -522,6 +523,7 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       collectionStage: "Closed",
       billingEmail: xi.Contact?.EmailAddress || xeroContactEmailMap.get(xi.Contact?.ContactID) || null,
       lineItems: paidLineItems,
+      source: "xero" as const,
       updatedAt: new Date(),
       ...(paidAt ? { paidAt } : {}),
     };

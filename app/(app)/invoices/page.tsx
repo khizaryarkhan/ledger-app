@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { InvoiceModal } from "@/components/forms";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
-import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
+import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { Search, Upload, Plus, FileText, Trash2, X, Download, Send, CalendarDays } from "lucide-react";
 
 // ── Date period helpers ────────────────────────────────────────────────────────
@@ -373,7 +373,10 @@ export default function InvoicesPage() {
                       className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[12px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full">{inv.invoiceNumber}</Link>
+                    <Link href={`/invoices/${inv.id}`} className="flex items-center gap-1.5 w-full">
+                      <span>{inv.invoiceNumber}</span>
+                      <Badge variant={sourceBadgeVariant(inv.source)} size="sm">{sourceLabel(inv.source)}</Badge>
+                    </Link>
                   </td>
                   <td className="px-3 py-2.5 font-medium text-white">
                     <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[160px]">{inv.customer?.name}</Link>

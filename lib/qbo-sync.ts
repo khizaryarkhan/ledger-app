@@ -515,6 +515,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       invoiceDate: qi.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate:     qi.DueDate || qi.TxnDate || new Date().toISOString().slice(0, 10),
       lineItems,
+      source: "qbo" as const,
       // If the invoice is being reopened, reset stage to "Open" and clear paidAt
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
@@ -716,6 +717,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       collectionStage: "Closed",
       billingEmail,
       lineItems:     paidLineItems,
+      source:        "qbo" as const,
       updatedAt:     new Date(),
       ...(qboPaidAt ? { paidAt: qboPaidAt } : {}),
     };

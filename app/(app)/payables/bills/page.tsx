@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
-import { fmt, formatDate } from "@/lib/format";
+import { fmt, formatDate, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { Search, Receipt, X, CalendarDays, AlertCircle, Upload } from "lucide-react";
 
 const WORKFLOW_STATUSES = [
@@ -350,8 +350,9 @@ export default function BillsPage() {
                         className="rounded border-stone-300 cursor-pointer" onClick={e => e.stopPropagation()} />
                     </td>
                     <td className="px-3 py-2.5 font-mono text-[12px]">
-                      <Link href={`/payables/bills/${bill.id}`} className="text-violet-400 hover:text-violet-300 block w-full">
-                        {bill.billNumber || <span className="text-stone-600 italic">No #</span>}
+                      <Link href={`/payables/bills/${bill.id}`} className="flex items-center gap-1.5 text-violet-400 hover:text-violet-300">
+                        <span>{bill.billNumber || <span className="text-stone-600 italic">No #</span>}</span>
+                        <Badge variant={sourceBadgeVariant(bill.source)} size="sm">{sourceLabel(bill.source)}</Badge>
                       </Link>
                     </td>
                     <td className="px-3 py-2.5 font-medium text-white">

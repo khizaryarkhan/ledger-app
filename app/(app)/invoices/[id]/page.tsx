@@ -8,7 +8,7 @@ import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/c
 import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, TaskModal, TasksList } from "@/components/feature";
 import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
-import { fmt, formatDate, daysOverdue, getDueStatus } from "@/lib/format";
+import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown } from "lucide-react";
 
 export default function InvoiceDetailPage() {
@@ -144,6 +144,7 @@ export default function InvoiceDetailPage() {
         <div>
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-2xl font-semibold text-white tracking-tight font-mono">{inv.invoiceNumber}</h1>
+            <Badge variant={sourceBadgeVariant(inv.source)}>{sourceLabel(inv.source)}</Badge>
             <Badge variant={dueStatusBadge(getDueStatus(inv))}>{getDueStatus(inv)}</Badge>
             {/* Clickable stage badge with dropdown */}
             <div ref={stageMenuRef} className="relative">

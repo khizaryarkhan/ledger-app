@@ -751,6 +751,7 @@ export const invoices = pgTable("invoices", {
   hasOpenDispute:    boolean("has_open_dispute").notNull().default(false),
   automationsPaused: boolean("automations_paused").notNull().default(false), // true while a dispute is open
   lineItems: jsonb("line_items").default([]), // [{description, qty, unitPrice, amount}] cached from source system
+  source:    varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -1421,7 +1422,7 @@ export const apSuppliers = pgTable("ap_suppliers", {
   qboId:          varchar("qbo_id", { length: 64 }),
   xeroId:         varchar("xero_id", { length: 64 }),
   sageIntacctId:  varchar("sage_intacct_id", { length: 64 }),
-  source:         varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'sage' | 'manual'
+  source:         varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   lastSyncedAt:   timestamp("last_synced_at"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
@@ -1455,8 +1456,8 @@ export type ApSupplierContact = typeof apSupplierContacts.$inferSelect;
 export const apAccounts = pgTable("ap_accounts", {
   id:           uuid("id").defaultRandom().primaryKey(),
   orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  externalId:   varchar("external_id", { length: 64 }).notNull(),
-  source:       varchar("source", { length: 16 }).notNull(),   // 'qbo' | 'xero'
+  externalId:   varchar("external_id", { length: 64 }),        // null for native records
+  source:       varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   code:         varchar("code", { length: 64 }),
   name:         varchar("name", { length: 255 }).notNull(),
   type:         varchar("type", { length: 64 }),
@@ -1477,8 +1478,8 @@ export type ApAccount = typeof apAccounts.$inferSelect;
 export const apItems = pgTable("ap_items", {
   id:                uuid("id").defaultRandom().primaryKey(),
   orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  externalId:        varchar("external_id", { length: 64 }).notNull(),
-  source:            varchar("source", { length: 16 }).notNull(),
+  externalId:        varchar("external_id", { length: 64 }),   // null for native records
+  source:            varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   code:              varchar("code", { length: 64 }),
   name:              varchar("name", { length: 255 }).notNull(),
   description:       text("description"),
@@ -1502,8 +1503,8 @@ export type ApItem = typeof apItems.$inferSelect;
 export const apTaxRates = pgTable("ap_tax_rates", {
   id:           uuid("id").defaultRandom().primaryKey(),
   orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
-  externalId:   varchar("external_id", { length: 64 }).notNull(),
-  source:       varchar("source", { length: 16 }).notNull(),
+  externalId:   varchar("external_id", { length: 64 }),        // null for native records
+  source:       varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   name:         varchar("name", { length: 255 }).notNull(),
   rate:         real("rate"),
   taxType:      varchar("tax_type", { length: 64 }),
@@ -1666,7 +1667,7 @@ export const apBills = pgTable("ap_bills", {
   qboId:                  varchar("qbo_id", { length: 64 }),
   xeroId:                 varchar("xero_id", { length: 64 }),
   sageIntacctId:          varchar("sage_intacct_id", { length: 64 }),
-  source:                 varchar("source", { length: 16 }),   // 'qbo' | 'xero' | 'sage'
+  source:                 varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   assignedApproverId:     uuid("assigned_approver_id").references(() => users.id, { onDelete: "set null" }),
   approvedByUserId:       uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   approvedAt:             timestamp("approved_at"),

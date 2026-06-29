@@ -9,7 +9,7 @@ import {
   MessageSquare, FileText, X, Plus, Send,
 } from "lucide-react";
 import { Card, Badge, Button } from "@/components/ui";
-import { fmt } from "@/lib/format";
+import { fmt, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -355,12 +355,7 @@ export default function BillDetailPage() {
             ) : (
               <span>Unknown supplier</span>
             )}
-            {bill.source && (
-              <>
-                <span className="text-stone-600">·</span>
-                <span className="text-stone-500">{bill.source}</span>
-              </>
-            )}
+            <Badge variant={sourceBadgeVariant(bill.source)} size="sm">{sourceLabel(bill.source)}</Badge>
           </div>
         </div>
 
@@ -523,7 +518,7 @@ export default function BillDetailPage() {
               </div>
               <div>
                 <dt className="text-xs text-stone-500 mb-0.5">Source</dt>
-                <dd>{bill.source || "Manual"}</dd>
+                <dd><Badge variant={sourceBadgeVariant(bill.source)} size="sm">{sourceLabel(bill.source)}</Badge></dd>
               </div>
               {bill.qboId && (
                 <div>
