@@ -15,7 +15,7 @@ export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh, toast } = useData() as any;
-  const [tab, setTab] = useState<"overview" | "comms" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "comms" | "tasks" | "lines">("overview");
   const [showCompose, setShowCompose] = useState(false);
   const [showPay, setShowPay] = useState(false);
   const [showDispute, setShowDispute] = useState(false);
@@ -234,6 +234,7 @@ export default function InvoiceDetailPage() {
         <div className="flex items-center gap-1">
           {[
             { id: "overview", label: "Overview" },
+            { id: "lines", label: `Line Items (${(inv.lineItems || []).length})` },
             { id: "comms", label: `Communications (${invComms.length})` },
             { id: "tasks", label: `Tasks (${invTasks.length})` },
           ].map(t => (
@@ -320,6 +321,51 @@ export default function InvoiceDetailPage() {
           {/* Promise & Dispute event timeline (Customer Response Portal) */}
           <PromiseDisputePanel invoiceId={inv.id} currency={inv.currency} onChange={refresh} />
         </div>
+      )}
+
+      {tab === "lines" && (
+        <Card>
+          {(inv.lineItems || []).length === 0 ? (
+            <div className="text-sm text-stone-500 text-center py-8">No line items — sync with QBO or Xero to populate.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-800 text-xs text-stone-500 uppercase tracking-wide">
+                  <th className="text-left pb-2 font-medium">Description</th>
+                  <th className="text-right pb-2 font-medium w-16">Qty</th>
+                  <th className="text-right pb-2 font-medium w-28">Unit Price</th>
+                  <th className="text-right pb-2 font-medium w-28">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-800/60">
+                {(inv.lineItems as any[]).map((line, i) => (
+                  <tr key={i} className="text-stone-200">
+                    <td className="py-2.5 pr-4">{line.description || <span className="text-stone-600 italic">—</span>}</td>
+                    <td className="py-2.5 text-right tabular-nums text-stone-400">{line.qty}</td>
+                    <td className="py-2.5 text-right tabular-nums">{fmt.money(line.unitPrice, inv.currency)}</td>
+                    <td className="py-2.5 text-right tabular-nums font-medium">{fmt.money(line.amount, inv.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-stone-700">
+                <tr>
+                  <td colSpan={3} className="pt-3 text-right text-xs text-stone-500 pr-4">Subtotal</td>
+                  <td className="pt-3 text-right tabular-nums font-semibold text-white">{fmt.money(inv.amount, inv.currency)}</td>
+                </tr>
+                {inv.taxAmount > 0 && (
+                  <tr>
+                    <td colSpan={3} className="py-1 text-right text-xs text-stone-500 pr-4">Tax</td>
+                    <td className="py-1 text-right tabular-nums text-stone-300">{fmt.money(inv.taxAmount, inv.currency)}</td>
+                  </tr>
+                )}
+                <tr>
+                  <td colSpan={3} className="pt-1 text-right text-xs font-semibold text-stone-300 pr-4">Total</td>
+                  <td className="pt-1 text-right tabular-nums font-bold text-emerald-400">{fmt.money(inv.total, inv.currency)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </Card>
       )}
 
       {tab === "comms" && (

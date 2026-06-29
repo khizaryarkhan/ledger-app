@@ -476,6 +476,14 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     const taxAmount = parseFloat(qi.TxnTaxDetail?.TotalTax) || 0;
     const amount = Math.max(0, total - taxAmount); // Net ex tax
     const paid = Math.max(0, total - qboBalance);
+    const lineItems = (qi.Line || [])
+      .filter((l: any) => l.DetailType === "SalesItemLineDetail" && l.Amount > 0)
+      .map((l: any) => ({
+        description: l.Description || l.SalesItemLineDetail?.ItemRef?.name || "",
+        qty: l.SalesItemLineDetail?.Qty ?? 1,
+        unitPrice: l.SalesItemLineDetail?.UnitPrice ?? l.Amount,
+        amount: l.Amount,
+      }));
     // QBO Id is the unique source of truth — invoice numbers are display only
     const existing = ledgerInvByQboId.get(qi.Id);
 
@@ -506,6 +514,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       updatedAt: new Date(),
       invoiceDate: qi.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate:     qi.DueDate || qi.TxnDate || new Date().toISOString().slice(0, 10),
+      lineItems,
       // If the invoice is being reopened, reset stage to "Open" and clear paidAt
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
@@ -688,6 +697,14 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       || linkedTxnDateByInvId.get(qi.Id)
       || null;
 
+    const paidLineItems = (qi.Line || [])
+      .filter((l: any) => l.DetailType === "SalesItemLineDetail" && l.Amount > 0)
+      .map((l: any) => ({
+        description: l.Description || l.SalesItemLineDetail?.ItemRef?.name || "",
+        qty: l.SalesItemLineDetail?.Qty ?? 1,
+        unitPrice: l.SalesItemLineDetail?.UnitPrice ?? l.Amount,
+        amount: l.Amount,
+      }));
     const paidData = {
       total:         paidTotal,
       amount:        paidNet,   // Net ex tax — used for DSO & sales reports
@@ -698,6 +715,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       paymentStatus: "Paid" as const,
       collectionStage: "Closed",
       billingEmail,
+      lineItems:     paidLineItems,
       updatedAt:     new Date(),
       ...(qboPaidAt ? { paidAt: qboPaidAt } : {}),
     };

@@ -411,6 +411,12 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
     const billingEmail = xi.Contact?.EmailAddress
       || xeroContactEmailMap.get(contactId)
       || null;
+    const lineItems = (xi.LineItems || []).map((l: any) => ({
+      description: l.Description || "",
+      qty: l.Quantity ?? 1,
+      unitPrice: l.UnitAmount ?? 0,
+      amount: l.LineAmount ?? 0,
+    }));
 
     const wasClosedOrPaid = (() => {
       const ex = ledgerInvByXeroId.get(xeroId);
@@ -433,6 +439,7 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       updatedAt: new Date(),
       invoiceDate,
       dueDate,
+      lineItems,
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
 
@@ -496,6 +503,12 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
     const dueDate    = parseXeroDate(xi.DueDate) || invoiceDate;
     // Xero FullyPaidOnDate is the actual payment date
     const paidAt     = parseXeroDate(xi.FullyPaidOnDate) || parseXeroDate(xi.UpdatedDateUTC);
+    const paidLineItems = (xi.LineItems || []).map((l: any) => ({
+      description: l.Description || "",
+      qty: l.Quantity ?? 1,
+      unitPrice: l.UnitAmount ?? 0,
+      amount: l.LineAmount ?? 0,
+    }));
 
     const paidData = {
       total,
@@ -508,6 +521,7 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       paymentStatus: "Paid" as const,
       collectionStage: "Closed",
       billingEmail: xi.Contact?.EmailAddress || xeroContactEmailMap.get(xi.Contact?.ContactID) || null,
+      lineItems: paidLineItems,
       updatedAt: new Date(),
       ...(paidAt ? { paidAt } : {}),
     };

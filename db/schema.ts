@@ -750,6 +750,7 @@ export const invoices = pgTable("invoices", {
   promiseSource:     varchar("promise_source", { length: 24 }),           // Customer Portal | Rep | Accountant
   hasOpenDispute:    boolean("has_open_dispute").notNull().default(false),
   automationsPaused: boolean("automations_paused").notNull().default(false), // true while a dispute is open
+  lineItems: jsonb("line_items").default([]), // [{description, qty, unitPrice, amount}] cached from source system
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
