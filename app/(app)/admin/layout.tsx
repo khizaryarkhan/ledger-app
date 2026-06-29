@@ -29,7 +29,6 @@ const NAV: NavSection[] = [
   ] },
   { label: "BILLING", items: [
     { href: "/admin/customers",     icon: Building2,  label: "Customers" },
-    { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
     { href: "/admin/invoices",      icon: Receipt,    label: "Invoices" },
     { href: "/admin/discounts",     icon: Percent,    label: "Discounts" },
     { href: "/admin/settings/items", icon: Package,   label: "Items" },
