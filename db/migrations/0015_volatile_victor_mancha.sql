@@ -1,1 +1,1 @@
-ALTER TABLE "invoices" ADD COLUMN "line_items" jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "line_items" jsonb DEFAULT '[]'::jsonb;
