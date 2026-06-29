@@ -187,7 +187,7 @@ export default function BoardPage() {
   // Group entities by their dominant collection stage
   const grouped = useMemo(() => {
     const entities = groupBy === "customer" ? customers : projects;
-    const map: Record<string, { entity: any; invoices: any[]; outstanding: number; stage: string }> = {};
+    const map: Record<string, { entity: any; invoices: any[]; outstanding: number; currencyBreakdown: Record<string, number>; stage: string }> = {};
 
     const q = search.trim().toLowerCase();
     entities.forEach((e: any) => {

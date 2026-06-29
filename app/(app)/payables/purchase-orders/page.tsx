@@ -103,12 +103,12 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 function PushStatusIcon({ status }: { status: POPushStatus }) {
   if (status === "Pushed")
-    return <CloudUpload size={15} className="text-violet-400" title="Pushed to accounting" />;
+    return <span title="Pushed to accounting"><CloudUpload size={15} className="text-violet-400" /></span>;
   if (status === "Pending")
-    return <CloudUpload size={15} className="text-amber-400 animate-pulse" title="Push pending" />;
+    return <span title="Push pending"><CloudUpload size={15} className="text-amber-400 animate-pulse" /></span>;
   if (status === "Failed")
-    return <CloudUpload size={15} className="text-rose-400" title="Push failed" />;
-  return <CloudUpload size={15} className="text-stone-600" style={{ strokeDasharray: "4 2" }} title="Not pushed" />;
+    return <span title="Push failed"><CloudUpload size={15} className="text-rose-400" /></span>;
+  return <span title="Not pushed"><CloudUpload size={15} className="text-stone-600" style={{ strokeDasharray: "4 2" }} /></span>;
 }
 
 // ── Create PO Modal ───────────────────────────────────────────────────────────

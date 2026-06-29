@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -15,6 +15,14 @@ import { useData } from "./data-provider";
 interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
+}
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number | string; strokeWidth?: number | string; className?: string }>;
+  count?: number;
+  urgent?: boolean;
 }
 
 export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
@@ -45,7 +53,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     responses: responsesCount,
   };
 
-  const arSections = [
+  const arSections: { label?: string; items: NavItem[] }[] = [
     {
       items: [
         { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -79,7 +87,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     },
   ];
 
-  const apSections = [
+  const apSections: { label?: string; items: NavItem[] }[] = [
     {
       items: [
         { href: "/payables/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -109,7 +117,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
   // CONFIGURE is shared — always rendered at the bottom regardless of department.
   // Links are contextual so Settings/Imports point to the right section.
-  const configureSections = [
+  const configureSections: { label?: string; items: NavItem[] }[] = [
     {
       label: "CONFIGURE",
       items: [

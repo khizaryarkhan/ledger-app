@@ -69,6 +69,7 @@ interface Bill {
   source?: string;
   qboId?: string;
   xeroId?: string;
+  notes?: string;
   privateNote?: string;
   createdAt: string;
   lines: LineItem[];

@@ -29,7 +29,7 @@ const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const BUCKETS: AgingBucket[] = ["Current", "1-30", "31-60", "61-90", "91+"];
 
 function emptyBuckets(): Record<AgingBucket, number> {
-  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "91+": 0 };
+  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, "91+": 0 };
 }
 
 /**
@@ -438,7 +438,8 @@ export async function fetchQboAging(
     detail,
     summary,
     grandTotals,
-    unappliedByCustomer: {}, // QBO path — unapplied amounts already baked into QBO balances
+    unappliedByCustomer: {},
+    depositCreditsByCustomer: {}, // QBO path — deposit credits already baked into QBO balances
     flags: {
       missingDueDate,
       negativeCustomerBalances,

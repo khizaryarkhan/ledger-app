@@ -27,7 +27,7 @@ export const xeroSyncScheduler = inngest.createFunction(
           orgId:                 t.orgId!,
           userId:                t.userId,
           tenantName:            t.tenantName,
-          refreshTokenExpiresAt: t.refreshTokenExpiresAt.toISOString(),
+          refreshTokenExpiresAt: typeof t.refreshTokenExpiresAt === "string" ? t.refreshTokenExpiresAt : (t.refreshTokenExpiresAt as Date).toISOString(),
         },
       })),
     );

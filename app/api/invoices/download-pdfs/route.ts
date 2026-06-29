@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   if (successful.length === 1) {
     const { inv, pdf } = successful[0];
     const filename = `INV-${inv.invoiceNumber}.pdf`;
-    return new NextResponse(pdf!, {
+    return new NextResponse(pdf! as unknown as BodyInit, {
       headers: {
         "Content-Type":        "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}"`,
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
   const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
   const zipName   = `invoices-${today}.zip`;
 
-  return new NextResponse(zipBuffer, {
+  return new NextResponse(zipBuffer as unknown as BodyInit, {
     headers: {
       "Content-Type":        "application/zip",
       "Content-Disposition": `attachment; filename="${zipName}"`,

@@ -91,7 +91,7 @@ export const runOrgChase = inngest.createFunction(
     const orgTemplates = await step.run("load-templates", (): Promise<EmailTemplate[]> =>
       db.select().from(emailTemplates)
         .where(and(eq(emailTemplates.orgId, orgId), eq(emailTemplates.isActive, true))),
-    ) as EmailTemplate[];
+    ) as unknown as EmailTemplate[];
 
     const templateByStage = new Map<string, EmailTemplate>(
       orgTemplates.filter(t => t.collectionStage).map(t => [t.collectionStage!, t]),
@@ -191,7 +191,7 @@ export const runOrgChase = inngest.createFunction(
         for (const inv of relatedInvoices) {
           const pdf = (inv as any).xeroId
             ? await fetchXeroInvoicePdf(orgId, inv as any).catch(() => null)
-            : await fetchQboInvoicePdf(orgId, inv).catch(() => null);
+            : await fetchQboInvoicePdf(orgId, inv as { qboId?: string; invoiceNumber: string }).catch(() => null);
           if (pdf) attachments.push({
             filename: `Invoice-${inv.invoiceNumber}.pdf`,
             content: pdf,

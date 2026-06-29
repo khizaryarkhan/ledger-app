@@ -36,12 +36,12 @@ function isOpenInvoice(inv: Invoice): boolean {
     inv.paymentStatus !== "Written Off"
   );
 }
-type Customer    = { id: string; name: string; code: string; currency: string; repId: string | null; };
-type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; };
+type Customer    = { id: string; name: string; code: string; currency: string; repId: string | null; regionId?: string | null; };
+type Project     = { id: string; name: string; code: string; customerId: string; repId: string | null; regionId?: string | null; };
 // Full rep record — id/name/tier/email/managerId all needed for hierarchy scoping
 type Rep         = { id: string; name: string; tier: string; email: string | null; managerId: string | null; };
 type MyRep       = Rep | null; // null = admin / not a rep — sees all
-type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; };
+type OrgSettings = { classificationLevel: string; dateFormat: string; currency: string; stages?: import("@/lib/stages").Stage[] };
 
 // ─── Aging helpers ────────────────────────────────────────────────────────────
 const AGING = [
@@ -785,7 +785,6 @@ export default function RepPortalPage() {
                 await load();
               }}
               refresh={load}
-              ccy={openInvoices[0]?.currency ?? "?"}
               comments={communications}
             />
           </div>

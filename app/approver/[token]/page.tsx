@@ -447,6 +447,10 @@ export default function ApproverPortalPage() {
   const [comments, setComments] = useState<Comment[]>([]); // used for already-decided screen
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Already-decided screen comment input
+  const [commentBody, setCommentBody] = useState("");
+  const [posting, setPosting] = useState(false);
+
   useEffect(() => {
     fetch(`/api/approver/${token}`)
       .then((r) => r.json())
@@ -586,6 +590,25 @@ export default function ApproverPortalPage() {
         ...prev,
         [billId]: [...(prev[billId] ?? []), c],
       }));
+    }
+  }
+
+  async function postComment(): Promise<void> {
+    if (!commentBody.trim() || posting) return;
+    setPosting(true);
+    try {
+      const res = await fetch(`/api/approver/${token}/comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: commentBody.trim() }),
+      });
+      if (res.ok) {
+        const c: Comment = await res.json();
+        setComments(prev => [...prev, c]);
+        setCommentBody("");
+      }
+    } finally {
+      setPosting(false);
     }
   }
 

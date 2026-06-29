@@ -279,7 +279,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // QBO does not support bill PDF via API — generate from our data
   try {
     const pdfBytes = await generateBillPdf(bill, lines, supplier);
-    return new Response(pdfBytes, {
+    return new Response(pdfBytes as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import { MfaCard } from "@/components/mfa-card";
-import { ChevronLeft, User, Palette, Calendar, LayoutDashboard } from "lucide-react";
+import { ChevronLeft, User, Palette, Calendar, LayoutDashboard, ChevronDown, Search, Check } from "lucide-react";
 
 
 export default function CompanySettingsPage() {
@@ -31,6 +31,52 @@ export default function CompanySettingsPage() {
   // Portal settings
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [savingPortal, setSavingPortal] = useState(false);
+
+  // Currency picker
+  const [currency, setCurrency] = useState(orgSettings?.currency || "EUR");
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [currencySearch, setCurrencySearch] = useState("");
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const currencyRef = useRef<HTMLDivElement>(null);
+
+  const ALL_CURRENCIES = [
+    { value: "USD", symbol: "$",  name: "US Dollar" },
+    { value: "EUR", symbol: "€",  name: "Euro" },
+    { value: "GBP", symbol: "£",  name: "British Pound" },
+    { value: "CAD", symbol: "CA$", name: "Canadian Dollar" },
+    { value: "AUD", symbol: "A$", name: "Australian Dollar" },
+    { value: "NZD", symbol: "NZ$", name: "New Zealand Dollar" },
+    { value: "SGD", symbol: "S$", name: "Singapore Dollar" },
+    { value: "CHF", symbol: "CHF", name: "Swiss Franc" },
+    { value: "NOK", symbol: "kr", name: "Norwegian Krone" },
+    { value: "SEK", symbol: "kr", name: "Swedish Krona" },
+    { value: "DKK", symbol: "kr", name: "Danish Krone" },
+    { value: "ZAR", symbol: "R",  name: "South African Rand" },
+    { value: "AED", symbol: "د.إ", name: "UAE Dirham" },
+    { value: "INR", symbol: "₹",  name: "Indian Rupee" },
+    { value: "JPY", symbol: "¥",  name: "Japanese Yen" },
+    { value: "HKD", symbol: "HK$", name: "Hong Kong Dollar" },
+    { value: "MXN", symbol: "MX$", name: "Mexican Peso" },
+    { value: "BRL", symbol: "R$", name: "Brazilian Real" },
+    { value: "PLN", symbol: "zł", name: "Polish Złoty" },
+    { value: "CZK", symbol: "Kč", name: "Czech Koruna" },
+    { value: "HUF", symbol: "Ft", name: "Hungarian Forint" },
+    { value: "RON", symbol: "lei", name: "Romanian Leu" },
+    { value: "TRY", symbol: "₺",  name: "Turkish Lira" },
+    { value: "ILS", symbol: "₪",  name: "Israeli Shekel" },
+    { value: "THB", symbol: "฿",  name: "Thai Baht" },
+    { value: "MYR", symbol: "RM", name: "Malaysian Ringgit" },
+    { value: "IDR", symbol: "Rp", name: "Indonesian Rupiah" },
+    { value: "PHP", symbol: "₱",  name: "Philippine Peso" },
+    { value: "NGN", symbol: "₦",  name: "Nigerian Naira" },
+    { value: "KES", symbol: "KSh", name: "Kenyan Shilling" },
+    { value: "GHS", symbol: "GH₵", name: "Ghanaian Cedi" },
+    { value: "PKR", symbol: "₨",  name: "Pakistani Rupee" },
+    { value: "BDT", symbol: "৳",  name: "Bangladeshi Taka" },
+    { value: "EGP", symbol: "£",  name: "Egyptian Pound" },
+    { value: "UAH", symbol: "₴",  name: "Ukrainian Hryvnia" },
+    { value: "VND", symbol: "₫",  name: "Vietnamese Dong" },
+  ];
 
 
 

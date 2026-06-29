@@ -27,7 +27,7 @@ export const qboSyncScheduler = inngest.createFunction(
           orgId:                 t.orgId!,
           userId:                t.userId,
           companyName:           t.companyName,
-          refreshTokenExpiresAt: t.refreshTokenExpiresAt.toISOString(),
+          refreshTokenExpiresAt: typeof t.refreshTokenExpiresAt === "string" ? t.refreshTokenExpiresAt : (t.refreshTokenExpiresAt as Date).toISOString(),
         },
       })),
     );

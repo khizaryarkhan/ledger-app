@@ -28,9 +28,9 @@ async function issueRefund(session: any) {
     // Retrieve it to get the underlying payment_intent for the refund.
     if (session.invoice) {
       const invoice = await stripe.invoices.retrieve(session.invoice as string);
-      if (invoice.payment_intent) {
-        await stripe.refunds.create({ payment_intent: invoice.payment_intent as string });
-        console.log(`[register/complete] refund issued for payment_intent ${invoice.payment_intent}`);
+      if ((invoice as any).payment_intent) {
+        await stripe.refunds.create({ payment_intent: (invoice as any).payment_intent as string });
+        console.log(`[register/complete] refund issued for payment_intent ${(invoice as any).payment_intent}`);
       }
     }
   } catch (refundErr: any) {

@@ -23,13 +23,14 @@ type DataContextType = {
     disabledRules: string[];
     lastCronRun: string | null;
     lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null;
+    showPaymentHistory: boolean;
   };
   refresh: () => Promise<void>;
   toast: (message: string, type?: string) => void;
   toastState: any;
   clearToast: () => void;
   updateInvoice: (id: string, patch: any) => Promise<any>;
-  recordPayment: (id: string, amount: number) => Promise<any>;
+  recordPayment: (id: string, amount: number, paidDate?: string) => Promise<any>;
   addContact: (data: any) => Promise<any>;
   addNote: (data: any) => Promise<any>;
   sendEmail: (data: any) => Promise<any>;

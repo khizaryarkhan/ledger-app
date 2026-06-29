@@ -27,7 +27,7 @@ import { db } from "@/db";
 import { invoices, payments, paymentApplications, journalEntryArLines, deposits, refundReceipts } from "@/db/schema";
 import { and, eq, lte } from "drizzle-orm";
 
-export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "90+";
+export type AgingBucket = "Current" | "1-30" | "31-60" | "61-90" | "90+" | "91+";
 export const BUCKETS: AgingBucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
 
 export type AppliedTxn = {
@@ -108,7 +108,7 @@ function daysBetween(later: string, earlier: string): number {
 }
 
 function emptyBuckets(): Record<AgingBucket, number> {
-  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
+  return { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, "91+": 0 };
 }
 
 /**

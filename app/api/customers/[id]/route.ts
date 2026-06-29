@@ -44,7 +44,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   // ── Programme toggled (autoReminders field) ───────────────────────────────
-  if (body.autoReminders !== undefined && body.autoReminders !== before.autoReminders) {
+  if (body.autoReminders !== undefined && body.autoReminders !== (before as any).autoReminders) {
     await logEvent({
       ...base,
       eventType: "programme_toggled",

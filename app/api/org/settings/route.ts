@@ -39,7 +39,7 @@ export async function GET() {
       .where(eq(organisations.id, orgId!))
       .limit(1);
     org = row;
-    lastCronRun = row?.lastCronRun ?? null;
+    lastCronRun = row?.lastCronRun?.toISOString() ?? null;
     lastCronStats = row?.lastCronStats ?? null;
     org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false };
   } catch {

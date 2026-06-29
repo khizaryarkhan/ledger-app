@@ -151,9 +151,9 @@ export const subscriptions = pgTable("subscriptions", {
   manualNotes:         text("manual_notes"),
   managedByAdminId:    uuid("managed_by_admin_id").references(() => users.id, { onDelete: "set null" }),
   managedAt:           timestamp("managed_at"),
-}, (t) => [
-  index("idx_subscriptions_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_subscriptions_org_id: index("idx_subscriptions_org_id").on(t.orgId),
+}));
 export type Subscription = typeof subscriptions.$inferSelect;
 
 // =========================================================================
@@ -620,9 +620,9 @@ export const tempAccessRequests = pgTable("temp_access_requests", {
   adminNotes:          text("admin_notes"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_temp_access_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_temp_access_org_id: index("idx_temp_access_org_id").on(t.orgId),
+}));
 export type TempAccessRequest = typeof tempAccessRequests.$inferSelect;
 
 // =========================================================================
@@ -682,6 +682,7 @@ export const contacts = pgTable("contacts", {
   // When to next send an automated email to this contact. NULL = send on next cron run.
   nextSendAt: timestamp("next_send_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // =========================================================================
@@ -1316,9 +1317,9 @@ export const sageIntacctCredentials = pgTable("sage_intacct_credentials", {
   companyName: varchar("company_name", { length: 255 }),           // fetched from Sage on connect
   createdAt:   timestamp("created_at").notNull().defaultNow(),
   updatedAt:   timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("sage_intacct_credentials_org_unique").on(t.orgId),
-]);
+}, (t) => ({
+  sage_intacct_credentials_org_unique: uniqueIndex("sage_intacct_credentials_org_unique").on(t.orgId),
+}));
 export type SageIntacctCredential = typeof sageIntacctCredentials.$inferSelect;
 
 // =========================================================================
@@ -1426,9 +1427,9 @@ export const apSuppliers = pgTable("ap_suppliers", {
   lastSyncedAt:   timestamp("last_synced_at"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_suppliers_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_ap_suppliers_org_id: index("idx_ap_suppliers_org_id").on(t.orgId),
+}));
 export type ApSupplier = typeof apSuppliers.$inferSelect;
 
 // =========================================================================
@@ -1467,9 +1468,9 @@ export const apAccounts = pgTable("ap_accounts", {
   lastSyncedAt: timestamp("last_synced_at"),
   createdAt:    timestamp("created_at").notNull().defaultNow(),
   updatedAt:    timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("ap_accounts_org_ext_unique").on(t.orgId, t.externalId, t.source),
-]);
+}, (t) => ({
+  ap_accounts_org_ext_unique: uniqueIndex("ap_accounts_org_ext_unique").on(t.orgId, t.externalId, t.source),
+}));
 export type ApAccount = typeof apAccounts.$inferSelect;
 
 // =========================================================================
@@ -1492,9 +1493,9 @@ export const apItems = pgTable("ap_items", {
   lastSyncedAt:      timestamp("last_synced_at"),
   createdAt:         timestamp("created_at").notNull().defaultNow(),
   updatedAt:         timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("ap_items_org_ext_unique").on(t.orgId, t.externalId, t.source),
-]);
+}, (t) => ({
+  ap_items_org_ext_unique: uniqueIndex("ap_items_org_ext_unique").on(t.orgId, t.externalId, t.source),
+}));
 export type ApItem = typeof apItems.$inferSelect;
 
 // =========================================================================
@@ -1513,9 +1514,9 @@ export const apTaxRates = pgTable("ap_tax_rates", {
   lastSyncedAt: timestamp("last_synced_at"),
   createdAt:    timestamp("created_at").notNull().defaultNow(),
   updatedAt:    timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("ap_tax_rates_org_ext_unique").on(t.orgId, t.externalId, t.source),
-]);
+}, (t) => ({
+  ap_tax_rates_org_ext_unique: uniqueIndex("ap_tax_rates_org_ext_unique").on(t.orgId, t.externalId, t.source),
+}));
 export type ApTaxRate = typeof apTaxRates.$inferSelect;
 
 // =========================================================================
@@ -1536,9 +1537,9 @@ export const apDimensions = pgTable("ap_dimensions", {
   lastSyncedAt:  timestamp("last_synced_at"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  uniqueIndex("ap_dimensions_org_ext_type_unique").on(t.orgId, t.externalId, t.source, t.dimensionType),
-]);
+}, (t) => ({
+  ap_dimensions_org_ext_type_unique: uniqueIndex("ap_dimensions_org_ext_type_unique").on(t.orgId, t.externalId, t.source, t.dimensionType),
+}));
 export type ApDimension = typeof apDimensions.$inferSelect;
 
 // =========================================================================
@@ -1567,9 +1568,9 @@ export const purchaseRequests = pgTable("purchase_requests", {
   notes:               text("notes"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_purchase_requests_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_purchase_requests_org_id: index("idx_purchase_requests_org_id").on(t.orgId),
+}));
 export type PurchaseRequest = typeof purchaseRequests.$inferSelect;
 
 // =========================================================================
@@ -1605,9 +1606,9 @@ export const purchaseOrders = pgTable("purchase_orders", {
   approvedAt:          timestamp("approved_at"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_purchase_orders_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_purchase_orders_org_id: index("idx_purchase_orders_org_id").on(t.orgId),
+}));
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 
 // =========================================================================
@@ -1678,12 +1679,12 @@ export const apBills = pgTable("ap_bills", {
   lastSyncAt:             timestamp("last_sync_at"),
   createdAt:              timestamp("created_at").notNull().defaultNow(),
   updatedAt:              timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_bills_org_id").on(t.orgId),
-  uniqueIndex("ap_bills_org_qbo_unique").on(t.orgId, t.qboId).where(sql`${t.qboId} IS NOT NULL`),
-  uniqueIndex("ap_bills_org_xero_unique").on(t.orgId, t.xeroId).where(sql`${t.xeroId} IS NOT NULL`),
-  uniqueIndex("ap_bills_org_sage_unique").on(t.orgId, t.sageIntacctId).where(sql`${t.sageIntacctId} IS NOT NULL`),
-]);
+}, (t) => ({
+  idx_ap_bills_org_id: index("idx_ap_bills_org_id").on(t.orgId),
+  ap_bills_org_qbo_unique: uniqueIndex("ap_bills_org_qbo_unique").on(t.orgId, t.qboId).where(sql`${t.qboId} IS NOT NULL`),
+  ap_bills_org_xero_unique: uniqueIndex("ap_bills_org_xero_unique").on(t.orgId, t.xeroId).where(sql`${t.xeroId} IS NOT NULL`),
+  ap_bills_org_sage_unique: uniqueIndex("ap_bills_org_sage_unique").on(t.orgId, t.sageIntacctId).where(sql`${t.sageIntacctId} IS NOT NULL`),
+}));
 export type ApBill = typeof apBills.$inferSelect;
 
 // =========================================================================
@@ -1738,9 +1739,9 @@ export const apApprovals = pgTable("ap_approvals", {
   delegatedToUserId: uuid("delegated_to_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt:         timestamp("created_at").notNull().defaultNow(),
   updatedAt:         timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_approvals_org_entity").on(t.orgId, t.entityType, t.entityId),
-]);
+}, (t) => ({
+  idx_ap_approvals_org_entity: index("idx_ap_approvals_org_entity").on(t.orgId, t.entityType, t.entityId),
+}));
 export type ApApproval = typeof apApprovals.$inferSelect;
 
 // =========================================================================
@@ -1784,9 +1785,9 @@ export const apSupplierQueries = pgTable("ap_supplier_queries", {
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   resolvedAt:      timestamp("resolved_at"),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_supplier_queries_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_ap_supplier_queries_org_id: index("idx_ap_supplier_queries_org_id").on(t.orgId),
+}));
 export type ApSupplierQuery = typeof apSupplierQueries.$inferSelect;
 
 // =========================================================================
@@ -1809,9 +1810,9 @@ export const paymentRuns = pgTable("payment_runs", {
   postedAt:             timestamp("posted_at"),
   createdAt:            timestamp("created_at").notNull().defaultNow(),
   updatedAt:            timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_payment_runs_org_id").on(t.orgId),
-]);
+}, (t) => ({
+  idx_payment_runs_org_id: index("idx_payment_runs_org_id").on(t.orgId),
+}));
 export type PaymentRun = typeof paymentRuns.$inferSelect;
 
 // =========================================================================
@@ -1850,9 +1851,9 @@ export const apApprovalTokens = pgTable("ap_approval_tokens", {
   submittedAt:    timestamp("submitted_at"),
   expiresAt:      timestamp("expires_at").notNull(),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_approval_tokens_bill").on(t.billId),
-]);
+}, (t) => ({
+  idx_ap_approval_tokens_bill: index("idx_ap_approval_tokens_bill").on(t.billId),
+}));
 export type ApApprovalToken = typeof apApprovalTokens.$inferSelect;
 
 // =========================================================================
@@ -1868,9 +1869,9 @@ export const apBillComments = pgTable("ap_bill_comments", {
   channel:     varchar("channel", { length: 32 }).notNull().default("internal"),
   // internal | approver | system | email
   createdAt:   timestamp("created_at").notNull().defaultNow(),
-}, (t) => [
-  index("idx_ap_bill_comments_bill").on(t.billId),
-]);
+}, (t) => ({
+  idx_ap_bill_comments_bill: index("idx_ap_bill_comments_bill").on(t.billId),
+}));
 export type ApBillComment = typeof apBillComments.$inferSelect;
 
 // Type exports
