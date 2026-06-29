@@ -496,7 +496,7 @@ export default function CustomersPage() {
       const custData   = custRes.ok   ? await custRes.json()   : {};
       const healthData = healthRes.ok ? await healthRes.json() : {};
       const customers: Customer[] = custData.customers ?? [];
-      const healthList: Health[]  = healthData.customers ?? [];
+      const healthList: Health[]  = Array.isArray(healthData) ? healthData : (healthData.customers ?? []);
       const healthMap = new Map(healthList.map((h: Health) => [h.orgId, h]));
       const merged: Row[] = customers.map(c => {
         const h = healthMap.get(c.orgId) ?? null;
