@@ -85,7 +85,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [c, ct, p, i, comm, t, r, reg, settings] = await Promise.all([
+      // Use allSettled so one failing endpoint never blanks the whole app.
+      const [c, ct, p, i, comm, t, r, reg, settings] = await Promise.allSettled([
         fetchJSON("/api/customers"),
         fetchJSON("/api/contacts"),
         fetchJSON("/api/projects"),
@@ -96,8 +97,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
         fetchJSON("/api/regions"),
         fetchJSON("/api/org/settings"),
       ]);
-      setCustomers(c); setContacts(ct); setProjects(p); setInvoices(i); setCommunications(comm); setTasks(t);
-      setReps(r); setRegions(reg); setOrgSettings(settings);
+
+      const unwrap = (r: PromiseSettledResult<any>, label: string) => {
+        if (r.status === "rejected") { console.error(`[data-provider] ${label} failed:`, r.reason); return null; }
+        return r.value;
+      };
+
+      const customers_    = unwrap(c,    "customers");
+      const contacts_     = unwrap(ct,   "contacts");
+      const projects_     = unwrap(p,    "projects");
+      const invoices_     = unwrap(i,    "invoices");
+      const comms_        = unwrap(comm, "communications");
+      const tasks_        = unwrap(t,    "tasks");
+      const reps_         = unwrap(r,    "reps");
+      const regions_      = unwrap(reg,  "regions");
+      const settings_     = unwrap(settings, "org/settings");
+
+      if (customers_)  setCustomers(customers_);
+      if (contacts_)   setContacts(contacts_);
+      if (projects_)   setProjects(projects_);
+      if (invoices_)   setInvoices(invoices_);
+      if (comms_)      setCommunications(comms_);
+      if (tasks_)      setTasks(tasks_);
+      if (reps_)       setReps(reps_);
+      if (regions_)    setRegions(regions_);
+      if (settings_)   setOrgSettings(settings_);
     } catch (e: any) {
       console.error("Refresh failed:", e);
     } finally {
