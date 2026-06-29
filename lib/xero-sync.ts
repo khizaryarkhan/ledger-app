@@ -417,16 +417,6 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       return ex && (ex.paymentStatus === "Paid" || ex.collectionStage === "Closed");
     })();
 
-    const lineItems = (xi.LineItems ?? []).map((l: any) => ({
-      description: l.Description || "",
-      quantity:    l.Quantity  != null ? Number(l.Quantity)  : null,
-      unitPrice:   l.UnitAmount != null ? Number(l.UnitAmount) : null,
-      lineTotal:   Number(l.LineAmount) || 0,
-      taxAmount:   l.TaxAmount != null ? Number(l.TaxAmount) : null,
-      accountCode: l.AccountCode || null,
-      itemName:    l.ItemCode   || null,
-    })).filter((l: any) => l.description || l.lineTotal);
-
     const syncData = {
       total,
       amount,
@@ -443,7 +433,6 @@ export async function runXeroSync(orgId: string, userId: string, opts: { fullSyn
       updatedAt: new Date(),
       invoiceDate,
       dueDate,
-      ...(lineItems.length > 0 ? { lineItems } : {}),
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };
 

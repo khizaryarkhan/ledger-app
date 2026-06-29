@@ -745,10 +745,6 @@ export const invoices = pgTable("invoices", {
   sageIntacctSyncedAt: timestamp("sage_intacct_synced_at"),
   txnType: varchar("txn_type", { length: 32 }).default("Invoice"),
   paidAt: varchar("paid_at", { length: 16 }), // Date payment was received (YYYY-MM-DD) — NULL if unpaid
-  lineItems: jsonb("line_items").$type<{
-    description: string; quantity: number | null; unitPrice: number | null;
-    lineTotal: number; taxAmount: number | null; accountCode: string | null; itemName: string | null;
-  }[]>().default([]),
   // ── Customer Response Portal derived/cached state ──────────────────────
   promiseAmount:     real("promise_amount"),                              // current promise amount (null = full)
   promiseSource:     varchar("promise_source", { length: 24 }),           // Customer Portal | Rep | Accountant
