@@ -132,7 +132,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const actionCount = Object.values(rowActions).filter(a => {
     if (a.type === "commit") return !!a.commitDate;
     if (a.type === "dispute") return !!a.disputeCategory;
-    return false;
+    return !!a.comment;
   }).length;
 
   const canSubmit = actionCount > 0;
@@ -193,6 +193,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       } else if (a.type === "dispute" && a.disputeCategory) {
         responses.push({ invoiceId: inv.id, dispute: { category: a.disputeCategory, reason: a.comment || undefined } });
         disputed.push({ invoiceNumber: inv.invoiceNumber, category: a.disputeCategory });
+      } else if (a.comment) {
+        // comment-only note — recorded in the timeline without a commitment or dispute
+        responses.push({ invoiceId: inv.id, note: a.comment });
       }
     });
 
@@ -574,18 +577,16 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                           </div>
                         </div>
 
-                        {/* Comment row — only shows if row has an action */}
-                        {(hasAction || action.comment) && (
-                          <div className="px-4 pb-3 pl-12">
-                            <input
-                              type="text"
-                              placeholder="Add a comment or note for your account manager (optional)…"
-                              value={action.comment}
-                              onChange={e => patchRow(inv.id, { comment: e.target.value })}
-                              className="w-full text-xs border border-stone-200 rounded-lg px-3 py-2 bg-white text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-400"
-                            />
-                          </div>
-                        )}
+                        {/* Comment row — always visible */}
+                        <div className="px-4 pb-3 pl-12">
+                          <input
+                            type="text"
+                            placeholder="Add a comment for your account manager (optional)…"
+                            value={action.comment}
+                            onChange={e => patchRow(inv.id, { comment: e.target.value })}
+                            className="w-full text-xs border border-stone-200 rounded-lg px-3 py-2 bg-white text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-400"
+                          />
+                        </div>
 
                         {/* Mobile: action controls */}
                         {!inv.alreadyDisputed && (
