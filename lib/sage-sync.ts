@@ -378,6 +378,8 @@ export async function runSageSync(orgId: string, userId: string, opts: { fullSyn
             sageIntacctBalance:    totalDue,
             sageIntacctSyncedAt:   now,
             updatedAt:             now,
+            invoiceDate,
+            dueDate,
           })
           .where(eq(invoices.id, existing.id));
         if (wasOpen && paymentStatus === "Paid") invoicesClosed++;

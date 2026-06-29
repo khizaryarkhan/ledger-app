@@ -491,6 +491,22 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       existing.paymentStatus === "Paid" || existing.collectionStage === "Closed"
     );
 
+    const lineItems = (qi.Line ?? [])
+      .filter((l: any) => l.DetailType === "SalesItemLineDetail" || l.DetailType === "DescriptionOnly")
+      .map((l: any) => {
+        const d = l.SalesItemLineDetail ?? {};
+        return {
+          description: l.Description || d.ItemRef?.name || "",
+          quantity:    d.Qty    != null ? Number(d.Qty)       : null,
+          unitPrice:   d.UnitPrice != null ? Number(d.UnitPrice) : null,
+          lineTotal:   Number(l.Amount) || 0,
+          taxAmount:   null,
+          accountCode: null,
+          itemName:    d.ItemRef?.name || null,
+        };
+      })
+      .filter((l: any) => l.description || l.lineTotal);
+
     const syncData = {
       total,
       amount,      // Net ex tax
@@ -504,6 +520,9 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       paymentStatus: (paid > 0 ? "Partially Paid" : "Unpaid") as any,
       billingEmail,
       updatedAt: new Date(),
+      invoiceDate: qi.TxnDate || new Date().toISOString().slice(0, 10),
+      dueDate:     qi.DueDate || qi.TxnDate || new Date().toISOString().slice(0, 10),
+      ...(lineItems.length > 0 ? { lineItems } : {}),
       // If the invoice is being reopened, reset stage to "Open" and clear paidAt
       ...(wasClosedOrPaid ? { collectionStage: "Open", paidAt: null } : {}),
     };

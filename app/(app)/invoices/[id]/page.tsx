@@ -15,7 +15,7 @@ export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh, toast } = useData() as any;
-  const [tab, setTab] = useState<"overview" | "comms" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "lines" | "comms" | "tasks">("overview");
   const [showCompose, setShowCompose] = useState(false);
   const [showPay, setShowPay] = useState(false);
   const [showDispute, setShowDispute] = useState(false);
@@ -234,6 +234,7 @@ export default function InvoiceDetailPage() {
         <div className="flex items-center gap-1">
           {[
             { id: "overview", label: "Overview" },
+            ...(inv.lineItems?.length > 0 ? [{ id: "lines", label: `Line Items (${inv.lineItems.length})` }] : []),
             { id: "comms", label: `Communications (${invComms.length})` },
             { id: "tasks", label: `Tasks (${invTasks.length})` },
           ].map(t => (
@@ -320,6 +321,56 @@ export default function InvoiceDetailPage() {
           {/* Promise & Dispute event timeline (Customer Response Portal) */}
           <PromiseDisputePanel invoiceId={inv.id} currency={inv.currency} onChange={refresh} />
         </div>
+      )}
+
+      {tab === "lines" && (
+        <Card padding="none">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-800">
+                  {["Description", "Item", "Qty", "Unit Price", "Tax", "Total"].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-[11px] text-stone-500 font-medium whitespace-nowrap last:text-right">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(inv.lineItems ?? []).map((l: any, i: number) => (
+                  <tr key={i} className="border-b border-stone-800/50 hover:bg-stone-800/20">
+                    <td className="px-4 py-3 text-stone-200 max-w-xs">
+                      {l.description || <span className="text-stone-600 italic">No description</span>}
+                      {l.accountCode && <div className="text-[11px] text-stone-600 font-mono mt-0.5">{l.accountCode}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-stone-400 text-xs">{l.itemName || "—"}</td>
+                    <td className="px-4 py-3 text-stone-300 tabular-nums">{l.quantity != null ? l.quantity : "—"}</td>
+                    <td className="px-4 py-3 text-stone-300 tabular-nums">{l.unitPrice != null ? fmt.money(l.unitPrice, inv.currency) : "—"}</td>
+                    <td className="px-4 py-3 text-stone-400 tabular-nums">{l.taxAmount != null ? fmt.money(l.taxAmount, inv.currency) : "—"}</td>
+                    <td className="px-4 py-3 text-white font-medium tabular-nums text-right">{fmt.money(l.lineTotal, inv.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-stone-700">
+                  <td colSpan={4} />
+                  <td className="px-4 py-3 text-xs text-stone-500 text-right">Subtotal</td>
+                  <td className="px-4 py-3 text-white font-semibold tabular-nums text-right">{fmt.money(inv.amount, inv.currency)}</td>
+                </tr>
+                {inv.taxAmount > 0 && (
+                  <tr>
+                    <td colSpan={4} />
+                    <td className="px-4 py-2 text-xs text-stone-500 text-right">Tax</td>
+                    <td className="px-4 py-2 text-stone-300 tabular-nums text-right">{fmt.money(inv.taxAmount, inv.currency)}</td>
+                  </tr>
+                )}
+                <tr className="border-t border-stone-800">
+                  <td colSpan={4} />
+                  <td className="px-4 py-3 text-xs text-stone-400 font-semibold text-right">Total</td>
+                  <td className="px-4 py-3 text-emerald-300 font-bold tabular-nums text-right">{fmt.money(inv.total, inv.currency)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </Card>
       )}
 
       {tab === "comms" && (
