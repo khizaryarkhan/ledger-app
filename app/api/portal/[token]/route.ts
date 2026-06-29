@@ -58,6 +58,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         paymentStatus: invoices.paymentStatus,
         hasOpenDispute: invoices.hasOpenDispute,
         promiseDate: invoices.promiseDate,
+        qboId: invoices.qboId,
+        xeroId: invoices.xeroId,
       })
       .from(invoices)
       .where(and(
@@ -75,8 +77,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         dueDate: i.dueDate,
         currency: i.currency || org?.currency || "EUR",
         balance: i.qboBalance != null ? Math.max(0, i.qboBalance) : Math.max(0, (i.total ?? 0) - (i.paid ?? 0)),
+        total: i.total ?? 0,
         alreadyDisputed: i.hasOpenDispute,
         existingPromise: i.promiseDate,
+        hasPdf: !!(i.qboId && !i.qboId.startsWith("CM-")) || !!(i.xeroId && !i.xeroId.startsWith("CN-")),
       }));
   }
 
