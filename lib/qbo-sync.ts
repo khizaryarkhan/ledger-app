@@ -455,6 +455,8 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
 
   const invsToInsert: any[] = [];
   const invsToUpdate: { id: string; data: any }[] = [];
+  // Track ledger IDs that are reopened in this run so STEP 8 does not immediately re-close them.
+  const reopenedInThisRun = new Set<string>();
 
   for (const qi of openInvoices) {
     const invoiceNumber = qi.DocNumber || `QBO-INV-${qi.Id}`;
@@ -521,6 +523,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     };
 
     if (existing) {
+      if (wasClosedOrPaid && (parseFloat(qi.Balance) || 0) > 0) reopenedInThisRun.add(existing.id);
       invsToUpdate.push({ id: existing.id, data: syncData });
       results.invoicesUpdated++;
     } else {
@@ -1372,7 +1375,9 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       !inv.qboId.startsWith("CM-") &&
       inv.paymentStatus !== "Paid" &&
       inv.collectionStage !== "Closed" &&
-      paidQboIds.has(inv.qboId)
+      paidQboIds.has(inv.qboId) &&
+      // Never re-close an invoice that was just reopened in this same sync run
+      !reopenedInThisRun.has(inv.id)
   );
 
   if (toClose.length > 0) {
@@ -1724,6 +1729,31 @@ export async function syncTargetedEntities(
     }
 
     if (webhookPaymentDate.size > 0) {
+      // Also re-fetch any invoice that was PREVIOUSLY linked to these payments
+      // in our local paymentApplications table but is no longer in the current
+      // LinkedTxn (i.e. the payment was moved to a different invoice). Without
+      // this, the de-linked invoice stays Paid/Closed even after the reversal.
+      const localPmts = await db
+        .select({ id: payments.id, qboId: payments.qboId })
+        .from(payments)
+        .where(and(eq(payments.orgId, orgId), inArray(payments.qboId, paymentIds)));
+      if (localPmts.length > 0) {
+        const prevApps = await db
+          .select({ targetQboId: paymentApplications.targetQboId })
+          .from(paymentApplications)
+          .where(and(
+            inArray(paymentApplications.paymentId, localPmts.map((p) => p.id)),
+            eq(paymentApplications.targetType, "Invoice"),
+          ));
+        for (const { targetQboId } of prevApps) {
+          // Only add invoices NOT already in the current LinkedTxn — those are the
+          // de-linked ones that need a balance refresh to detect reopening.
+          if (targetQboId && !webhookPaymentDate.has(targetQboId)) {
+            webhookPaymentDate.set(targetQboId, "");
+          }
+        }
+      }
+
       const linkedQboInvoices = await Promise.all(
         Array.from(webhookPaymentDate.keys()).map((id) =>
           qboApiGet(accessToken, realmId, `invoice/${id}`)
@@ -1732,8 +1762,9 @@ export async function syncTargetedEntities(
         )
       );
       for (const qi of linkedQboInvoices.filter(Boolean)) {
-        // Pass the actual payment date from the Payment object
-        await processQboInvoice(qi, webhookPaymentDate.get(qi.Id));
+        // Pass the actual payment date from the Payment object (empty string = no date override)
+        const pd = webhookPaymentDate.get(qi.Id);
+        await processQboInvoice(qi, pd || undefined);
       }
     } else {
       // Fallback: Payment had no LinkedTxn pointing to invoices (e.g. undeposited
@@ -1754,8 +1785,7 @@ export async function syncTargetedEntities(
           (inv) =>
             inv.qboId &&
             inv.qboCustomerId &&
-            affectedQboCustomerIds.has(inv.qboCustomerId) &&
-            inv.paymentStatus !== "Paid"
+            affectedQboCustomerIds.has(inv.qboCustomerId)
         );
         const refreshed = await Promise.all(
           openForCustomers.map((inv) =>
