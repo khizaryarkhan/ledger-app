@@ -396,7 +396,7 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       await db.insert(contacts).values(contactsToInsert.slice(i, i + 100));
   }
   for (const { id, email } of contactEmailUpdates) {
-    await db.update(contacts).set({ email, updatedAt: new Date() }).where(eq(contacts.id, id));
+    await db.update(contacts).set({ email }).where(eq(contacts.id, id));
   }
 
   // STEP 5: Sub-customers as projects
