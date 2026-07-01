@@ -7,7 +7,7 @@ import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBa
 import { InvoiceModal } from "@/components/forms";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { Search, Upload, Plus, FileText, Trash2, X, Download, Send, CalendarDays } from "lucide-react";
+import { Search, Upload, Plus, FileText, Trash2, X, Download, Send, CalendarDays, Sheet } from "lucide-react";
 
 // ── Date period helpers ────────────────────────────────────────────────────────
 type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
@@ -37,7 +37,7 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
 import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 export default function InvoicesPage() {
-  const { invoices, customers, projects, contacts, regions, bulkDeleteInvoices, orgSettings, refresh, toast } = useData() as any;
+  const { invoices, customers, projects, contacts, regions, reps, bulkDeleteInvoices, orgSettings, refresh, toast } = useData() as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
@@ -108,13 +108,47 @@ export default function InvoicesPage() {
     return getPeriodRange(period);
   }, [period, customFrom, customTo]);
 
+  const handleExportExcel = () => {
+    import("xlsx").then((XLSX) => {
+      const rows = dt.rows.map((inv: any) => ({
+        "Invoice #":      inv.invoiceNumber,
+        "Customer":       inv.customer?.name ?? "",
+        "Project":        inv.project?.name ?? "",
+        "Rep":            inv.rep?.name ?? "",
+        "Region":         inv.region?.name ?? "",
+        "Invoice Date":   inv.invoiceDate ?? "",
+        "Due Date":       inv.dueDate ?? "",
+        "Status":         inv.dueStatus ?? "",
+        "Stage":          inv.collectionStage ?? "",
+        "Billing Email":  inv.resolvedEmail ?? "",
+        "Currency":       inv.currency ?? "",
+        "Value":          inv.total ?? 0,
+        "Paid":           inv.paid ?? 0,
+        "Outstanding":    inv.outstanding ?? 0,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      // Column widths
+      ws["!cols"] = [14,28,22,18,16,14,14,14,18,32,8,12,12,12].map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Invoices");
+      const period_label = PERIODS.find(p => p.id === period)?.label ?? "Custom";
+      XLSX.writeFile(wb, `Invoices_${period_label.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    });
+  };
+
   const filtered = useMemo(() => {
     let res = invoices.map((i: any) => {
       const isPaidOrClosed = ["Paid", "Written Off"].includes(i.paymentStatus) || i.collectionStage === "Closed";
+      const customer = customers.find((c: any) => c.id === i.customerId);
+      const project  = projects.find((p: any) => p.id === i.projectId);
+      const repId    = customer?.repId ?? project?.repId;
+      const regionId = customer?.regionId ?? project?.regionId;
       return {
         ...i,
-        customer: customers.find((c: any) => c.id === i.customerId),
-        project: projects.find((p: any) => p.id === i.projectId),
+        customer,
+        project,
+        rep:    reps?.find((r: any) => r.id === repId) ?? null,
+        region: regions?.find((r: any) => r.id === regionId) ?? null,
         outstanding: isPaidOrClosed ? 0 : i.total - (i.paid || 0),
         daysOverdue: daysOverdue(i.dueDate),
         dueStatus: getDueStatus(i),
@@ -164,13 +198,15 @@ export default function InvoicesPage() {
     if (responseFilter === "promise") res = res.filter((i: any) => !!i.promiseDate);
     res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
-  }, [invoices, customers, projects, contacts, search, statusFilter, stageFilter, customerFilter, regionFilter, responseFilter, periodFrom, periodTo]);
+  }, [invoices, customers, projects, contacts, reps, regions, search, statusFilter, stageFilter, customerFilter, regionFilter, responseFilter, periodFrom, periodTo]);
 
   // Column definitions for sort + filter
   const INV_COLS: ColDef[] = [
     { key: "invoiceNumber", label: "Invoice", sortValue: (r) => r.invoiceNumber, filterLabel: (r) => r.invoiceNumber },
     { key: "customer",      label: "Customer", sortValue: (r) => r.customer?.name ?? "", filterLabel: (r) => r.customer?.name ?? "" },
     { key: "project",       label: "Project",  sortValue: (r) => r.project?.name ?? "", filterLabel: (r) => r.project?.name ?? "(None)" },
+    { key: "rep",           label: "Rep",      sortValue: (r) => r.rep?.name ?? "", filterLabel: (r) => r.rep?.name ?? "(None)" },
+    { key: "region",        label: "Region",   sortValue: (r) => r.region?.name ?? "", filterLabel: (r) => r.region?.name ?? "(None)" },
     { key: "invoiceDate",   label: "Inv. Date", sortValue: (r) => r.invoiceDate ?? "" },
     { key: "dueDate",       label: "Due Date",  sortValue: (r) => r.dueDate ?? "" },
     { key: "dueStatus",     label: "Status",    sortValue: (r) => r.dueStatus ?? "", filterLabel: (r) => r.dueStatus ?? "" },
@@ -241,6 +277,7 @@ export default function InvoicesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="secondary" icon={Sheet} onClick={handleExportExcel}>Export Excel</Button>
           <Link href="/imports"><Button variant="secondary" icon={Upload}>Import CSV</Button></Link>
           <Button icon={Plus} onClick={() => setShowCreate(true)}>New invoice</Button>
         </div>
@@ -383,6 +420,12 @@ export default function InvoicesPage() {
                   </td>
                   <td className="px-3 py-2.5 text-stone-400 text-[12px]">
                     <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[140px]">{inv.project?.name || "—"}</Link>
+                  </td>
+                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
+                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[120px]">{inv.rep?.name || "—"}</Link>
+                  </td>
+                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
+                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[110px]">{inv.region?.name || "—"}</Link>
                   </td>
                   <td className="px-3 py-2.5 text-stone-400 text-[12px] whitespace-nowrap">
                     <Link href={`/invoices/${inv.id}`} className="block w-full">{formatDate(inv.invoiceDate, df)}</Link>
