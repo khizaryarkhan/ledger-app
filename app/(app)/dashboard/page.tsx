@@ -77,15 +77,29 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
     const byCust: Record<string, number> = {};
     open.forEach((i: any) => { byCust[i.customerId] = (byCust[i.customerId] || 0) + openBal(i); });
     const concentrationRows = Object.entries(byCust)
-      .map(([cid, amt]) => ({
-        customer: customers.find((c: any) => c.id === cid),
-        amount: amt as number,
-        pct: totalAR > 0 ? ((amt as number) / totalAR) * 100 : 0,
-        currency: custCurrency(open, cid),
-      }))
+      .map(([cid, amt]) => {
+        const custInvs = open.filter((i: any) => i.customerId === cid);
+        const ag = { current: 0, b1_30: 0, b31_60: 0, b61_90: 0, b90plus: 0 };
+        custInvs.forEach((i: any) => {
+          const d = daysOverdue(i.dueDate);
+          const v = openBal(i);
+          if (d <= 0)       ag.current += v;
+          else if (d <= 30) ag.b1_30   += v;
+          else if (d <= 60) ag.b31_60  += v;
+          else if (d <= 90) ag.b61_90  += v;
+          else              ag.b90plus += v;
+        });
+        const total = amt as number;
+        return {
+          customer: customers.find((c: any) => c.id === cid),
+          amount: total,
+          pct: totalAR > 0 ? (total / totalAR) * 100 : 0,
+          currency: custCurrency(open, cid),
+          aging: ag,
+        };
+      })
       .filter(x => x.customer)
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 10);
+      .sort((a, b) => b.amount - a.amount);
 
     const repPortfolio = (reps ?? []).map((rep: any) => {
       const repInvs = open.filter((i: any) => {
@@ -274,27 +288,49 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
       {/* Largest debtors + Rep breakdown */}
       <div className="grid grid-cols-2 gap-3">
         <Card>
-          <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-4">Largest Open Balances</div>
-          <div className="space-y-2">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Largest Open Balances</div>
+            <div className="flex items-center gap-2.5 text-[10px] text-stone-500">
+              {[["bg-emerald-500","Current"],["bg-amber-400","1-30d"],["bg-orange-500","31-60d"],["bg-rose-500","61-90d"],["bg-rose-800","90+d"]].map(([color, label]) => (
+                <span key={label} className="flex items-center gap-1">
+                  <span className={`inline-block w-2 h-2 rounded-sm ${color}`} />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
             {concentrationRows.length === 0 ? (
               <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
-            ) : concentrationRows.map(({ customer, amount, pct, currency }: any, idx: number) => (
-              <div key={customer.id} className="flex items-center gap-2">
-                <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[12px] font-medium text-stone-300 truncate">{customer.name}</span>
-                    <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, currency)}</span>
-                      <span className="text-[11px] text-stone-500 w-9 text-right">{pct.toFixed(0)}%</span>
+            ) : concentrationRows.map(({ customer, amount, pct, currency, aging }: any, idx: number) => {
+              const total = amount || 1;
+              const segments = [
+                { value: aging.current, color: "bg-emerald-500" },
+                { value: aging.b1_30,   color: "bg-amber-400"   },
+                { value: aging.b31_60,  color: "bg-orange-500"  },
+                { value: aging.b61_90,  color: "bg-rose-500"    },
+                { value: aging.b90plus, color: "bg-rose-800"    },
+              ];
+              return (
+                <div key={customer.id} className="flex items-center gap-2">
+                  <span className="w-5 text-[11px] text-stone-400 font-mono text-right shrink-0">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[12px] font-medium text-stone-300 truncate">{customer.name}</span>
+                      <div className="flex items-center gap-2 ml-2 shrink-0">
+                        <span className="text-[11px] tabular-nums text-stone-200 font-semibold">{fmt.money(amount, currency)}</span>
+                        <span className="text-[11px] text-stone-500 w-9 text-right">{pct.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden flex">
+                      {segments.map((seg, i) => seg.value > 0 && (
+                        <div key={i} className={`h-full ${seg.color}`} style={{ width: `${(seg.value / total) * Math.min(pct, 100)}%` }} />
+                      ))}
                     </div>
                   </div>
-                  <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full bg-stone-500" style={{ width: `${Math.min(pct, 100)}%` }} />
-                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
 
