@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
 import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, Circle, AlertTriangle, Mail, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, ChevronDown, Circle, AlertTriangle, Mail, X } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
 
@@ -22,6 +22,7 @@ function openBal(inv: any): number {
 
 // ── AR Health widget ────────────────────────────────────────────────────────
 function ArHealthWidget({ invoices, customers, projects, reps, communications }: any) {
+  const [showAllBalances, setShowAllBalances] = useState(false);
   const filteredInvoices = invoices;
 
   const metrics = useMemo(() => {
@@ -299,10 +300,10 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
               ))}
             </div>
           </div>
-          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+          <div className="space-y-2">
             {concentrationRows.length === 0 ? (
               <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
-            ) : concentrationRows.map(({ customer, amount, pct, currency, aging }: any, idx: number) => {
+            ) : (showAllBalances ? concentrationRows : concentrationRows.slice(0, 10)).map(({ customer, amount, pct, currency, aging }: any, idx: number) => {
               const total = amount || 1;
               const segments = [
                 { value: aging.current, color: "bg-emerald-500" },
@@ -324,7 +325,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
                     </div>
                     <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden flex">
                       {segments.map((seg, i) => seg.value > 0 && (
-                        <div key={i} className={`h-full ${seg.color}`} style={{ width: `${(seg.value / total) * Math.min(pct, 100)}%` }} />
+                        <div key={i} className={`h-full ${seg.color}`} style={{ width: `${(seg.value / total) * 100}%` }} />
                       ))}
                     </div>
                   </div>
@@ -332,6 +333,15 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
               );
             })}
           </div>
+          {concentrationRows.length > 10 && (
+            <button
+              onClick={() => setShowAllBalances(v => !v)}
+              className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 transition-colors py-1"
+            >
+              <ChevronDown size={12} className={`transition-transform ${showAllBalances ? "rotate-180" : ""}`} />
+              {showAllBalances ? "Show less" : `Show all ${concentrationRows.length} customers`}
+            </button>
+          )}
         </Card>
 
         {repPortfolio.length > 0 ? (
