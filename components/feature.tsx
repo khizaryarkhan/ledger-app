@@ -11,13 +11,13 @@ import {
   ArrowDownRight, ArrowUpRight, FileEdit, Link2, Save, Send, Paperclip,
   MessageSquare, Circle, Check, Download, AlertTriangle, CheckCircle, XCircle,
   Mail, Calendar, Zap, ArrowRightLeft, CreditCard, Users, RefreshCw, FileDown,
-  Clock, Layers, StickyNote,
+  Clock, Layers, StickyNote, CornerUpLeft,
 } from "lucide-react";
 
 // =====================
 // TIMELINE
 // =====================
-export function Timeline({ communications, onAddNote }: any) {
+export function Timeline({ communications, onAddNote, onReply }: any) {
   const { contacts, invoices } = useData();
   const [noteDraft, setNoteDraft] = useState("");
 
@@ -67,13 +67,31 @@ export function Timeline({ communications, onAddNote }: any) {
                     </div>
                     {!isNote && c.subject && <div className="text-sm font-semibold text-stone-900 mb-2">{c.subject}</div>}
                     <div className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">{c.body}</div>
-                    {invoice && (
-                      <div className="mt-3 pt-3 border-t border-stone-100 flex items-center gap-2">
-                        <Link2 size={12} className="text-stone-400" />
-                        <span className="text-[11px] text-stone-500">Linked to</span>
-                        <span className="text-[11px] font-mono text-stone-700">{invoice.invoiceNumber}</span>
-                      </div>
-                    )}
+                    <div className={`mt-3 pt-3 border-t border-stone-100 flex items-center ${invoice ? "justify-between" : "justify-end"}`}>
+                      {invoice && (
+                        <div className="flex items-center gap-2">
+                          <Link2 size={12} className="text-stone-400" />
+                          <span className="text-[11px] text-stone-500">Linked to</span>
+                          <span className="text-[11px] font-mono text-stone-700">{invoice.invoiceNumber}</span>
+                        </div>
+                      )}
+                      {!isNote && onReply && (
+                        <button
+                          onClick={() => onReply({
+                            toEmail:    isInbound ? c.sender : c.recipients,
+                            subject:    c.subject ? (c.subject.startsWith("Re:") ? c.subject : `Re: ${c.subject}`) : "",
+                            messageId:  c.messageId,
+                            invoiceId:  c.invoiceId,
+                            customerId: c.customerId,
+                            projectId:  c.projectId,
+                          })}
+                          className="flex items-center gap-1.5 text-[11px] text-stone-500 hover:text-blue-600 transition-colors"
+                        >
+                          <CornerUpLeft size={12} />
+                          Reply in same thread
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -126,9 +144,10 @@ export function EmailComposer({ context, onClose }: any) {
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(
     new Set(context.invoiceId ? [context.invoiceId] : [])
   );
-  const [toValue, setToValue] = useState(primaryContact?.email || "");
+  const [toValue, setToValue] = useState(context.replyTo?.toEmail || primaryContact?.email || "");
   const [ccValue, setCcValue] = useState("");
   const [subject, setSubject] = useState(() => {
+    if (context.replyTo?.subject) return context.replyTo.subject;
     const base = invoice
       ? `Outstanding Invoice ${invoice.invoiceNumber} — ${customer?.name}`
       : `Outstanding Invoices — ${customer?.name}`;
@@ -247,6 +266,9 @@ ${senderName}`;
             subject,
             body,
             invoiceId: context.invoiceId || undefined,
+            // If replying to a specific message, override the server's thread
+            // lookup with the exact messageId the user chose to reply to.
+            ...(context.replyTo?.messageId ? { inReplyToOverride: context.replyTo.messageId } : {}),
             attachInvoiceIds: selectedInvIds.size > 0 ? Array.from(selectedInvIds) : undefined,
           }),
         });

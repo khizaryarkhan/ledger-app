@@ -17,6 +17,7 @@ export default function InvoiceDetailPage() {
   const { invoices, customers, projects, contacts, communications, tasks, orgSettings, refresh, toast } = useData() as any;
   const [tab, setTab] = useState<"overview" | "comms" | "tasks" | "lines">("overview");
   const [showCompose, setShowCompose] = useState(false);
+  const [replyContext, setReplyContext] = useState<any>(null);
   const [showPay, setShowPay] = useState(false);
   const [showDispute, setShowDispute] = useState(false);
   const [showPromise, setShowPromise] = useState(false);
@@ -370,7 +371,7 @@ export default function InvoiceDetailPage() {
       )}
 
       {tab === "comms" && (
-        <Timeline communications={invComms} onAddNote={null} />
+        <Timeline communications={invComms} onAddNote={null} onReply={(rc: any) => setReplyContext(rc)} />
       )}
 
       {tab === "tasks" && (
@@ -398,6 +399,12 @@ export default function InvoiceDetailPage() {
           onClose={() => setShowCompose(false)}
           onSent={() => { setShowCompose(false); refresh(); }}
           toast={toast}
+        />
+      )}
+      {replyContext && (
+        <EmailComposer
+          context={{ customerId: replyContext.customerId, invoiceId: replyContext.invoiceId, projectId: replyContext.projectId, replyTo: replyContext }}
+          onClose={() => setReplyContext(null)}
         />
       )}
       {showPay && <PaymentModal invoice={inv} onClose={() => setShowPay(false)} />}

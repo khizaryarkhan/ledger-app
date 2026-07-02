@@ -23,13 +23,14 @@ const XERO_API = "https://api.xero.com/api.xro/2.0";
 const noCRLF = z.string().regex(/^[^\r\n]*$/, "Value must not contain line breaks");
 
 const Schema = z.object({
-  to:                noCRLF.min(1).max(500),
-  subject:           noCRLF.min(1).max(998),  // RFC 5322 max header line length
-  body:              z.string().min(1).max(200_000),
-  cc:                noCRLF.max(500).optional(),
-  replyTo:           noCRLF.max(500).optional(),
-  invoiceId:         z.string().uuid().optional(),
-  attachInvoiceIds:  z.array(z.string()).optional(),
+  to:                  noCRLF.min(1).max(500),
+  subject:             noCRLF.min(1).max(998),  // RFC 5322 max header line length
+  body:                z.string().min(1).max(200_000),
+  cc:                  noCRLF.max(500).optional(),
+  replyTo:             noCRLF.max(500).optional(),
+  invoiceId:           z.string().uuid().optional(),
+  inReplyToOverride:   z.string().max(998).optional(),
+  attachInvoiceIds:    z.array(z.string()).optional(),
 });
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
@@ -121,9 +122,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // Look up the last outbound message-id for this invoice so we can thread replies.
-    let inReplyTo: string | undefined;
-    if (data.invoiceId) {
+    // Determine In-Reply-To: explicit override (user clicked Reply on a specific message)
+    // takes precedence over the automatic last-outbound lookup.
+    let inReplyTo: string | undefined = data.inReplyToOverride;
+    if (!inReplyTo && data.invoiceId) {
       const [prev] = await db
         .select({ messageId: communications.messageId })
         .from(communications)

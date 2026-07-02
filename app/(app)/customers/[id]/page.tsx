@@ -22,6 +22,7 @@ export default function CustomerDetailPage() {
   const [showAddProject, setShowAddProject] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   const [composeSeed, setComposeSeed] = useState<string[] | null>(null);
+  const [replyContext, setReplyContext] = useState<any>(null);
   const [togglingChase, setTogglingChase] = useState(false);
 
   const customer = customers.find(c => c.id === id);
@@ -334,7 +335,7 @@ export default function CustomerDetailPage() {
       )}
 
       {tab === "timeline" && (
-        <Timeline communications={custComms} onAddNote={(body: string) => addNote({ customerId: id, invoiceId: null, body })} />
+        <Timeline communications={custComms} onAddNote={(body: string) => addNote({ customerId: id, invoiceId: null, body })} onReply={(rc: any) => setReplyContext(rc)} />
       )}
 
       {tab === "audit" && (
@@ -345,6 +346,12 @@ export default function CustomerDetailPage() {
         <TasksList tasks={custTasks} />
       )}
 
+      {replyContext && (
+        <EmailComposer
+          context={{ customerId: replyContext.customerId ?? id, invoiceId: replyContext.invoiceId, projectId: replyContext.projectId, replyTo: replyContext }}
+          onClose={() => setReplyContext(null)}
+        />
+      )}
       {showAddContact && <AddContactModal customerId={id} onClose={() => setShowAddContact(false)} />}
       {showEditCustomer && <CustomerModal customer={customer} onClose={() => setShowEditCustomer(false)} />}
       {showAddProject && <ProjectModal preCustomerId={id} onClose={() => setShowAddProject(false)} />}
