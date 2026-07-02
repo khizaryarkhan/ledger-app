@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/cron/sync-inbound-ar",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 7 * * *"
     }
   ]
 }
