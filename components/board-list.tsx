@@ -4,9 +4,10 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
+import { EmailComposer } from "@/components/feature";
 
 export type BoardRow = {
   inv: any;
@@ -45,6 +46,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [notesOpenId, setNotesOpenId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
+  const [replyContext, setReplyContext] = useState<any>(null);
   const [savingNote, setSavingNote] = useState(false);
 
   // Activity feed grouped by invoice — includes all human-relevant events:
@@ -579,7 +581,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     labelCls: n.subject === "Promise broken" ? "text-amber-400" : "text-sky-400",
                                     bg: n.subject === "Promise broken" ? "bg-amber-950/20" : "bg-sky-950/20",
                                   };
-                                  case "Email":    return { icon: <Mail size={11} />,          border: "border-l-2 border-blue-500",  label: `Sent to ${n.recipients || "customer"}`, labelCls: "text-blue-400", bg: "bg-blue-950/20" };
+                                  case "Email":    return { icon: n.direction === "Inbound" ? <ArrowDownRight size={11} /> : <Mail size={11} />, border: n.direction === "Inbound" ? "border-l-2 border-emerald-500" : "border-l-2 border-blue-500", label: n.direction === "Inbound" ? `Reply from ${n.sender || "customer"}` : `Sent to ${n.recipients || "customer"}`, labelCls: n.direction === "Inbound" ? "text-emerald-400" : "text-blue-400", bg: n.direction === "Inbound" ? "bg-emerald-950/20" : "bg-blue-950/20" };
                                   default:         return { icon: <StickyNote size={11} />,     border: "border-l-2 border-stone-600", label: n.sender || "Staff",            labelCls: "text-stone-400",   bg: "" };
                                 }
                               })();
@@ -597,6 +599,22 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
                                   )}
                                   <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
+                                  {n.channel === "Email" && n.messageId && (
+                                    <button
+                                      onClick={() => setReplyContext({
+                                        toEmail:    n.direction === "Inbound" ? n.sender : n.recipients,
+                                        subject:    n.subject ? (n.subject.startsWith("Re:") ? n.subject : `Re: ${n.subject}`) : "",
+                                        messageId:  n.messageId,
+                                        invoiceId:  n.invoiceId,
+                                        customerId: n.customerId,
+                                        projectId:  n.projectId,
+                                      })}
+                                      className="mt-1.5 flex items-center gap-1 text-[10px] text-stone-500 hover:text-blue-400 transition-colors"
+                                    >
+                                      <CornerUpLeft size={10} />
+                                      Reply in same thread
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
@@ -652,6 +670,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           onClose={() => setShowSend(false)}
           onSent={() => { setShowSend(false); setSelected(new Set()); refresh(); }}
           toast={toast} />
+      )}
+      {replyContext && (
+        <EmailComposer
+          context={{ customerId: replyContext.customerId, invoiceId: replyContext.invoiceId, projectId: replyContext.projectId, replyTo: replyContext }}
+          onClose={() => setReplyContext(null)}
+        />
       )}
     </div>
   );
