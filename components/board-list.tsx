@@ -605,6 +605,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                         toEmail:    n.direction === "Inbound" ? n.sender : n.recipients,
                                         subject:    n.subject ? (n.subject.startsWith("Re:") ? n.subject : `Re: ${n.subject}`) : "",
                                         messageId:  n.messageId ?? null,
+                                        refNumber:  n.refNumber ?? null,
                                         invoiceId:  n.invoiceId,
                                         customerId: n.customerId,
                                         projectId:  n.projectId,

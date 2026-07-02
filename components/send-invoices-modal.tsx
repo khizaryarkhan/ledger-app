@@ -78,16 +78,20 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, onClose, o
       });
       const res = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, attachInvoiceIds: attachPdf ? ids : undefined }),
+        // Pass first invoiceId so server can look up In-Reply-To for thread continuity
+        body: JSON.stringify({ to, cc: cc || undefined, subject, body: html, invoiceId: rows[0]?.inv.id, attachInvoiceIds: attachPdf ? ids : undefined }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Send failed"); }
+      const sentResult = await res.json();
+      const sentMessageId = sentResult.messageId ?? null;
       // Await communications logging so refresh() sees the new records (including refNumber)
+      // All invoices in this send share the same messageId — needed for reply threading.
       await Promise.all(rows.map(r => fetch("/api/communications", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: r.custId, invoiceId: r.inv.id, projectId: r.inv.projectId ?? null,
           direction: "Outbound", channel: "Email", subject, recipients: to, body,
-          matchedBy: "Manual", isDraft: false, refNumber: emailRef,
+          matchedBy: "Manual", isDraft: false, refNumber: emailRef, messageId: sentMessageId,
         }),
       }).catch(() => {})));
       toast?.(`Sent ${rows.length} invoice(s) to ${to}`);

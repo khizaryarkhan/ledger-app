@@ -81,6 +81,7 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                             toEmail:    isInbound ? c.sender : c.recipients,
                             subject:    c.subject ? (c.subject.startsWith("Re:") ? c.subject : `Re: ${c.subject}`) : "",
                             messageId:  c.messageId ?? null,
+                            refNumber:  c.refNumber ?? null,
                             invoiceId:  c.invoiceId,
                             customerId: c.customerId,
                             projectId:  c.projectId,
@@ -157,6 +158,9 @@ export function EmailComposer({ context, onClose }: any) {
   const [body, setBody] = useState(() => {
     const senderName = session?.user?.name || "";
     const contactName = primaryContact?.name?.split(" ")[0] || "there";
+    if (context.replyTo) {
+      return `Dear ${contactName},\n\n\n\nKind regards,\n${senderName}`;
+    }
     if (invoice) {
       const out = invoice.total - (invoice.paid || 0);
       return `Dear ${contactName},
@@ -182,11 +186,12 @@ ${senderName}`;
   const [submitting, setSubmitting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  // Collections reference number — generated once when the composer opens
+  // Collections reference number — skip entirely when replying (thread already has a ref)
+  const isReply = !!context.replyTo;
   const [refNumber, setRefNumber] = useState<string | null>(null);
   const refFetched = useRef(false);
   useEffect(() => {
-    if (refFetched.current) return;
+    if (isReply || refFetched.current) return;
     refFetched.current = true;
     fetch("/api/org/colref", { method: "POST" })
       .then(r => r.json())
@@ -298,6 +303,8 @@ ${senderName}`;
         refNumber: refNumber || undefined,
         stageAtSend: invoice?.collectionStage || undefined,
         messageId: sentMessageId,
+        // For replies: fan-out to all invoices that shared the original outbound email
+        inReplyToRef: context.replyTo?.refNumber || undefined,
       });
       onClose();
     } catch (e) { console.error(e); }

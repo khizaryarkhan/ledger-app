@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { communications, invoices, customers, projects, contacts } from "@/db/schema";
 import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
 import { z } from "zod";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq, and, ne } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
 
 const Schema = z.object({
@@ -21,6 +21,9 @@ const Schema = z.object({
   stageAtSend: z.string().optional(),
   projectId: z.string().uuid().nullable().optional(),
   messageId: z.string().max(998).optional(),
+  // When logging a reply, pass the original email's refNumber so the reply
+  // gets linked to all invoices that shared that outbound email.
+  inReplyToRef: z.string().max(64).optional(),
 });
 
 // Stages that should never be auto-overridden (manual-only)
@@ -107,6 +110,49 @@ export async function POST(req: Request) {
       stageAtSend: data.stageAtSend ?? currentStageForLog ?? null,
       messageId: data.messageId ?? null,
     }).returning();
+
+    // Fan-out inbound reply to all invoices that shared the original outbound email.
+    // When a batch email covers multiple invoices (same refNumber), a customer reply
+    // should appear in every affected invoice's chatbox, not just the one clicked.
+    if (data.direction === "Inbound" && data.channel === "Email" && data.inReplyToRef) {
+      const siblings = await db
+        .select({ invoiceId: communications.invoiceId, projectId: communications.projectId })
+        .from(communications)
+        .where(and(
+          eq(communications.orgId, orgId!),
+          eq(communications.customerId, data.customerId),
+          eq(communications.refNumber, data.inReplyToRef),
+          eq(communications.direction, "Outbound"),
+        ));
+      const extraInvoiceIds = siblings
+        .map(s => s.invoiceId)
+        .filter((id): id is string => !!id && id !== (data.invoiceId ?? null));
+      if (extraInvoiceIds.length > 0) {
+        await db.insert(communications).values(
+          extraInvoiceIds.map(invId => {
+            const sib = siblings.find(s => s.invoiceId === invId);
+            return {
+              orgId: orgId!,
+              customerId: data.customerId,
+              projectId: sib?.projectId ?? null,
+              invoiceId: invId,
+              contactId: data.contactId ?? null,
+              direction: "Inbound" as const,
+              channel: "Email" as const,
+              subject: data.subject,
+              sender: data.sender,
+              recipients: data.recipients,
+              body: data.body,
+              matchedBy: "thread-fanout",
+              isDraft: false,
+              refNumber: data.inReplyToRef,
+              messageId: data.messageId ?? null,
+              inReplyTo: created.id, // link back to the primary record
+            };
+          })
+        );
+      }
+    }
 
     // Apply auto-stage to invoice
     if (autoStage && data.invoiceId) {
