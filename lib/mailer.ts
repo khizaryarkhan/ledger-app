@@ -17,7 +17,7 @@ import * as nodemailer from "nodemailer";
 import { db } from "@/db";
 import { orgSmtpSettings, orgEmailSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getValidGmailToken, sendGmail } from "@/lib/gmail";
+import { getValidGmailToken, sendGmail, fetchGmailMessageId } from "@/lib/gmail";
 import { getValidMicrosoftToken, sendMicrosoft } from "@/lib/microsoft";
 import { decryptSecret } from "@/lib/crypto";
 
@@ -33,6 +33,7 @@ export interface MailOptions {
   body: string;
   cc?: string;
   replyTo?: string;
+  inReplyTo?: string;
   attachments?: MailAttachment[];
 }
 
@@ -125,7 +126,7 @@ export async function hasEmailTransport(orgId: string): Promise<boolean> {
 export async function sendEmail(
   orgId: string,
   opts: MailOptions,
-): Promise<{ transport: "gmail" | "microsoft" | "smtp"; from: string }> {
+): Promise<{ transport: "gmail" | "microsoft" | "smtp"; from: string; messageId?: string }> {
   // Load org-level default CC (applies to all transports)
   const defaultCc = await getOrgDefaultCc(orgId);
   const effectiveCc = mergeCC(opts.cc, defaultCc);
@@ -134,14 +135,16 @@ export async function sendEmail(
   // --- 1. Gmail ---
   const gmailToken = await getValidGmailToken(orgId);
   if (gmailToken) {
-    await sendGmail(gmailToken.accessToken, gmailToken.email, {
+    const { gmailId } = await sendGmail(gmailToken.accessToken, gmailToken.email, {
       to:          enriched.to,
       subject:     enriched.subject,
       body:        enriched.body,
       cc:          enriched.cc,
+      inReplyTo:   enriched.inReplyTo,
       attachments: enriched.attachments,
     });
-    return { transport: "gmail", from: gmailToken.email };
+    const messageId = await fetchGmailMessageId(gmailToken.accessToken, gmailId).catch(() => null) ?? undefined;
+    return { transport: "gmail", from: gmailToken.email, messageId };
   }
 
   // --- 2. Microsoft ---
@@ -154,6 +157,8 @@ export async function sendEmail(
       cc:          enriched.cc,
       attachments: enriched.attachments,
     });
+    // Message-ID not capturable without Mail.Read scope — threading headers
+    // will be added once Microsoft re-auth is completed.
     return { transport: "microsoft", from: msToken.email };
   }
 
@@ -164,10 +169,8 @@ export async function sendEmail(
       "No email transport configured. Connect Gmail, Microsoft, or set up SMTP in Settings → Email.",
     );
   }
-  // Pass enriched opts — SMTP's own legacy CC logic is bypassed since
-  // defaultCc is already merged in above.
-  await sendSmtp(config, enriched);
-  return { transport: "smtp", from: config.fromEmail };
+  const smtpResult = await sendSmtp(config, enriched);
+  return { transport: "smtp", from: config.fromEmail, messageId: smtpResult.messageId ?? undefined };
 }
 
 /** Strip HTML tags + collapse whitespace to produce a readable plain-text fallback. */
@@ -184,9 +187,9 @@ function htmlToText(html: string): string {
 }
 
 /**
- * Send an email via SMTP. Throws on failure.
+ * Send an email via SMTP. Throws on failure. Returns the RFC Message-ID.
  */
-export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<void> {
+export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<{ messageId?: string }> {
   const transporter = nodemailer.createTransport({
     host:              config.host,
     port:              config.port,
@@ -197,7 +200,7 @@ export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<v
     socketTimeout:     9_000,
   });
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from:        config.from,
     to:          opts.to,
     cc:          opts.cc || undefined,
@@ -206,10 +209,17 @@ export async function sendSmtp(config: SmtpConfig, opts: MailOptions): Promise<v
     subject:     opts.subject,
     text:        htmlToText(opts.body),
     html:        opts.body,
+    ...(opts.inReplyTo ? {
+      headers: {
+        "In-Reply-To": opts.inReplyTo,
+        "References":  opts.inReplyTo,
+      },
+    } : {}),
     attachments: opts.attachments?.map((a) => ({
       filename:    a.filename,
       content:     a.content,
       contentType: a.contentType,
     })),
   });
+  return { messageId: info.messageId ?? undefined };
 }

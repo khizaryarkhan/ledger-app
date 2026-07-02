@@ -1047,6 +1047,8 @@ export const communications = pgTable("communications", {
   authorId: uuid("author_id").references(() => users.id),
   refNumber: varchar("ref_number", { length: 32 }),
   stageAtSend: varchar("stage_at_send", { length: 64 }),
+  messageId: text("message_id"),
+  inReplyTo: text("in_reply_to"),
 });
 
 // =========================================================================

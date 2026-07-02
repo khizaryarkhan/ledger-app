@@ -11,8 +11,8 @@
 import { requireOrg, ok, bad } from "@/lib/api";
 import { z } from "zod";
 import { db } from "@/db";
-import { invoices } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { invoices, communications } from "@/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { getOrgQboToken } from "@/lib/qbo-token";
@@ -28,6 +28,7 @@ const Schema = z.object({
   body:              z.string().min(1).max(200_000),
   cc:                noCRLF.max(500).optional(),
   replyTo:           noCRLF.max(500).optional(),
+  invoiceId:         z.string().uuid().optional(),
   attachInvoiceIds:  z.array(z.string()).optional(),
 });
 
@@ -120,6 +121,23 @@ export async function POST(req: Request) {
       }
     }
 
+    // Look up the last outbound message-id for this invoice so we can thread replies.
+    let inReplyTo: string | undefined;
+    if (data.invoiceId) {
+      const [prev] = await db
+        .select({ messageId: communications.messageId })
+        .from(communications)
+        .where(and(
+          eq(communications.orgId, orgId!),
+          eq(communications.invoiceId, data.invoiceId),
+          eq(communications.direction, "Outbound"),
+          eq(communications.channel, "Email"),
+        ))
+        .orderBy(desc(communications.sentAt))
+        .limit(1);
+      if (prev?.messageId) inReplyTo = prev.messageId;
+    }
+
     // Send via whichever transport is configured (Gmail → Microsoft → SMTP)
     const result = await sendEmail(orgId!, {
       to:          data.to,
@@ -127,6 +145,7 @@ export async function POST(req: Request) {
       body:        data.body,
       cc:          data.cc,
       replyTo:     data.replyTo,
+      inReplyTo,
       attachments: attachments.length > 0 ? attachments : undefined,
     });
 
@@ -134,6 +153,7 @@ export async function POST(req: Request) {
       sent:             true,
       transport:        result.transport,
       from:             result.from,
+      messageId:        result.messageId,
       attachments:      attachments.map(a => a.filename),
       attachmentErrors,
     });

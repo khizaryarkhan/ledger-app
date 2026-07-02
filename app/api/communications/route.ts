@@ -20,6 +20,7 @@ const Schema = z.object({
   refNumber: z.string().optional(),
   stageAtSend: z.string().optional(),
   projectId: z.string().uuid().nullable().optional(),
+  messageId: z.string().max(998).optional(),
 });
 
 // Stages that should never be auto-overridden (manual-only)
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
       authorId: (session!.user as any).id,
       refNumber: data.refNumber ?? null,
       stageAtSend: data.stageAtSend ?? currentStageForLog ?? null,
+      messageId: data.messageId ?? null,
     }).returning();
 
     // Apply auto-stage to invoice

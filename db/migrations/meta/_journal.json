@@ -120,6 +120,13 @@
       "when": 1751299200000,
       "tag": "0016_contacts_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1751385600000,
+      "tag": "0017_communications_message_id",
+      "breakpoints": true
     }
   ]
 }

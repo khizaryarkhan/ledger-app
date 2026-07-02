@@ -102,6 +102,21 @@ function encodeHeader(value: string): string {
   return value;
 }
 
+/**
+ * Fetch the RFC Message-ID of a sent Gmail message by its internal Gmail ID.
+ * Requires the access token used to send — no extra scope beyond gmail.send.
+ */
+export async function fetchGmailMessageId(accessToken: string, gmailId: string): Promise<string | null> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${gmailId}?format=metadata&metadataHeaders=Message-ID`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  const header = (data.payload?.headers || []).find((h: any) => h.name === "Message-ID");
+  return header?.value ?? null;
+}
+
 export async function sendGmail(
   accessToken: string,
   from: string,
@@ -111,9 +126,10 @@ export async function sendGmail(
     body: string;
     cc?: string;
     bcc?: string;
+    inReplyTo?: string;
     attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
   },
-) {
+): Promise<{ gmailId: string }> {
   const boundary = `boundary_${Date.now()}`;
   const hasAttachments = opts.attachments && opts.attachments.length > 0;
 
@@ -123,6 +139,10 @@ export async function sendGmail(
   const htmlBody = looksHtml ? opts.body : opts.body.replace(/\n/g, "<br>");
 
   let rawMessage: string;
+
+  const threadHeaders = opts.inReplyTo
+    ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.inReplyTo}`]
+    : [];
 
   if (hasAttachments) {
     // Multipart MIME with attachments
@@ -150,6 +170,7 @@ export async function sendGmail(
       `To: ${opts.to}`,
       ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
       ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+      ...threadHeaders,
       `Subject: ${encodeHeader(opts.subject)}`,
       `MIME-Version: 1.0`,
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -162,6 +183,7 @@ export async function sendGmail(
       `To: ${opts.to}`,
       ...(opts.cc  ? [`Cc: ${opts.cc}`]  : []),
       ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+      ...threadHeaders,
       `Subject: ${encodeHeader(opts.subject)}`,
       `Content-Type: text/html; charset=utf-8`,
       ``,
@@ -188,4 +210,7 @@ export async function sendGmail(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message ?? `Gmail send failed (${res.status})`);
   }
+
+  const data = await res.json();
+  return { gmailId: data.id as string };
 }
