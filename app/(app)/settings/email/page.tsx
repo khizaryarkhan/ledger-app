@@ -43,6 +43,8 @@ export default function EmailSettingsPage() {
   const [savingSmtp, setSavingSmtp] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+  const [syncingInbox, setSyncingInbox] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [smtpForm, setSmtpForm] = useState({
     host: "mail-eu.smtp2go.com", port: "2525",
     user: "", pass: "", fromEmail: "", fromName: "",
@@ -170,6 +172,21 @@ export default function EmailSettingsPage() {
       setTestResult({ ok: false, message: "Request failed" });
     } finally {
       setTestingEmail(false);
+    }
+  };
+
+  const handleSyncInbox = async () => {
+    setSyncingInbox(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/email/sync-inbox", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) setSyncResult({ ok: true, message: `Captured ${data.captured} new repl${data.captured === 1 ? "y" : "ies"} via ${data.imapHost}` });
+      else setSyncResult({ ok: false, message: data.error || "Sync failed" });
+    } catch {
+      setSyncResult({ ok: false, message: "Request failed" });
+    } finally {
+      setSyncingInbox(false);
     }
   };
 
@@ -405,6 +422,11 @@ export default function EmailSettingsPage() {
                       </Button>
                     )}
                     {smtpStatus.configured && (
+                      <Button variant="secondary" size="sm" onClick={handleSyncInbox} disabled={syncingInbox}>
+                        {syncingInbox ? "Syncing…" : "Sync inbox"}
+                      </Button>
+                    )}
+                    {smtpStatus.configured && (
                       <Button variant="ghost" size="sm" onClick={handleSmtpDelete} className="text-rose-600 hover:text-rose-700">
                         Remove
                       </Button>
@@ -415,6 +437,12 @@ export default function EmailSettingsPage() {
                     <div className={`text-xs px-3 py-2 rounded-md ring-1 ${testResult.ok ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-400" : "bg-rose-500/10 ring-rose-500/30 text-rose-400"}`}>
                       {testResult.ok ? <Check size={12} className="inline mr-1" /> : null}
                       {testResult.message}
+                    </div>
+                  )}
+                  {syncResult && (
+                    <div className={`text-xs px-3 py-2 rounded-md ring-1 ${syncResult.ok ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-400" : "bg-rose-500/10 ring-rose-500/30 text-rose-400"}`}>
+                      {syncResult.ok ? <Check size={12} className="inline mr-1" /> : null}
+                      {syncResult.message}
                     </div>
                   )}
                 </div>
