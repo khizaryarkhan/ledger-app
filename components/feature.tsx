@@ -234,6 +234,7 @@ ${senderName}`;
   const handleSend = async (asDraft = false) => {
     if (!toValue.trim()) return;
     setSubmitting(true);
+    let sentMessageId: string | undefined;
     try {
       // Actually send via SMTP with PDF attachments
       if (!asDraft) {
@@ -245,6 +246,7 @@ ${senderName}`;
             cc: ccValue || undefined,
             subject,
             body,
+            invoiceId: context.invoiceId || undefined,
             attachInvoiceIds: selectedInvIds.size > 0 ? Array.from(selectedInvIds) : undefined,
           }),
         });
@@ -258,6 +260,7 @@ ${senderName}`;
         if (result.attachments?.length > 0) {
           console.log(`Sent with ${result.attachments.length} PDF attachment(s)`);
         }
+        sentMessageId = result.messageId || undefined;
       }
       // Log to timeline (includes ref number + stage-at-send)
       await sendEmail({
@@ -272,6 +275,7 @@ ${senderName}`;
         isDraft: asDraft,
         refNumber: refNumber || undefined,
         stageAtSend: invoice?.collectionStage || undefined,
+        messageId: sentMessageId,
       });
       onClose();
     } catch (e) { console.error(e); }
@@ -1027,9 +1031,10 @@ ${senderName}`;
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to:      email,
-            subject: filledSubject,
-            body:    html,
+            to:        email,
+            subject:   filledSubject,
+            body:      html,
+            invoiceId: inv.id,
             ...(canAttach ? { attachInvoiceIds: [inv.id] } : {}),
           }),
         });
@@ -1054,6 +1059,7 @@ ${senderName}`;
             body:       filledBody,
             matchedBy:  "Manual",
             refNumber:  emailRef,
+            messageId:  result.messageId || undefined,
           }),
         });
 
