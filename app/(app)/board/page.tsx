@@ -159,16 +159,22 @@ export default function BoardPage() {
   const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast, communications } = useData() as any;
 
   // invoiceId → most-recent outbound email { date, ref } (for Last sent / Last ref columns)
+  // "at" = newest outbound date (including refless replies)
+  // "ref" = newest outbound ref that is non-null (replies have no ref and must not blank it)
   const lastSentByInv = useMemo(() => {
-    const m: Record<string, { at: string; ref: string | null }> = {};
+    const lastAt:  Record<string, string> = {};
+    const lastRef: Record<string, { at: string; ref: string }> = {};
     (communications ?? []).forEach((c: any) => {
       if (!c.invoiceId || c.direction !== "Outbound") return;
       const t = c.sentAt ?? c.createdAt;
       if (!t) return;
-      // Preserve existing ref when a reply (no refNumber) becomes the newest outbound
-      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId].at))
-        m[c.invoiceId] = { at: t, ref: c.refNumber ?? m[c.invoiceId]?.ref ?? null };
+      if (!lastAt[c.invoiceId] || new Date(t) > new Date(lastAt[c.invoiceId]))
+        lastAt[c.invoiceId] = t;
+      if (c.refNumber && (!lastRef[c.invoiceId] || new Date(t) > new Date(lastRef[c.invoiceId].at)))
+        lastRef[c.invoiceId] = { at: t, ref: c.refNumber };
     });
+    const m: Record<string, { at: string; ref: string | null }> = {};
+    Object.keys(lastAt).forEach(id => { m[id] = { at: lastAt[id], ref: lastRef[id]?.ref ?? null }; });
     return m;
   }, [communications]);
   const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
