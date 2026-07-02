@@ -141,9 +141,10 @@ export function EmailComposer({ context, onClose }: any) {
     i.qboId && !i.qboId.startsWith("CM-")
   );
 
-  // Pre-select current invoice if in single-invoice context
+  // Pre-select current invoice if in single-invoice context — but not for replies
+  // (customer already has the PDFs from the original email)
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(
-    new Set(context.invoiceId ? [context.invoiceId] : [])
+    new Set(!context.replyTo && context.invoiceId ? [context.invoiceId] : [])
   );
   const [toValue, setToValue] = useState(context.replyTo?.toEmail || primaryContact?.email || "");
   const [ccValue, setCcValue] = useState("");
