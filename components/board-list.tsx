@@ -113,6 +113,21 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [emailVal, setEmailVal] = useState("");
   const [showSend, setShowSend] = useState(false);
 
+  // Escalation picker state
+  const [pendingEscalation, setPendingEscalation] = useState<{ invoiceId: string; prevStage: string } | null>(null);
+  const [escalateTargets, setEscalateTargets] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
+
+  function openEscalationPicker(invoiceId: string, prevStage: string, currentAssigneeId?: string) {
+    setPendingEscalation({ invoiceId, prevStage });
+    setSelectedTarget(currentAssigneeId ?? "");
+    if (!escalateTargets.length) {
+      fetch("/api/org/escalate-targets")
+        .then(r => r.json())
+        .then(d => setEscalateTargets(d.targets ?? []));
+    }
+  }
+
   // ── Per-column filters ──────────────────────────────────────────────────
   const [cf, setCf] = useState<Record<string, string>>({});
   const setFilter = (k: string, v: string) => setCf(p => ({ ...p, [k]: v }));
@@ -422,12 +437,77 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                     {/* Stage dropdown */}
                     <td className="px-3 py-2">
-                      <select value={stageLabel} disabled={busyId === inv.id}
-                        onChange={e => save(inv.id, { collectionStage: e.target.value })}
-                        className={`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(stageLabel)}`}>
-                        {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
-                        {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <select
+                            value={pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel}
+                            disabled={busyId === inv.id}
+                            onChange={e => {
+                              const newStage = e.target.value;
+                              if (newStage === "Escalated") {
+                                openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined);
+                              } else {
+                                const patch: any = { collectionStage: newStage };
+                                if (stageLabel === "Escalated") {
+                                  patch.escalatedToUserId = null;
+                                  patch.escalatedToName   = null;
+                                  patch.escalatedToEmail  = null;
+                                }
+                                save(inv.id, patch);
+                              }
+                            }}
+                            className={`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel)}`}>
+                            {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
+                            {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          {stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id && (
+                            <button
+                              onClick={() => openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined)}
+                              className="inline-flex items-center gap-1 text-[11px] bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5 hover:bg-rose-900/50 transition-colors"
+                            >
+                              → {inv.escalatedToName}
+                            </button>
+                          )}
+                        </div>
+                        {pendingEscalation?.invoiceId === inv.id && (
+                          <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-1.5">
+                            <select
+                              value={selectedTarget}
+                              onChange={e => setSelectedTarget(e.target.value)}
+                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                            >
+                              <option value="">Pick a person…</option>
+                              {escalateTargets.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
+                              ))}
+                            </select>
+                            <button
+                              disabled={!selectedTarget || busyId === inv.id}
+                              onClick={async () => {
+                                const target = escalateTargets.find(t => t.id === selectedTarget);
+                                if (!target) return;
+                                await save(inv.id, {
+                                  collectionStage:    "Escalated",
+                                  escalatedToUserId:  target.id,
+                                  escalatedToName:    target.name,
+                                  escalatedToEmail:   target.email,
+                                });
+                                setPendingEscalation(null);
+                                setSelectedTarget("");
+                              }}
+                              className="shrink-0 text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => { setPendingEscalation(null); setSelectedTarget(""); }}
+                              className="shrink-0 text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     {/* Response (editable) */}

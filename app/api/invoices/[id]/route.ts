@@ -22,6 +22,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!before) return bad("Not found", 404);
 
   const body = await req.json();
+
+  // When moving away from Escalated, always clear the assignee — even if client
+  // forgot to send the null fields (server-side safety net).
+  if (body.collectionStage && body.collectionStage !== "Escalated" && before.collectionStage === "Escalated") {
+    body.escalatedToUserId  = null;
+    body.escalatedToName    = null;
+    body.escalatedToEmail   = null;
+  }
+
   const [updated] = await db.update(invoices)
     .set({ ...body, updatedAt: new Date() })
     .where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!)))
@@ -45,9 +54,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...base,
       eventType: "stage_changed",
       meta: {
-        fromStage: before.collectionStage,
-        toStage:   body.collectionStage,
-        invoiceNo: updated.invoiceNumber,
+        fromStage:       before.collectionStage,
+        toStage:         body.collectionStage,
+        invoiceNo:       updated.invoiceNumber,
+        escalatedToName: body.collectionStage === "Escalated" ? (body.escalatedToName ?? null) : null,
+        escalatedToEmail: body.collectionStage === "Escalated" ? (body.escalatedToEmail ?? null) : null,
       },
     });
   }
