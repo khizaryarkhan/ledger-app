@@ -599,12 +599,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
                                   )}
                                   <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
-                                  {n.channel === "Email" && n.messageId && (
+                                  {n.channel === "Email" && (
                                     <button
                                       onClick={() => setReplyContext({
                                         toEmail:    n.direction === "Inbound" ? n.sender : n.recipients,
                                         subject:    n.subject ? (n.subject.startsWith("Re:") ? n.subject : `Re: ${n.subject}`) : "",
-                                        messageId:  n.messageId,
+                                        messageId:  n.messageId ?? null,
                                         invoiceId:  n.invoiceId,
                                         customerId: n.customerId,
                                         projectId:  n.projectId,
@@ -612,7 +612,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                       className="mt-1.5 flex items-center gap-1 text-[10px] text-stone-500 hover:text-blue-400 transition-colors"
                                     >
                                       <CornerUpLeft size={10} />
-                                      Reply in same thread
+                                      Reply
                                     </button>
                                   )}
                                 </div>

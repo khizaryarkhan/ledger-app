@@ -75,12 +75,12 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                           <span className="text-[11px] font-mono text-stone-700">{invoice.invoiceNumber}</span>
                         </div>
                       )}
-                      {!isNote && onReply && (
+                      {!isNote && c.channel === "Email" && onReply && (
                         <button
                           onClick={() => onReply({
                             toEmail:    isInbound ? c.sender : c.recipients,
                             subject:    c.subject ? (c.subject.startsWith("Re:") ? c.subject : `Re: ${c.subject}`) : "",
-                            messageId:  c.messageId,
+                            messageId:  c.messageId ?? null,
                             invoiceId:  c.invoiceId,
                             customerId: c.customerId,
                             projectId:  c.projectId,
@@ -88,7 +88,7 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                           className="flex items-center gap-1.5 text-[11px] text-stone-500 hover:text-blue-600 transition-colors"
                         >
                           <CornerUpLeft size={12} />
-                          Reply in same thread
+                          Reply
                         </button>
                       )}
                     </div>
