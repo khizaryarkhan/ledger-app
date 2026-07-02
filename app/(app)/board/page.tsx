@@ -165,7 +165,9 @@ export default function BoardPage() {
       if (!c.invoiceId || c.direction !== "Outbound") return;
       const t = c.sentAt ?? c.createdAt;
       if (!t) return;
-      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId].at)) m[c.invoiceId] = { at: t, ref: c.refNumber ?? null };
+      // Preserve existing ref when a reply (no refNumber) becomes the newest outbound
+      if (!m[c.invoiceId] || new Date(t) > new Date(m[c.invoiceId].at))
+        m[c.invoiceId] = { at: t, ref: c.refNumber ?? m[c.invoiceId]?.ref ?? null };
     });
     return m;
   }, [communications]);
