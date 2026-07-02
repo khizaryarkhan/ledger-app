@@ -328,38 +328,38 @@ ${senderName}`;
         {/* Reference number badge — hidden for replies (thread already has a ref) */}
         {isReply ? (
           context.replyTo?.refNumber ? (
-            <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
-              <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Thread</span>
-              <span className="font-mono text-[12px] font-semibold text-stone-700">{context.replyTo.refNumber}</span>
-              <span className="text-[11px] text-stone-400 ml-1">· continuing existing thread</span>
+            <div className="flex items-center gap-2 px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg">
+              <span className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Thread</span>
+              <span className="font-mono text-[12px] font-semibold text-emerald-400">{context.replyTo.refNumber}</span>
+              <span className="text-[11px] text-stone-500 ml-1">· continuing existing thread</span>
             </div>
           ) : null
         ) : refNumber ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
-            <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Ref</span>
-            <span className="font-mono text-[12px] font-semibold text-stone-700">{refNumber}</span>
-            <span className="text-[11px] text-stone-400 ml-1">· auto-injected into subject & body</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg">
+            <span className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Ref</span>
+            <span className="font-mono text-[12px] font-semibold text-emerald-400">{refNumber}</span>
+            <span className="text-[11px] text-stone-500 ml-1">· auto-injected into subject & body</span>
           </div>
         ) : (
-          <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
-            <span className="text-[11px] text-stone-400">Generating reference number…</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg">
+            <span className="text-[11px] text-stone-500">Generating reference number…</span>
           </div>
         )}
 
         {/* TO field */}
         <div>
-          <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">To</label>
+          <label className="text-[11px] font-medium text-stone-400 block mb-1">To</label>
           <input value={toValue} onChange={e => setToValue(e.target.value)}
             placeholder="email@example.com, another@example.com"
-            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+            className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           {allContacts.length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-              <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Quick add:</span>
+              <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">Quick add:</span>
               {allContacts.map((c: any) => (
                 <button key={c.id} onClick={() => addEmailToTo(c.email)}
-                  className="text-[11px] px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 transition-colors flex items-center gap-1">
-                  {c.isPrimary && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />}
-                  {c.projectId && <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" title="Project contact" />}
+                  className="text-[11px] px-2 py-0.5 bg-stone-700 hover:bg-stone-600 rounded text-stone-300 transition-colors flex items-center gap-1">
+                  {c.isPrimary && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />}
+                  {c.projectId && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" title="Project contact" />}
                   {c.name} &lt;{c.email}&gt;
                 </button>
               ))}
@@ -369,16 +369,16 @@ ${senderName}`;
 
         {/* CC field */}
         <div>
-          <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">CC</label>
+          <label className="text-[11px] font-medium text-stone-400 block mb-1">CC</label>
           <input value={ccValue} onChange={e => setCcValue(e.target.value)}
             placeholder="Optional"
-            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+            className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           {allContacts.filter((c: any) => c.isEscalation).length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-              <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Escalation:</span>
+              <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">Escalation:</span>
               {allContacts.filter((c: any) => c.isEscalation).map((c: any) => (
                 <button key={c.id} onClick={() => addEmailToCc(c.email)}
-                  className="text-[11px] px-2 py-0.5 bg-rose-50 hover:bg-rose-100 rounded text-rose-700 transition-colors">
+                  className="text-[11px] px-2 py-0.5 bg-rose-900/40 hover:bg-rose-900/60 rounded text-rose-400 transition-colors">
                   {c.name} &lt;{c.email}&gt;
                 </button>
               ))}
@@ -389,11 +389,12 @@ ${senderName}`;
         {/* Subject + Template */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Subject</label>
-            <Input value={subject} onChange={(e: any) => setSubject(e.target.value)} placeholder="Subject..." />
+            <label className="text-[11px] font-medium text-stone-400 block mb-1">Subject</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject..."
+              className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
           <div>
-            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Template</label>
+            <label className="text-[11px] font-medium text-stone-400 block mb-1">Template</label>
             <Select onChange={(e: any) => applyTemplate(e.target.value)} placeholder="Apply template..."
               options={emailTemplates.map(t => ({ value: t.id, label: t.name }))} className="w-full" />
           </div>
@@ -402,29 +403,29 @@ ${senderName}`;
         {/* Invoice attachments */}
         {customerOpenInvoices.length > 0 && (
           <div>
-            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-[11px] font-medium text-stone-400 block mb-1.5">
               Attach invoices ({selectedInvIds.size} selected)
             </label>
-            <div className="max-h-32 overflow-y-auto ring-1 ring-stone-200 rounded-md divide-y divide-stone-100">
+            <div className="max-h-32 overflow-y-auto border border-stone-700 rounded-lg divide-y divide-stone-800">
               {customerOpenInvoices.map((inv: any) => {
                 const proj = projects.find((p: any) => p.id === inv.projectId);
                 const out = inv.total - (inv.paid || 0);
                 return (
-                  <div key={inv.id} className={`flex items-center gap-3 px-3 py-2 ${selectedInvIds.has(inv.id) ? "bg-blue-50" : "hover:bg-stone-50"}`}>
+                  <div key={inv.id} className={`flex items-center gap-3 px-3 py-2 ${selectedInvIds.has(inv.id) ? "bg-emerald-500/10" : "hover:bg-stone-800/50"}`}>
                     <input type="checkbox" checked={selectedInvIds.has(inv.id)} onChange={() => toggleInv(inv.id)}
-                      className="rounded border-stone-300 cursor-pointer flex-shrink-0" />
-                    <span className="font-mono text-[12px] text-stone-700 flex-shrink-0">{inv.invoiceNumber}</span>
+                      className="rounded border-stone-600 cursor-pointer flex-shrink-0" />
+                    <span className="font-mono text-[12px] text-stone-300 flex-shrink-0">{inv.invoiceNumber}</span>
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {proj && <span className="text-[11px] text-stone-400 truncate">{proj.name}</span>}
-                      <span className="text-[11px] text-stone-400 flex-shrink-0">Inv: {fmt.shortDate(inv.invoiceDate)}</span>
-                      <span className={`text-[11px] flex-shrink-0 ${daysOverdue(inv.dueDate) > 0 ? "text-rose-500 font-medium" : "text-stone-400"}`}>Due: {fmt.shortDate(inv.dueDate)}</span>
+                      {proj && <span className="text-[11px] text-stone-500 truncate">{proj.name}</span>}
+                      <span className="text-[11px] text-stone-500 flex-shrink-0">Inv: {fmt.shortDate(inv.invoiceDate)}</span>
+                      <span className={`text-[11px] flex-shrink-0 ${daysOverdue(inv.dueDate) > 0 ? "text-rose-400 font-medium" : "text-stone-500"}`}>Due: {fmt.shortDate(inv.dueDate)}</span>
                     </div>
-                    <span className="text-[12px] font-medium tabular-nums text-stone-700 flex-shrink-0">{fmt.money(out, inv.currency)}</span>
+                    <span className="text-[12px] font-medium tabular-nums text-stone-300 flex-shrink-0">{fmt.money(out, inv.currency)}</span>
                     <button onClick={() => handleDownloadPdf(inv)}
-                      className="p-1 rounded hover:bg-stone-200 text-stone-400 hover:text-stone-700 flex-shrink-0"
+                      className="p-1 rounded hover:bg-stone-700 text-stone-500 hover:text-stone-200 flex-shrink-0"
                       title="Download PDF">
                       {downloadingId === inv.id
-                        ? <span className="animate-spin inline-block w-3 h-3 border border-stone-400 border-t-transparent rounded-full" />
+                        ? <span className="animate-spin inline-block w-3 h-3 border border-stone-500 border-t-transparent rounded-full" />
                         : <Download size={12} />}
                     </button>
                   </div>
@@ -442,9 +443,9 @@ ${senderName}`;
 
         {/* Body */}
         <div>
-          <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Message</label>
+          <label className="text-[11px] font-medium text-stone-400 block mb-1">Message</label>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10}
-            className="w-full text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-3 font-mono leading-relaxed"
+            className="w-full text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500 font-mono leading-relaxed resize-none"
             placeholder="Write your message..." />
         </div>
       </div>
