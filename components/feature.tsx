@@ -186,12 +186,14 @@ ${senderName}`;
   const [submitting, setSubmitting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  // Collections reference number — skip entirely when replying (thread already has a ref)
+  // Collections reference number — skip entirely when replying (thread already has a ref).
+  // Initialize refFetched to true for replies so the fetch is blocked even if the effect
+  // closure captures a stale isReply value (React StrictMode double-fires effects).
   const isReply = !!context.replyTo;
   const [refNumber, setRefNumber] = useState<string | null>(null);
-  const refFetched = useRef(false);
+  const refFetched = useRef(isReply);
   useEffect(() => {
-    if (isReply || refFetched.current) return;
+    if (refFetched.current) return;
     refFetched.current = true;
     fetch("/api/org/colref", { method: "POST" })
       .then(r => r.json())
@@ -322,8 +324,16 @@ ${senderName}`;
       </>}>
       <div className="p-5 space-y-3">
 
-        {/* Reference number badge */}
-        {refNumber ? (
+        {/* Reference number badge — hidden for replies (thread already has a ref) */}
+        {isReply ? (
+          context.replyTo?.refNumber ? (
+            <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
+              <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Thread</span>
+              <span className="font-mono text-[12px] font-semibold text-stone-700">{context.replyTo.refNumber}</span>
+              <span className="text-[11px] text-stone-400 ml-1">· continuing existing thread</span>
+            </div>
+          ) : null
+        ) : refNumber ? (
           <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-200 rounded-md">
             <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Ref</span>
             <span className="font-mono text-[12px] font-semibold text-stone-700">{refNumber}</span>
