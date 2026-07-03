@@ -62,7 +62,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [batchChaseRef, setBatchChaseRef] = useState("");
   const [batchChaseMemo, setBatchChaseMemo] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchDone, setBatchDone] = useState(0);
 
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
@@ -115,57 +114,64 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }
   async function runBatchStage() {
     if (!batchStageVal || selectedRows.length === 0) return;
-    setBatchBusy(true); setBatchDone(0);
-    const isEscalated = batchStageVal === "Escalated";
-    let escalateTarget: { id: string; name: string; email: string } | undefined;
-    if (isEscalated && batchEscTarget) {
-      escalateTarget = escalateTargets.find(t => t.id === batchEscTarget);
-    }
+    setBatchBusy(true);
     try {
-      for (const row of selectedRows) {
-        const patch: any = { collectionStage: batchStageVal };
-        if (isEscalated && escalateTarget) {
-          patch.escalatedToUserId = escalateTarget.id;
-          patch.escalatedToName   = escalateTarget.name;
-          patch.escalatedToEmail  = escalateTarget.email;
-        } else if (row.inv.collectionStage === "Escalated") {
-          patch.escalatedToUserId = null;
-          patch.escalatedToName   = null;
-          patch.escalatedToEmail  = null;
-        }
-        await updateInvoice(row.inv.id, patch);
-        setBatchDone(n => n + 1);
+      const isEscalated = batchStageVal === "Escalated";
+      const escalateTarget = isEscalated ? escalateTargets.find(t => t.id === batchEscTarget) : undefined;
+      const res = await fetch("/api/invoices/batch-update", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids:   selectedRows.map(r => r.inv.id),
+          patch: {
+            collectionStage:   batchStageVal,
+            ...(isEscalated && escalateTarget ? {
+              escalatedToUserId: escalateTarget.id,
+              escalatedToName:   escalateTarget.name,
+              escalatedToEmail:  escalateTarget.email,
+            } : {}),
+          },
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast?.(d.error || "Batch update failed", "error");
+        return;
       }
+      const { updated } = await res.json();
       setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget("");
       setSelected(new Set());
       await refresh();
-      toast?.(`Stage updated for ${selectedRows.length} invoice${selectedRows.length !== 1 ? "s" : ""}`, "success");
+      toast?.(`Stage updated for ${updated} invoice${updated !== 1 ? "s" : ""}`, "success");
     } finally { setBatchBusy(false); }
   }
 
   async function runBatchChase() {
     if (selectedRows.length === 0) return;
-    setBatchBusy(true); setBatchDone(0);
-    const memo = batchChaseMemo.trim() || "Chased outside the app";
+    setBatchBusy(true);
     try {
-      for (const row of selectedRows) {
-        await fetch("/api/communications", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            customerId: row.custId, invoiceId: row.inv.id, projectId: row.inv.projectId ?? null,
-            direction: "Outbound", channel: "Chase",
-            subject: "Manual chase", body: memo,
-            sender: userName, matchedBy: "Manual",
-            sentAt: new Date(batchChaseDate).toISOString(),
-            refNumber: batchChaseRef.trim() || undefined,
-          }),
-        });
-        setBatchDone(n => n + 1);
+      const memo = batchChaseMemo.trim() || "Chased outside the app";
+      const res = await fetch("/api/communications/batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceIds: selectedRows.map(r => r.inv.id),
+          channel:    "Chase",
+          direction:  "Outbound",
+          subject:    "Manual chase",
+          body:       memo,
+          sentAt:     new Date(batchChaseDate).toISOString(),
+          refNumber:  batchChaseRef.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast?.(d.error || "Batch chase failed", "error");
+        return;
       }
+      const { created } = await res.json();
       setBatchPanel(null); setBatchChaseMemo(""); setBatchChaseDate(todayStr()); setBatchChaseRef("");
       setSelected(new Set());
       await refresh();
-      toast?.(`Chase logged on ${selectedRows.length} invoice${selectedRows.length !== 1 ? "s" : ""}`, "success");
+      toast?.(`Chase logged on ${created} invoice${created !== 1 ? "s" : ""}`, "success");
     } finally { setBatchBusy(false); }
   }
 
@@ -438,7 +444,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 disabled={!batchStageVal || batchBusy}
                 onClick={runBatchStage}
                 className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-emerald-700">
-                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {batchDone}/{selected.size}</> : <><Check size={13} /> Apply</>}
+                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</> : <><Check size={13} /> Apply</>}
               </button>
               <button onClick={() => setBatchPanel(null)} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
             </div>
@@ -458,7 +464,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 disabled={batchBusy}
                 onClick={runBatchChase}
                 className="flex items-center gap-1.5 text-[12px] font-semibold bg-amber-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-amber-700">
-                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {batchDone}/{selected.size}</> : <><ArrowUpRight size={13} /> Log</>}
+                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</> : <><ArrowUpRight size={13} /> Log</>}
               </button>
               <button onClick={() => setBatchPanel(null)} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
             </div>
