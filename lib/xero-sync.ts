@@ -780,7 +780,9 @@ export async function syncXeroTargetedEntities(
         const amount   = Math.max(0, total - taxAmt);
         const balance  = parseFloat(xi.AmountDue) || 0;
         const paid     = Math.max(0, total - balance);
-        const isPaid   = xi.Status === "PAID";
+        // Balance-based check (consistent with QBO) — guards against Xero's Status
+        // field lagging behind AmountDue on rapid webhook delivery.
+        const isPaid   = xi.Status === "PAID" || balance < 0.005;
 
         const syncData: any = {
           total,
@@ -956,7 +958,7 @@ export async function syncXeroTargetedEntities(
         const total   = parseFloat(xi.Total) || 0;
         const balance = parseFloat(xi.AmountDue) || 0;
         const paid    = Math.max(0, total - balance);
-        const isPaid  = xi.Status === "PAID";
+        const isPaid  = xi.Status === "PAID" || balance < 0.005;
 
         const updateData: any = {
           paid,

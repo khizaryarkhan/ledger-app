@@ -28,6 +28,7 @@ function CurrencyPills({ breakdown, className }: { breakdown: Record<string, num
 // Falls back to total-paid for rows that pre-date the QBO snapshot.
 function openBal(inv: any): number {
   if (inv.qboBalance != null) return Number(inv.qboBalance);
+  if (inv.xeroBalance != null) return Math.max(0, Number(inv.xeroBalance));
   return Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
 }
 
@@ -85,7 +86,7 @@ function AgingBar({ buckets }: { buckets: ReturnType<typeof getAgingBuckets> }) 
 
 function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, stages, repName }: any) {
   const closedLabel = (stages as Stage[]).find(s => s.isClosed)?.label ?? "Closed";
-  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+  const open = invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo" && openBal(i) > 0);
   const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
   // Use the currency from the invoices themselves — entity.currency can be stale
   const invoiceCurrency = open[0]?.currency ?? invoices[0]?.currency ?? entity.currency;
@@ -221,9 +222,9 @@ export default function BoardPage() {
         if (entityInvoices.length === 0) return; // skip entity if no invoices in region
       }
 
-      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+      const open = entityInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo" && openBal(i) > 0);
       const outstanding = open.reduce((s: number, i: any) => s + openBal(i), 0);
-      if (outstanding === 0 && open.length === 0) return;
+      if (open.length === 0) return;
       // Native per-currency breakdown for display
       const currencyBreakdown: Record<string, number> = {};
       open.forEach((i: any) => {
@@ -295,7 +296,7 @@ export default function BoardPage() {
     const item = grouped[draggingId];
     if (!item || item.stage === stage) return;
     // Update all open invoices for this entity to the new stage
-    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo");
+    const openInvs = item.invoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && resolveStageLabel(i.collectionStage, stages) !== closedLabel && i.txnType !== "CreditMemo" && openBal(i) > 0);
     await Promise.all(openInvs.map((i: any) => updateInvoice(i.id, { collectionStage: stage })));
     setDraggingId(null);
   };
@@ -309,6 +310,7 @@ export default function BoardPage() {
       if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off" || i.txnType === "CreditMemo") return;
       const stageLabel = resolveStageLabel(i.collectionStage, stages);
       if (stageLabel === closedLabel) return;
+      if (openBal(i) <= 0) return;
       const cust = customers.find((c: any) => c.id === i.customerId);
       const proj = projects.find((p: any) => p.id === i.projectId);
       if (repFilter && (proj?.repId ?? cust?.repId) !== repFilter) return;
