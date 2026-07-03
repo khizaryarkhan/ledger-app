@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   });
   if (customerFilter) qs.set("customer", customerFilter);
 
+  if (process.env.QBO_REPORTS_MODERN === "true") qs.set("testing_migration", "true");
   const qboUrl = `${QBO_API}/${token.realmId}/reports/AgedReceivableDetail?${qs.toString()}`;
   const res = await fetch(qboUrl, {
     headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" },

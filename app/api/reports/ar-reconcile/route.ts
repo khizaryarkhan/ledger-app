@@ -114,11 +114,16 @@ export async function GET(req: Request) {
   let balanceSheetAR: number | null = null;
   let qboError: string | null = null;
   try {
-    const bsUrl = `${QBO_API}/${token.realmId}/reports/BalanceSheet?as_of=${asOf}&accounting_method=Accrual&minorversion=65`;
+    // QBO_REPORTS_MODERN=true opts into the modernized Reports API platform early.
+    // BalanceSheet is Group 1 (ramping July 1 → 100% July 16 2026).
+    const modernParam = process.env.QBO_REPORTS_MODERN === "true" ? "&testing_migration=true" : "";
+    const bsUrl = `${QBO_API}/${token.realmId}/reports/BalanceSheet?as_of=${asOf}&accounting_method=Accrual&minorversion=65${modernParam}`;
     const res = await fetch(bsUrl, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     });
     if (res.ok) {
+      const isModern = res.headers.get("v3modernResponse") === "true";
+      if (isModern) console.log("[QBO BalanceSheet] modernized response received");
       const bs = await res.json();
       balanceSheetAR = findArAmountInBalanceSheet(bs.Rows?.Row);
     } else {

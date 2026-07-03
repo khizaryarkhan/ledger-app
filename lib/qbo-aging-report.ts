@@ -195,6 +195,10 @@ export async function fetchQboAging(
 
   // Call QBO's AgedReceivableDetail. num_periods=4 + Current gives us the
   // 5 buckets we display.
+  // QBO_REPORTS_MODERN=true opts into the modernized Reports API platform early
+  // (testing_migration param). Set on staging to validate before the forced
+  // Group 2 rollout begins July 13 2026.
+  const modernParam = process.env.QBO_REPORTS_MODERN === "true" ? "&testing_migration=true" : "";
   const url =
     `${QBO_API}/${token.realmId}/reports/AgedReceivableDetail` +
     `?report_date=${asOf}` +
@@ -202,7 +206,8 @@ export async function fetchQboAging(
     `&accounting_method=Accrual` +
     `&num_periods=4` +
     `&aging_period=30` +
-    `&minorversion=65`;
+    `&minorversion=65` +
+    modernParam;
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" },
@@ -211,8 +216,9 @@ export async function fetchQboAging(
     const text = await res.text();
     throw new Error(`QBO AgedReceivableDetail ${res.status}: ${text}`);
   }
+  const isModern = res.headers.get("v3modernResponse") === "true";
   const report = await res.json();
-  console.log(`[QBO aging] asOf=${asOf} columns=${report?.Columns?.Column?.length ?? 0} topRows=${report?.Rows?.Row?.length ?? 0}`);
+  console.log(`[QBO aging] asOf=${asOf} modern=${isModern} columns=${report?.Columns?.Column?.length ?? 0} topRows=${report?.Rows?.Row?.length ?? 0}`);
 
   const columns: any[] = report?.Columns?.Column || [];
   const colDate    = extractColumnIndex(columns, ["date"]);
