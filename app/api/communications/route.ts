@@ -10,7 +10,7 @@ const Schema = z.object({
   invoiceId: z.string().uuid().nullable().optional(),
   contactId: z.string().uuid().nullable().optional(),
   direction: z.enum(["Inbound", "Outbound"]),
-  channel: z.enum(["Email", "Note", "Phone", "Meeting", "Chase"]),
+  channel: z.enum(["Email", "Note", "Phone", "Meeting", "Chase", "StageChange"]),
   sentAt: z.string().optional(), // ISO timestamp — lets manual chases be backdated
   subject: z.string().optional(),
   sender: z.string().optional(),

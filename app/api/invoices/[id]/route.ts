@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { invoices, invoicePromises, invoiceDisputes } from "@/db/schema";
+import { invoices, invoicePromises, invoiceDisputes, communications } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import { logEvent } from "@/lib/audit";
@@ -50,16 +50,34 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // ── Stage changed ──────────────────────────────────────────────────────────
   if (body.collectionStage && body.collectionStage !== before.collectionStage) {
+    const toStage   = body.collectionStage as string;
+    const fromStage = before.collectionStage ?? "—";
+    const assigneeName  = toStage === "Escalated" ? (body.escalatedToName  ?? updated.escalatedToName  ?? null) : null;
+    const assigneeEmail = toStage === "Escalated" ? (body.escalatedToEmail ?? updated.escalatedToEmail ?? null) : null;
+
     await logEvent({
       ...base,
       eventType: "stage_changed",
-      meta: {
-        fromStage:       before.collectionStage,
-        toStage:         body.collectionStage,
-        invoiceNo:       updated.invoiceNumber,
-        escalatedToName: body.collectionStage === "Escalated" ? (body.escalatedToName ?? null) : null,
-        escalatedToEmail: body.collectionStage === "Escalated" ? (body.escalatedToEmail ?? null) : null,
-      },
+      meta: { fromStage, toStage, invoiceNo: updated.invoiceNumber, escalatedToName: assigneeName, escalatedToEmail: assigneeEmail },
+    });
+
+    // Write a StageChange communication so it surfaces in the activity feed.
+    await db.insert(communications).values({
+      orgId:      orgId!,
+      customerId: updated.customerId,
+      projectId:  updated.projectId ?? null,
+      invoiceId:  updated.id,
+      direction:  "Outbound",
+      channel:    "StageChange",
+      subject:    `${fromStage} → ${toStage}`,
+      // body encodes the assignee for Escalated events; null otherwise.
+      body:       assigneeName
+                    ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
+                    : null,
+      sender:     actorName,
+      matchedBy:  "System",
+      isDraft:    false,
+      authorId:   actorId,
     });
   }
 

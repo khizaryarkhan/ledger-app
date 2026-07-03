@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { EmailComposer } from "@/components/feature";
@@ -66,7 +66,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
-  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase"]);
+  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase", "StageChange"]);
   const notesByInv = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
@@ -818,8 +818,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     bg: n.subject === "Promise broken" ? "bg-amber-950/20" : "bg-sky-950/20",
                                   };
                                   case "Email":    return { icon: n.direction === "Inbound" ? <ArrowDownRight size={11} /> : <Mail size={11} />, border: n.direction === "Inbound" ? "border-l-2 border-emerald-500" : "border-l-2 border-blue-500", label: n.direction === "Inbound" ? `Reply from ${n.sender || "customer"}` : `Sent to ${n.recipients || "customer"}`, labelCls: n.direction === "Inbound" ? "text-emerald-400" : "text-blue-400", bg: n.direction === "Inbound" ? "bg-emerald-950/20" : "bg-blue-950/20" };
-                                  case "Chase":    return { icon: <ArrowUpRight size={11} />,   border: "border-l-2 border-amber-500", label: `${n.sender || "Staff"} · chased outside app`, labelCls: "text-amber-400", bg: "bg-amber-950/20" };
-                                  default:         return { icon: <StickyNote size={11} />,     border: "border-l-2 border-stone-600", label: n.sender || "Staff",            labelCls: "text-stone-400",   bg: "" };
+                                  case "Chase":       return { icon: <ArrowUpRight size={11} />, border: "border-l-2 border-amber-500",  label: `${n.sender || "Staff"} · chased outside app`, labelCls: "text-amber-400",  bg: "bg-amber-950/20" };
+                                  case "StageChange": {
+                                    const toStage = n.subject?.split(" → ")[1] ?? "";
+                                    const isEsc   = toStage === "Escalated";
+                                    return {
+                                      icon:     isEsc ? <UserCheck size={11} /> : <Flag size={11} />,
+                                      border:   isEsc ? "border-l-2 border-rose-500" : "border-l-2 border-indigo-500",
+                                      label:    `${n.sender || "Staff"} · ${isEsc ? "escalated invoice" : "stage updated"}`,
+                                      labelCls: isEsc ? "text-rose-400" : "text-indigo-400",
+                                      bg:       isEsc ? "bg-rose-950/20" : "bg-indigo-950/10",
+                                    };
+                                  }
+                                  default:           return { icon: <StickyNote size={11} />,   border: "border-l-2 border-stone-600",  label: n.sender || "Staff",                           labelCls: "text-stone-400",  bg: "" };
                                 }
                               })();
 
@@ -832,10 +843,36 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     </div>
                                     <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
                                   </div>
-                                  {n.subject && n.channel !== "Note" && n.channel !== "Portal" && (
-                                    <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
+                                  {n.channel === "StageChange" ? (() => {
+                                    const [fromStage, toStage] = (n.subject ?? "").split(" → ");
+                                    const toColor = stageColor(toStage ?? "");
+                                    return (
+                                      <div className="mt-1 space-y-1.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[10px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
+                                          <span className="text-[10px] text-stone-500 font-bold">→</span>
+                                          <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>{toStage}</span>
+                                        </div>
+                                        {n.body && (
+                                          <div className="flex items-center gap-1.5 text-[11px] text-rose-300">
+                                            <UserCheck size={11} className="text-rose-400 shrink-0" />
+                                            <span className="font-medium">Assigned to</span>
+                                            <span>{n.body.split(" · ")[0]}</span>
+                                            {n.body.includes(" · ") && (
+                                              <span className="text-stone-500 text-[10px]">· {n.body.split(" · ")[1]}</span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })() : (
+                                    <>
+                                      {n.subject && n.channel !== "Note" && n.channel !== "Portal" && (
+                                        <div className="text-[11px] font-medium text-stone-300 mb-0.5">{n.subject}</div>
+                                      )}
+                                      <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
+                                    </>
                                   )}
-                                  <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
                                   {n.channel === "Email" && (
                                     <button
                                       onClick={() => setReplyContext({
