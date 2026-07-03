@@ -54,6 +54,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [chaseMemo, setChaseMemo] = useState("");
   const [savingChase, setSavingChase] = useState(false);
 
+  // Batch operations state
+  const [batchPanel, setBatchPanel] = useState<"stage" | "chase" | null>(null);
+  const [batchStageVal, setBatchStageVal] = useState("");
+  const [batchEscTarget, setBatchEscTarget] = useState("");
+  const [batchChaseDate, setBatchChaseDate] = useState(todayStr());
+  const [batchChaseRef, setBatchChaseRef] = useState("");
+  const [batchChaseMemo, setBatchChaseMemo] = useState("");
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchDone, setBatchDone] = useState(0);
+
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
   const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase"]);
@@ -103,6 +113,62 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       await refresh();
     } finally { setSavingChase(false); }
   }
+  async function runBatchStage() {
+    if (!batchStageVal || selectedRows.length === 0) return;
+    setBatchBusy(true); setBatchDone(0);
+    const isEscalated = batchStageVal === "Escalated";
+    let escalateTarget: { id: string; name: string; email: string } | undefined;
+    if (isEscalated && batchEscTarget) {
+      escalateTarget = escalateTargets.find(t => t.id === batchEscTarget);
+    }
+    try {
+      for (const row of selectedRows) {
+        const patch: any = { collectionStage: batchStageVal };
+        if (isEscalated && escalateTarget) {
+          patch.escalatedToUserId = escalateTarget.id;
+          patch.escalatedToName   = escalateTarget.name;
+          patch.escalatedToEmail  = escalateTarget.email;
+        } else if (row.inv.collectionStage === "Escalated") {
+          patch.escalatedToUserId = null;
+          patch.escalatedToName   = null;
+          patch.escalatedToEmail  = null;
+        }
+        await updateInvoice(row.inv.id, patch);
+        setBatchDone(n => n + 1);
+      }
+      setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget("");
+      setSelected(new Set());
+      await refresh();
+      toast?.(`Stage updated for ${selectedRows.length} invoice${selectedRows.length !== 1 ? "s" : ""}`, "success");
+    } finally { setBatchBusy(false); }
+  }
+
+  async function runBatchChase() {
+    if (selectedRows.length === 0) return;
+    setBatchBusy(true); setBatchDone(0);
+    const memo = batchChaseMemo.trim() || "Chased outside the app";
+    try {
+      for (const row of selectedRows) {
+        await fetch("/api/communications", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: row.custId, invoiceId: row.inv.id, projectId: row.inv.projectId ?? null,
+            direction: "Outbound", channel: "Chase",
+            subject: "Manual chase", body: memo,
+            sender: userName, matchedBy: "Manual",
+            sentAt: new Date(batchChaseDate).toISOString(),
+            refNumber: batchChaseRef.trim() || undefined,
+          }),
+        });
+        setBatchDone(n => n + 1);
+      }
+      setBatchPanel(null); setBatchChaseMemo(""); setBatchChaseDate(todayStr()); setBatchChaseRef("");
+      setSelected(new Set());
+      await refresh();
+      toast?.(`Chase logged on ${selectedRows.length} invoice${selectedRows.length !== 1 ? "s" : ""}`, "success");
+    } finally { setBatchBusy(false); }
+  }
+
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   async function downloadPdfs() {
@@ -317,23 +383,86 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     <div className="flex flex-col h-full">
       {/* Selection action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white flex-wrap">
-          <span className="text-sm font-medium">{selected.size} selected · {(() => {
-            const m: Record<string,number> = {};
-            selectedRows.forEach(r => { const c = r.inv.currency ?? "USD"; m[c] = (m[c]||0) + r.bal; });
-            return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,v]) => fmt.money(v,c)).join(" · ");
-          })()}</span>
-          {selectedCustomers.size > 1 && (
-            <span className="flex items-center gap-1.5 text-[12px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded">
-              <AlertTriangle size={13} /> {selectedCustomers.size} different customers selected — a single email would mix them
-            </span>
+        <div className="flex flex-col bg-stone-900 text-white border-b border-stone-800">
+          {/* Action bar row */}
+          <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap">
+            <span className="text-sm font-medium">{selected.size} selected · {(() => {
+              const m: Record<string,number> = {};
+              selectedRows.forEach(r => { const c = r.inv.currency ?? "USD"; m[c] = (m[c]||0) + r.bal; });
+              return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,v]) => fmt.money(v,c)).join(" · ");
+            })()}</span>
+            {selectedCustomers.size > 1 && (
+              <span className="flex items-center gap-1.5 text-[12px] text-amber-300 bg-amber-500/15 px-2 py-1 rounded">
+                <AlertTriangle size={13} /> {selectedCustomers.size} different customers
+              </span>
+            )}
+            <div className="flex-1" />
+            <button
+              onClick={() => { setBatchPanel(p => p === "stage" ? null : "stage"); if (!escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-emerald-600 text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
+              <Pencil size={13} /> Change Stage
+            </button>
+            <button
+              onClick={() => { setBatchPanel(p => p === "chase" ? null : "chase"); setBatchChaseDate(todayStr()); }}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "chase" ? "bg-amber-600 text-white border-amber-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
+              <ArrowUpRight size={13} /> Log Chase
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1"><X size={15} /></button>
+            <button onClick={() => setShowSend(true)}
+              className="flex items-center gap-1.5 bg-white text-stone-900 text-sm font-semibold px-3 py-1.5 rounded-md hover:bg-stone-100">
+              <Send size={14} /> Send
+            </button>
+          </div>
+
+          {/* Batch Stage panel */}
+          {batchPanel === "stage" && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-800/60 border-t border-stone-700 flex-wrap">
+              <span className="text-[12px] text-stone-400">Move {selected.size} invoice{selected.size !== 1 ? "s" : ""} to:</span>
+              <select
+                value={batchStageVal}
+                onChange={e => { setBatchStageVal(e.target.value); if (e.target.value === "Escalated" && !escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
+                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                <option value="">Pick a stage…</option>
+                {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {batchStageVal === "Escalated" && (
+                <select
+                  value={batchEscTarget}
+                  onChange={e => setBatchEscTarget(e.target.value)}
+                  className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                  <option value="">Assign to… (optional)</option>
+                  {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              <button
+                disabled={!batchStageVal || batchBusy}
+                onClick={runBatchStage}
+                className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-emerald-700">
+                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {batchDone}/{selected.size}</> : <><Check size={13} /> Apply</>}
+              </button>
+              <button onClick={() => setBatchPanel(null)} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
+            </div>
           )}
-          <div className="flex-1" />
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1"><X size={15} /></button>
-          <button onClick={() => setShowSend(true)}
-            className="flex items-center gap-1.5 bg-white text-stone-900 text-sm font-semibold px-3 py-1.5 rounded-md hover:bg-stone-100">
-            <Send size={14} /> Send
-          </button>
+
+          {/* Batch Chase panel */}
+          {batchPanel === "chase" && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-800/60 border-t border-stone-700 flex-wrap">
+              <span className="text-[12px] text-stone-400">Log chase on {selected.size} invoice{selected.size !== 1 ? "s" : ""}:</span>
+              <input type="date" value={batchChaseDate} max={todayStr()} onChange={e => setBatchChaseDate(e.target.value)}
+                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 w-36" />
+              <input placeholder="Ref (optional)" value={batchChaseRef} onChange={e => setBatchChaseRef(e.target.value)}
+                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 w-32" />
+              <input placeholder="Memo (optional)" value={batchChaseMemo} onChange={e => setBatchChaseMemo(e.target.value)}
+                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 flex-1 min-w-[160px]" />
+              <button
+                disabled={batchBusy}
+                onClick={runBatchChase}
+                className="flex items-center gap-1.5 text-[12px] font-semibold bg-amber-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-amber-700">
+                {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {batchDone}/{selected.size}</> : <><ArrowUpRight size={13} /> Log</>}
+              </button>
+              <button onClick={() => setBatchPanel(null)} className="text-[12px] text-stone-500 hover:text-stone-300">Cancel</button>
+            </div>
+          )}
         </div>
       )}
 
