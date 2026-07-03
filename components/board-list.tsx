@@ -243,7 +243,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.project && !has(r.projName, cf.project)) return false;
       if (cf.region && r.regionName !== cf.region) return false;
       if (cf.rep && r.repName !== cf.rep) return false;
-      if (cf.stage && r.stageLabel !== cf.stage) return false;
+      if (cf.stage) {
+        if (cf.stage.startsWith("!")) {
+          if (r.stageLabel === cf.stage.slice(1)) return false;
+        } else {
+          if (r.stageLabel !== cf.stage) return false;
+        }
+      }
       if (cf.response) {
         const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
         if (resp !== cf.response) return false;
@@ -560,7 +566,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </th>
                 <th className="px-2 py-1.5">
                   <select value={cf.stage ?? ""} onChange={e => setFilter("stage", e.target.value)} className={inputCls}>
-                    <option value="">All</option>{stageOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                    <option value="">All</option>
+                    {stageOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                    <option disabled>──────────</option>
+                    {stageOpts.map(o => <option key={`!${o}`} value={`!${o}`}>Not: {o}</option>)}
                   </select>
                 </th>
                 <th className="px-2 py-1.5">
