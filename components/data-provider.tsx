@@ -172,6 +172,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const updateInvoice = async (id: string, patch: any) => {
     const updated = await patchJSON(`/api/invoices/${id}`, patch);
     setInvoices(prev => prev.map(i => i.id === id ? updated : i));
+    // When a stage change is saved, immediately pull the fresh communications for this
+    // invoice and merge them into state so the activity feed updates without waiting
+    // for a full refresh().
+    if (patch.collectionStage !== undefined) {
+      try {
+        const freshComms: any[] = await fetchJSON(`/api/communications?invoiceId=${id}`);
+        setCommunications(prev => [
+          ...freshComms,
+          ...prev.filter((c: any) => c.invoiceId !== id),
+        ]);
+      } catch { /* full refresh() will reconcile on next cycle */ }
+    }
     toast("Invoice updated");
     return updated;
   };

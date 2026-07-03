@@ -62,23 +62,27 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     });
 
     // Write a StageChange communication so it surfaces in the activity feed.
-    await db.insert(communications).values({
-      orgId:      orgId!,
-      customerId: updated.customerId,
-      projectId:  updated.projectId ?? null,
-      invoiceId:  updated.id,
-      direction:  "Outbound",
-      channel:    "StageChange",
-      subject:    `${fromStage} → ${toStage}`,
-      // body encodes the assignee for Escalated events; null otherwise.
-      body:       assigneeName
-                    ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
-                    : null,
-      sender:     actorName,
-      matchedBy:  "System",
-      isDraft:    false,
-      authorId:   actorId,
-    });
+    // Wrapped in try/catch so a DB error here never blocks the invoice update response.
+    try {
+      await db.insert(communications).values({
+        orgId:      orgId!,
+        customerId: updated.customerId,
+        projectId:  updated.projectId ?? null,
+        invoiceId:  updated.id,
+        direction:  "Outbound",
+        channel:    "StageChange",
+        subject:    `${fromStage} → ${toStage}`,
+        body:       assigneeName
+                      ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
+                      : null,
+        sender:     actorName ?? "Staff",
+        matchedBy:  "System",
+        isDraft:    false,
+        ...(actorId ? { authorId: actorId } : {}),
+      });
+    } catch (e) {
+      console.error("[StageChange] Failed to log activity:", e);
+    }
   }
 
   // ── Promise to pay ─────────────────────────────────────────────────────────
