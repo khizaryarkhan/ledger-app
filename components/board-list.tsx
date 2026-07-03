@@ -48,10 +48,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [noteText, setNoteText] = useState("");
   const [replyContext, setReplyContext] = useState<any>(null);
   const [savingNote, setSavingNote] = useState(false);
+  const [chaseOpenId, setChaseOpenId] = useState<string | null>(null);
+  const [chaseDate, setChaseDate] = useState(todayStr());
+  const [chaseRef, setChaseRef] = useState("");
+  const [chaseMemo, setChaseMemo] = useState("");
+  const [savingChase, setSavingChase] = useState(false);
 
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
-  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email"]);
+  const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase"]);
   const notesByInv = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
@@ -76,6 +81,27 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       });
       setNoteText(""); await refresh();
     } finally { setSavingNote(false); }
+  }
+
+  async function addChase(row: BoardRow) {
+    setSavingChase(true);
+    try {
+      const memo = chaseMemo.trim() || "Chased outside the app";
+      await fetch("/api/communications", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: row.custId, invoiceId: row.inv.id, projectId: row.inv.projectId ?? null,
+          direction: "Outbound", channel: "Chase",
+          subject: "Manual chase",
+          body: memo,
+          sender: userName, matchedBy: "Manual",
+          sentAt: new Date(chaseDate).toISOString(),
+          refNumber: chaseRef.trim() || row.lastRef || undefined,
+        }),
+      });
+      setChaseOpenId(null); setChaseMemo(""); setChaseDate(todayStr()); setChaseRef("");
+      await refresh();
+    } finally { setSavingChase(false); }
   }
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
@@ -663,6 +689,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     bg: n.subject === "Promise broken" ? "bg-amber-950/20" : "bg-sky-950/20",
                                   };
                                   case "Email":    return { icon: n.direction === "Inbound" ? <ArrowDownRight size={11} /> : <Mail size={11} />, border: n.direction === "Inbound" ? "border-l-2 border-emerald-500" : "border-l-2 border-blue-500", label: n.direction === "Inbound" ? `Reply from ${n.sender || "customer"}` : `Sent to ${n.recipients || "customer"}`, labelCls: n.direction === "Inbound" ? "text-emerald-400" : "text-blue-400", bg: n.direction === "Inbound" ? "bg-emerald-950/20" : "bg-blue-950/20" };
+                                  case "Chase":    return { icon: <ArrowUpRight size={11} />,   border: "border-l-2 border-amber-500", label: `${n.sender || "Staff"} · chased outside app`, labelCls: "text-amber-400", bg: "bg-amber-950/20" };
                                   default:         return { icon: <StickyNote size={11} />,     border: "border-l-2 border-stone-600", label: n.sender || "Staff",            labelCls: "text-stone-400",   bg: "" };
                                 }
                               })();
@@ -703,14 +730,49 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           </div>
 
                           {/* Add note input */}
-                          <div className="p-2.5 border-t border-stone-800 flex-shrink-0">
-                            <div className="text-[10px] text-stone-600 font-medium mb-1.5 px-1">Internal note</div>
+                          <div className="p-2.5 border-t border-stone-800 flex-shrink-0 space-y-2">
+                            <div className="text-[10px] text-stone-600 font-medium px-1">Internal note</div>
                             <div className="flex items-center gap-1.5">
                               <input value={noteText} onChange={e => setNoteText(e.target.value)}
                                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
                                 placeholder="Write a note…" className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
                               <button onClick={() => addNote(sortedRows.find(x => x.inv.id === inv.id)!)} disabled={savingNote || !noteText.trim()}
                                 className="text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors">Add</button>
+                            </div>
+
+                            {/* Log Chase — record a touchpoint made outside the app */}
+                            <div className="border-t border-stone-800/60 pt-2">
+                              {chaseOpenId !== inv.id ? (
+                                <button
+                                  onClick={() => { setChaseOpenId(inv.id); setChaseDate(todayStr()); setChaseRef(lastRef ?? ""); setChaseMemo(""); }}
+                                  className="w-full flex items-center gap-1.5 text-[11px] text-amber-500 hover:text-amber-400 font-medium px-1 py-0.5 transition-colors"
+                                >
+                                  <ArrowUpRight size={12} />
+                                  Log chase outside app
+                                </button>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between px-1">
+                                    <span className="text-[10px] font-semibold text-amber-500 flex items-center gap-1"><ArrowUpRight size={11} />Log chase</span>
+                                    <button onClick={() => setChaseOpenId(null)} className="text-stone-600 hover:text-stone-400"><X size={12} /></button>
+                                  </div>
+                                  <div className="flex gap-1.5">
+                                    <input type="date" value={chaseDate} onChange={e => setChaseDate(e.target.value)}
+                                      className="w-36 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-amber-500" />
+                                    <input value={chaseRef} onChange={e => setChaseRef(e.target.value)}
+                                      placeholder={lastRef ?? "Ref (optional)"}
+                                      className="flex-1 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
+                                  </div>
+                                  <div className="flex gap-1.5">
+                                    <input value={chaseMemo} onChange={e => setChaseMemo(e.target.value)}
+                                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addChase(r); } }}
+                                      placeholder="Memo e.g. Left voicemail, promised to pay Friday"
+                                      className="flex-1 text-[11px] border border-stone-700 rounded px-2 py-1 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-amber-500" />
+                                    <button onClick={() => { const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addChase(r); }} disabled={savingChase}
+                                      className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded px-3 py-1 disabled:opacity-40 transition-colors whitespace-nowrap">Log</button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

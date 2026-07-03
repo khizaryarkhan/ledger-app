@@ -10,7 +10,8 @@ const Schema = z.object({
   invoiceId: z.string().uuid().nullable().optional(),
   contactId: z.string().uuid().nullable().optional(),
   direction: z.enum(["Inbound", "Outbound"]),
-  channel: z.enum(["Email", "Note", "Phone", "Meeting"]),
+  channel: z.enum(["Email", "Note", "Phone", "Meeting", "Chase"]),
+  sentAt: z.string().optional(), // ISO timestamp — lets manual chases be backdated
   subject: z.string().optional(),
   sender: z.string().optional(),
   recipients: z.string().optional(),
@@ -109,6 +110,7 @@ export async function POST(req: Request) {
       refNumber: data.refNumber ?? null,
       stageAtSend: data.stageAtSend ?? currentStageForLog ?? null,
       messageId: data.messageId ?? null,
+      ...(data.sentAt ? { sentAt: new Date(data.sentAt) } : {}),
     }).returning();
 
     // Fan-out inbound reply to all invoices that shared the original outbound email.
