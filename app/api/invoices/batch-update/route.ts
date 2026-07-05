@@ -75,26 +75,26 @@ export async function POST(req: Request) {
 
   const stageChanging = patch.collectionStage !== undefined;
 
-  // Single transaction — all updates + all StageChange comms records.
-  await db.transaction(async (tx) => {
-    // 1. Bulk update all invoices.
-    await tx
-      .update(invoices)
-      .set(dbPatch)
-      .where(and(eq(invoices.orgId, orgId!), inArray(invoices.id, ids)));
+  // 1. Bulk update all invoices in one SQL statement (atomic across all rows).
+  await db
+    .update(invoices)
+    .set(dbPatch)
+    .where(and(eq(invoices.orgId, orgId!), inArray(invoices.id, ids)));
 
-    // 2. Insert StageChange communication for each invoice whose stage actually changed.
-    if (stageChanging) {
-      const toStage      = patch.collectionStage!;
+  // 2. Insert StageChange communications for the activity feed.
+  //    Wrapped in try/catch — a failure here never rolls back the stage updates.
+  if (stageChanging) {
+    try {
+      const toStage       = patch.collectionStage!;
       const assigneeName  = toStage === "Escalated" ? (patch.escalatedToName  ?? null) : null;
       const assigneeEmail = toStage === "Escalated" ? (patch.escalatedToEmail ?? null) : null;
-      const bodyText     = assigneeName
+      const bodyText      = assigneeName
         ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
         : null;
 
       const changed = targets.filter(inv => inv.collectionStage !== toStage);
       if (changed.length > 0) {
-        await tx.insert(communications).values(
+        await db.insert(communications).values(
           changed.map(inv => ({
             orgId:      orgId!,
             customerId: inv.customerId,
@@ -111,8 +111,10 @@ export async function POST(req: Request) {
           }))
         );
       }
+    } catch (e) {
+      console.error("[batch-update] Failed to log StageChange comms:", e);
     }
-  });
+  }
 
   // Audit log (outside the transaction — non-critical).
   if (stageChanging) {

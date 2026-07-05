@@ -259,8 +259,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.lastSent === "sent" && !r.lastSent) return false;
       if (cf.lastSent === "never" && r.lastSent) return false;
       if (cf.lastSent === "not-today" && r.lastSent?.slice(0, 10) === new Date().toISOString().slice(0, 10)) return false;
-      // "Not chased since [date]" — hide rows where lastSent is more recent than the cutoff
-      if (cf.lastSentBefore && r.lastSent && r.lastSent.slice(0, 10) > cf.lastSentBefore) return false;
+      // "Not chased since [date]" — show only rows where lastSent is null or on/before the cutoff
+      if (cf.lastSent === "cutoff" && cf.lastSentBefore && r.lastSent && r.lastSent.slice(0, 10) > cf.lastSentBefore) return false;
       if (cf.lastRef && !has(r.lastRef, cf.lastRef)) return false;
       if (cf.due && !has(r.inv.dueDate, cf.due)) return false;
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
@@ -585,32 +585,27 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   </select>
                 </th>
                 <th className="px-2 py-1.5">
-                  <div className="flex flex-col gap-1">
+                  {cf.lastSent === "cutoff" ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="date"
+                        autoFocus
+                        value={cf.lastSentBefore ?? ""}
+                        max={todayStr()}
+                        onChange={e => setFilter("lastSentBefore", e.target.value)}
+                        className={`${inputCls} flex-1 min-w-0`}
+                      />
+                      <button onClick={() => { setFilter("lastSent", ""); setFilter("lastSentBefore", ""); }} className="text-stone-500 hover:text-rose-400 shrink-0"><X size={11} /></button>
+                    </div>
+                  ) : (
                     <select value={cf.lastSent ?? ""} onChange={e => setFilter("lastSent", e.target.value)} className={inputCls}>
                       <option value="">All</option>
                       <option value="sent">Sent</option>
                       <option value="never">Never sent</option>
                       <option value="not-today">Not sent today</option>
+                      <option value="cutoff">Not chased since…</option>
                     </select>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="date"
-                        value={cf.lastSentBefore ?? ""}
-                        max={todayStr()}
-                        onChange={e => setFilter("lastSentBefore", e.target.value)}
-                        title="Hide invoices chased after this date"
-                        className={`${inputCls} flex-1 min-w-0`}
-                      />
-                      {cf.lastSentBefore && (
-                        <button onClick={() => setFilter("lastSentBefore", "")} title="Clear date filter" className="text-stone-500 hover:text-rose-400 shrink-0">
-                          <X size={11} />
-                        </button>
-                      )}
-                    </div>
-                    {cf.lastSentBefore && (
-                      <span className="text-[9px] text-amber-400 leading-tight">Not chased since {cf.lastSentBefore}</span>
-                    )}
-                  </div>
+                  )}
                 </th>
                 <th className="px-2 py-1.5"><input value={cf.lastRef ?? ""} onChange={e => setFilter("lastRef", e.target.value)} placeholder="Ref" className={inputCls} /></th>
                 <th className="px-2 py-1.5"><input value={cf.due ?? ""} onChange={e => setFilter("due", e.target.value)} placeholder="YYYY-MM" className={inputCls} /></th>
