@@ -800,7 +800,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {lastRef ? <span className="text-stone-400">{lastRef}</span> : <span className="text-stone-600">—</span>}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-400 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-400 font-medium">+{days}d</span>}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-white tabular-nums">{fmt.money(bal, inv.currency)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      <span className="font-semibold text-white">{fmt.money(bal, inv.currency)}</span>
+                      {(() => {
+                        const total = Number(inv.total || 0);
+                        if (total <= 0 || bal <= 0) return null;
+                        const pct = Math.round((bal / total) * 100);
+                        if (pct >= 100) return null;
+                        const cls = pct >= 75 ? "text-rose-400" : pct >= 40 ? "text-amber-400" : "text-emerald-400";
+                        return <span className={`ml-1.5 text-[10px] font-medium ${cls}`}>{pct}%</span>;
+                      })()}
+                    </td>
 
                     {/* Notes / comments */}
                     <td className="px-3 py-2 text-center relative">
