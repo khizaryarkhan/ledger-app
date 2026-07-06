@@ -7,6 +7,7 @@ import { fmt } from "@/lib/format";
 import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
+import { exportChaseReport } from "@/lib/export-report";
 import { EmailComposer } from "@/components/feature";
 
 export type BoardRow = {
@@ -32,13 +33,14 @@ const uniqEmails = (vals: (string | null)[]) => {
   return [...set];
 };
 
-export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [] }: {
+export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [], orgName }: {
   rows: BoardRow[];
   stages: Stage[];
   updateInvoice: (id: string, patch: any) => Promise<any>;
   refresh: () => Promise<any> | void;
   toast?: (m: string, t?: string) => void;
   comments?: any[];
+  orgName?: string;
 }) {
   const { data: session } = useSession();
   const userName = (session?.user?.name as string) || "User";
@@ -502,6 +504,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           <button onClick={exportExcel}
             className="flex items-center gap-1.5 text-xs font-medium text-stone-400 hover:text-white border border-stone-700 rounded-md px-2.5 py-1.5 hover:bg-stone-800">
             <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
+          </button>
+          <button
+            onClick={() => exportChaseReport({
+              orgName: orgName ?? "Organisation",
+              rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
+              comments: comments ?? [],
+            })}
+            title="Management chase report — pivot-ready detail + summary by owner"
+            className="flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-white border border-sky-800 bg-sky-500/10 hover:bg-sky-500/20 rounded-md px-2.5 py-1.5 transition-colors">
+            <FileText size={13} /> Chase Report{selected.size ? ` (${selected.size})` : ""}
           </button>
         </div>
       </div>

@@ -423,6 +423,124 @@ export function exportSalesReport(opts: SalesExportInput) {
   XLSX.writeFile(wb, filename);
 }
 
+// ─── Chase report (Collections Board) ──────────────────────────────────────
+
+export type ChaseExportInput = {
+  orgName: string;
+  /** Board rows currently visible (already filtered/sorted by the user). */
+  rows: {
+    inv: any; custName: string; projName: string | null; regionName: string | null;
+    repName: string | null; stageLabel: string; bal: number; days: number;
+    email: string | null; lastSent: string | null; lastRef: string | null;
+  }[];
+  /** All communications (any invoice) — used for chase counts and last comments. */
+  comments: any[];
+};
+
+/**
+ * Management chase report — replaces the old manual A/R Ageing + Owner/Action
+ * spreadsheet. Sheet 1 is a pure flat table (headers on row 1, one row per
+ * invoice) so Excel pivot tables work directly on it. Sheet 2 is an
+ * owner-level summary; sheet 3 holds report metadata.
+ */
+export function exportChaseReport({ orgName, rows, comments }: ChaseExportInput) {
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  const bucketOf = (days: number) =>
+    days <= 0 ? "Current" : days <= 30 ? "1–30" : days <= 60 ? "31–60" : days <= 90 ? "61–90" : "91+";
+
+  // Index communications by invoice once.
+  const CHASE_CHANNELS = new Set(["Email", "Chase"]);
+  const COMMENT_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase"]);
+  const chaseCount = new Map<string, number>();
+  const lastComment = new Map<string, any>();
+  for (const c of comments) {
+    if (!c.invoiceId || c.isDraft) continue;
+    if (c.direction === "Outbound" && CHASE_CHANNELS.has(c.channel)) {
+      chaseCount.set(c.invoiceId, (chaseCount.get(c.invoiceId) ?? 0) + 1);
+    }
+    if (COMMENT_CHANNELS.has(c.channel) && c.body) {
+      const prev = lastComment.get(c.invoiceId);
+      const ts = new Date(c.sentAt ?? c.createdAt).getTime();
+      if (!prev || ts > new Date(prev.sentAt ?? prev.createdAt).getTime()) lastComment.set(c.invoiceId, c);
+    }
+  }
+
+  // ── Sheet 1: flat pivot-ready detail ────────────────────────────────────
+  const headers = [
+    "Invoice #", "Customer", "Project", "Region", "Rep",
+    "Invoice Date", "Due Date", "Days Overdue", "Aging Bucket",
+    "Currency", "Invoice Total", "Paid", "Outstanding", "% Unpaid",
+    "Stage", "Owner", "Owner Email",
+    "Response", "Promise Date",
+    "Last Chased", "Days Since Chase", "Chase Count", "Last Ref",
+    "Last Comment", "Comment By", "Comment Date",
+  ];
+
+  const detail = rows.map(r => {
+    const inv = r.inv;
+    const total = Number(inv.total || 0);
+    const pctUnpaid = total > 0 ? round2((r.bal / total) * 100) : 100;
+    const owner = inv.collectionStage === "Escalated" && inv.escalatedToName ? inv.escalatedToName : "Accounts";
+    const ownerEmail = inv.collectionStage === "Escalated" ? (inv.escalatedToEmail ?? "") : "";
+    const response = inv.hasOpenDispute
+      ? `Disputed${inv.disputeReason ? ": " + inv.disputeReason : ""}`
+      : inv.promiseDate ? "Committed" : "";
+    const lastSentIso = r.lastSent ? r.lastSent.slice(0, 10) : "";
+    const daysSinceChase = lastSentIso
+      ? Math.floor((today.getTime() - new Date(lastSentIso).getTime()) / 86400000)
+      : "";
+    const cm = lastComment.get(inv.id);
+    return [
+      inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
+      inv.invoiceDate ?? "", inv.dueDate ?? "", Math.max(0, r.days), bucketOf(r.days),
+      inv.currency || "EUR", round2(total), round2(Math.max(0, total - r.bal)), round2(r.bal), pctUnpaid,
+      r.stageLabel, owner, ownerEmail,
+      response, inv.promiseDate ?? "",
+      lastSentIso, daysSinceChase, chaseCount.get(inv.id) ?? 0, r.lastRef ?? "",
+      cm ? String(cm.body).slice(0, 500) : "", cm ? (cm.sender ?? "") : "", cm ? new Date(cm.sentAt ?? cm.createdAt).toISOString().slice(0, 10) : "",
+    ];
+  });
+  const wb = XLSX.utils.book_new();
+  appendSheet(wb, "Chase Report", [headers, ...detail]);
+
+  // ── Sheet 2: summary by owner ───────────────────────────────────────────
+  type OwnerRow = { count: number; buckets: Buckets };
+  const byOwner = new Map<string, OwnerRow>();
+  rows.forEach(r => {
+    const owner = r.inv.collectionStage === "Escalated" && r.inv.escalatedToName ? r.inv.escalatedToName : "Accounts";
+    if (!byOwner.has(owner)) byOwner.set(owner, { count: 0, buckets: emptyBuckets() });
+    const o = byOwner.get(owner)!;
+    o.count++;
+    const b = emptyBuckets();
+    const key = r.days <= 0 ? "Current" : r.days <= 30 ? "1-30" : r.days <= 60 ? "31-60" : r.days <= 90 ? "61-90" : "90+";
+    (b as any)[key] = r.bal; b.total = r.bal;
+    o.buckets = addBuckets(o.buckets, b);
+  });
+  const ownerRows = [...byOwner.entries()].sort((a, b) => b[1].buckets.total - a[1].buckets.total);
+  const grand = ownerRows.reduce((acc, [, o]) => addBuckets(acc, o.buckets), emptyBuckets());
+  appendSheet(wb, "Summary by Owner", [
+    ["Report:", "Collections Chase Report"],
+    ["Organisation:", orgName],
+    ["As at:", todayIso],
+    ["Invoices:", rows.length],
+    [],
+    ["Owner", "Invoices", "Current", "1–30 days", "31–60 days", "61–90 days", "91+ days", "Total Outstanding", "% of Total"],
+    ...ownerRows.map(([name, o]) => [
+      name, o.count,
+      round2(o.buckets.Current), round2(o.buckets["1-30"]), round2(o.buckets["31-60"]),
+      round2(o.buckets["61-90"]), round2(o.buckets["90+"]), round2(o.buckets.total),
+      grand.total > 0 ? `${(o.buckets.total / grand.total * 100).toFixed(1)}%` : "—",
+    ]),
+    ["TOTAL", rows.length,
+      round2(grand.Current), round2(grand["1-30"]), round2(grand["31-60"]),
+      round2(grand["61-90"]), round2(grand["90+"]), round2(grand.total), "100%"],
+  ]);
+
+  XLSX.writeFile(wb, `Chase-Report_${todayIso}.xlsx`);
+}
+
 // ─── util ──────────────────────────────────────────────────────────────────
 
 function appendSheet(wb: XLSX.WorkBook, name: string, data: any[][]) {

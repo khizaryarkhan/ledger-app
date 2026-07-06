@@ -482,6 +482,7 @@ export default function BoardPage() {
           refresh={refresh}
           toast={toast}
           comments={communications ?? []}
+          orgName={orgSettings?.displayName ?? orgSettings?.name}
         />
       )}
 
