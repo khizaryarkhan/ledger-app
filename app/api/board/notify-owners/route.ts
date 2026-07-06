@@ -29,7 +29,10 @@ import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
-const MAX_PDFS_PER_OWNER = 15;
+// Attachment budget per email. Providers reject ~25MB; 18MB leaves headroom
+// for MIME base64 overhead (~33%). QBO invoice PDFs are typically <100KB,
+// so even 100+ invoices fit comfortably.
+const MAX_ATTACH_BYTES = 18 * 1024 * 1024;
 
 const Schema = z.object({
   invoiceIds:    z.array(z.string().uuid()).min(1).max(200),
@@ -206,19 +209,36 @@ export async function POST(req: Request) {
   <p style="color:#78716c;font-size:12px;">Sent by ${esc(actorName)} via the collections board.</p>
 </div>`;
 
-      // PDFs (capped)
-      const pdfTargets = group.items.slice(0, MAX_PDFS_PER_OWNER);
+      // PDFs — attach everything within the size budget (never silently drop).
       const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
-      for (let i = 0; i < pdfTargets.length; i += 5) {
-        const chunk = pdfTargets.slice(i, i + 5);
+      const skippedPdfs: string[] = []; // over budget
+      const missingPdfs: string[] = []; // provider had no PDF
+      let attachedBytes = 0;
+      for (let i = 0; i < group.items.length; i += 5) {
+        const chunk = group.items.slice(i, i + 5);
         const bufs = await Promise.all(chunk.map(async r => ({ r, pdf: await fetchPdf(r.inv) })));
         for (const { r, pdf } of bufs) {
-          if (pdf) attachments.push({ filename: `Invoice-${r.inv.invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" });
+          if (!pdf) { missingPdfs.push(`#${r.inv.invoiceNumber}`); continue; }
+          if (attachedBytes + pdf.byteLength > MAX_ATTACH_BYTES) { skippedPdfs.push(`#${r.inv.invoiceNumber}`); continue; }
+          attachedBytes += pdf.byteLength;
+          attachments.push({ filename: `Invoice-${r.inv.invoiceNumber}.pdf`, content: pdf, contentType: "application/pdf" });
         }
       }
 
+      // Be explicit in the email about anything not attached.
+      let finalHtml = html;
+      if (skippedPdfs.length || missingPdfs.length) {
+        const notes: string[] = [];
+        if (skippedPdfs.length) notes.push(`${skippedPdfs.length} PDF(s) exceeded the email size limit and were not attached: ${skippedPdfs.join(", ")}${portalUrl ? " — available via your portal" : ""}.`);
+        if (missingPdfs.length) notes.push(`No PDF was available from the accounting system for: ${missingPdfs.join(", ")}.`);
+        finalHtml = html.replace(
+          "</div>",
+          `<p style="color:#a16207;font-size:12px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;">${notes.join("<br/>")}</p></div>`
+        );
+      }
+
       const subject = `Escalated invoices assigned to you — ${group.items.length} invoice${group.items.length !== 1 ? "s" : ""} · ${totalStr}`;
-      await sendEmail(orgId!, { to: email, subject, body: html, attachments });
+      await sendEmail(orgId!, { to: email, subject, body: finalHtml, attachments });
 
       // Log one Outbound Email communication per invoice.
       await db.insert(communications).values(
