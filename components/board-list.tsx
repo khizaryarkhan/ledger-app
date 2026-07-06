@@ -361,7 +361,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast?.(d.error || "Failed to send digests", "error"); return; }
-      toast?.(`Digest sent to ${d.sent} owner${d.sent !== 1 ? "s" : ""}${d.failed ? ` · ${d.failed} failed` : ""}`, d.failed ? "error" : "success");
+      if (d.failed > 0) {
+        const firstErr = (d.results ?? []).find((r: any) => !r.sent)?.error;
+        toast?.(`${d.sent} sent · ${d.failed} failed${firstErr ? ` — ${firstErr}` : ""}`, "error");
+        if (d.sent === 0) return; // keep the modal open so the user can retry
+      } else {
+        toast?.(`Digest sent to ${d.sent} owner${d.sent !== 1 ? "s" : ""}`, "success");
+      }
       setNotifyOpen(false); setNotifyMessage("");
       await refresh();
     } finally { setNotifySending(false); }
