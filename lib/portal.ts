@@ -10,7 +10,7 @@ import { randomBytes } from "crypto";
 import { headers } from "next/headers";
 import { db } from "@/db";
 import {
-  customerPortalTokens, invoicePromises, invoiceDisputes, invoices,
+  customerPortalTokens, ownerPortalTokens, invoicePromises, invoiceDisputes, invoices,
 } from "@/db/schema";
 import { and, eq, desc, inArray } from "drizzle-orm";
 
@@ -53,6 +53,65 @@ export async function createPortalToken(
   });
 
   return { token, url: `${getAppUrl()}/portal/${token}` };
+}
+
+/**
+ * Create (or refresh) an owner escalation-portal token. Unlike customer
+ * tokens, one owner has one live token at a time — re-notifying the same
+ * owner updates the invoice snapshot on their existing Active token so old
+ * emailed links keep working and always show the current list.
+ */
+export async function createOwnerPortalToken(
+  orgId: string,
+  owner: { userId: string | null; name: string; email: string },
+  invoiceIds: string[],
+  createdBy: string | null,
+): Promise<{ token: string; url: string }> {
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 86_400_000);
+
+  const [existing] = await db
+    .select()
+    .from(ownerPortalTokens)
+    .where(and(
+      eq(ownerPortalTokens.orgId, orgId),
+      eq(ownerPortalTokens.ownerEmail, owner.email),
+      eq(ownerPortalTokens.status, "Active"),
+    ))
+    .orderBy(desc(ownerPortalTokens.createdAt))
+    .limit(1);
+
+  if (existing && new Date(existing.expiresAt).getTime() > Date.now()) {
+    // Merge new invoices into the existing snapshot and extend expiry.
+    const merged = [...new Set([...(existing.invoiceIds as string[]), ...invoiceIds])];
+    await db.update(ownerPortalTokens)
+      .set({ invoiceIds: merged, expiresAt })
+      .where(eq(ownerPortalTokens.id, existing.id));
+    return { token: existing.token, url: `${getAppUrl()}/owner-portal/${existing.token}` };
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  await db.insert(ownerPortalTokens).values({
+    orgId, ownerUserId: owner.userId, ownerName: owner.name, ownerEmail: owner.email,
+    token, invoiceIds, createdBy, expiresAt,
+  });
+  return { token, url: `${getAppUrl()}/owner-portal/${token}` };
+}
+
+export type OwnerTokenValidation =
+  | { ok: true;  row: typeof ownerPortalTokens.$inferSelect }
+  | { ok: false; reason: "not_found" | "expired" };
+
+export async function validateOwnerPortalToken(token: string): Promise<OwnerTokenValidation> {
+  const [row] = await db
+    .select()
+    .from(ownerPortalTokens)
+    .where(eq(ownerPortalTokens.token, token))
+    .limit(1);
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.status === "Expired" || new Date(row.expiresAt).getTime() < Date.now()) {
+    return { ok: false, reason: "expired" };
+  }
+  return { ok: true, row };
 }
 
 export type TokenValidation =

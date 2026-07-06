@@ -127,6 +127,13 @@
       "when": 1751385600000,
       "tag": "0017_communications_message_id",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1751760000000,
+      "tag": "0019_owner_portal_tokens",
+      "breakpoints": true
     }
   ]
 }

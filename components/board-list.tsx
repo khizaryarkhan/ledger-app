@@ -65,6 +65,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [batchChaseMemo, setBatchChaseMemo] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
 
+  // Notify Owners (escalation digest) state
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyChecked, setNotifyChecked] = useState<Set<string>>(new Set()); // owner emails
+  const [notifyPortal, setNotifyPortal] = useState(true);
+  const [notifyMessage, setNotifyMessage] = useState("");
+  const [notifySending, setNotifySending] = useState(false);
+
   // Activity feed grouped by invoice — includes all human-relevant events:
   // internal notes, customer portal messages, dispute events, promise events.
   const ACTIVITY_CHANNELS = new Set(["Note", "Portal", "Dispute", "Promise", "Email", "Chase", "StageChange"]);
@@ -321,6 +328,44 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.inv.id)), [rows, selected]);
   const anyFilter = Object.values(cf).some(Boolean);
 
+  // Escalated invoices grouped by owner — source for the Notify Owners digest.
+  // Uses the selection if any, otherwise everything currently visible.
+  const ownerGroups = useMemo(() => {
+    const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : rows;
+    const m = new Map<string, { name: string; email: string; items: BoardRow[]; total: Record<string, number> }>();
+    src.forEach(r => {
+      if (r.inv.collectionStage !== "Escalated" || !r.inv.escalatedToEmail) return;
+      const email = String(r.inv.escalatedToEmail).toLowerCase();
+      if (!m.has(email)) m.set(email, { name: r.inv.escalatedToName ?? email, email, items: [], total: {} });
+      const g = m.get(email)!;
+      g.items.push(r);
+      const c = r.inv.currency ?? "EUR";
+      g.total[c] = (g.total[c] ?? 0) + r.bal;
+    });
+    return [...m.values()].sort((a, b) => b.items.length - a.items.length);
+  }, [rows, selected]);
+
+  async function sendOwnerDigests() {
+    const groups = ownerGroups.filter(g => notifyChecked.has(g.email));
+    if (!groups.length) return;
+    setNotifySending(true);
+    try {
+      const res = await fetch("/api/board/notify-owners", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceIds: groups.flatMap(g => g.items.map(r => r.inv.id)),
+          includePortal: notifyPortal,
+          message: notifyMessage.trim() || undefined,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast?.(d.error || "Failed to send digests", "error"); return; }
+      toast?.(`Digest sent to ${d.sent} owner${d.sent !== 1 ? "s" : ""}${d.failed ? ` · ${d.failed} failed` : ""}`, d.failed ? "error" : "success");
+      setNotifyOpen(false); setNotifyMessage("");
+      await refresh();
+    } finally { setNotifySending(false); }
+  }
+
   const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-400 uppercase tracking-wider whitespace-nowrap";
   const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500";
   const selectedCustomers = useMemo(() => new Set(selectedRows.map(r => r.custId)), [selectedRows]);
@@ -515,8 +560,81 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             className="flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-white border border-sky-800 bg-sky-500/10 hover:bg-sky-500/20 rounded-md px-2.5 py-1.5 transition-colors">
             <FileText size={13} /> Chase Report{selected.size ? ` (${selected.size})` : ""}
           </button>
+          {ownerGroups.length > 0 && (
+            <button
+              onClick={() => { setNotifyChecked(new Set(ownerGroups.map(g => g.email))); setNotifyOpen(true); }}
+              title="Email each owner their escalated invoices with PDFs attached"
+              className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-white border border-rose-800 bg-rose-500/10 hover:bg-rose-500/20 rounded-md px-2.5 py-1.5 transition-colors">
+              <UserCheck size={13} /> Notify Owners ({ownerGroups.length})
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Notify Owners modal */}
+      {notifyOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !notifySending && setNotifyOpen(false)}>
+          <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-stone-800">
+              <h2 className="text-base font-semibold text-white">Notify escalation owners</h2>
+              <p className="text-[12px] text-stone-500 mt-0.5">Each owner gets one email with their action list and the invoice PDFs attached.</p>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {ownerGroups.map(g => (
+                <label key={g.email} className="flex items-center gap-3 bg-stone-800/60 border border-stone-700 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-stone-800">
+                  <input type="checkbox" checked={notifyChecked.has(g.email)}
+                    onChange={() => setNotifyChecked(p => { const n = new Set(p); n.has(g.email) ? n.delete(g.email) : n.add(g.email); return n; })}
+                    className="rounded border-stone-500" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-stone-200">{g.name}</div>
+                    <div className="text-[11px] text-stone-500 truncate">{g.email}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[13px] font-semibold text-white tabular-nums">
+                      {Object.entries(g.total).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                    </div>
+                    <div className="text-[11px] text-stone-500">{g.items.length} invoice{g.items.length !== 1 ? "s" : ""}</div>
+                  </div>
+                </label>
+              ))}
+
+              {/* Include portal link toggle — same pattern as send-invoices modal */}
+              <div className="flex items-center justify-between bg-stone-800/40 border border-stone-700 rounded-lg px-3 py-2.5">
+                <div>
+                  <div className="text-[13px] font-medium text-stone-200">Include owner portal link</div>
+                  <div className="text-[11px] text-stone-500">
+                    {notifyPortal ? "Owners can comment on each invoice without logging in — updates land in the chatbox." : "No portal link — owners reply by email only."}
+                  </div>
+                </div>
+                <button role="switch" aria-checked={notifyPortal} onClick={() => setNotifyPortal(v => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${notifyPortal ? "bg-emerald-600" : "bg-stone-600"}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifyPortal ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+              </div>
+
+              <textarea
+                value={notifyMessage}
+                onChange={e => setNotifyMessage(e.target.value)}
+                placeholder="Optional message to all owners — e.g. 'Month-end close is Friday, please update every line by Thursday.'"
+                rows={2}
+                className="w-full text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+              />
+            </div>
+
+            <div className="p-5 border-t border-stone-800 flex items-center justify-end gap-2">
+              <button onClick={() => setNotifyOpen(false)} disabled={notifySending}
+                className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
+              <button onClick={sendOwnerDigests} disabled={notifySending || notifyChecked.size === 0}
+                className="flex items-center gap-1.5 text-[13px] font-semibold bg-rose-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-rose-700 transition-colors">
+                {notifySending
+                  ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending…</>
+                  : <><Send size={14} /> Send {notifyChecked.size} email{notifyChecked.size !== 1 ? "s" : ""}</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
@@ -855,7 +973,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               type ChanCfg = { icon: React.ReactNode; border: string; label: string; labelCls: string; bg: string };
                               const cfg: ChanCfg = (() => {
                                 switch (n.channel) {
-                                  case "Portal":   return { icon: <Globe size={11} />,         border: "border-l-2 border-emerald-500", label: "Customer · via portal", labelCls: "text-emerald-400", bg: "bg-emerald-950/30" };
+                                  case "Portal":   return { icon: <Globe size={11} />,         border: "border-l-2 border-emerald-500", label: n.matchedBy === "OwnerPortal" ? `${n.sender || "Owner"} · via owner portal` : "Customer · via portal", labelCls: "text-emerald-400", bg: "bg-emerald-950/30" };
                                   case "Dispute":  return {
                                     icon: n.body?.startsWith("Resolved") || n.subject?.includes("resolved")
                                       ? <CheckCircle2 size={11} />

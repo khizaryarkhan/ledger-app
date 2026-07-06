@@ -798,6 +798,25 @@ export const customerPortalTokens = pgTable("customer_portal_tokens", {
 });
 export type CustomerPortalToken = typeof customerPortalTokens.$inferSelect;
 
+// Owner escalation portal — a tokenised, no-login page sent to the internal
+// owner of escalated invoices. Unlike the customer portal, the link stays
+// alive until expiry (owners comment repeatedly as they work their list).
+export const ownerPortalTokens = pgTable("owner_portal_tokens", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  ownerUserId:  uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  ownerName:    varchar("owner_name",  { length: 255 }).notNull(),
+  ownerEmail:   varchar("owner_email", { length: 255 }).notNull(),
+  token:        varchar("token", { length: 80 }).notNull().unique(),
+  invoiceIds:   jsonb("invoice_ids").notNull().default([]),
+  status:       varchar("status", { length: 16 }).notNull().default("Active"), // Active | Expired
+  createdBy:    uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  expiresAt:    timestamp("expires_at").notNull(),
+  lastViewedAt: timestamp("last_viewed_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+});
+export type OwnerPortalToken = typeof ownerPortalTokens.$inferSelect;
+
 // A promise-to-pay event. `amount` supports partial promises.
 export const invoicePromises = pgTable("invoice_promises", {
   id:          uuid("id").defaultRandom().primaryKey(),
