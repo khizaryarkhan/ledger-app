@@ -65,9 +65,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [batchChaseMemo, setBatchChaseMemo] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
 
-  // Notify Owners (escalation digest) state
+  // Notify Owners (escalation digest) state — checked at the invoice level so
+  // you can notify one owner, or an owner about only some of their invoices.
   const [notifyOpen, setNotifyOpen] = useState(false);
-  const [notifyChecked, setNotifyChecked] = useState<Set<string>>(new Set()); // owner emails
+  const [notifyInvChecked, setNotifyInvChecked] = useState<Set<string>>(new Set()); // invoice ids
+  const [notifyExpanded, setNotifyExpanded] = useState<Set<string>>(new Set());     // owner emails
   const [notifyPortal, setNotifyPortal] = useState(true);
   const [notifyMessage, setNotifyMessage] = useState("");
   const [notifySending, setNotifySending] = useState(false);
@@ -346,14 +348,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }, [rows, selected]);
 
   async function sendOwnerDigests() {
-    const groups = ownerGroups.filter(g => notifyChecked.has(g.email));
-    if (!groups.length) return;
+    if (notifyInvChecked.size === 0) return;
     setNotifySending(true);
     try {
       const res = await fetch("/api/board/notify-owners", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          invoiceIds: groups.flatMap(g => g.items.map(r => r.inv.id)),
+          invoiceIds: [...notifyInvChecked],
           includePortal: notifyPortal,
           message: notifyMessage.trim() || undefined,
         }),
@@ -562,7 +563,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           </button>
           {ownerGroups.length > 0 && (
             <button
-              onClick={() => { setNotifyChecked(new Set(ownerGroups.map(g => g.email))); setNotifyOpen(true); }}
+              onClick={() => { setNotifyInvChecked(new Set(ownerGroups.flatMap(g => g.items.map(r => r.inv.id)))); setNotifyExpanded(new Set()); setNotifyOpen(true); }}
               title="Email each owner their escalated invoices with PDFs attached"
               className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-white border border-rose-800 bg-rose-500/10 hover:bg-rose-500/20 rounded-md px-2.5 py-1.5 transition-colors">
               <UserCheck size={13} /> Notify Owners ({ownerGroups.length})
@@ -581,23 +582,57 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </div>
 
             <div className="p-5 space-y-3">
-              {ownerGroups.map(g => (
-                <label key={g.email} className="flex items-center gap-3 bg-stone-800/60 border border-stone-700 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-stone-800">
-                  <input type="checkbox" checked={notifyChecked.has(g.email)}
-                    onChange={() => setNotifyChecked(p => { const n = new Set(p); n.has(g.email) ? n.delete(g.email) : n.add(g.email); return n; })}
-                    className="rounded border-stone-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium text-stone-200">{g.name}</div>
-                    <div className="text-[11px] text-stone-500 truncate">{g.email}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[13px] font-semibold text-white tabular-nums">
-                      {Object.entries(g.total).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+              {ownerGroups.map(g => {
+                const checkedCount = g.items.filter(r => notifyInvChecked.has(r.inv.id)).length;
+                const allChecked = checkedCount === g.items.length;
+                const expanded = notifyExpanded.has(g.email);
+                const toggleOwner = () => setNotifyInvChecked(p => {
+                  const n = new Set(p);
+                  g.items.forEach(r => allChecked ? n.delete(r.inv.id) : n.add(r.inv.id));
+                  return n;
+                });
+                return (
+                  <div key={g.email} className="bg-stone-800/60 border border-stone-700 rounded-lg overflow-hidden">
+                    <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-stone-800 cursor-pointer" onClick={toggleOwner}>
+                      <input type="checkbox" checked={allChecked}
+                        ref={el => { if (el) el.indeterminate = checkedCount > 0 && !allChecked; }}
+                        onChange={toggleOwner} onClick={e => e.stopPropagation()}
+                        className="rounded border-stone-500" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-stone-200">{g.name}</div>
+                        <div className="text-[11px] text-stone-500 truncate">{g.email}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-[13px] font-semibold text-white tabular-nums">
+                          {Object.entries(g.total).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                        </div>
+                        <div className="text-[11px] text-stone-500">
+                          {checkedCount < g.items.length ? `${checkedCount} of ${g.items.length}` : g.items.length} invoice{g.items.length !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); setNotifyExpanded(p => { const n = new Set(p); n.has(g.email) ? n.delete(g.email) : n.add(g.email); return n; }); }}
+                        className="text-stone-500 hover:text-stone-300 p-1 shrink-0">
+                        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
                     </div>
-                    <div className="text-[11px] text-stone-500">{g.items.length} invoice{g.items.length !== 1 ? "s" : ""}</div>
+                    {expanded && (
+                      <div className="border-t border-stone-700/60 divide-y divide-stone-800">
+                        {g.items.map(r => (
+                          <label key={r.inv.id} className="flex items-center gap-2.5 pl-9 pr-3 py-1.5 cursor-pointer hover:bg-stone-800/60">
+                            <input type="checkbox" checked={notifyInvChecked.has(r.inv.id)}
+                              onChange={() => setNotifyInvChecked(p => { const n = new Set(p); n.has(r.inv.id) ? n.delete(r.inv.id) : n.add(r.inv.id); return n; })}
+                              className="rounded border-stone-500" />
+                            <span className="font-mono text-[11px] text-stone-400">#{r.inv.invoiceNumber}</span>
+                            <span className="text-[12px] text-stone-300 flex-1 truncate">{r.custName}{r.projName ? <span className="text-stone-500"> · {r.projName}</span> : null}</span>
+                            <span className="text-[12px] font-medium text-stone-200 tabular-nums shrink-0">{fmt.money(r.bal, r.inv.currency)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </label>
-              ))}
+                );
+              })}
 
               {/* Include portal link toggle — same pattern as send-invoices modal */}
               <div className="flex items-center justify-between bg-stone-800/40 border border-stone-700 rounded-lg px-3 py-2.5">
@@ -625,12 +660,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <div className="p-5 border-t border-stone-800 flex items-center justify-end gap-2">
               <button onClick={() => setNotifyOpen(false)} disabled={notifySending}
                 className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
-              <button onClick={sendOwnerDigests} disabled={notifySending || notifyChecked.size === 0}
-                className="flex items-center gap-1.5 text-[13px] font-semibold bg-rose-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-rose-700 transition-colors">
-                {notifySending
-                  ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending…</>
-                  : <><Send size={14} /> Send {notifyChecked.size} email{notifyChecked.size !== 1 ? "s" : ""}</>}
-              </button>
+              {(() => {
+                const ownerCount = ownerGroups.filter(g => g.items.some(r => notifyInvChecked.has(r.inv.id))).length;
+                return (
+                  <button onClick={sendOwnerDigests} disabled={notifySending || ownerCount === 0}
+                    className="flex items-center gap-1.5 text-[13px] font-semibold bg-rose-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-rose-700 transition-colors">
+                    {notifySending
+                      ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending…</>
+                      : <><Send size={14} /> Send {ownerCount} email{ownerCount !== 1 ? "s" : ""} · {notifyInvChecked.size} invoice{notifyInvChecked.size !== 1 ? "s" : ""}</>}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
