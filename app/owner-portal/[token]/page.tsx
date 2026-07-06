@@ -130,6 +130,14 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                       Due {fmtDate(inv.dueDate)}
                       {inv.daysOverdue > 0 && <span className={`ml-1 font-semibold ${inv.daysOverdue > 60 ? "text-rose-600" : "text-amber-600"}`}>· {inv.daysOverdue}d overdue</span>}
                     </div>
+                    <a
+                      href={`/api/owner-portal/${params.token}/pdf/${inv.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-emerald-700 hover:text-emerald-800 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 rounded-md px-2 py-1 transition-colors"
+                    >
+                      ↓ Invoice PDF
+                    </a>
                   </div>
                 </div>
                 {inv.status && (
