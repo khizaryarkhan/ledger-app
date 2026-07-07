@@ -52,7 +52,7 @@ const TaxRateSchema = z.object({
 
 const DimensionSchema = z.object({
   name:          z.string().min(1).max(255),
-  dimensionType: z.enum(["Class", "Department", "Location", "CostCentre", "Custom"]),
+  dimensionType: z.enum(["Class", "Department", "Location", "CostCentre", "CustomField", "Custom"]),
   code:          z.string().max(64).optional(),
 });
 

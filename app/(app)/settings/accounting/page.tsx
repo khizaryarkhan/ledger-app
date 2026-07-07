@@ -37,14 +37,15 @@ const TYPE_GROUPS: [string, string[]][] = [
   ["Expenses", ["Cost of Goods Sold", "Expense", "Other Expense"]],
 ];
 const ITEM_TYPES = ["Service", "Non-Inventory", "Inventory"];
-const OTHER_DIM_TYPES = ["CostCentre", "TrackingCategory", "Custom"];
-const dimTypeLabel = (t: string) => t === "TrackingCategory" ? "Tracking category" : t === "CostCentre" ? "Cost centre" : t;
+const dimTypeLabel = (t: string) => t === "TrackingCategory" ? "Tracking category" : t === "CostCentre" ? "Cost centre" : t === "CustomField" ? "Custom field" : t;
 // QBO's API calls Locations "Department" — treat both as the Locations tab.
 const LOCATION_TYPES = new Set(["Location", "Department"]);
+// Types with a dedicated tab; anything else in ap_dimensions lands in "Other".
+const DEDICATED_DIM_TYPES = new Set(["Class", "Location", "Department", "CostCentre", "CustomField"]);
 
 type Rec = any;
-type Tab = "accounts" | "items" | "tax-rates" | "classes" | "locations" | "other-dims";
-const DIM_TABS: Tab[] = ["classes", "locations", "other-dims"];
+type Tab = "accounts" | "items" | "tax-rates" | "classes" | "locations" | "cost-centres" | "custom-fields" | "other-dims";
+const DIM_TABS: Tab[] = ["classes", "locations", "cost-centres", "custom-fields", "other-dims"];
 // Which API entity a tab talks to.
 const apiEntity = (t: Tab) => DIM_TABS.includes(t) ? "dimensions" : t;
 
@@ -86,9 +87,11 @@ export default function AccountingSettingsPage() {
 
   // Records backing a tab — dimension tabs slice data.dimensions by type.
   const tabSource = (t: Tab): Rec[] => {
-    if (t === "classes")    return data.dimensions.filter(r => r.dimensionType === "Class");
-    if (t === "locations")  return data.dimensions.filter(r => LOCATION_TYPES.has(r.dimensionType));
-    if (t === "other-dims") return data.dimensions.filter(r => r.dimensionType !== "Class" && !LOCATION_TYPES.has(r.dimensionType));
+    if (t === "classes")       return data.dimensions.filter(r => r.dimensionType === "Class");
+    if (t === "locations")     return data.dimensions.filter(r => LOCATION_TYPES.has(r.dimensionType));
+    if (t === "cost-centres")  return data.dimensions.filter(r => r.dimensionType === "CostCentre");
+    if (t === "custom-fields") return data.dimensions.filter(r => r.dimensionType === "CustomField");
+    if (t === "other-dims")    return data.dimensions.filter(r => !DEDICATED_DIM_TYPES.has(r.dimensionType));
     return (data as any)[t] ?? [];
   };
 
@@ -125,9 +128,11 @@ export default function AccountingSettingsPage() {
     if (tab === "accounts")  setForm({ name: "", type: "Expense", subtype: "", code: "" });
     if (tab === "items")     setForm({ name: "", itemType: "Service", code: "", description: "", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", taxRateId: "" });
     if (tab === "tax-rates") setForm({ name: "", rate: "", taxType: "" });
-    if (tab === "classes")    setForm({ name: "", dimensionType: "Class", code: "" });
-    if (tab === "locations")  setForm({ name: "", dimensionType: "Location", code: "" });
-    if (tab === "other-dims") setForm({ name: "", dimensionType: "CostCentre", code: "" });
+    if (tab === "classes")       setForm({ name: "", dimensionType: "Class", code: "" });
+    if (tab === "locations")     setForm({ name: "", dimensionType: "Location", code: "" });
+    if (tab === "cost-centres")  setForm({ name: "", dimensionType: "CostCentre", code: "" });
+    if (tab === "custom-fields") setForm({ name: "", dimensionType: "CustomField", code: "" });
+    if (tab === "other-dims")    setForm({ name: "", dimensionType: "Custom", code: "" });
     setEditRec("new");
   }
   function openEdit(r: Rec) {
@@ -179,13 +184,15 @@ export default function AccountingSettingsPage() {
 
   // "Other dimensions" tab only appears when the org actually has such data
   // (tracking categories, cost centres…) — Classes and Locations always show.
-  const hasOtherDims = data.dimensions.some(r => r.dimensionType !== "Class" && !LOCATION_TYPES.has(r.dimensionType));
+  const hasOtherDims = data.dimensions.some(r => !DEDICATED_DIM_TYPES.has(r.dimensionType));
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: "accounts",   label: "Chart of Accounts",   icon: <BookOpen size={13} /> },
-    { key: "items",      label: "Products & Services", icon: <Package size={13} /> },
-    { key: "tax-rates",  label: "Tax Rates",           icon: <Percent size={13} /> },
-    { key: "classes",    label: "Classes",             icon: <Tags size={13} /> },
-    { key: "locations",  label: "Locations",           icon: <Tags size={13} /> },
+    { key: "accounts",      label: "Chart of Accounts",   icon: <BookOpen size={13} /> },
+    { key: "items",         label: "Products & Services", icon: <Package size={13} /> },
+    { key: "tax-rates",     label: "Tax Rates",           icon: <Percent size={13} /> },
+    { key: "classes",       label: "Classes",             icon: <Tags size={13} /> },
+    { key: "locations",     label: "Locations",           icon: <Tags size={13} /> },
+    { key: "cost-centres",  label: "Cost Centres",        icon: <Tags size={13} /> },
+    { key: "custom-fields", label: "Custom Fields",       icon: <Tags size={13} /> },
     ...(hasOtherDims ? [{ key: "other-dims" as Tab, label: "Other Dimensions", icon: <Tags size={13} /> }] : []),
   ];
 
@@ -225,7 +232,7 @@ export default function AccountingSettingsPage() {
             <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
             <button onClick={openNew}
               className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 transition-colors">
-              <Plus size={14} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : "dimension"}
+              <Plus size={14} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
             </button>
           </div>
         </div>
@@ -328,8 +335,8 @@ export default function AccountingSettingsPage() {
                 </>
               )}
 
-              {/* ── Classes / Locations — flat lists, one type per tab ── */}
-              {(tab === "classes" || tab === "locations") && (
+              {/* ── Classes / Locations / Cost Centres / Custom Fields — flat lists, one type per tab ── */}
+              {(tab === "classes" || tab === "locations" || tab === "cost-centres" || tab === "custom-fields") && (
                 <>
                   <thead className="bg-stone-900">
                     <tr className="border-b border-stone-800">
@@ -419,7 +426,7 @@ export default function AccountingSettingsPage() {
           <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-stone-800 flex items-center justify-between">
               <h2 className="text-base font-semibold text-white">
-                {editRec === "new" ? "New" : "Edit"} {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : "dimension"}
+                {editRec === "new" ? "New" : "Edit"} {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
               </h2>
               {isSyncedEdit && (
                 <span className="flex items-center gap-1 text-[11px] text-amber-400"><Lock size={11} /> Synced — read-only</span>
@@ -519,25 +526,13 @@ export default function AccountingSettingsPage() {
                 </>
               )}
 
-              {(tab === "classes" || tab === "locations") && (
+              {(tab === "classes" || tab === "locations" || tab === "cost-centres" || tab === "custom-fields" || tab === "other-dims") && (
                 <div>
                   <label className={labelCls}>Code</label>
                   <input value={form.code ?? ""} onChange={e => setForm(p => ({ ...p, code: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls} />
-                </div>
-              )}
-
-              {tab === "other-dims" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>Type *</label>
-                    <select value={form.dimensionType ?? "CostCentre"} onChange={e => setForm(p => ({ ...p, dimensionType: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
-                      {OTHER_DIM_TYPES.map(t => <option key={t} value={t}>{dimTypeLabel(t)}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelCls}>Code</label>
-                    <input value={form.code ?? ""} onChange={e => setForm(p => ({ ...p, code: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls} />
-                  </div>
+                  {tab === "custom-fields" && (
+                    <p className="text-[11px] text-stone-600 mt-1.5">Custom fields defined here will appear on native invoice and bill forms in a later phase — the value is entered per transaction, like QuickBooks.</p>
+                  )}
                 </div>
               )}
 
