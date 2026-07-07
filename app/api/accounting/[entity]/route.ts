@@ -10,10 +10,11 @@
  */
 
 import { db } from "@/db";
-import { apAccounts, apItems, apTaxRates } from "@/db/schema";
+import { apAccounts, apItems, apTaxRates, apDimensions } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc } from "drizzle-orm";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 // QBO's account type taxonomy (AccountType → common AccountSubTypes).
 export const ACCOUNT_TYPES = [
@@ -49,10 +50,17 @@ const TaxRateSchema = z.object({
   taxType: z.string().max(64).optional(),
 });
 
+const DimensionSchema = z.object({
+  name:          z.string().min(1).max(255),
+  dimensionType: z.enum(["Class", "Department", "Location", "CostCentre", "Custom"]),
+  code:          z.string().max(64).optional(),
+});
+
 function tableFor(entity: string) {
-  if (entity === "accounts")  return apAccounts;
-  if (entity === "items")     return apItems;
-  if (entity === "tax-rates") return apTaxRates;
+  if (entity === "accounts")   return apAccounts;
+  if (entity === "items")      return apItems;
+  if (entity === "tax-rates")  return apTaxRates;
+  if (entity === "dimensions") return apDimensions;
   return null;
 }
 
@@ -112,6 +120,20 @@ export async function POST(req: Request, { params }: { params: { entity: string 
       const [created] = await db.insert(apTaxRates).values({
         orgId: orgId!, source: "native",
         name: d.name, rate: d.rate, taxType: d.taxType ?? null,
+        status: "Active",
+      }).returning();
+      return ok(created);
+    }
+
+    if (params.entity === "dimensions") {
+      const d = DimensionSchema.parse(body);
+      const [created] = await db.insert(apDimensions).values({
+        orgId: orgId!, source: "native",
+        // externalId is NOT NULL (part of the sync upsert key) — native
+        // records get a generated one so they never collide with synced rows.
+        externalId: `native-${randomUUID()}`,
+        dimensionType: d.dimensionType,
+        name: d.name, code: d.code ?? null,
         status: "Active",
       }).returning();
       return ok(created);

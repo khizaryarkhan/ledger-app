@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
-import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent } from "lucide-react";
+import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent, Tags } from "lucide-react";
 
 // ── QBO taxonomy ────────────────────────────────────────────────────────────
 const ACCOUNT_TYPES: Record<string, string[]> = {
@@ -37,9 +37,12 @@ const TYPE_GROUPS: [string, string[]][] = [
   ["Expenses", ["Cost of Goods Sold", "Expense", "Other Expense"]],
 ];
 const ITEM_TYPES = ["Service", "Non-Inventory", "Inventory"];
+const DIMENSION_TYPES = ["Class", "Location", "Department", "CostCentre", "Custom"];
+// QBO's API calls Locations "Department" — show the QBO UI name.
+const dimTypeLabel = (t: string) => t === "Department" ? "Location (Department)" : t === "TrackingCategory" ? "Tracking category" : t;
 
 type Rec = any;
-type Tab = "accounts" | "items" | "tax-rates";
+type Tab = "accounts" | "items" | "tax-rates" | "dimensions";
 
 const sourceBadge = (source: string) => {
   const cls: Record<string, string> = {
@@ -54,7 +57,7 @@ const sourceBadge = (source: string) => {
 
 export default function AccountingSettingsPage() {
   const [tab, setTab] = useState<Tab>("accounts");
-  const [data, setData] = useState<Record<Tab, Rec[]>>({ "accounts": [], "items": [], "tax-rates": [] });
+  const [data, setData] = useState<Record<Tab, Rec[]>>({ "accounts": [], "items": [], "tax-rates": [], "dimensions": [] });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -66,12 +69,13 @@ export default function AccountingSettingsPage() {
   async function load() {
     setLoading(true);
     try {
-      const [a, i, t] = await Promise.all([
+      const [a, i, t, d] = await Promise.all([
         fetch("/api/accounting/accounts").then(r => r.json()),
         fetch("/api/accounting/items").then(r => r.json()),
         fetch("/api/accounting/tax-rates").then(r => r.json()),
+        fetch("/api/accounting/dimensions").then(r => r.json()),
       ]);
-      setData({ "accounts": Array.isArray(a) ? a : [], "items": Array.isArray(i) ? i : [], "tax-rates": Array.isArray(t) ? t : [] });
+      setData({ "accounts": Array.isArray(a) ? a : [], "items": Array.isArray(i) ? i : [], "tax-rates": Array.isArray(t) ? t : [], "dimensions": Array.isArray(d) ? d : [] });
     } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
@@ -81,7 +85,7 @@ export default function AccountingSettingsPage() {
     if (!showInactive) list = list.filter(r => r.status !== "Inactive");
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(r => (r.name ?? "").toLowerCase().includes(q) || (r.code ?? "").toLowerCase().includes(q) || (r.type ?? "").toLowerCase().includes(q));
+      list = list.filter(r => (r.name ?? "").toLowerCase().includes(q) || (r.code ?? "").toLowerCase().includes(q) || (r.type ?? "").toLowerCase().includes(q) || (r.dimensionType ?? "").toLowerCase().includes(q));
     }
     return list;
   }, [data, tab, search, showInactive]);
@@ -109,6 +113,7 @@ export default function AccountingSettingsPage() {
     if (tab === "accounts")  setForm({ name: "", type: "Expense", subtype: "", code: "" });
     if (tab === "items")     setForm({ name: "", itemType: "Service", code: "", description: "", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", taxRateId: "" });
     if (tab === "tax-rates") setForm({ name: "", rate: "", taxType: "" });
+    if (tab === "dimensions") setForm({ name: "", dimensionType: "Class", code: "" });
     setEditRec("new");
   }
   function openEdit(r: Rec) {
@@ -133,7 +138,7 @@ export default function AccountingSettingsPage() {
       // Only send known fields
       delete payload.id; delete payload.orgId; delete payload.source; delete payload.externalId;
       delete payload.raw; delete payload.lastSyncedAt; delete payload.createdAt; delete payload.updatedAt;
-      delete payload.status; delete payload.purchaseAccountId;
+      delete payload.status; delete payload.purchaseAccountId; delete payload.parentId;
 
       const url = isNew ? `/api/accounting/${tab}` : `/api/accounting/${tab}/${(editRec as Rec).id}`;
       const res = await fetch(url, {
@@ -159,10 +164,24 @@ export default function AccountingSettingsPage() {
   const acctName = (id: string | null) => data["accounts"].find(a => a.id === id || a.externalId === id)?.name ?? "—";
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: "accounts",  label: "Chart of Accounts",    icon: <BookOpen size={13} /> },
-    { key: "items",     label: "Products & Services",  icon: <Package size={13} /> },
-    { key: "tax-rates", label: "Tax Rates",            icon: <Percent size={13} /> },
+    { key: "accounts",   label: "Chart of Accounts",    icon: <BookOpen size={13} /> },
+    { key: "items",      label: "Products & Services",  icon: <Package size={13} /> },
+    { key: "tax-rates",  label: "Tax Rates",            icon: <Percent size={13} /> },
+    { key: "dimensions", label: "Classes & Locations",  icon: <Tags size={13} /> },
   ];
+
+  // Dimensions grouped by type (Class / Location / tracking categories…)
+  const dimensionGroups = useMemo(() => {
+    if (tab !== "dimensions") return [];
+    const m = new Map<string, Rec[]>();
+    rows.forEach(r => {
+      const k = r.dimensionType ?? "Other";
+      (m.get(k) ?? m.set(k, []).get(k)!).push(r);
+    });
+    return [...m.entries()]
+      .map(([type, list]) => ({ type, rows: list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")) }))
+      .sort((a, b) => a.type.localeCompare(b.type));
+  }, [rows, tab]);
 
   const inputCls = "w-full text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
   const labelCls = "block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1";
@@ -187,7 +206,7 @@ export default function AccountingSettingsPage() {
             <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
             <button onClick={openNew}
               className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 transition-colors">
-              <Plus size={14} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : "tax rate"}
+              <Plus size={14} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : "class / location"}
             </button>
           </div>
         </div>
@@ -290,6 +309,37 @@ export default function AccountingSettingsPage() {
                 </>
               )}
 
+              {/* ── Classes & Locations (dimensions) ── */}
+              {tab === "dimensions" && (
+                <>
+                  <thead className="bg-stone-900">
+                    <tr className="border-b border-stone-800">
+                      <th className={thCls}>Name</th><th className={thCls}>Code</th><th className={thCls}>Source</th><th className={`${thCls} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dimensionGroups.map(g => (
+                      <Frag key={g.type}>
+                        <tr className="bg-stone-900/70"><td colSpan={4} className="px-3 py-1.5 text-[11px] font-bold text-stone-400 uppercase tracking-wider">{dimTypeLabel(g.type)} · {g.rows.length}</td></tr>
+                        {g.rows.map(r => (
+                          <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                            <td className="px-3 py-2 text-stone-200 font-medium">
+                              {r.parentId && <span className="text-stone-600 mr-1">└</span>}
+                              {r.name}
+                            </td>
+                            <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
+                            <td className="px-3 py-2">{sourceBadge(r.source)}</td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                              <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
+                            </td>
+                          </tr>
+                        ))}
+                      </Frag>
+                    ))}
+                  </tbody>
+                </>
+              )}
+
               {/* ── Tax rates ── */}
               {tab === "tax-rates" && (
                 <>
@@ -324,7 +374,7 @@ export default function AccountingSettingsPage() {
           <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-stone-800 flex items-center justify-between">
               <h2 className="text-base font-semibold text-white">
-                {editRec === "new" ? "New" : "Edit"} {tab === "accounts" ? "account" : tab === "items" ? "item" : "tax rate"}
+                {editRec === "new" ? "New" : "Edit"} {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : "class / location"}
               </h2>
               {isSyncedEdit && (
                 <span className="flex items-center gap-1 text-[11px] text-amber-400"><Lock size={11} /> Synced — read-only</span>
@@ -420,6 +470,23 @@ export default function AccountingSettingsPage() {
                       <option value="">—</option>
                       {taxRates.map(t => <option key={t.id} value={t.id}>{t.name}{t.rate != null ? ` (${Number(t.rate).toFixed(1)}%)` : ""}</option>)}
                     </select>
+                  </div>
+                </>
+              )}
+
+              {tab === "dimensions" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelCls}>Type *</label>
+                      <select value={form.dimensionType ?? "Class"} onChange={e => setForm(p => ({ ...p, dimensionType: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
+                        {DIMENSION_TYPES.map(t => <option key={t} value={t}>{dimTypeLabel(t)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Code</label>
+                      <input value={form.code ?? ""} onChange={e => setForm(p => ({ ...p, code: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls} />
+                    </div>
                   </div>
                 </>
               )}

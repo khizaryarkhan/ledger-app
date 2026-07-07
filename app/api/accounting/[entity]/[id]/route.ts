@@ -6,7 +6,7 @@
  */
 
 import { db } from "@/db";
-import { apAccounts, apItems, apTaxRates } from "@/db/schema";
+import { apAccounts, apItems, apTaxRates, apDimensions } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -25,13 +25,15 @@ const Patch = z.object({
   incomeAccountId:   z.string().max(64).nullable().optional(),
   expenseAccountId:  z.string().max(64).nullable().optional(),
   taxRateId:         z.string().max(64).nullable().optional(),
+  dimensionType:     z.string().max(64).optional(),
   status:            z.enum(["Active", "Inactive"]).optional(),
 });
 
 function tableFor(entity: string) {
-  if (entity === "accounts")  return apAccounts;
-  if (entity === "items")     return apItems;
-  if (entity === "tax-rates") return apTaxRates;
+  if (entity === "accounts")   return apAccounts;
+  if (entity === "items")      return apItems;
+  if (entity === "tax-rates")  return apTaxRates;
+  if (entity === "dimensions") return apDimensions;
   return null;
 }
 
