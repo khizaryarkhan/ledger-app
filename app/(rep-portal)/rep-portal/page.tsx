@@ -466,6 +466,7 @@ export default function RepPortalPage() {
   const [view,          setView]          = useState<View>({ type: "home" });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [homeSearch,    setHomeSearch]    = useState("");
+  const [escalationCount, setEscalationCount] = useState(0);
   // Cards / List layout toggle
   const [layoutMode, setLayoutMode] = useState<"cards" | "list">("cards");
   // Customer / Project toggle — user can override the org-level default
@@ -503,6 +504,9 @@ export default function RepPortalPage() {
       if (settingsRes.ok) setOrgSettings(await settingsRes.json());
       if (myRepRes.ok)    setMyRep(await myRepRes.json());
       if (commsRes.ok)    setCommunications(await commsRes.json());
+      // Escalations assigned to me (badge count — non-critical)
+      fetch("/api/me/escalations").then(r => r.ok ? r.json() : null)
+        .then(d => setEscalationCount(d?.invoices?.length ?? 0)).catch(() => {});
     } catch { setError("Network error — please refresh"); }
     finally  { setLoading(false); }
   };
@@ -829,6 +833,20 @@ export default function RepPortalPage() {
                 </div>
                 <AgingBar buckets={globalBuckets} />
               </div>
+            )}
+
+            {/* My Escalations — invoices escalated to the logged-in user */}
+            {!loading && escalationCount > 0 && (
+              <a href="/rep-portal/escalations"
+                className="flex items-center justify-between bg-rose-950/40 rounded-xl ring-1 ring-rose-900 p-4 mb-4 hover:bg-rose-950/60 transition-colors">
+                <div className="flex items-center gap-2 text-sm font-semibold text-rose-200">
+                  <AlertCircle size={14} className="text-rose-400" /> My Escalations
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold bg-rose-600 text-white rounded-full px-2 py-0.5">{escalationCount}</span>
+                  <ChevronRight size={14} className="text-rose-400" />
+                </div>
+              </a>
             )}
 
             {/* Customer Responses (promises + disputes) — collapsible */}
