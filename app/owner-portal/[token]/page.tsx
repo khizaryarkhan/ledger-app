@@ -2,8 +2,9 @@
 
 /**
  * Owner escalation portal — no-login page for internal owners of escalated
- * invoices. Lists their assigned invoices (customer + project prominent) with
- * recent activity and a comment box per line. Comments land directly in the
+ * invoices. Styled after the Collections Board list view: a dense dark table
+ * grouped Customer → Project (largest balances first), with an expandable
+ * drawer per invoice for activity + comments. Comments land directly in the
  * invoice's activity feed in the collections system.
  */
 
@@ -21,15 +22,15 @@ const money = (n: number, ccy: string) =>
   new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy || "EUR" }).format(n);
 
 const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
 
 export default function OwnerPortalPage({ params }: { params: { token: string } }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
-  const [saved, setSaved] = useState<Record<string, string>>({}); // invoiceId → timestamp of last save
-  const [openActivity, setOpenActivity] = useState<Record<string, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, string>>({});
+  const [openId, setOpenId] = useState<string | null>(null); // expanded row
 
   useEffect(() => {
     fetch(`/api/owner-portal/${params.token}`)
@@ -53,7 +54,6 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Failed"); }
       setDrafts(p => ({ ...p, [invId]: "" }));
       setSaved(p => ({ ...p, [invId]: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) }));
-      // Optimistically append to the visible activity
       setData(p => p ? {
         ...p,
         invoices: p.invoices.map(i => i.id === invId
@@ -66,174 +66,191 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
   }
 
   if (error) return (
-    <div className="min-h-screen bg-stone-100 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-10 text-center max-w-md">
+    <div className="min-h-screen bg-stone-950 flex items-center justify-center p-6">
+      <div className="bg-stone-900 rounded-2xl border border-stone-800 p-10 text-center max-w-md">
         <div className="text-4xl mb-3">⏳</div>
-        <h1 className="text-lg font-semibold text-stone-800 mb-1">Link unavailable</h1>
-        <p className="text-sm text-stone-500">{error}. Please ask the accounts team to send you a fresh link.</p>
+        <h1 className="text-lg font-semibold text-white mb-1">Link unavailable</h1>
+        <p className="text-sm text-stone-400">{error}. Please ask the accounts team to send you a fresh link.</p>
       </div>
     </div>
   );
 
   if (!data) return (
-    <div className="min-h-screen bg-stone-100 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-stone-300 border-t-emerald-600 rounded-full animate-spin" />
+    <div className="min-h-screen bg-stone-950 flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-stone-700 border-t-emerald-500 rounded-full animate-spin" />
     </div>
   );
 
   const totals: Record<string, number> = {};
   data.invoices.forEach(i => { totals[i.currency] = (totals[i.currency] ?? 0) + i.outstanding; });
 
-  return (
-    <div className="min-h-screen bg-stone-100 py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 mb-4">
-          <div className="flex items-center gap-3 mb-1">
-            {data.org?.logoUrl && <img src={data.org.logoUrl} alt="" className="h-8 w-auto" />}
-            <span className="text-[13px] font-medium text-stone-400">{data.org?.name}</span>
-          </div>
-          <h1 className="text-xl font-bold text-stone-900">Escalated invoices — {data.owner}</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {data.invoices.length} invoice{data.invoices.length !== 1 ? "s" : ""} assigned to you ·{" "}
-            <span className="font-semibold text-stone-700">
-              {Object.entries(totals).map(([c, v]) => money(v, c)).join(" · ")}
-            </span>{" "}
-            outstanding
-          </p>
-          <p className="text-[13px] text-stone-500 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Please add an update on <strong>each invoice</strong> below — your comments go straight to the accounts team, no email needed.
-          </p>
-        </div>
+  // Group: Customer → Project, all levels sorted by outstanding desc.
+  type PG = { name: string; total: number; ccy: string; invoices: Inv[] };
+  const cm = new Map<string, { name: string; total: number; ccy: string; count: number; projects: Map<string, PG> }>();
+  data.invoices.forEach(inv => {
+    if (!cm.has(inv.customer)) cm.set(inv.customer, { name: inv.customer, total: 0, ccy: inv.currency, count: 0, projects: new Map() });
+    const c = cm.get(inv.customer)!;
+    c.total += inv.outstanding; c.count++;
+    const pKey = inv.project ?? "";
+    if (!c.projects.has(pKey)) c.projects.set(pKey, { name: inv.project ?? "No project", total: 0, ccy: inv.currency, invoices: [] });
+    const p = c.projects.get(pKey)!;
+    p.total += inv.outstanding;
+    p.invoices.push(inv);
+  });
+  const groups = [...cm.values()]
+    .map(c => ({ ...c, projects: [...c.projects.values()].sort((a, b) => b.total - a.total).map(p => ({ ...p, invoices: [...p.invoices].sort((a, b) => b.outstanding - a.outstanding) })) }))
+    .sort((a, b) => b.total - a.total);
 
-        {data.invoices.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-10 text-center">
+  const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-400 uppercase tracking-wider whitespace-nowrap text-left";
+
+  return (
+    <div className="min-h-screen bg-stone-950 text-stone-200">
+      {/* Header bar — board style */}
+      <div className="border-b border-stone-800 bg-stone-950 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-2.5">
+              {data.org?.logoUrl && <img src={data.org.logoUrl} alt="" className="h-6 w-auto" />}
+              <h1 className="text-lg font-bold text-white">Escalated Invoices</h1>
+            </div>
+            <p className="text-[13px] text-stone-400 mt-0.5">
+              {data.owner} · {data.invoices.length} invoice{data.invoices.length !== 1 ? "s" : ""} ·{" "}
+              <span className="font-semibold text-stone-200">{Object.entries(totals).map(([c, v]) => money(v, c)).join(" · ")}</span>
+            </p>
+          </div>
+          <div className="text-[12px] text-amber-300 bg-amber-500/10 border border-amber-800 rounded-lg px-3 py-1.5">
+            Please add an update on each invoice — comments reach the accounts team instantly.
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4 py-5">
+        {data.invoices.length === 0 ? (
+          <div className="text-center py-20">
             <div className="text-4xl mb-3">🎉</div>
-            <p className="text-stone-600 font-medium">Nothing outstanding — all your escalated invoices are resolved.</p>
+            <p className="text-stone-400 font-medium">Nothing outstanding — all your escalated invoices are resolved.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-stone-800">
+            <table className="w-full text-sm min-w-[760px]">
+              <thead className="bg-stone-900">
+                <tr className="border-b border-stone-800">
+                  <th className={thCls}>Invoice</th>
+                  <th className={thCls}>Due</th>
+                  <th className={`${thCls} text-right`}>Overdue</th>
+                  <th className={thCls}>Status</th>
+                  <th className={thCls}>Latest update</th>
+                  <th className={`${thCls} text-right`}>Outstanding</th>
+                  <th className={`${thCls} text-center`}>PDF</th>
+                  <th className={`${thCls} text-center`}>Update</th>
+                </tr>
+              </thead>
+              <tbody className="bg-stone-950">
+                {groups.map(cg => (
+                  <FragmentGroup key={cg.name}>
+                    {/* Customer band */}
+                    <tr className="bg-stone-800/90">
+                      <td colSpan={5} className="px-3 py-2.5 font-semibold text-white">{cg.name}</td>
+                      <td className="px-3 py-2.5 text-right font-bold text-white tabular-nums whitespace-nowrap">{money(cg.total, cg.ccy)}</td>
+                      <td colSpan={2} className="px-3 py-2.5 text-[11px] text-stone-400 text-center">{cg.count} inv</td>
+                    </tr>
+                    {cg.projects.map(pg => (
+                      <FragmentGroup key={pg.name}>
+                        {(pg.name !== "No project" || cg.projects.length > 1) && (
+                          <tr className="bg-stone-900/70">
+                            <td colSpan={5} className="pl-6 pr-3 py-1.5 text-[12px] font-medium text-stone-400">{pg.name}</td>
+                            <td className="px-3 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">{money(pg.total, pg.ccy)}</td>
+                            <td colSpan={2} />
+                          </tr>
+                        )}
+                        {pg.invoices.map(inv => {
+                          const latest = inv.activity[0];
+                          const expanded = openId === inv.id;
+                          return (
+                            <FragmentGroup key={inv.id}>
+                              <tr className={`border-b border-stone-800/70 hover:bg-stone-900/60 cursor-pointer ${expanded ? "bg-stone-900/60" : ""}`}
+                                onClick={() => setOpenId(expanded ? null : inv.id)}>
+                                <td className="pl-6 pr-3 py-2 font-mono text-[12px] text-stone-300 whitespace-nowrap">#{inv.invoiceNumber}</td>
+                                <td className="px-3 py-2 text-[12px] text-stone-400 whitespace-nowrap">{fmtDate(inv.dueDate)}</td>
+                                <td className={`px-3 py-2 text-right text-[12px] font-medium tabular-nums ${inv.daysOverdue > 60 ? "text-rose-400" : inv.daysOverdue > 0 ? "text-amber-400" : "text-stone-500"}`}>
+                                  {inv.daysOverdue > 0 ? `+${inv.daysOverdue}d` : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-[12px]">
+                                  {inv.status
+                                    ? <span className="inline-block bg-sky-500/10 text-sky-300 border border-sky-900 rounded-full px-2 py-0.5 text-[11px]">{inv.status}</span>
+                                    : <span className="text-stone-600">No response</span>}
+                                </td>
+                                <td className="px-3 py-2 text-[12px] text-stone-500 max-w-[240px] truncate">
+                                  {latest ? `${latest.sender ?? ""}: ${latest.channel === "StageChange" ? latest.subject : (latest.body ?? "")}` : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap">{money(inv.outstanding, inv.currency)}</td>
+                                <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+                                  <a href={`/api/owner-portal/${params.token}/pdf/${inv.id}`} target="_blank" rel="noopener noreferrer"
+                                    className="text-emerald-400 hover:text-emerald-300 text-[12px] font-medium">↓ PDF</a>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`text-[12px] font-medium ${expanded ? "text-emerald-400" : saved[inv.id] ? "text-emerald-500" : "text-stone-500 hover:text-stone-300"}`}>
+                                    {saved[inv.id] ? "✓ Sent" : expanded ? "Close" : "Comment"}
+                                  </span>
+                                </td>
+                              </tr>
+                              {expanded && (
+                                <tr className="bg-stone-900/40 border-b border-stone-800">
+                                  <td colSpan={8} className="px-6 py-3">
+                                    {inv.activity.length > 0 && (
+                                      <div className="mb-3 space-y-1.5 border-l-2 border-stone-700 pl-3 max-h-48 overflow-y-auto">
+                                        {inv.activity.map((a, i) => (
+                                          <div key={i} className="text-[12px]">
+                                            <span className="font-medium text-stone-300">{a.sender ?? "System"}</span>
+                                            <span className="text-stone-600"> · {fmtDate(a.sentAt)}</span>
+                                            <div className="text-stone-400">{a.channel === "StageChange" ? `Stage: ${a.subject}` : (a.body ?? a.subject ?? "")}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                      <input
+                                        value={drafts[inv.id] ?? ""}
+                                        autoFocus
+                                        onChange={e => setDrafts(p => ({ ...p, [inv.id]: e.target.value }))}
+                                        onKeyDown={e => { if (e.key === "Enter") submit(inv.id); }}
+                                        placeholder="Your update — e.g. 'Spoke to their PM, payment approved for Friday'"
+                                        className="flex-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-950 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500"
+                                      />
+                                      <button
+                                        onClick={() => submit(inv.id)}
+                                        disabled={saving === inv.id || !(drafts[inv.id] ?? "").trim()}
+                                        className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                                        {saving === inv.id ? "Saving…" : "Send"}
+                                      </button>
+                                    </div>
+                                    {saved[inv.id] && (
+                                      <div className="text-[11px] text-emerald-400 font-medium mt-1.5">✓ Update sent at {saved[inv.id]} — the accounts team can see it now</div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </FragmentGroup>
+                          );
+                        })}
+                      </FragmentGroup>
+                    ))}
+                  </FragmentGroup>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
-        {/* Grouped: Customer → Project → invoices, all sorted largest-first */}
-        <div className="space-y-5">
-          {(() => {
-            type PG = { name: string; total: number; ccy: string; invoices: Inv[] };
-            type CG = { name: string; total: number; ccy: string; count: number; projects: PG[] };
-            const cm = new Map<string, { name: string; total: number; ccy: string; count: number; projects: Map<string, PG> }>();
-            data.invoices.forEach(inv => {
-              if (!cm.has(inv.customer)) cm.set(inv.customer, { name: inv.customer, total: 0, ccy: inv.currency, count: 0, projects: new Map() });
-              const c = cm.get(inv.customer)!;
-              c.total += inv.outstanding; c.count++;
-              const pKey = inv.project ?? "";
-              if (!c.projects.has(pKey)) c.projects.set(pKey, { name: inv.project ?? "No project", total: 0, ccy: inv.currency, invoices: [] });
-              const p = c.projects.get(pKey)!;
-              p.total += inv.outstanding;
-              p.invoices.push(inv);
-            });
-            const groups: CG[] = [...cm.values()]
-              .map(c => ({ ...c, projects: [...c.projects.values()].sort((a, b) => b.total - a.total).map(p => ({ ...p, invoices: [...p.invoices].sort((a, b) => b.outstanding - a.outstanding) })) }))
-              .sort((a, b) => b.total - a.total);
-            return groups.map(cg => (
-              <div key={cg.name} className="space-y-2">
-                {/* Customer header */}
-                <div className="flex items-center justify-between bg-stone-800 text-white rounded-xl px-4 py-3">
-                  <div className="font-semibold">{cg.name}</div>
-                  <div className="text-right">
-                    <div className="font-bold tabular-nums">{money(cg.total, cg.ccy)}</div>
-                    <div className="text-[11px] text-stone-400">{cg.count} invoice{cg.count !== 1 ? "s" : ""}</div>
-                  </div>
-                </div>
-                {cg.projects.map(pg => (
-                  <div key={pg.name} className="space-y-2">
-                    {(pg.name !== "No project" || cg.projects.length > 1) && (
-                      <div className="flex items-center justify-between px-4 py-1.5 bg-stone-200/70 rounded-lg ml-3">
-                        <span className="text-[13px] font-medium text-stone-600">{pg.name}</span>
-                        <span className="text-[13px] font-semibold text-stone-700 tabular-nums">{money(pg.total, pg.ccy)}</span>
-                      </div>
-                    )}
-                    {pg.invoices.map(inv => (
-            <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden ml-3">
-              <div className="p-5">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div>
-                    <div className="font-mono text-[13px] font-semibold text-stone-700">#{inv.invoiceNumber}</div>
-                    <div className="text-[12px] text-stone-400 mt-0.5">{inv.customer}{inv.project ? ` · ${inv.project}` : ""}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-stone-900 tabular-nums">{money(inv.outstanding, inv.currency)}</div>
-                    <div className="text-[12px] text-stone-500">
-                      Due {fmtDate(inv.dueDate)}
-                      {inv.daysOverdue > 0 && <span className={`ml-1 font-semibold ${inv.daysOverdue > 60 ? "text-rose-600" : "text-amber-600"}`}>· {inv.daysOverdue}d overdue</span>}
-                    </div>
-                    <a
-                      href={`/api/owner-portal/${params.token}/pdf/${inv.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-emerald-700 hover:text-emerald-800 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 rounded-md px-2 py-1 transition-colors"
-                    >
-                      ↓ Invoice PDF
-                    </a>
-                  </div>
-                </div>
-                {inv.status && (
-                  <div className="mt-2 inline-block text-[12px] font-medium bg-sky-50 text-sky-700 border border-sky-200 rounded-full px-2.5 py-0.5">{inv.status}</div>
-                )}
-
-                {/* Recent activity (collapsible) */}
-                {inv.activity.length > 0 && (
-                  <div className="mt-3">
-                    <button onClick={() => setOpenActivity(p => ({ ...p, [inv.id]: !p[inv.id] }))}
-                      className="text-[12px] font-medium text-stone-500 hover:text-stone-700">
-                      {openActivity[inv.id] ? "▾" : "▸"} Recent activity ({inv.activity.length})
-                    </button>
-                    {openActivity[inv.id] && (
-                      <div className="mt-2 space-y-1.5 border-l-2 border-stone-200 pl-3">
-                        {inv.activity.map((a, i) => (
-                          <div key={i} className="text-[12px]">
-                            <span className="font-medium text-stone-600">{a.sender ?? "System"}</span>
-                            <span className="text-stone-400"> · {fmtDate(a.sentAt)}</span>
-                            <div className="text-stone-500">{a.channel === "StageChange" ? `Stage: ${a.subject}` : (a.body ?? a.subject ?? "")}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Comment box */}
-              <div className="bg-stone-50 border-t border-stone-200 p-4">
-                <div className="flex gap-2">
-                  <input
-                    value={drafts[inv.id] ?? ""}
-                    onChange={e => setDrafts(p => ({ ...p, [inv.id]: e.target.value }))}
-                    onKeyDown={e => { if (e.key === "Enter") submit(inv.id); }}
-                    placeholder="Your update — e.g. 'Spoke to their PM, payment approved for Friday'"
-                    className="flex-1 text-sm border border-stone-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  />
-                  <button
-                    onClick={() => submit(inv.id)}
-                    disabled={saving === inv.id || !(drafts[inv.id] ?? "").trim()}
-                    className="text-sm font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
-                    {saving === inv.id ? "Saving…" : "Send"}
-                  </button>
-                </div>
-                {saved[inv.id] && (
-                  <div className="text-[11px] text-emerald-600 font-medium mt-1.5">✓ Update sent at {saved[inv.id]} — accounts team can see it now</div>
-                )}
-              </div>
-            </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ));
-          })()}
-        </div>
-
-        <p className="text-center text-[11px] text-stone-400 mt-6">
-          This is a private link for {data.owner}. Comments are logged in {data.org?.name ?? "the accounts"} collections system.
+        <p className="text-center text-[11px] text-stone-600 mt-5">
+          This is a private link for {data.owner} — please don't forward it. Comments are logged in {data.org?.name ?? "the accounts"} collections system.
         </p>
       </div>
     </div>
   );
+}
+
+// React.Fragment with key support, keeps the table JSX readable above.
+function FragmentGroup({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
