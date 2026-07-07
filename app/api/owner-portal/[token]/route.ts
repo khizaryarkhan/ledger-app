@@ -38,21 +38,27 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     .leftJoin(projects, eq(projects.id, invoices.projectId))
     .where(and(eq(invoices.orgId, tk.orgId), inArray(invoices.id, ids)));
 
-  // Recent activity per invoice (last 5 human-relevant entries each)
+  // Full activity history per invoice — the owner gets the complete picture
+  // of what's been said and done. Outbound emails are summarised client-side
+  // (subject + recipient), inbound replies shown in full. Capped at 50 per
+  // invoice as a payload guard.
   const comms = await db
     .select()
     .from(communications)
     .where(and(eq(communications.orgId, tk.orgId), inArray(communications.invoiceId, ids)))
     .orderBy(desc(communications.sentAt));
-  const FEED = new Set(["Note", "Portal", "Dispute", "Promise", "Chase", "StageChange"]);
+  const FEED = new Set(["Note", "Portal", "Dispute", "Promise", "Chase", "StageChange", "Email"]);
   const feedByInv: Record<string, any[]> = {};
   for (const c of comms) {
-    if (!c.invoiceId || !FEED.has(c.channel)) continue;
+    if (!c.invoiceId || !FEED.has(c.channel) || c.isDraft) continue;
     (feedByInv[c.invoiceId] ??= []);
-    if (feedByInv[c.invoiceId].length < 5) {
+    if (feedByInv[c.invoiceId].length < 50) {
       feedByInv[c.invoiceId].push({
-        channel: c.channel, sender: c.sender, body: c.body, subject: c.subject,
-        sentAt: c.sentAt,
+        channel: c.channel, direction: c.direction, sender: c.sender,
+        recipients: c.recipients,
+        // Outbound emails: strip the body — subject + recipient is the signal.
+        body: c.channel === "Email" && c.direction === "Outbound" ? null : c.body,
+        subject: c.subject, sentAt: c.sentAt,
       });
     }
   }

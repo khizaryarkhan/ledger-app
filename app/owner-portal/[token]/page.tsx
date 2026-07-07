@@ -10,7 +10,10 @@
 
 import { useState, useEffect } from "react";
 
-type Activity = { channel: string; sender: string | null; body: string | null; subject: string | null; sentAt: string };
+type Activity = {
+  channel: string; direction?: string; sender: string | null; recipients?: string | null;
+  body: string | null; subject: string | null; sentAt: string;
+};
 type Inv = {
   id: string; invoiceNumber: string; customer: string; project: string | null;
   currency: string; total: number; outstanding: number; dueDate: string;
@@ -23,6 +26,35 @@ const money = (n: number, ccy: string) =>
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+
+const fmtDateTime = (d: string) => {
+  const t = new Date(d);
+  return `${t.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} ${t.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+};
+
+/** Board-chatbox-style config per activity entry: icon, colours, label. */
+function activityCfg(a: Activity, ownerName: string) {
+  switch (a.channel) {
+    case "Email":
+      return a.direction === "Inbound"
+        ? { icon: "↩", border: "border-emerald-500", label: `Reply from ${a.sender || "customer"}`, labelCls: "text-emerald-400", bg: "bg-emerald-950/25" }
+        : { icon: "✉", border: "border-blue-500", label: `Email sent to ${a.recipients || "customer"}`, labelCls: "text-blue-400", bg: "bg-blue-950/20" };
+    case "Chase":
+      return { icon: "↗", border: "border-amber-500", label: `${a.sender || "Staff"} · chased outside app`, labelCls: "text-amber-400", bg: "bg-amber-950/20" };
+    case "StageChange":
+      return { icon: "⚑", border: "border-indigo-500", label: `${a.sender || "Staff"} · stage updated`, labelCls: "text-indigo-400", bg: "bg-indigo-950/15" };
+    case "Portal":
+      return a.sender === ownerName
+        ? { icon: "●", border: "border-emerald-500", label: `You · via portal`, labelCls: "text-emerald-400", bg: "bg-emerald-950/25" }
+        : { icon: "◍", border: "border-emerald-500", label: `${a.sender || "Customer"} · via portal`, labelCls: "text-emerald-400", bg: "bg-emerald-950/25" };
+    case "Dispute":
+      return { icon: "⚠", border: "border-rose-500", label: a.sender || "Staff", labelCls: "text-rose-400", bg: "bg-rose-950/20" };
+    case "Promise":
+      return { icon: "◷", border: "border-sky-500", label: a.sender || "Staff", labelCls: "text-sky-400", bg: "bg-sky-950/20" };
+    default:
+      return { icon: "✎", border: "border-stone-600", label: `${a.sender || "Staff"} · internal note`, labelCls: "text-stone-400", bg: "bg-stone-900/40" };
+  }
+}
 
 export default function OwnerPortalPage({ params }: { params: { token: string } }) {
   const [data, setData] = useState<Data | null>(null);
@@ -181,7 +213,11 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                                     : <span className="text-stone-600">No response</span>}
                                 </td>
                                 <td className="px-3 py-2 text-[12px] text-stone-500 max-w-[240px] truncate">
-                                  {latest ? `${latest.sender ?? ""}: ${latest.channel === "StageChange" ? latest.subject : (latest.body ?? "")}` : "—"}
+                                  {latest
+                                    ? latest.channel === "StageChange" ? `Stage: ${latest.subject}`
+                                    : latest.channel === "Email" && latest.direction === "Outbound" ? `✉ ${latest.subject ?? "Email sent"}`
+                                    : `${latest.sender ? latest.sender + ": " : ""}${latest.body ?? latest.subject ?? ""}`
+                                    : "—"}
                                 </td>
                                 <td className="px-3 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap">{money(inv.outstanding, inv.currency)}</td>
                                 <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
@@ -198,14 +234,42 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                                 <tr className="bg-stone-900/40 border-b border-stone-800">
                                   <td colSpan={8} className="px-6 py-3">
                                     {inv.activity.length > 0 && (
-                                      <div className="mb-3 space-y-1.5 border-l-2 border-stone-700 pl-3 max-h-48 overflow-y-auto">
-                                        {inv.activity.map((a, i) => (
-                                          <div key={i} className="text-[12px]">
-                                            <span className="font-medium text-stone-300">{a.sender ?? "System"}</span>
-                                            <span className="text-stone-600"> · {fmtDate(a.sentAt)}</span>
-                                            <div className="text-stone-400">{a.channel === "StageChange" ? `Stage: ${a.subject}` : (a.body ?? a.subject ?? "")}</div>
-                                          </div>
-                                        ))}
+                                      <div className="mb-3 space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                                        <div className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+                                          Full history · {inv.activity.length} event{inv.activity.length !== 1 ? "s" : ""}
+                                        </div>
+                                        {inv.activity.map((a, i) => {
+                                          const cfg = activityCfg(a, data.owner);
+                                          return (
+                                            <div key={i} className={`rounded-lg px-3 py-2 border-l-2 ${cfg.border} ${cfg.bg}`}>
+                                              <div className="flex items-center justify-between gap-2">
+                                                <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${cfg.labelCls}`}>
+                                                  <span>{cfg.icon}</span>
+                                                  <span>{cfg.label}</span>
+                                                </div>
+                                                <span className="text-[10px] text-stone-600 tabular-nums shrink-0">{fmtDateTime(a.sentAt)}</span>
+                                              </div>
+                                              {a.channel === "StageChange" ? (
+                                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                  {(a.subject ?? "").split(" → ").map((s, j, arr) => (
+                                                    <span key={j} className="flex items-center gap-1.5">
+                                                      <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 border ${j === arr.length - 1 ? "bg-indigo-500/15 text-indigo-300 border-indigo-800" : "bg-stone-800 text-stone-400 border-stone-700"}`}>{s}</span>
+                                                      {j < arr.length - 1 && <span className="text-[10px] text-stone-600 font-bold">→</span>}
+                                                    </span>
+                                                  ))}
+                                                  {a.body && <span className="text-[11px] text-rose-300">· assigned to {a.body.split(" · ")[0]}</span>}
+                                                </div>
+                                              ) : a.channel === "Email" && a.direction === "Outbound" ? (
+                                                a.subject && <div className="text-[12px] text-stone-400 mt-0.5 italic truncate">"{a.subject}"</div>
+                                              ) : (
+                                                <>
+                                                  {a.subject && a.channel === "Email" && <div className="text-[11px] font-medium text-stone-300 mt-0.5">{a.subject}</div>}
+                                                  {a.body && <div className="text-[12px] text-stone-300 mt-0.5 whitespace-pre-wrap leading-relaxed">{a.body}</div>}
+                                                </>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     )}
                                     <div className="flex gap-2">
