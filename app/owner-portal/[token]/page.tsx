@@ -63,6 +63,7 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null); // expanded row
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); // collapsed customer bands
 
   useEffect(() => {
     fetch(`/api/owner-portal/${params.token}`)
@@ -150,8 +151,15 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
               <span className="font-semibold text-stone-200">{Object.entries(totals).map(([c, v]) => money(v, c)).join(" · ")}</span>
             </p>
           </div>
-          <div className="text-[12px] text-amber-300 bg-amber-500/10 border border-amber-800 rounded-lg px-3 py-1.5">
-            Please add an update on each invoice — comments reach the accounts team instantly.
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCollapsed(p => p.size > 0 ? new Set() : new Set(groups.map(g => g.name)))}
+              className="text-[12px] font-medium text-stone-400 hover:text-white border border-stone-700 rounded-lg px-3 py-1.5 hover:bg-stone-800 transition-colors whitespace-nowrap">
+              {collapsed.size > 0 ? "Expand all" : "Collapse all"}
+            </button>
+            <div className="text-[12px] text-amber-300 bg-amber-500/10 border border-amber-800 rounded-lg px-3 py-1.5">
+              Please add an update on each invoice — comments reach the accounts team instantly.
+            </div>
           </div>
         </div>
       </div>
@@ -180,13 +188,17 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
               <tbody className="bg-stone-950">
                 {groups.map(cg => (
                   <FragmentGroup key={cg.name}>
-                    {/* Customer band */}
-                    <tr className="bg-stone-800/90">
-                      <td colSpan={5} className="px-3 py-2.5 font-semibold text-white">{cg.name}</td>
+                    {/* Customer band — click to collapse/expand */}
+                    <tr className="bg-stone-800/90 cursor-pointer hover:bg-stone-800 select-none"
+                      onClick={() => setCollapsed(p => { const n = new Set(p); n.has(cg.name) ? n.delete(cg.name) : n.add(cg.name); return n; })}>
+                      <td colSpan={5} className="px-3 py-2.5 font-semibold text-white">
+                        <span className="inline-block w-4 text-stone-400">{collapsed.has(cg.name) ? "▸" : "▾"}</span>
+                        {cg.name}
+                      </td>
                       <td className="px-3 py-2.5 text-right font-bold text-white tabular-nums whitespace-nowrap">{money(cg.total, cg.ccy)}</td>
                       <td colSpan={2} className="px-3 py-2.5 text-[11px] text-stone-400 text-center">{cg.count} inv</td>
                     </tr>
-                    {cg.projects.map(pg => (
+                    {!collapsed.has(cg.name) && cg.projects.map(pg => (
                       <FragmentGroup key={pg.name}>
                         {(pg.name !== "No project" || cg.projects.length > 1) && (
                           <tr className="bg-stone-900/70">
