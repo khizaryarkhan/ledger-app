@@ -134,6 +134,13 @@
       "when": 1782700000000,
       "tag": "0019_owner_portal_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1782800000000,
+      "tag": "0020_native_accounting",
+      "breakpoints": true
     }
   ]
 }

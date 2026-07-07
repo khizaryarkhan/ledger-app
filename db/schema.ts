@@ -1512,6 +1512,10 @@ export const apItems = pgTable("ap_items", {
   expenseAccountId:  varchar("expense_account_id", { length: 64 }),
   unitCost:          real("unit_cost"),
   taxRateId:         varchar("tax_rate_id", { length: 64 }),
+  // Sales side (QBO items carry both directions) — used by native records.
+  itemType:          varchar("item_type", { length: 32 }).default("Service"), // Service | Non-Inventory | Inventory
+  unitPrice:         real("unit_price"),
+  incomeAccountId:   varchar("income_account_id", { length: 64 }),
   status:            varchar("status", { length: 32 }).notNull().default("Active"),
   raw:               jsonb("raw"),
   lastSyncedAt:      timestamp("last_synced_at"),

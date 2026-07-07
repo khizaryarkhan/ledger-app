@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -77,6 +77,13 @@ export default function SettingsPage() {
         emailStatus === null
           ? { state: "loading", label: "" }
           : emailStatus,
+    },
+    {
+      href: "/settings/accounting",
+      icon: BookOpen,
+      title: "Accounting",
+      description: "Chart of accounts, products & services, and tax rates — synced from QuickBooks/Xero or created natively.",
+      badge: null,
     },
     {
       href: "/settings/stages",
