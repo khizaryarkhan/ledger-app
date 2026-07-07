@@ -64,6 +64,7 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
   const [saved, setSaved] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null); // expanded row
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); // collapsed customer bands
+  const [collapsedProj, setCollapsedProj] = useState<Set<string>>(new Set()); // collapsed projects ("customer|project")
 
   useEffect(() => {
     fetch(`/api/owner-portal/${params.token}`)
@@ -198,16 +199,30 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                       <td className="px-3 py-2.5 text-right font-bold text-white tabular-nums whitespace-nowrap">{money(cg.total, cg.ccy)}</td>
                       <td colSpan={2} className="px-3 py-2.5 text-[11px] text-stone-400 text-center">{cg.count} inv</td>
                     </tr>
-                    {!collapsed.has(cg.name) && cg.projects.map(pg => (
+                    {!collapsed.has(cg.name) && cg.projects.map(pg => {
+                      const projKey = `${cg.name}|${pg.name}`;
+                      const hasProjRow = pg.name !== "No project" || cg.projects.length > 1;
+                      const projFolded = hasProjRow && collapsedProj.has(projKey);
+                      const zipHref = `/api/owner-portal/${params.token}/zip?ids=${pg.invoices.map(i => i.id).join(",")}&name=${encodeURIComponent(pg.name)}`;
+                      return (
                       <FragmentGroup key={pg.name}>
-                        {(pg.name !== "No project" || cg.projects.length > 1) && (
-                          <tr className="bg-stone-900/70">
-                            <td colSpan={5} className="pl-6 pr-3 py-1.5 text-[12px] font-medium text-stone-400">{pg.name}</td>
+                        {hasProjRow && (
+                          <tr className="bg-stone-900/70 cursor-pointer hover:bg-stone-900 select-none"
+                            onClick={() => setCollapsedProj(p => { const n = new Set(p); n.has(projKey) ? n.delete(projKey) : n.add(projKey); return n; })}>
+                            <td colSpan={5} className="pl-6 pr-3 py-1.5 text-[12px] font-medium text-stone-400">
+                              <span className="inline-block w-4 text-stone-500">{projFolded ? "▸" : "▾"}</span>
+                              {pg.name}
+                              <span className="text-stone-600 ml-1.5">· {pg.invoices.length} inv</span>
+                            </td>
                             <td className="px-3 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">{money(pg.total, pg.ccy)}</td>
-                            <td colSpan={2} />
+                            <td className="px-3 py-1.5 text-center" onClick={e => e.stopPropagation()}>
+                              <a href={zipHref} title={`Download all ${pg.invoices.length} invoice PDFs for ${pg.name} as ZIP`}
+                                className="text-emerald-400 hover:text-emerald-300 text-[11px] font-medium whitespace-nowrap">↓ ZIP</a>
+                            </td>
+                            <td />
                           </tr>
                         )}
-                        {pg.invoices.map(inv => {
+                        {!projFolded && pg.invoices.map(inv => {
                           const latest = inv.activity[0];
                           const expanded = openId === inv.id;
                           return (
@@ -310,7 +325,8 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                           );
                         })}
                       </FragmentGroup>
-                    ))}
+                      );
+                    })}
                   </FragmentGroup>
                 ))}
               </tbody>
