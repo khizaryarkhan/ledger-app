@@ -113,16 +113,50 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
           </div>
         )}
 
-        {/* Invoice cards */}
-        <div className="space-y-4">
-          {data.invoices.map(inv => (
-            <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+        {/* Grouped: Customer → Project → invoices, all sorted largest-first */}
+        <div className="space-y-5">
+          {(() => {
+            type PG = { name: string; total: number; ccy: string; invoices: Inv[] };
+            type CG = { name: string; total: number; ccy: string; count: number; projects: PG[] };
+            const cm = new Map<string, { name: string; total: number; ccy: string; count: number; projects: Map<string, PG> }>();
+            data.invoices.forEach(inv => {
+              if (!cm.has(inv.customer)) cm.set(inv.customer, { name: inv.customer, total: 0, ccy: inv.currency, count: 0, projects: new Map() });
+              const c = cm.get(inv.customer)!;
+              c.total += inv.outstanding; c.count++;
+              const pKey = inv.project ?? "";
+              if (!c.projects.has(pKey)) c.projects.set(pKey, { name: inv.project ?? "No project", total: 0, ccy: inv.currency, invoices: [] });
+              const p = c.projects.get(pKey)!;
+              p.total += inv.outstanding;
+              p.invoices.push(inv);
+            });
+            const groups: CG[] = [...cm.values()]
+              .map(c => ({ ...c, projects: [...c.projects.values()].sort((a, b) => b.total - a.total).map(p => ({ ...p, invoices: [...p.invoices].sort((a, b) => b.outstanding - a.outstanding) })) }))
+              .sort((a, b) => b.total - a.total);
+            return groups.map(cg => (
+              <div key={cg.name} className="space-y-2">
+                {/* Customer header */}
+                <div className="flex items-center justify-between bg-stone-800 text-white rounded-xl px-4 py-3">
+                  <div className="font-semibold">{cg.name}</div>
+                  <div className="text-right">
+                    <div className="font-bold tabular-nums">{money(cg.total, cg.ccy)}</div>
+                    <div className="text-[11px] text-stone-400">{cg.count} invoice{cg.count !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+                {cg.projects.map(pg => (
+                  <div key={pg.name} className="space-y-2">
+                    {(pg.name !== "No project" || cg.projects.length > 1) && (
+                      <div className="flex items-center justify-between px-4 py-1.5 bg-stone-200/70 rounded-lg ml-3">
+                        <span className="text-[13px] font-medium text-stone-600">{pg.name}</span>
+                        <span className="text-[13px] font-semibold text-stone-700 tabular-nums">{money(pg.total, pg.ccy)}</span>
+                      </div>
+                    )}
+                    {pg.invoices.map(inv => (
+            <div key={inv.id} className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden ml-3">
               <div className="p-5">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
-                    <div className="font-mono text-[12px] text-stone-400 mb-0.5">#{inv.invoiceNumber}</div>
-                    <div className="font-semibold text-stone-900">{inv.customer}</div>
-                    {inv.project && <div className="text-[13px] text-stone-500">{inv.project}</div>}
+                    <div className="font-mono text-[13px] font-semibold text-stone-700">#{inv.invoiceNumber}</div>
+                    <div className="text-[12px] text-stone-400 mt-0.5">{inv.customer}{inv.project ? ` · ${inv.project}` : ""}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-lg font-bold text-stone-900 tabular-nums">{money(inv.outstanding, inv.currency)}</div>
@@ -188,7 +222,12 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                 )}
               </div>
             </div>
-          ))}
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
         </div>
 
         <p className="text-center text-[11px] text-stone-400 mt-6">

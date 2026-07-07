@@ -155,27 +155,68 @@ export async function POST(req: Request) {
         portalUrl = tk.url;
       }
 
-      // Action table rows
+      // ── Group Customer → Project, both sorted by outstanding desc, so the
+      //    owner sees at a glance which customer (and which project inside it)
+      //    to chase first — no mental math needed.
       const totalOut: Record<string, number> = {};
-      const tableRows = group.items.map(r => {
+      type ProjGroup = { name: string; total: number; ccy: string; items: typeof group.items };
+      type CustGroup = { name: string; total: number; ccy: string; projects: Map<string, ProjGroup> };
+      const custMap = new Map<string, CustGroup>();
+      for (const r of group.items) {
         const bal = openBal(r.inv);
         const ccy = r.inv.currency || "EUR";
         totalOut[ccy] = (totalOut[ccy] ?? 0) + bal;
-        const cm = lastComment.get(r.inv.id);
-        const status = r.inv.hasOpenDispute
-          ? `Disputed${r.inv.disputeReason ? ": " + esc(r.inv.disputeReason) : ""}`
-          : r.inv.promiseDate ? `Committed ${esc(r.inv.promiseDate)}` : "No response";
-        return `<tr>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;font-family:monospace;">#${esc(r.inv.invoiceNumber)}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;font-weight:600;">${esc(r.custName ?? "—")}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;">${esc(r.projName ?? "—")}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;font-weight:600;white-space:nowrap;">${money(bal, ccy)}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;color:${daysOverdue(r.inv.dueDate) > 60 ? "#dc2626" : "#a16207"};">${daysOverdue(r.inv.dueDate)}d</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;">${status}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;white-space:nowrap;">${lastChase.get(r.inv.id) ?? "Never"}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;color:#57534e;font-size:12px;">${cm ? esc(String(cm.body).slice(0, 160)) : "—"}</td>
+        const cKey = r.custName ?? "—";
+        if (!custMap.has(cKey)) custMap.set(cKey, { name: cKey, total: 0, ccy, projects: new Map() });
+        const cg = custMap.get(cKey)!;
+        cg.total += bal;
+        const pKey = r.projName ?? "";
+        if (!cg.projects.has(pKey)) cg.projects.set(pKey, { name: r.projName ?? "No project", total: 0, ccy, items: [] as any });
+        const pg = cg.projects.get(pKey)!;
+        pg.total += bal;
+        pg.items.push(r);
+      }
+      const custGroups = [...custMap.values()].sort((a, b) => b.total - a.total);
+
+      const NCOLS = 6;
+      let tableRows = "";
+      for (const cg of custGroups) {
+        const nInv = [...cg.projects.values()].reduce((s, p) => s + p.items.length, 0);
+        tableRows += `<tr>
+          <td colspan="${NCOLS}" style="padding:9px 10px;background:#292524;color:#ffffff;font-weight:700;font-size:13px;">
+            ${esc(cg.name)}
+            <span style="float:right;">${money(cg.total, cg.ccy)} · ${nInv} invoice${nInv !== 1 ? "s" : ""}</span>
+          </td>
         </tr>`;
-      }).join("");
+        const projGroups = [...cg.projects.values()].sort((a, b) => b.total - a.total);
+        for (const pg of projGroups) {
+          if (pg.name !== "No project" || projGroups.length > 1) {
+            tableRows += `<tr>
+              <td colspan="${NCOLS}" style="padding:6px 10px 6px 22px;background:#f5f5f4;color:#44403c;font-weight:600;font-size:12px;border-bottom:1px solid #e7e5e4;">
+                ${esc(pg.name)}
+                <span style="float:right;">${money(pg.total, pg.ccy)}</span>
+              </td>
+            </tr>`;
+          }
+          const items = [...pg.items].sort((a, b) => openBal(b.inv) - openBal(a.inv));
+          for (const r of items) {
+            const bal = openBal(r.inv);
+            const ccy = r.inv.currency || "EUR";
+            const cm = lastComment.get(r.inv.id);
+            const status = r.inv.hasOpenDispute
+              ? `Disputed${r.inv.disputeReason ? ": " + esc(r.inv.disputeReason) : ""}`
+              : r.inv.promiseDate ? `Committed ${esc(r.inv.promiseDate)}` : "No response";
+            tableRows += `<tr>
+              <td style="padding:7px 10px 7px 34px;border-bottom:1px solid #e7e5e4;font-family:monospace;">#${esc(r.inv.invoiceNumber)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;font-weight:600;white-space:nowrap;">${money(bal, ccy)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;color:${daysOverdue(r.inv.dueDate) > 60 ? "#dc2626" : "#a16207"};">${daysOverdue(r.inv.dueDate)}d</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;">${status}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;white-space:nowrap;">${lastChase.get(r.inv.id) ?? "Never"}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;color:#57534e;font-size:12px;">${cm ? esc(String(cm.body).slice(0, 160)) : "—"}</td>
+            </tr>`;
+          }
+        }
+      }
 
       const totalStr = Object.entries(totalOut).map(([c, v]) => money(v, c)).join(" · ");
 
@@ -183,13 +224,12 @@ export async function POST(req: Request) {
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1c1917;max-width:860px;">
   <p>Hi ${esc(group.name.split(" ")[0])},</p>
   <p>The following <strong>${group.items.length} invoice${group.items.length !== 1 ? "s" : ""}</strong> (${totalStr} outstanding) ${group.items.length !== 1 ? "have" : "has"} been escalated to you. The invoice PDFs are attached so you can share them directly with your contact.</p>
+  <p style="color:#57534e;font-size:13px;">Grouped by customer, then project — largest balances first, so start from the top.</p>
   ${body.message ? `<p style="background:#fef9c3;border-left:3px solid #eab308;padding:8px 12px;">${esc(body.message)}</p>` : ""}
   <table style="border-collapse:collapse;width:100%;font-size:13px;margin:16px 0;">
     <thead>
-      <tr style="background:#f5f5f4;text-align:left;">
+      <tr style="background:#e7e5e4;text-align:left;">
         <th style="padding:8px 10px;">Invoice</th>
-        <th style="padding:8px 10px;">Customer</th>
-        <th style="padding:8px 10px;">Project</th>
         <th style="padding:8px 10px;text-align:right;">Outstanding</th>
         <th style="padding:8px 10px;text-align:right;">Overdue</th>
         <th style="padding:8px 10px;">Status</th>
