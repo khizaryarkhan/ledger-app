@@ -1571,6 +1571,50 @@ export const apDimensions = pgTable("ap_dimensions", {
 export type ApDimension = typeof apDimensions.$inferSelect;
 
 // =========================================================================
+// GENERAL LEDGER — the posting engine (native accounting core).
+// Every entry MUST balance (Σ debits = Σ credits) — enforced in lib/ledger.
+// Entries are never deleted; corrections are posted as reversals.
+// =========================================================================
+export const journalEntries = pgTable("journal_entries", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  entryNumber:       integer("entry_number").notNull(),                    // sequential per org: JE-1, JE-2…
+  entryDate:         varchar("entry_date", { length: 16 }).notNull(),      // YYYY-MM-DD
+  memo:              text("memo"),
+  sourceType:        varchar("source_type", { length: 32 }).notNull().default("Manual"), // Manual | Invoice | Payment | Bill | CreditNote | Reversal
+  sourceId:          uuid("source_id"),                                    // document id when sourceType != Manual
+  status:            varchar("status", { length: 16 }).notNull().default("Posted"), // Posted | Reversed
+  reversedByEntryId: uuid("reversed_by_entry_id"),                         // set on the original when a reversal is posted
+  reversesEntryId:   uuid("reverses_entry_id"),                            // set on the reversal, points at the original
+  createdBy:         uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  journal_entries_org_number_unique: uniqueIndex("journal_entries_org_number_unique").on(t.orgId, t.entryNumber),
+}));
+export type JournalEntry = typeof journalEntries.$inferSelect;
+
+export const journalLines = pgTable("journal_lines", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  entryId:      uuid("entry_id").notNull().references(() => journalEntries.id, { onDelete: "cascade" }),
+  lineNo:       integer("line_no").notNull(),
+  accountId:    uuid("account_id").notNull().references(() => apAccounts.id),
+  description:  text("description"),
+  // Exactly one of debit/credit is non-zero per line (enforced in lib/ledger).
+  debit:        real("debit").notNull().default(0),
+  credit:       real("credit").notNull().default(0),
+  // Dimensions — reference ap_dimensions ids (nullable).
+  classId:      uuid("class_id"),
+  locationId:   uuid("location_id"),
+  costCentreId: uuid("cost_centre_id"),
+  // Optional business links for subledger drill-down.
+  customerId:   uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  projectId:    uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+});
+export type JournalLine = typeof journalLines.$inferSelect;
+
+// =========================================================================
 // PURCHASE REQUESTS
 // =========================================================================
 export const purchaseRequests = pgTable("purchase_requests", {

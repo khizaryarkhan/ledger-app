@@ -229,6 +229,10 @@ export default function AccountingSettingsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/settings/accounting/journal"
+              className="flex items-center gap-1.5 text-[13px] font-medium text-stone-300 border border-stone-700 rounded-lg px-3.5 py-2 hover:bg-stone-800 transition-colors">
+              <BookOpen size={14} /> General Ledger
+            </Link>
             <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
             <button onClick={openNew}
               className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 transition-colors">
