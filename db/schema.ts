@@ -733,6 +733,7 @@ export const invoices = pgTable("invoices", {
   disputeDate: varchar("dispute_date", { length: 16 }),
   promiseDate: varchar("promise_date", { length: 16 }),
   lastFollowupDate: varchar("last_followup_date", { length: 16 }),
+  nextActionDate: varchar("next_action_date", { length: 16 }), // board "chase again on" queue date
   billingEmail: text("billing_email"), // QBO BillEmail — may contain multiple comma-separated addresses
   qboId: varchar("qbo_id", { length: 64 }), // QBO internal transaction ID — unique source of truth
   qboBalance: real("qbo_balance"),

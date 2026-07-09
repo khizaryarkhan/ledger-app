@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport } from "@/lib/export-report";
@@ -237,30 +237,59 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     }
   }
 
-  // ── Per-column filters ──────────────────────────────────────────────────
-  const [cf, setCf] = useState<Record<string, string>>({});
-  const setFilter = (k: string, v: string) => setCf(p => ({ ...p, [k]: v }));
+  // ── Column filters ─────────────────────────────────────────────────────
+  // Values are strings; multi-selects join values with \x1F. Persisted to
+  // localStorage so the working view survives navigation and reloads.
+  const MULTI_SEP = "\x1F";
+  const VIEW_STORAGE_KEY = "board-list-view";
+  const SAVED_VIEWS_KEY = "board-list-saved-views";
+
+  const [cf, setCf] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}").cf ?? {}; } catch { return {}; }
+  });
+  const setFilter = (k: string, v: string) => setCf(p => {
+    const n = { ...p };
+    if (v) n[k] = v; else delete n[k];
+    return n;
+  });
+  const multiVals = (k: string): Set<string> => new Set((cf[k] ?? "").split(MULTI_SEP).filter(Boolean));
+  const toggleMulti = (k: string, v: string) => {
+    const s = multiVals(k);
+    s.has(v) ? s.delete(v) : s.add(v);
+    setFilter(k, [...s].join(MULTI_SEP));
+  };
+  // Which column's filter popover is open
+  const [filterOpen, setFilterOpen] = useState<string | null>(null);
+
   const distinct = (vals: (string | null)[]) => [...new Set(vals.filter(Boolean) as string[])].sort();
   const regionOpts = useMemo(() => distinct(rows.map(r => r.regionName)), [rows]);
   const repOpts    = useMemo(() => distinct(rows.map(r => r.repName)), [rows]);
   const stageOpts  = useMemo(() => distinct(rows.map(r => r.stageLabel)), [rows]);
+  const ownerOpts  = useMemo(() => distinct(rows.map(r => r.inv.escalatedToName ?? null)), [rows]);
+
+  const bucketOf = (days: number) => days <= 0 ? "current" : days <= 30 ? "d30" : days <= 60 ? "d60" : days <= 90 ? "d90" : "d90p";
+  const BUCKETS: { key: string; label: string }[] = [
+    { key: "current", label: "Current" }, { key: "d30", label: "1–30 days" }, { key: "d60", label: "31–60 days" },
+    { key: "d90", label: "61–90 days" }, { key: "d90p", label: "90+ days" },
+  ];
 
   const filteredRows = useMemo(() => {
     const has = (v: string | null, q: string) => (v ?? "").toLowerCase().includes(q.toLowerCase());
+    const today = new Date().toISOString().slice(0, 10);
     return rows.filter(r => {
       if (overdueOnly && r.days <= 0) return false;
       if (cf.invoice && !has(r.inv.invoiceNumber, cf.invoice)) return false;
       if (cf.customer && !has(r.custName, cf.customer)) return false;
       if (cf.project && !has(r.projName, cf.project)) return false;
-      if (cf.region && r.regionName !== cf.region) return false;
-      if (cf.rep && r.repName !== cf.rep) return false;
+      if (cf.region && !multiVals("region").has(r.regionName ?? "")) return false;
+      if (cf.rep && !multiVals("rep").has(r.repName ?? "")) return false;
       if (cf.stage) {
-        if (cf.stage.startsWith("!")) {
-          if (r.stageLabel === cf.stage.slice(1)) return false;
-        } else {
-          if (r.stageLabel !== cf.stage) return false;
-        }
+        const sel = multiVals("stage");
+        const match = sel.has(r.stageLabel);
+        if (cf.stageMode === "not" ? match : !match) return false;
       }
+      if (cf.owner && !multiVals("owner").has(r.inv.escalatedToName ?? "")) return false;
       if (cf.response) {
         const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
         if (resp !== cf.response) return false;
@@ -269,15 +298,78 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.email === "none" && r.email) return false;
       if (cf.lastSent === "sent" && !r.lastSent) return false;
       if (cf.lastSent === "never" && r.lastSent) return false;
-      if (cf.lastSent === "not-today" && r.lastSent?.slice(0, 10) === new Date().toISOString().slice(0, 10)) return false;
-      // "Not chased since [date]" — show only rows where lastSent is null or on/before the cutoff
+      if (cf.lastSent === "not-today" && r.lastSent?.slice(0, 10) === today) return false;
       if (cf.lastSent === "cutoff" && cf.lastSentBefore && r.lastSent && r.lastSent.slice(0, 10) > cf.lastSentBefore) return false;
       if (cf.lastRef && !has(r.lastRef, cf.lastRef)) return false;
-      if (cf.due && !has(r.inv.dueDate, cf.due)) return false;
+      if (cf.bucket && !multiVals("bucket").has(bucketOf(r.days))) return false;
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
+      if (cf.maxAmount && r.bal > Number(cf.maxAmount)) return false;
+      if (cf.next === "due" && !(r.inv.nextActionDate && r.inv.nextActionDate <= today)) return false;
+      if (cf.next === "has" && !r.inv.nextActionDate) return false;
+      if (cf.next === "none" && r.inv.nextActionDate) return false;
       return true;
     });
   }, [rows, cf, overdueOnly]);
+
+  // Persist the working view (filters + sort) across visits.
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ cf })); } catch {}
+  }, [cf]);
+
+  // ── Saved views ─────────────────────────────────────────────────────────
+  type SavedView = { name: string; cf: Record<string, string>; overdueOnly: boolean };
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) ?? "[]"); } catch { return []; }
+  });
+  const persistViews = (views: SavedView[]) => {
+    setSavedViews(views);
+    try { localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(views)); } catch {}
+  };
+  function saveCurrentView() {
+    const name = prompt("Name this view (e.g. 'Morning chase list'):")?.trim();
+    if (!name) return;
+    persistViews([...savedViews.filter(v => v.name !== name), { name, cf, overdueOnly }]);
+  }
+  function applyView(v: SavedView) { setCf(v.cf); setOverdueOnly(v.overdueOnly); }
+  function deleteView(name: string) { persistViews(savedViews.filter(v => v.name !== name)); }
+
+  // Human-readable chips for every active filter.
+  const filterChips = useMemo(() => {
+    const chips: { key: string; label: string }[] = [];
+    const multiLabel = (k: string, prefix: string) => {
+      const vals = [...multiVals(k)];
+      if (vals.length) chips.push({ key: k, label: `${prefix}: ${vals.length > 2 ? `${vals.length} selected` : vals.join(", ")}` });
+    };
+    if (cf.invoice) chips.push({ key: "invoice", label: `Invoice ~ "${cf.invoice}"` });
+    if (cf.customer) chips.push({ key: "customer", label: `Customer ~ "${cf.customer}"` });
+    if (cf.project) chips.push({ key: "project", label: `Project ~ "${cf.project}"` });
+    multiLabel("region", "Region"); multiLabel("rep", "Rep");
+    if (cf.stage) {
+      const vals = [...multiVals("stage")];
+      chips.push({ key: "stage", label: `Stage ${cf.stageMode === "not" ? "is not" : "is"}: ${vals.join(", ")}` });
+    }
+    multiLabel("owner", "Owner");
+    if (cf.response) chips.push({ key: "response", label: `Response: ${cf.response}` });
+    if (cf.email) chips.push({ key: "email", label: cf.email === "has" ? "Has email" : "No email" });
+    if (cf.lastSent === "cutoff" && cf.lastSentBefore) chips.push({ key: "lastSent", label: `Not chased since ${cf.lastSentBefore}` });
+    else if (cf.lastSent) chips.push({ key: "lastSent", label: cf.lastSent === "not-today" ? "Not sent today" : cf.lastSent === "never" ? "Never sent" : "Sent" });
+    if (cf.lastRef) chips.push({ key: "lastRef", label: `Ref ~ "${cf.lastRef}"` });
+    if (cf.bucket) chips.push({ key: "bucket", label: `Aging: ${[...multiVals("bucket")].map(b => BUCKETS.find(x => x.key === b)?.label ?? b).join(", ")}` });
+    if (cf.minAmount || cf.maxAmount) chips.push({ key: "amount", label: `Amount ${cf.minAmount ? `≥ ${cf.minAmount}` : ""}${cf.minAmount && cf.maxAmount ? " " : ""}${cf.maxAmount ? `≤ ${cf.maxAmount}` : ""}` });
+    if (cf.next) chips.push({ key: "next", label: cf.next === "due" ? "Next action due" : cf.next === "has" ? "Has next action" : "No next action" });
+    return chips;
+  }, [cf]);
+  function clearChip(key: string) {
+    setCf(p => {
+      const n = { ...p };
+      if (key === "stage") { delete n.stage; delete n.stageMode; }
+      else if (key === "lastSent") { delete n.lastSent; delete n.lastSentBefore; }
+      else if (key === "amount") { delete n.minAmount; delete n.maxAmount; }
+      else delete n[key];
+      return n;
+    });
+  }
 
   // ── Column sort ────────────────────────────────────────────────────────────
   const [sortCol, setSortCol] = useState<string>("customer");
@@ -307,6 +399,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         case "stage":       primary = cmp(a.stageLabel, b.stageLabel); break;
         case "response":    primary = cmp(a.inv.hasOpenDispute ? "Disputed" : a.inv.promiseDate ? "Committed" : "None", b.inv.hasOpenDispute ? "Disputed" : b.inv.promiseDate ? "Committed" : "None"); break;
         case "lastSent":    primary = cmp(a.lastSent, b.lastSent); break;
+        case "nextAction":  primary = cmp(a.inv.nextActionDate, b.inv.nextActionDate); break;
         case "due":         primary = cmp(a.inv.dueDate, b.inv.dueDate); break;
         case "outstanding": primary = cmp(a.bal, b.bal); break;
         case "days":        primary = cmp(a.days, b.days); break;
@@ -322,6 +415,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
   const fmtSent = (d: string | null) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : null;
+  // Relative "Nd ago" — the actionable number for chasing; exact date on hover.
+  const daysAgo = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+  const agoCls = (n: number) => n >= 14 ? "text-rose-400" : n >= 7 ? "text-amber-400" : "text-stone-400";
 
   const allSelected = sortedRows.length > 0 && sortedRows.every(r => selected.has(r.inv.id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(sortedRows.map(r => r.inv.id)));
@@ -380,7 +476,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   async function save(id: string, patch: any) {
     setBusyId(id);
-    try { await updateInvoice(id, patch); await refresh(); }
+    // No full refresh() here — updateInvoice patches the invoices state in the
+    // data provider (and pulls fresh communications on stage changes), so the
+    // row updates instantly instead of waiting on an 8-endpoint reload.
+    try { await updateInvoice(id, patch); }
     finally { setBusyId(null); }
   }
 
@@ -535,9 +634,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-800 bg-stone-900 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-stone-800 bg-stone-900 shrink-0 flex-wrap gap-y-1.5">
         <span className="text-[12px] text-stone-400">
-          {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}{anyFilter || overdueOnly ? " (filtered)" : ""}{selected.size ? ` · ${selected.size} selected` : ""}
+          <span className="font-semibold text-stone-200">{sortedRows.length}</span> invoice{sortedRows.length !== 1 ? "s" : ""}
+          {" · "}
+          <span className="font-semibold text-stone-200 tabular-nums">
+            {(() => {
+              const m: Record<string, number> = {};
+              sortedRows.forEach(r => { const c = r.inv.currency ?? "EUR"; m[c] = (m[c] || 0) + r.bal; });
+              return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || "—";
+            })()}
+          </span>
+          {(anyFilter || overdueOnly) && <span className="text-stone-600"> (filtered)</span>}
+          {selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
@@ -577,6 +686,32 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           )}
         </div>
       </div>
+
+      {/* Saved views + active filter chips */}
+      {(savedViews.length > 0 || filterChips.length > 0 || anyFilter) && (
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b border-stone-800 bg-stone-950 shrink-0 flex-wrap">
+          {savedViews.map(v => (
+            <span key={v.name} className="group inline-flex items-center gap-1 text-[11px] font-medium text-stone-300 bg-stone-800 border border-stone-700 rounded-full pl-2.5 pr-1.5 py-1 hover:bg-stone-700 cursor-pointer"
+              onClick={() => applyView(v)} title={`Apply view "${v.name}"`}>
+              {v.name}
+              <button onClick={e => { e.stopPropagation(); deleteView(v.name); }} className="text-stone-600 hover:text-rose-400 opacity-0 group-hover:opacity-100"><X size={11} /></button>
+            </span>
+          ))}
+          {savedViews.length > 0 && filterChips.length > 0 && <span className="w-px h-4 bg-stone-800" />}
+          {filterChips.map(c => (
+            <span key={c.key} className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-900 rounded-full pl-2.5 pr-1.5 py-1">
+              {c.label}
+              <button onClick={() => clearChip(c.key)} className="text-emerald-700 hover:text-emerald-300"><X size={11} /></button>
+            </span>
+          ))}
+          {filterChips.length > 0 && (
+            <>
+              <button onClick={() => setCf({})} className="text-[11px] text-stone-500 hover:text-rose-400 font-medium">Clear all</button>
+              <button onClick={saveCurrentView} className="text-[11px] text-stone-500 hover:text-emerald-400 font-medium">Save as view…</button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Notify Owners modal */}
       {notifyOpen && (
@@ -682,111 +817,191 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         </div>
       )}
 
+      {/* Click-away closer for filter popovers */}
+      {filterOpen && <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(null)} />}
+
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
           <div className="text-center text-sm text-stone-400 py-16">No open invoices match the current filters.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-stone-900 z-10">
+            <thead className="sticky top-0 bg-stone-900 z-20">
               <tr className="border-b border-stone-800 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
                 {([
-                  { label: "Invoice",     key: "invoice" },
-                  { label: "Customer",    key: "customer" },
-                  { label: "Project",     key: "project" },
-                  { label: "Region",      key: "region" },
-                  { label: "Rep",         key: "rep" },
-                  { label: "Stage",       key: "stage" },
-                  { label: "Response",    key: "response" },
-                  { label: "Email",       key: null },
-                  { label: "Last sent",   key: "lastSent" },
-                  { label: "Last ref",    key: null },
-                  { label: "Due",         key: "due" },
-                ] as { label: string; key: string | null }[]).map(({ label, key }) => (
-                  <th key={label} className={thCls}>
-                    {key ? (
-                      <button onClick={() => handleSort(key)} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
-                        {label}
-                        {sortCol === key
-                          ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
-                          : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
-                      </button>
-                    ) : label}
-                  </th>
-                ))}
-                <th className="px-3 py-2.5 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-right">
-                  <button onClick={() => handleSort("outstanding")} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group ml-auto">
-                    Outstanding
-                    {sortCol === "outstanding"
-                      ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
-                      : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
-                  </button>
-                </th>
-                <th className={`${thCls} text-center`}>Notes</th>
-              </tr>
-              {/* Per-column filter row */}
-              <tr className="border-b border-stone-800 bg-stone-900/60">
-                <th className="px-2 py-1.5 align-top">
-                  {anyFilter && <button onClick={() => setCf({})} title="Clear filters" className="text-stone-400 hover:text-rose-600"><X size={13} /></button>}
-                </th>
-                <th className="px-2 py-1.5"><input value={cf.invoice ?? ""} onChange={e => setFilter("invoice", e.target.value)} placeholder="#" className={inputCls} /></th>
-                <th className="px-2 py-1.5"><input value={cf.customer ?? ""} onChange={e => setFilter("customer", e.target.value)} placeholder="Filter" className={inputCls} /></th>
-                <th className="px-2 py-1.5"><input value={cf.project ?? ""} onChange={e => setFilter("project", e.target.value)} placeholder="Filter" className={inputCls} /></th>
-                <th className="px-2 py-1.5">
-                  <select value={cf.region ?? ""} onChange={e => setFilter("region", e.target.value)} className={inputCls}>
-                    <option value="">All</option>{regionOpts.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </th>
-                <th className="px-2 py-1.5">
-                  <select value={cf.rep ?? ""} onChange={e => setFilter("rep", e.target.value)} className={inputCls}>
-                    <option value="">All</option>{repOpts.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </th>
-                <th className="px-2 py-1.5">
-                  <select value={cf.stage ?? ""} onChange={e => setFilter("stage", e.target.value)} className={inputCls}>
-                    <option value="">All</option>
-                    {stageOpts.map(o => <option key={o} value={o}>{o}</option>)}
-                    <option disabled>──────────</option>
-                    {stageOpts.map(o => <option key={`!${o}`} value={`!${o}`}>Not: {o}</option>)}
-                  </select>
-                </th>
-                <th className="px-2 py-1.5">
-                  <select value={cf.response ?? ""} onChange={e => setFilter("response", e.target.value)} className={inputCls}>
-                    <option value="">All</option><option value="Disputed">Disputed</option><option value="Committed">Committed</option><option value="None">No response</option>
-                  </select>
-                </th>
-                <th className="px-2 py-1.5">
-                  <select value={cf.email ?? ""} onChange={e => setFilter("email", e.target.value)} className={inputCls}>
-                    <option value="">All</option><option value="has">Has email</option><option value="none">No email</option>
-                  </select>
-                </th>
-                <th className="px-2 py-1.5">
-                  {cf.lastSent === "cutoff" ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="date"
-                        autoFocus
-                        value={cf.lastSentBefore ?? ""}
-                        max={todayStr()}
-                        onChange={e => setFilter("lastSentBefore", e.target.value)}
-                        className={`${inputCls} flex-1 min-w-0`}
-                      />
-                      <button onClick={() => { setFilter("lastSent", ""); setFilter("lastSentBefore", ""); }} className="text-stone-500 hover:text-rose-400 shrink-0"><X size={11} /></button>
+                  { label: "Invoice",     sort: "invoice",    filter: "invoice" },
+                  { label: "Customer",    sort: "customer",   filter: "customer" },
+                  { label: "Project",     sort: "project",    filter: "project" },
+                  { label: "Region",      sort: "region",     filter: "region" },
+                  { label: "Rep",         sort: "rep",        filter: "rep" },
+                  { label: "Stage",       sort: "stage",      filter: "stage" },
+                  { label: "Response",    sort: "response",   filter: "response" },
+                  { label: "Email",       sort: null,         filter: "email" },
+                  { label: "Last sent",   sort: "lastSent",   filter: "lastSent" },
+                  { label: "Last ref",    sort: null,         filter: "lastRef" },
+                  { label: "Next action", sort: "nextAction", filter: "next" },
+                  { label: "Due",         sort: "due",        filter: "bucket" },
+                ] as { label: string; sort: string | null; filter: string }[]).map(({ label, sort, filter }) => {
+                  const active =
+                    filter === "stage"    ? !!cf.stage :
+                    filter === "lastSent" ? !!cf.lastSent :
+                    filter === "bucket"   ? !!cf.bucket :
+                    !!cf[filter];
+                  return (
+                    <th key={label} className={`${thCls} relative`}>
+                      <span className="inline-flex items-center gap-0.5">
+                        {sort ? (
+                          <button onClick={() => handleSort(sort)} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
+                            {label}
+                            {sortCol === sort
+                              ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
+                              : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                          </button>
+                        ) : label}
+                        <button onClick={() => setFilterOpen(p => p === filter ? null : filter)}
+                          className={`p-0.5 rounded hover:bg-stone-800 ${active ? "text-emerald-400" : "text-stone-700 hover:text-stone-400"}`}>
+                          <Filter size={11} fill={active ? "currentColor" : "none"} />
+                        </button>
+                      </span>
+                      {filterOpen === filter && (
+                        <div className="absolute left-0 top-full mt-1 z-40 w-60 bg-stone-950 border border-stone-700 rounded-xl shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
+                          {/* Text filters */}
+                          {["invoice", "customer", "project", "lastRef"].includes(filter) && (
+                            <input autoFocus value={cf[filter] ?? ""} onChange={e => setFilter(filter, e.target.value)}
+                              placeholder={`Filter ${label.toLowerCase()}…`} className={inputCls}
+                              onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setFilterOpen(null); }} />
+                          )}
+                          {/* Multi-select: region / rep */}
+                          {(filter === "region" || filter === "rep") && (
+                            <div className="max-h-52 overflow-y-auto space-y-1">
+                              {(filter === "region" ? regionOpts : repOpts).map(o => (
+                                <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="checkbox" checked={multiVals(filter).has(o)} onChange={() => toggleMulti(filter, o)} className="rounded border-stone-600" />
+                                  {o}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {/* Stage: multi-select + include/exclude + owner */}
+                          {filter === "stage" && (
+                            <>
+                              <div className="flex rounded-lg bg-stone-900 border border-stone-700 p-0.5 text-[11px] font-medium">
+                                <button onClick={() => setFilter("stageMode", "")} className={`flex-1 py-1 rounded-md ${cf.stageMode !== "not" ? "bg-stone-700 text-white" : "text-stone-500"}`}>Is</button>
+                                <button onClick={() => setFilter("stageMode", "not")} className={`flex-1 py-1 rounded-md ${cf.stageMode === "not" ? "bg-rose-600 text-white" : "text-stone-500"}`}>Is not</button>
+                              </div>
+                              <div className="max-h-44 overflow-y-auto space-y-1">
+                                {stageOpts.map(o => (
+                                  <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                    <input type="checkbox" checked={multiVals("stage").has(o)} onChange={() => toggleMulti("stage", o)} className="rounded border-stone-600" />
+                                    {o}
+                                  </label>
+                                ))}
+                              </div>
+                              {ownerOpts.length > 0 && (
+                                <>
+                                  <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalated to</div>
+                                  <div className="max-h-32 overflow-y-auto space-y-1">
+                                    {ownerOpts.map(o => (
+                                      <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                        <input type="checkbox" checked={multiVals("owner").has(o)} onChange={() => toggleMulti("owner", o)} className="rounded border-stone-600" />
+                                        {o}
+                                      </label>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </>
+                          )}
+                          {/* Radio groups */}
+                          {filter === "response" && (
+                            <div className="space-y-1">
+                              {[["", "All"], ["Disputed", "Disputed"], ["Committed", "Committed"], ["None", "No response"]].map(([v, l]) => (
+                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="radio" name="f-response" checked={(cf.response ?? "") === v} onChange={() => setFilter("response", v)} />
+                                  {l}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {filter === "email" && (
+                            <div className="space-y-1">
+                              {[["", "All"], ["has", "Has email"], ["none", "No email"]].map(([v, l]) => (
+                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="radio" name="f-email" checked={(cf.email ?? "") === v} onChange={() => setFilter("email", v)} />
+                                  {l}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {filter === "lastSent" && (
+                            <div className="space-y-1">
+                              {[["", "All"], ["sent", "Sent"], ["never", "Never sent"], ["not-today", "Not sent today"], ["cutoff", "Not chased since…"]].map(([v, l]) => (
+                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="radio" name="f-lastSent" checked={(cf.lastSent ?? "") === v} onChange={() => setFilter("lastSent", v)} />
+                                  {l}
+                                </label>
+                              ))}
+                              {cf.lastSent === "cutoff" && (
+                                <input type="date" value={cf.lastSentBefore ?? ""} max={todayStr()}
+                                  onChange={e => setFilter("lastSentBefore", e.target.value)} className={inputCls} />
+                              )}
+                            </div>
+                          )}
+                          {filter === "next" && (
+                            <div className="space-y-1">
+                              {[["", "All"], ["due", "Due today or earlier"], ["has", "Has next action"], ["none", "No next action"]].map(([v, l]) => (
+                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="radio" name="f-next" checked={(cf.next ?? "") === v} onChange={() => setFilter("next", v)} />
+                                  {l}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {filter === "bucket" && (
+                            <div className="space-y-1">
+                              {BUCKETS.map(b => (
+                                <label key={b.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="checkbox" checked={multiVals("bucket").has(b.key)} onChange={() => toggleMulti("bucket", b.key)} className="rounded border-stone-600" />
+                                  {b.label}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between pt-1 border-t border-stone-800">
+                            <button onClick={() => { clearChip(filter === "bucket" ? "bucket" : filter); if (filter === "stage") clearChip("owner"); }}
+                              className="text-[11px] text-stone-500 hover:text-rose-400">Clear</button>
+                            <button onClick={() => setFilterOpen(null)} className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Done</button>
+                          </div>
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
+                <th className={`${thCls} text-right relative`}>
+                  <span className="inline-flex items-center gap-0.5">
+                    <button onClick={() => handleSort("outstanding")} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
+                      Outstanding
+                      {sortCol === "outstanding"
+                        ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
+                        : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                    </button>
+                    <button onClick={() => setFilterOpen(p => p === "amount" ? null : "amount")}
+                      className={`p-0.5 rounded hover:bg-stone-800 ${(cf.minAmount || cf.maxAmount) ? "text-emerald-400" : "text-stone-700 hover:text-stone-400"}`}>
+                      <Filter size={11} fill={(cf.minAmount || cf.maxAmount) ? "currentColor" : "none"} />
+                    </button>
+                  </span>
+                  {filterOpen === "amount" && (
+                    <div className="absolute right-0 top-full mt-1 z-40 w-52 bg-stone-950 border border-stone-700 rounded-xl shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
+                      <input type="number" autoFocus value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="Minimum (≥)" className={`${inputCls} text-right`} />
+                      <input type="number" value={cf.maxAmount ?? ""} onChange={e => setFilter("maxAmount", e.target.value)} placeholder="Maximum (≤)" className={`${inputCls} text-right`} />
+                      <div className="flex items-center justify-between pt-1 border-t border-stone-800">
+                        <button onClick={() => clearChip("amount")} className="text-[11px] text-stone-500 hover:text-rose-400">Clear</button>
+                        <button onClick={() => setFilterOpen(null)} className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Done</button>
+                      </div>
                     </div>
-                  ) : (
-                    <select value={cf.lastSent ?? ""} onChange={e => setFilter("lastSent", e.target.value)} className={inputCls}>
-                      <option value="">All</option>
-                      <option value="sent">Sent</option>
-                      <option value="never">Never sent</option>
-                      <option value="not-today">Not sent today</option>
-                      <option value="cutoff">Not chased since…</option>
-                    </select>
                   )}
                 </th>
-                <th className="px-2 py-1.5"><input value={cf.lastRef ?? ""} onChange={e => setFilter("lastRef", e.target.value)} placeholder="Ref" className={inputCls} /></th>
-                <th className="px-2 py-1.5"><input value={cf.due ?? ""} onChange={e => setFilter("due", e.target.value)} placeholder="YYYY-MM" className={inputCls} /></th>
-                <th className="px-2 py-1.5"><input type="number" value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="≥ €" className={`${inputCls} text-right`} /></th>
-                <th className="px-2 py-1.5" />
+                <th className={`${thCls} text-center`}>Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -965,10 +1180,28 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     </td>
 
                     <td className="px-3 py-2 whitespace-nowrap text-[12px]">
-                      {lastSent ? <span className="text-stone-400">{fmtSent(lastSent)}</span> : <span className="text-stone-600">Never</span>}
+                      {lastSent ? (() => {
+                        const n = daysAgo(lastSent);
+                        return <span className={`font-medium ${agoCls(n)}`} title={fmtSent(lastSent) ?? undefined}>{n === 0 ? "Today" : `${n}d ago`}</span>;
+                      })() : <span className="text-stone-600">Never</span>}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-[12px] font-mono">
                       {lastRef ? <span className="text-stone-400">{lastRef}</span> : <span className="text-stone-600">—</span>}
+                    </td>
+                    {/* Next action — the forward-looking queue date, editable inline */}
+                    <td className="px-3 py-2 whitespace-nowrap text-[12px]">
+                      <input
+                        type="date"
+                        value={inv.nextActionDate ?? ""}
+                        onChange={e => save(inv.id, { nextActionDate: e.target.value || null })}
+                        className={`bg-transparent border rounded px-1 py-0.5 text-[11px] cursor-pointer outline-none focus:ring-1 focus:ring-emerald-500 ${
+                          inv.nextActionDate
+                            ? inv.nextActionDate <= todayStr()
+                              ? "border-rose-800 text-rose-300 bg-rose-950/30 font-semibold"
+                              : "border-stone-700 text-stone-300"
+                            : "border-transparent text-stone-700 hover:border-stone-700"
+                        }`}
+                      />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-400 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-400 font-medium">+{days}d</span>}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
