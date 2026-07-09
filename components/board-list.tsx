@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport } from "@/lib/export-report";
@@ -86,6 +86,26 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
     return m;
   }, [comments]);
+
+  // Unread inbound tracking — a customer reply (or owner-portal comment) newer
+  // than the last time this invoice's activity panel was opened shows a dot.
+  const NOTES_SEEN_KEY = "board-notes-seen";
+  const [notesSeen, setNotesSeen] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem(NOTES_SEEN_KEY) ?? "{}"); } catch { return {}; }
+  });
+  const hasUnreadReply = (invId: string): boolean => {
+    const latestInbound = (notesByInv[invId] ?? []).find((c: any) => c.direction === "Inbound");
+    if (!latestInbound) return false;
+    return new Date(latestInbound.sentAt ?? latestInbound.createdAt).getTime() > (notesSeen[invId] ?? 0);
+  };
+  const markNotesSeen = (invId: string) => {
+    setNotesSeen(p => {
+      const n = { ...p, [invId]: Date.now() };
+      try { localStorage.setItem(NOTES_SEEN_KEY, JSON.stringify(n)); } catch {}
+      return n;
+    });
+  };
 
   async function addNote(row: BoardRow) {
     if (!noteText.trim()) return;
@@ -248,6 +268,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     if (typeof window === "undefined") return {};
     try { return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}").cf ?? {}; } catch { return {}; }
   });
+  const [groupByCustomer, setGroupByCustomer] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return !!JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}").groupByCustomer; } catch { return false; }
+  });
   const setFilter = (k: string, v: string) => setCf(p => {
     const n = { ...p };
     if (v) n[k] = v; else delete n[k];
@@ -311,10 +335,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     });
   }, [rows, cf, overdueOnly]);
 
-  // Persist the working view (filters + sort) across visits.
+  // Persist the working view (filters + grouping) across visits.
   useEffect(() => {
-    try { localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ cf })); } catch {}
-  }, [cf]);
+    try { localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ cf, groupByCustomer })); } catch {}
+  }, [cf, groupByCustomer]);
 
   // ── Saved views ─────────────────────────────────────────────────────────
   type SavedView = { name: string; cf: Record<string, string>; overdueOnly: boolean };
@@ -411,6 +435,28 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       return cmp(a.inv.dueDate, b.inv.dueDate);
     });
   }, [filteredRows, sortCol, sortDir]);
+
+  // Rows to render — flat, or customer bands (sorted by group total desc)
+  // interleaved with their rows when grouping is on.
+  type DisplayItem = { type: "row"; r: BoardRow } | { type: "band"; custId: string; custName: string; count: number; total: Record<string, number>; ids: string[] };
+  const displayRows = useMemo((): DisplayItem[] => {
+    if (!groupByCustomer) return sortedRows.map(r => ({ type: "row" as const, r }));
+    const groups = new Map<string, { custName: string; rows: BoardRow[]; total: Record<string, number>; sortTotal: number }>();
+    sortedRows.forEach(r => {
+      if (!groups.has(r.custId)) groups.set(r.custId, { custName: r.custName, rows: [], total: {}, sortTotal: 0 });
+      const g = groups.get(r.custId)!;
+      g.rows.push(r);
+      const c = r.inv.currency ?? "EUR";
+      g.total[c] = (g.total[c] ?? 0) + r.bal;
+      g.sortTotal += r.bal;
+    });
+    return [...groups.entries()]
+      .sort((a, b) => b[1].sortTotal - a[1].sortTotal)
+      .flatMap(([custId, g]) => [
+        { type: "band" as const, custId, custName: g.custName, count: g.rows.length, total: g.total, ids: g.rows.map(r => r.inv.id) },
+        ...g.rows.map(r => ({ type: "row" as const, r })),
+      ]);
+  }, [sortedRows, groupByCustomer]);
 
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
@@ -658,6 +704,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               }
             </button>
           )}
+          <button onClick={() => setGroupByCustomer(v => !v)}
+            title="Group rows under customer bands with subtotals, largest first"
+            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${groupByCustomer ? "bg-stone-200 text-stone-900 border-stone-200" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
+            <Users size={13} /> Group by customer
+          </button>
           <button onClick={() => setOverdueOnly(v => !v)}
             className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
             <AlertTriangle size={13} /> Overdue only
@@ -1005,7 +1056,33 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map(({ inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef }) => {
+              {displayRows.map(item => {
+                if (item.type === "band") {
+                  const allInGroup = item.ids.every(id => selected.has(id));
+                  return (
+                    <tr key={`band-${item.custId}`} className="bg-stone-800/90 border-b border-stone-700 select-none">
+                      <td className="px-3 py-2">
+                        <input type="checkbox" checked={allInGroup}
+                          ref={el => { if (el) el.indeterminate = !allInGroup && item.ids.some(id => selected.has(id)); }}
+                          onChange={() => setSelected(prev => {
+                            const n = new Set(prev);
+                            item.ids.forEach(id => allInGroup ? n.delete(id) : n.add(id));
+                            return n;
+                          })}
+                          className="rounded border-stone-300 cursor-pointer" />
+                      </td>
+                      <td colSpan={12} className="px-3 py-2 font-semibold text-white text-[13px]">
+                        {item.custName}
+                        <span className="text-[11px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold text-white tabular-nums whitespace-nowrap">
+                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                      </td>
+                      <td />
+                    </tr>
+                  );
+                }
+                const { inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef } = item.r;
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
                 return (
@@ -1216,13 +1293,20 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       })()}
                     </td>
 
-                    {/* Notes / comments */}
-                    <td className="px-3 py-2 text-center relative">
-                      <button onClick={() => { setNotesOpenId(notesOpenId === inv.id ? null : inv.id); setNoteText(""); }}
+                    {/* Actions: quick send + notes */}
+                    <td className="px-3 py-2 text-center relative whitespace-nowrap">
+                      <button
+                        onClick={() => { setSelected(new Set([inv.id])); setShowSend(true); }}
+                        disabled={!email}
+                        title={email ? "Send reminder for this invoice" : "No email on file"}
+                        className="inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-emerald-400 disabled:opacity-30 disabled:hover:text-stone-500 mr-0.5">
+                        <Send size={14} />
+                      </button>
+                      <button onClick={() => { const opening = notesOpenId !== inv.id; setNotesOpenId(opening ? inv.id : null); setNoteText(""); if (opening) markNotesSeen(inv.id); }}
                         className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200" title="Notes">
                         <MessageSquare size={15} />
                         {(notesByInv[inv.id]?.length ?? 0) > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold">{notesByInv[inv.id].length}</span>
+                          <span className={`absolute -top-1 -right-1 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{notesByInv[inv.id].length}</span>
                         )}
                       </button>
                       {notesOpenId === inv.id && (
