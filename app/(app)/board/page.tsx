@@ -344,7 +344,9 @@ export default function BoardPage() {
   }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, search, lastSentByInv]);
 
   return (
-    <div className="flex flex-col h-screen">
+    // h-screen would overshoot by the 44px app top bar and force a useless
+    // outer scrollbar — size to the space the layout actually gives us.
+    <div className="flex flex-col h-[calc(100vh-44px)]">
       {/* Header */}
       <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between bg-stone-950 flex-shrink-0">
         <div>
@@ -475,6 +477,7 @@ export default function BoardPage() {
 
       {/* Invoice-level List view — editable, bulk-action grid */}
       {viewMode === "list" && (
+        <div className="flex-1 min-h-0">
         <BoardList
           rows={openInvoiceRows}
           stages={stages}
@@ -484,6 +487,7 @@ export default function BoardPage() {
           comments={communications ?? []}
           orgName={orgSettings?.displayName ?? orgSettings?.name}
         />
+        </div>
       )}
 
       {/* Legend */}

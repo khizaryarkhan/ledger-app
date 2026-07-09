@@ -32,6 +32,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   SCROLLBARS — thin, dark, unobtrusive. Scroll containers should read as
+   part of the UI, not as chrome. Track is transparent; thumb only appears
+   with contrast on hover.
+   ══════════════════════════════════════════════════════════════════════════ */
+* {
+  scrollbar-width: thin;                       /* Firefox */
+  scrollbar-color: #44403c transparent;        /* stone-700 on transparent */
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: #44403c;                          /* stone-700 */
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: #57534e; } /* stone-600 */
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ══════════════════════════════════════════════════════════════════════════
    LANDING PAGE — premium animation toolkit (pure CSS, no JS deps)
    ══════════════════════════════════════════════════════════════════════════ */
 
