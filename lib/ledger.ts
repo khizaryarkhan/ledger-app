@@ -105,17 +105,29 @@ async function nextEntryNumber(orgId: string): Promise<number> {
 export async function postJournalEntry(input: PostEntryInput) {
   await validateEntry(input.orgId, input.lines);
 
-  const entryNumber = await nextEntryNumber(input.orgId);
-  const [entry] = await db.insert(journalEntries).values({
-    orgId:       input.orgId,
-    entryNumber,
-    entryDate:   input.entryDate,
-    memo:        input.memo ?? null,
-    sourceType:  input.sourceType ?? "Manual",
-    sourceId:    input.sourceId ?? null,
-    status:      "Posted",
-    createdBy:   input.createdBy ?? null,
-  }).returning();
+  // Read-max-then-insert can collide under concurrency; the unique index on
+  // (orgId, entryNumber) catches it — retry with a fresh number.
+  let entry: typeof journalEntries.$inferSelect | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const entryNumber = await nextEntryNumber(input.orgId);
+    try {
+      [entry] = await db.insert(journalEntries).values({
+        orgId:       input.orgId,
+        entryNumber,
+        entryDate:   input.entryDate,
+        memo:        input.memo ?? null,
+        sourceType:  input.sourceType ?? "Manual",
+        sourceId:    input.sourceId ?? null,
+        status:      "Posted",
+        createdBy:   input.createdBy ?? null,
+      }).returning();
+      break;
+    } catch (e: any) {
+      const isUniqueViolation = e?.code === "23505" || /duplicate key/i.test(e?.message ?? "");
+      if (!isUniqueViolation || attempt === 2) throw e;
+    }
+  }
+  if (!entry) throw new Error("Failed to allocate a journal entry number");
 
   try {
     await db.insert(journalLines).values(
@@ -125,8 +137,9 @@ export async function postJournalEntry(input: PostEntryInput) {
         lineNo:       i + 1,
         accountId:    l.accountId,
         description:  l.description ?? null,
-        debit:        round2(Number(l.debit  ?? 0)),
-        credit:       round2(Number(l.credit ?? 0)),
+        // numeric columns take strings — fix the cents at insert time.
+        debit:        round2(Number(l.debit  ?? 0)).toFixed(2),
+        credit:       round2(Number(l.credit ?? 0)).toFixed(2),
         classId:      l.classId ?? null,
         locationId:   l.locationId ?? null,
         costCentreId: l.costCentreId ?? null,
@@ -136,7 +149,9 @@ export async function postJournalEntry(input: PostEntryInput) {
     );
   } catch (e) {
     // Compensating action — never leave a header without balanced lines.
-    await db.delete(journalEntries).where(eq(journalEntries.id, entry.id)).catch(() => {});
+    await db.delete(journalEntries).where(eq(journalEntries.id, entry.id)).catch(delErr => {
+      console.error(`[ledger] ORPHAN HEADER: entry ${entry!.id} (JE-${entry!.entryNumber}) has no lines and could not be deleted:`, delErr);
+    });
     throw e;
   }
 
@@ -153,6 +168,7 @@ export async function reverseJournalEntry(orgId: string, entryId: string, actorI
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!orig) throw new LedgerValidationError("Entry not found.");
   if (orig.status === "Reversed") throw new LedgerValidationError(`Entry JE-${orig.entryNumber} has already been reversed.`);
+  if (orig.sourceType === "Reversal") throw new LedgerValidationError(`JE-${orig.entryNumber} is itself a reversal — post a new entry instead of un-reversing.`);
 
   const lines = await db.select().from(journalLines)
     .where(and(eq(journalLines.entryId, entryId), eq(journalLines.orgId, orgId)));
@@ -179,9 +195,19 @@ export async function reverseJournalEntry(orgId: string, entryId: string, actorI
       })),
   });
 
-  await db.update(journalEntries)
+  // Guarded update: only flip Posted → Reversed. If a concurrent reversal won
+  // the race, no row matches — surface it rather than double-reverse silently.
+  const flipped: any[] = await db.update(journalEntries)
     .set({ status: "Reversed", reversedByEntryId: reversal.id })
-    .where(and(eq(journalEntries.id, orig.id), eq(journalEntries.orgId, orgId)));
+    .where(and(
+      eq(journalEntries.id, orig.id),
+      eq(journalEntries.orgId, orgId),
+      eq(journalEntries.status, "Posted"),
+    ))
+    .returning() as any;
+  if (flipped.length === 0) {
+    console.error(`[ledger] Concurrent reversal detected on JE-${orig.entryNumber}; reversal JE-${reversal.entryNumber} may be a duplicate — review and reverse it if so.`);
+  }
   await db.update(journalEntries)
     .set({ reversesEntryId: orig.id })
     .where(and(eq(journalEntries.id, reversal.id), eq(journalEntries.orgId, orgId)));
@@ -206,6 +232,8 @@ export async function trialBalance(orgId: string, asOf: string) {
     .where(and(
       eq(journalLines.orgId, orgId),
       sql`${journalEntries.entryDate} <= ${asOf}`,
+      // Explicit status allowlist so a future Draft/Void status can't leak in.
+      inArray(journalEntries.status, ["Posted", "Reversed"]),
     ))
     .groupBy(journalLines.accountId);
 

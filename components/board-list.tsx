@@ -90,10 +90,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // Unread inbound tracking — a customer reply (or owner-portal comment) newer
   // than the last time this invoice's activity panel was opened shows a dot.
   const NOTES_SEEN_KEY = "board-notes-seen";
-  const [notesSeen, setNotesSeen] = useState<Record<string, number>>(() => {
-    if (typeof window === "undefined") return {};
-    try { return JSON.parse(localStorage.getItem(NOTES_SEEN_KEY) ?? "{}"); } catch { return {}; }
-  });
+  const [notesSeen, setNotesSeen] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try { setNotesSeen(JSON.parse(localStorage.getItem(NOTES_SEEN_KEY) ?? "{}")); } catch {}
+  }, []);
   const hasUnreadReply = (invId: string): boolean => {
     const latestInbound = (notesByInv[invId] ?? []).find((c: any) => c.direction === "Inbound");
     if (!latestInbound) return false;
@@ -241,6 +241,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [emailEdit, setEmailEdit] = useState<string | null>(null);
   const [emailVal, setEmailVal] = useState("");
   const [showSend, setShowSend] = useState(false);
+  // Quick-send (per-row Send icon) temporarily narrows the selection to one
+  // invoice; the user's curated selection is restored if they cancel.
+  const [preQuickSendSelection, setPreQuickSendSelection] = useState<Set<string> | null>(null);
 
   // Escalation picker state
   const [pendingEscalation, setPendingEscalation] = useState<{ invoiceId: string; prevStage: string } | null>(null);
@@ -264,14 +267,33 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const VIEW_STORAGE_KEY = "board-list-view";
   const SAVED_VIEWS_KEY = "board-list-saved-views";
 
-  const [cf, setCf] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    try { return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}").cf ?? {}; } catch { return {}; }
-  });
-  const [groupByCustomer, setGroupByCustomer] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try { return !!JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}").groupByCustomer; } catch { return false; }
-  });
+  // Migrate the pre-popover filter format: stage used to be a single value,
+  // optionally "!"-prefixed for exclusion. Left as-is it matches nothing in
+  // the multi-select logic and silently hides every row.
+  const migrateCf = (stored: Record<string, string>) => {
+    const n = { ...stored };
+    if (typeof n.stage === "string" && n.stage.startsWith("!")) {
+      n.stageMode = "not";
+      n.stage = n.stage.slice(1);
+    }
+    delete n.due; // old free-text YYYY-MM filter no longer exists
+    return n;
+  };
+
+  // localStorage is hydrated in an effect (not state initializers) so the
+  // first client render matches the server render — avoids hydration errors.
+  const [cf, setCf] = useState<Record<string, string>>({});
+  const [groupByCustomer, setGroupByCustomer] = useState(false);
+  const [viewHydrated, setViewHydrated] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}");
+      if (stored.cf) setCf(migrateCf(stored.cf));
+      if (stored.groupByCustomer) setGroupByCustomer(true);
+      if (stored.overdueOnly) setOverdueOnly(true);
+    } catch {}
+    setViewHydrated(true);
+  }, []);
   const setFilter = (k: string, v: string) => setCf(p => {
     const n = { ...p };
     if (v) n[k] = v; else delete n[k];
@@ -335,17 +357,20 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     });
   }, [rows, cf, overdueOnly]);
 
-  // Persist the working view (filters + grouping) across visits.
+  // Persist the working view (filters + grouping + overdue) across visits.
+  // Only after hydration — otherwise the initial empty state would clobber
+  // the stored view before it loads.
   useEffect(() => {
-    try { localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ cf, groupByCustomer })); } catch {}
-  }, [cf, groupByCustomer]);
+    if (!viewHydrated) return;
+    try { localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ cf, groupByCustomer, overdueOnly })); } catch {}
+  }, [cf, groupByCustomer, overdueOnly, viewHydrated]);
 
   // ── Saved views ─────────────────────────────────────────────────────────
-  type SavedView = { name: string; cf: Record<string, string>; overdueOnly: boolean };
-  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) ?? "[]"); } catch { return []; }
-  });
+  type SavedView = { name: string; cf: Record<string, string>; overdueOnly: boolean; groupByCustomer?: boolean };
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  useEffect(() => {
+    try { setSavedViews(JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) ?? "[]")); } catch {}
+  }, []);
   const persistViews = (views: SavedView[]) => {
     setSavedViews(views);
     try { localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(views)); } catch {}
@@ -353,9 +378,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   function saveCurrentView() {
     const name = prompt("Name this view (e.g. 'Morning chase list'):")?.trim();
     if (!name) return;
-    persistViews([...savedViews.filter(v => v.name !== name), { name, cf, overdueOnly }]);
+    persistViews([...savedViews.filter(v => v.name !== name), { name, cf, overdueOnly, groupByCustomer }]);
   }
-  function applyView(v: SavedView) { setCf(v.cf); setOverdueOnly(v.overdueOnly); }
+  function applyView(v: SavedView) {
+    setCf(migrateCf(v.cf));
+    setOverdueOnly(v.overdueOnly);
+    if (v.groupByCustomer !== undefined) setGroupByCustomer(v.groupByCustomer);
+  }
   function deleteView(name: string) { persistViews(savedViews.filter(v => v.name !== name)); }
 
   // Human-readable chips for every active filter.
@@ -503,7 +532,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const toggleOne = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.inv.id)), [rows, selected]);
-  const anyFilter = Object.values(cf).some(Boolean);
+  // stageMode alone (no stages picked) isn't an active filter.
+  const anyFilter = Object.entries(cf).some(([k, v]) => v && !(k === "stageMode" && !cf.stage));
+
+  // Prune the selection when filters hide rows — batch actions must never
+  // silently operate on invoices the user can no longer see.
+  useEffect(() => {
+    const visible = new Set(filteredRows.map(r => r.inv.id));
+    setSelected(prev => {
+      if (![...prev].some(id => !visible.has(id))) return prev;
+      return new Set([...prev].filter(id => visible.has(id)));
+    });
+  }, [filteredRows]);
 
   // Escalated invoices grouped by owner — source for the Notify Owners digest.
   // Uses the selection if any, otherwise everything currently visible.
@@ -551,7 +591,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const thCls = "px-3 py-2.5 text-[11px] font-semibold text-stone-400 uppercase tracking-wider whitespace-nowrap";
   const inputCls = "w-full text-[11px] border border-stone-700 rounded px-1.5 py-1 bg-stone-800 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500";
   const selectedCustomers = useMemo(() => new Set(selectedRows.map(r => r.custId)), [selectedRows]);
-  const selectedTotal = selectedRows.reduce((s, r) => s + r.bal, 0);
 
   async function save(id: string, patch: any) {
     setBusyId(id);
@@ -606,7 +645,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // Export selected (or all filtered) rows to an Excel-compatible CSV.
   function exportExcel() {
     const src = selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows;
-    const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Response", "Email", "Last sent", "Last ref", "Due", "Days overdue", "Outstanding"];
+    const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Owner", "Response", "Email", "Last sent", "Last ref", "Next action", "Due", "Days overdue", "Outstanding"];
     const esc = (v: any) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [headers.join(",")];
     src.forEach(r => {
@@ -614,8 +653,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         : r.inv.promiseDate ? `Committed ${r.inv.promiseDate}` : "";
       lines.push([
         r.inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
-        r.stageLabel, resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
-        r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
+        r.stageLabel, r.inv.escalatedToName ?? "", resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
+        r.inv.nextActionDate ?? "", r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
       ].map(esc).join(","));
     });
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -909,8 +948,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         </div>
       )}
 
-      {/* Click-away closer for filter popovers */}
-      {filterOpen && <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(null)} />}
+      {/* Click-away closer for filter popovers — above the sticky thead (z-20)
+          so header clicks also close the popover, below the popovers (z-40). */}
+      {filterOpen && <div className="fixed inset-0 z-30" onClick={() => setFilterOpen(null)} />}
 
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
@@ -1377,7 +1417,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     {/* Actions: quick send + notes */}
                     <td className="px-3 py-2 text-center relative whitespace-nowrap">
                       <button
-                        onClick={() => { setSelected(new Set([inv.id])); setShowSend(true); }}
+                        onClick={() => { setPreQuickSendSelection(selected); setSelected(new Set([inv.id])); setShowSend(true); }}
                         disabled={!email}
                         title={email ? "Send reminder for this invoice" : "No email on file"}
                         className="inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-emerald-400 disabled:opacity-30 disabled:hover:text-stone-500 mr-0.5">
@@ -1569,7 +1609,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
-                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
+                <td colSpan={13} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
                   {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
@@ -1596,8 +1636,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
       {showSend && (
         <SendInvoicesModal rows={selectedRows} ccy={selectedRows[0]?.inv.currency ?? "USD"} multiCustomer={selectedCustomers.size > 1}
-          onClose={() => setShowSend(false)}
-          onSent={() => { setShowSend(false); setSelected(new Set()); refresh(); }}
+          onClose={() => {
+            setShowSend(false);
+            // Cancelled a quick-send — restore the selection it displaced.
+            if (preQuickSendSelection) { setSelected(preQuickSendSelection); setPreQuickSendSelection(null); }
+          }}
+          onSent={() => { setShowSend(false); setSelected(new Set()); setPreQuickSendSelection(null); refresh(); }}
           toast={toast} />
       )}
       {replyContext && (

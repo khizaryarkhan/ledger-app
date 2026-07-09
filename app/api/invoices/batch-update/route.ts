@@ -1,9 +1,10 @@
 /**
  * POST /api/invoices/batch-update
  *
- * Updates multiple invoices in a single DB transaction. All patches succeed
- * or all roll back — no partial state. Also inserts StageChange communication
- * records in the same transaction so the activity feed is always consistent.
+ * Updates multiple invoices in one bulk UPDATE (atomic as a single statement;
+ * neon-http has no multi-statement transactions). StageChange communication
+ * records are inserted in a follow-up statement wrapped in try/catch — a
+ * failure there never rolls back the stage updates.
  *
  * Body: {
  *   ids:   string[]          // invoice UUIDs — must all belong to this org

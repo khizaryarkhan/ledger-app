@@ -35,8 +35,14 @@ export async function GET(req: Request, { params }: { params: { token: string; i
   const [inv] = await db.select().from(invoices)
     .where(and(eq(invoices.id, params.invoiceId), eq(invoices.orgId, row.orgId))).limit(1);
   if (!inv) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+  // Current-ownership check — snapshot membership isn't enough after reassignment.
+  if (inv.collectionStage !== "Escalated" ||
+      String(inv.escalatedToEmail ?? "").toLowerCase() !== String(row.ownerEmail).toLowerCase()) {
+    return NextResponse.json({ error: "This invoice is no longer assigned to you" }, { status: 403 });
+  }
 
-  const filename = `Invoice-${inv.invoiceNumber || inv.id}.pdf`;
+  const safeNumber = String(inv.invoiceNumber || inv.id).replace(/[^\w\-]+/g, "");
+  const filename = `Invoice-${safeNumber}.pdf`;
   const headers  = {
     "Content-Type": "application/pdf",
     "Content-Disposition": `inline; filename="${filename}"`,

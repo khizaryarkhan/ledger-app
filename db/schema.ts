@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, real, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, numeric, timestamp, boolean, jsonb, uuid, uniqueIndex, index, serial } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // =========================================================================
@@ -1602,8 +1602,9 @@ export const journalLines = pgTable("journal_lines", {
   accountId:    uuid("account_id").notNull().references(() => apAccounts.id),
   description:  text("description"),
   // Exactly one of debit/credit is non-zero per line (enforced in lib/ledger).
-  debit:        real("debit").notNull().default(0),
-  credit:       real("credit").notNull().default(0),
+  // numeric (not real/float) — ledger money must be exact to the cent.
+  debit:        numeric("debit", { precision: 14, scale: 2 }).notNull().default("0"),
+  credit:       numeric("credit", { precision: 14, scale: 2 }).notNull().default("0"),
   // Dimensions — reference ap_dimensions ids (nullable).
   classId:      uuid("class_id"),
   locationId:   uuid("location_id"),

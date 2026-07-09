@@ -28,6 +28,10 @@ import { createOwnerPortalToken } from "@/lib/portal";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 
+// PDF fetching + per-owner sends are sequential and can take minutes for
+// large batches — raise the function timeout above Vercel's default.
+export const maxDuration = 300;
+
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 // Attachment budget per email. Providers reject ~25MB; 18MB leaves headroom
 // for MIME base64 overhead (~33%). QBO invoice PDFs are typically <100KB,

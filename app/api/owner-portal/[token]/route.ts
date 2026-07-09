@@ -16,11 +16,14 @@ import { validateOwnerPortalToken } from "@/lib/portal";
 import { and, eq, inArray, desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const ok = (d: any) => NextResponse.json(d);
 const bad = (m: string, s = 400) => NextResponse.json({ error: m }, { status: s });
 
 export async function GET(_req: Request, { params }: { params: { token: string } }) {
+  const rl = await rateLimit(`owner-portal:${clientIp(_req)}`, 60, 60);
+  if (!rl.ok) return bad("Too many requests", 429);
   const v = await validateOwnerPortalToken(params.token);
   if (!v.ok) return bad((v as { ok: false; reason: string }).reason === "expired" ? "This link has expired" : "Link not found", 404);
   const tk = v.row;
@@ -68,9 +71,17 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     : inv.xeroBalance != null ? Math.max(0, Number(inv.xeroBalance))
     : Math.max(0, Number(inv.total || 0) - Number(inv.paid || 0));
 
-  // Only show invoices still escalated AND still open — resolved ones drop off.
+  // Only show invoices still escalated TO THIS OWNER and still open. The
+  // token snapshot only grows (re-notifies merge ids), so current ownership
+  // must be re-checked here — a reassigned invoice drops off the old owner's
+  // link immediately.
+  const ownerEmail = tk.ownerEmail.toLowerCase();
   const list = rows
-    .filter(r => r.inv.collectionStage === "Escalated" && openBal(r.inv) > 0)
+    .filter(r =>
+      r.inv.collectionStage === "Escalated" &&
+      String(r.inv.escalatedToEmail ?? "").toLowerCase() === ownerEmail &&
+      openBal(r.inv) > 0
+    )
     .map(r => ({
       id: r.inv.id,
       invoiceNumber: r.inv.invoiceNumber,
@@ -103,6 +114,8 @@ const PostSchema = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
+  const rl = await rateLimit(`owner-portal-post:${clientIp(req)}`, 30, 60);
+  if (!rl.ok) return bad("Too many requests", 429);
   const v = await validateOwnerPortalToken(params.token);
   if (!v.ok) return bad((v as { ok: false; reason: string }).reason === "expired" ? "This link has expired" : "Link not found", 404);
   const tk = v.row;
@@ -124,6 +137,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
     .where(and(eq(invoices.id, data.invoiceId), eq(invoices.orgId, tk.orgId)))
     .limit(1);
   if (!inv) return bad("Invoice not found", 404);
+  // Current-ownership check — commenting rights end when the invoice is
+  // reassigned or de-escalated, even while the token snapshot still lists it.
+  if (inv.collectionStage !== "Escalated" ||
+      String(inv.escalatedToEmail ?? "").toLowerCase() !== tk.ownerEmail.toLowerCase()) {
+    return bad("This invoice is no longer assigned to you", 403);
+  }
 
   const [created] = await db.insert(communications).values({
     orgId:      tk.orgId,

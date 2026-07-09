@@ -11,23 +11,51 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-const Patch = z.object({
-  name:              z.string().min(1).max(255).optional(),
-  type:              z.string().max(64).optional(),
-  subtype:           z.string().max(64).nullable().optional(),
-  code:              z.string().max(64).nullable().optional(),
-  description:       z.string().max(4000).nullable().optional(),
-  itemType:          z.string().max(32).optional(),
-  rate:              z.number().min(0).max(100).optional(),
-  taxType:           z.string().max(64).nullable().optional(),
-  unitPrice:         z.number().nullable().optional(),
-  unitCost:          z.number().nullable().optional(),
-  incomeAccountId:   z.string().max(64).nullable().optional(),
-  expenseAccountId:  z.string().max(64).nullable().optional(),
-  taxRateId:         z.string().max(64).nullable().optional(),
-  dimensionType:     z.string().max(64).optional(),
-  status:            z.enum(["Active", "Inactive"]).optional(),
-});
+// QBO's account type taxonomy — PATCH must not accept arbitrary type strings,
+// or classification (and every report grouped by it) silently corrupts.
+const ACCOUNT_TYPES = [
+  "Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset",
+  "Accounts Payable", "Credit Card", "Other Current Liability", "Long Term Liability",
+  "Equity", "Income", "Other Income",
+  "Cost of Goods Sold", "Expense", "Other Expense",
+] as const;
+
+const status = z.enum(["Active", "Inactive"]).optional();
+// Per-entity patch schemas with strict() — no cross-entity field leakage
+// into .set() (a `rate` on an account, `dimensionType` on an item, etc.).
+const PATCH_SCHEMAS: Record<string, z.ZodTypeAny> = {
+  "accounts": z.object({
+    name:    z.string().min(1).max(255).optional(),
+    type:    z.enum(ACCOUNT_TYPES).optional(),
+    subtype: z.string().max(64).nullable().optional(),
+    code:    z.string().max(64).nullable().optional(),
+    status,
+  }).strict(),
+  "items": z.object({
+    name:             z.string().min(1).max(255).optional(),
+    itemType:         z.enum(["Service", "Non-Inventory", "Inventory"]).optional(),
+    code:             z.string().max(64).nullable().optional(),
+    description:      z.string().max(4000).nullable().optional(),
+    unitPrice:        z.number().nullable().optional(),
+    unitCost:         z.number().nullable().optional(),
+    incomeAccountId:  z.string().max(64).nullable().optional(),
+    expenseAccountId: z.string().max(64).nullable().optional(),
+    taxRateId:        z.string().max(64).nullable().optional(),
+    status,
+  }).strict(),
+  "tax-rates": z.object({
+    name:    z.string().min(1).max(255).optional(),
+    rate:    z.number().min(0).max(100).optional(),
+    taxType: z.string().max(64).nullable().optional(),
+    status,
+  }).strict(),
+  "dimensions": z.object({
+    name:          z.string().min(1).max(255).optional(),
+    dimensionType: z.enum(["Class", "Department", "Location", "CostCentre", "CustomField", "Custom"]).optional(),
+    code:          z.string().max(64).nullable().optional(),
+    status,
+  }).strict(),
+};
 
 function tableFor(entity: string) {
   if (entity === "accounts")   return apAccounts;
@@ -47,8 +75,9 @@ export async function PATCH(req: Request, { params }: { params: { entity: string
     .where(and(eq(table.id, params.id), eq(table.orgId, orgId!))).limit(1);
   if (!row) return bad("Not found", 404);
 
-  let d: z.infer<typeof Patch>;
-  try { d = Patch.parse(await req.json()); }
+  const schema = PATCH_SCHEMAS[params.entity];
+  let d: Record<string, any>;
+  try { d = schema.parse(await req.json()); }
   catch (e: any) { return bad(e?.issues?.[0]?.message ?? "Invalid request"); }
 
   // Synced records: only the status toggle is allowed locally.

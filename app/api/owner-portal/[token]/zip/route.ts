@@ -40,10 +40,15 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ error: "Invoice not covered by this link" }, { status: 403 });
   }
 
-  const rows = await db
-    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId, xeroId: invoices.xeroId })
+  const allRows = await db
+    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId, xeroId: invoices.xeroId, collectionStage: invoices.collectionStage, escalatedToEmail: invoices.escalatedToEmail })
     .from(invoices)
     .where(and(eq(invoices.orgId, row.orgId), inArray(invoices.id, reqIds)));
+  // Current-ownership check — only invoices still escalated to this owner.
+  const ownerEmail = String(row.ownerEmail).toLowerCase();
+  const rows = allRows.filter(r =>
+    r.collectionStage === "Escalated" && String(r.escalatedToEmail ?? "").toLowerCase() === ownerEmail
+  );
   if (rows.length === 0) return NextResponse.json({ error: "No invoices found" }, { status: 404 });
 
   const needsXero = rows.some(r => r.xeroId && !r.xeroId.startsWith("CN-"));

@@ -1,8 +1,9 @@
 /**
  * POST /api/communications/batch
  *
- * Inserts the same communication record across multiple invoices in a single
- * DB transaction. Used for batch "Log Chase" on the collections board.
+ * Inserts the same communication record across multiple invoices in one
+ * multi-row INSERT (neon-http has no transactions; a single statement is
+ * still atomic). Used for batch "Log Chase" on the collections board.
  *
  * Body: {
  *   invoiceIds: string[]   // must all belong to this org
@@ -27,7 +28,7 @@ const Schema = z.object({
   direction:  z.enum(["Outbound"]),
   subject:    z.string().max(512).optional(),
   body:       z.string().optional(),
-  sentAt:     z.string().optional(),
+  sentAt:     z.string().refine(s => !isNaN(new Date(s).getTime()), "sentAt must be a valid date").optional(),
   refNumber:  z.string().max(32).optional(),
 });
 
