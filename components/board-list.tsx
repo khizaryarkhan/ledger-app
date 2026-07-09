@@ -948,9 +948,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         </div>
       )}
 
-      {/* Click-away closer for filter popovers — above the sticky thead (z-20)
-          so header clicks also close the popover, below the popovers (z-40). */}
-      {filterOpen && <div className="fixed inset-0 z-30" onClick={() => setFilterOpen(null)} />}
+      {/* Click-away closer for filter popovers. MUST stay BELOW the sticky
+          thead (z-20): the popovers render inside the thead's stacking
+          context, so any overlay above the thead also covers the popovers
+          and swallows every click inside them (checkboxes stop working).
+          Trade-off accepted: clicking the header itself doesn't close an
+          open popover — the Done button and any body click do. */}
+      {filterOpen && <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(null)} />}
 
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
