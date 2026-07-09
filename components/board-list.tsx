@@ -436,27 +436,60 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     });
   }, [filteredRows, sortCol, sortDir]);
 
-  // Rows to render — flat, or customer bands (sorted by group total desc)
-  // interleaved with their rows when grouping is on.
-  type DisplayItem = { type: "row"; r: BoardRow } | { type: "band"; custId: string; custName: string; count: number; total: Record<string, number>; ids: string[] };
+  // Rows to render — flat, or Customer → Project bands (both levels sorted by
+  // subtotal desc, both collapsible) interleaved with their rows.
+  const [collapsedCust, setCollapsedCust] = useState<Set<string>>(new Set());
+  const [collapsedProj, setCollapsedProj] = useState<Set<string>>(new Set()); // "custId|projName"
+
+  type DisplayItem =
+    | { type: "row"; r: BoardRow }
+    | { type: "band"; custId: string; custName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean }
+    | { type: "projBand"; key: string; custId: string; projName: string; count: number; total: Record<string, number>; ids: string[]; collapsed: boolean };
+
   const displayRows = useMemo((): DisplayItem[] => {
     if (!groupByCustomer) return sortedRows.map(r => ({ type: "row" as const, r }));
-    const groups = new Map<string, { custName: string; rows: BoardRow[]; total: Record<string, number>; sortTotal: number }>();
+
+    type ProjG = { projName: string; rows: BoardRow[]; total: Record<string, number>; sortTotal: number };
+    type CustG = { custName: string; projects: Map<string, ProjG>; total: Record<string, number>; sortTotal: number; count: number; maxDays: number };
+    const groups = new Map<string, CustG>();
     sortedRows.forEach(r => {
-      if (!groups.has(r.custId)) groups.set(r.custId, { custName: r.custName, rows: [], total: {}, sortTotal: 0 });
+      if (!groups.has(r.custId)) groups.set(r.custId, { custName: r.custName, projects: new Map(), total: {}, sortTotal: 0, count: 0, maxDays: 0 });
       const g = groups.get(r.custId)!;
-      g.rows.push(r);
       const c = r.inv.currency ?? "EUR";
       g.total[c] = (g.total[c] ?? 0) + r.bal;
       g.sortTotal += r.bal;
+      g.count++;
+      g.maxDays = Math.max(g.maxDays, r.days);
+      const pKey = r.projName ?? "";
+      if (!g.projects.has(pKey)) g.projects.set(pKey, { projName: r.projName ?? "No project", rows: [], total: {}, sortTotal: 0 });
+      const p = g.projects.get(pKey)!;
+      p.rows.push(r);
+      p.total[c] = (p.total[c] ?? 0) + r.bal;
+      p.sortTotal += r.bal;
     });
-    return [...groups.entries()]
-      .sort((a, b) => b[1].sortTotal - a[1].sortTotal)
-      .flatMap(([custId, g]) => [
-        { type: "band" as const, custId, custName: g.custName, count: g.rows.length, total: g.total, ids: g.rows.map(r => r.inv.id) },
-        ...g.rows.map(r => ({ type: "row" as const, r })),
-      ]);
-  }, [sortedRows, groupByCustomer]);
+
+    const out: DisplayItem[] = [];
+    for (const [custId, g] of [...groups.entries()].sort((a, b) => b[1].sortTotal - a[1].sortTotal)) {
+      const allIds = [...g.projects.values()].flatMap(p => p.rows.map(r => r.inv.id));
+      const custCollapsed = collapsedCust.has(custId);
+      out.push({ type: "band", custId, custName: g.custName, count: g.count, total: g.total, ids: allIds, maxDays: g.maxDays, collapsed: custCollapsed });
+      if (custCollapsed) continue;
+      const projGroups = [...g.projects.values()].sort((a, b) => b.sortTotal - a.sortTotal);
+      const showProjBands = projGroups.length > 1 || projGroups[0]?.projName !== "No project";
+      for (const p of projGroups) {
+        const projKey = `${custId}|${p.projName}`;
+        const projCollapsed = collapsedProj.has(projKey);
+        if (showProjBands) {
+          out.push({ type: "projBand", key: projKey, custId, projName: p.projName, count: p.rows.length, total: p.total, ids: p.rows.map(r => r.inv.id), collapsed: projCollapsed });
+          if (projCollapsed) continue;
+        }
+        p.rows.forEach(r => out.push({ type: "row", r }));
+      }
+    }
+    return out;
+  }, [sortedRows, groupByCustomer, collapsedCust, collapsedProj]);
+
+  const allCustIds = useMemo(() => [...new Set(sortedRows.map(r => r.custId))], [sortedRows]);
 
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
   const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
@@ -705,10 +738,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </button>
           )}
           <button onClick={() => setGroupByCustomer(v => !v)}
-            title="Group rows under customer bands with subtotals, largest first"
+            title="Group rows under Customer → Project bands with subtotals, largest first"
             className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${groupByCustomer ? "bg-stone-200 text-stone-900 border-stone-200" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
             <Users size={13} /> Group by customer
           </button>
+          {groupByCustomer && (
+            <button
+              onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
+              className="flex items-center gap-1.5 text-xs font-medium text-stone-400 border border-stone-700 rounded-md px-2.5 py-1.5 hover:bg-stone-800 transition-colors">
+              {collapsedCust.size > 0 ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+              {collapsedCust.size > 0 ? "Expand all" : "Collapse all"}
+            </button>
+          )}
           <button onClick={() => setOverdueOnly(v => !v)}
             className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
             <AlertTriangle size={13} /> Overdue only
@@ -1057,23 +1098,40 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </thead>
             <tbody>
               {displayRows.map(item => {
-                if (item.type === "band") {
-                  const allInGroup = item.ids.every(id => selected.has(id));
+                // Cascading tri-state selection shared by both band levels.
+                const bandCheckbox = (ids: string[]) => {
+                  const all = ids.every(id => selected.has(id));
+                  const some = !all && ids.some(id => selected.has(id));
                   return (
-                    <tr key={`band-${item.custId}`} className="bg-stone-800/90 border-b border-stone-700 select-none">
-                      <td className="px-3 py-2">
-                        <input type="checkbox" checked={allInGroup}
-                          ref={el => { if (el) el.indeterminate = !allInGroup && item.ids.some(id => selected.has(id)); }}
-                          onChange={() => setSelected(prev => {
-                            const n = new Set(prev);
-                            item.ids.forEach(id => allInGroup ? n.delete(id) : n.add(id));
-                            return n;
-                          })}
-                          className="rounded border-stone-300 cursor-pointer" />
-                      </td>
+                    <input type="checkbox" checked={all}
+                      ref={el => { if (el) el.indeterminate = some; }}
+                      onClick={e => e.stopPropagation()}
+                      onChange={() => setSelected(prev => {
+                        const n = new Set(prev);
+                        ids.forEach(id => all ? n.delete(id) : n.add(id));
+                        return n;
+                      })}
+                      className="rounded border-stone-300 cursor-pointer" />
+                  );
+                };
+                const selCount = (ids: string[]) => ids.filter(id => selected.has(id)).length;
+
+                if (item.type === "band") {
+                  return (
+                    <tr key={`band-${item.custId}`}
+                      className="bg-stone-800/90 border-b border-stone-700 select-none cursor-pointer hover:bg-stone-800"
+                      onClick={() => setCollapsedCust(p => { const n = new Set(p); n.has(item.custId) ? n.delete(item.custId) : n.add(item.custId); return n; })}>
+                      <td className="px-3 py-2" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
                       <td colSpan={12} className="px-3 py-2 font-semibold text-white text-[13px]">
+                        <span className="inline-block w-4 text-stone-400">{item.collapsed ? "▸" : "▾"}</span>
                         {item.custName}
                         <span className="text-[11px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
+                        {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
+                          <span className="text-[10px] text-emerald-400 font-medium ml-2">{selCount(item.ids)} selected</span>
+                        )}
+                        {item.maxDays > 90 && (
+                          <span className="text-[10px] font-semibold text-rose-300 bg-rose-500/15 border border-rose-900 rounded-full px-2 py-0.5 ml-2">oldest +{item.maxDays}d</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-white tabular-nums whitespace-nowrap">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
@@ -1082,6 +1140,29 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     </tr>
                   );
                 }
+
+                if (item.type === "projBand") {
+                  return (
+                    <tr key={`proj-${item.key}`}
+                      className="bg-stone-900/80 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-900"
+                      onClick={() => setCollapsedProj(p => { const n = new Set(p); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
+                      <td className="px-3 py-1.5 pl-6" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
+                      <td colSpan={12} className="px-3 py-1.5 pl-6 text-[12px] font-medium text-stone-400">
+                        <span className="inline-block w-4 text-stone-600">{item.collapsed ? "▸" : "▾"}</span>
+                        {item.projName}
+                        <span className="text-[10px] text-stone-600 ml-2">{item.count} inv</span>
+                        {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
+                          <span className="text-[10px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">
+                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                      </td>
+                      <td />
+                    </tr>
+                  );
+                }
+
                 const { inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef } = item.r;
                 const isSel = selected.has(inv.id);
                 const editingResp = respEdit?.id === inv.id;
