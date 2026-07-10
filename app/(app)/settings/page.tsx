@@ -5,11 +5,11 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3 } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
-  const { reps, regions } = useData();
+  const { reps, regions, orgSettings } = useData();
   const [qboStatus, setQboStatus]     = useState<any>(null);
   const [xeroStatus, setXeroStatus]   = useState<any>(null);
   const [emailStatus, setEmailStatus] = useState<any>(null);
@@ -98,6 +98,15 @@ export default function SettingsPage() {
       title: "Billing",
       description: "View your plan, payment history, manage payment method and request cancellation.",
       badge: null,
+    },
+    {
+      href: "/settings/reporting",
+      icon: BarChart3,
+      title: "Reporting",
+      description: "Enable the Reporting module to access live P&L, Balance Sheet, Cash Flow and more from QuickBooks or Xero.",
+      badge: orgSettings?.reportingEnabled
+        ? { state: "ok",  label: "Enabled" }
+        : { state: "off", label: "Disabled" },
     },
   ];
 

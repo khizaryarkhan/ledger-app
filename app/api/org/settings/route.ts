@@ -34,6 +34,7 @@ export async function GET() {
         lastCronRun: organisations.lastCronRun,
         lastCronStats: organisations.lastCronStats,
         showPaymentHistory: organisations.showPaymentHistory,
+        reportingEnabled: organisations.reportingEnabled,
       })
       .from(organisations)
       .where(eq(organisations.id, orgId!))
@@ -41,7 +42,7 @@ export async function GET() {
     org = row;
     lastCronRun = row?.lastCronRun?.toISOString() ?? null;
     lastCronStats = row?.lastCronStats ?? null;
-    org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false };
+    org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false, reportingEnabled: (row as any).reportingEnabled ?? false };
   } catch {
     // Columns likely missing — run the 0003 migration. Degrade gracefully.
     const [row] = await db
@@ -73,6 +74,7 @@ export async function GET() {
     lastCronRun,
     lastCronStats,
     showPaymentHistory: org?.showPaymentHistory ?? false,
+    reportingEnabled: org?.reportingEnabled ?? false,
   });
 }
 
@@ -126,6 +128,9 @@ export async function PATCH(req: Request) {
   if (body.showPaymentHistory !== undefined) {
     updates.showPaymentHistory = Boolean(body.showPaymentHistory);
   }
+  if (body.reportingEnabled !== undefined) {
+    updates.reportingEnabled = Boolean(body.reportingEnabled);
+  }
 
   // ── Stages update ──────────────────────────────────────────────────────────
   if (body.stages !== undefined) {
@@ -177,6 +182,7 @@ export async function PATCH(req: Request) {
       stages: organisations.stages,
       disabledRules: organisations.disabledRules,
       showPaymentHistory: organisations.showPaymentHistory,
+      reportingEnabled: organisations.reportingEnabled,
     })
     .from(organisations)
     .where(eq(organisations.id, orgId!))
@@ -192,5 +198,6 @@ export async function PATCH(req: Request) {
     stages: getStages(updated),
     disabledRules: (updated.disabledRules as string[]) ?? [],
     showPaymentHistory: updated.showPaymentHistory ?? false,
+    reportingEnabled: updated.reportingEnabled ?? false,
   });
 }

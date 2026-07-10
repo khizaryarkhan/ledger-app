@@ -35,8 +35,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const isAdmin = role === "super_admin" || role === "company_admin";
 
   // Determine active department from URL
-  const isPayables = pathname.startsWith("/payables");
-  const department: "ar" | "ap" = isPayables ? "ap" : "ar";
+  const isPayables  = pathname.startsWith("/payables");
+  const isReporting = pathname.startsWith("/reporting");
+  const department: "ar" | "ap" | "reporting" = isReporting ? "reporting" : isPayables ? "ap" : "ar";
 
   const [responsesCount, setResponsesCount] = useState(0);
   useEffect(() => {
@@ -115,6 +116,30 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     },
   ];
 
+  const reportingSections: { label?: string; items: NavItem[] }[] = [
+    {
+      items: [
+        { href: "/reporting", label: "Overview", icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: "FINANCIAL",
+      items: [
+        { href: "/reporting/profit-loss",    label: "Profit & Loss",    icon: TrendingUp },
+        { href: "/reporting/balance-sheet",  label: "Balance Sheet",    icon: BookOpen },
+        { href: "/reporting/cash-flow",      label: "Cash Flow",        icon: CreditCard },
+        { href: "/reporting/trial-balance",  label: "Trial Balance",    icon: FileText },
+      ],
+    },
+    {
+      label: "AGEING",
+      items: [
+        { href: "/reporting/ar-aging", label: "AR Ageing",  icon: BarChart3 },
+        { href: "/reporting/ap-aging", label: "AP Ageing",  icon: BarChart3 },
+      ],
+    },
+  ];
+
   // CONFIGURE is shared — always rendered at the bottom regardless of department.
   // Links are contextual so Settings/Imports point to the right section.
   const configureSections: { label?: string; items: NavItem[] }[] = [
@@ -140,7 +165,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     },
   ];
 
-  const sections = department === "ap" ? apSections : arSections;
+  const sections = department === "reporting" ? reportingSections : department === "ap" ? apSections : arSections;
 
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
@@ -187,7 +212,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
       {/* Department switcher */}
       <div className="px-3 py-2 border-b border-stone-800">
-        <div className="flex rounded-md overflow-hidden border border-stone-700">
+        <div className={`flex rounded-md overflow-hidden border border-stone-700 ${orgSettings?.reportingEnabled ? "flex-wrap" : ""}`}>
           <button
             onClick={() => { router.push("/dashboard"); onClose?.(); }}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
@@ -211,6 +236,22 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <Package size={11} />
             Payables
           </button>
+          {orgSettings?.reportingEnabled && (
+            <>
+              <div className="w-px bg-stone-700" />
+              <button
+                onClick={() => { router.push("/reporting"); onClose?.(); }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                  department === "reporting"
+                    ? "bg-blue-500/20 text-blue-400"
+                    : "text-stone-500 hover:text-stone-300 hover:bg-stone-800"
+                }`}
+              >
+                <BarChart3 size={11} />
+                Reporting
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -235,6 +276,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       isActive
                         ? department === "ap"
                           ? "bg-violet-500/15 text-violet-400"
+                          : department === "reporting"
+                          ? "bg-blue-500/15 text-blue-400"
                           : "bg-emerald-500/15 text-emerald-400"
                         : "text-stone-400 hover:bg-stone-800/70 hover:text-stone-100"
                     }`}
@@ -243,7 +286,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       size={15}
                       strokeWidth={isActive ? 2.25 : 2}
                       className={isActive
-                        ? department === "ap" ? "text-violet-400" : "text-emerald-400"
+                        ? department === "ap" ? "text-violet-400" : department === "reporting" ? "text-blue-400" : "text-emerald-400"
                         : "text-stone-500"}
                     />
                     <span className="flex-1">{item.label}</span>
