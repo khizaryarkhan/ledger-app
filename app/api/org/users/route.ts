@@ -82,7 +82,41 @@ export async function POST(req: Request) {
     const repTier = data.role === "ed" ? "ed" : data.role === "rep" ? "rep" : null;
 
     const [existing] = await db.select().from(users).where(eq(users.email, data.email.toLowerCase())).limit(1);
-    if (existing) return bad(`Email "${data.email}" is already registered`, 409);
+    if (existing) {
+      // The email may belong to a provisioning shell (Inactive, unusable
+      // password) created by the admin-portal Lead → Customer flow, or to a
+      // user of another org. Attach/activate instead of dead-ending — this is
+      // exactly how a super admin rescues a half-provisioned customer.
+      const isPortalRoleX = data.role === "rep" || data.role === "ed";
+      const dbRoleX = isPortalRoleX ? "rep" : data.role;
+
+      const [membership] = await db.select({ userId: userOrganisations.userId })
+        .from(userOrganisations)
+        .where(and(eq(userOrganisations.userId, existing.id), eq(userOrganisations.orgId, orgId!)))
+        .limit(1);
+      const belongsHere = !!membership || existing.orgId === orgId;
+
+      if (belongsHere && existing.status === "Active") {
+        return bad(`"${data.email}" is already an active member of this team`, 409);
+      }
+      if (!belongsHere && existing.status === "Active") {
+        // Active user of another org — attach to this org with the given role.
+        await db.insert(userOrganisations).values({ userId: existing.id, orgId: orgId!, role: dbRoleX }).onConflictDoNothing();
+        const [row] = await db.select(userCols).from(users).where(eq(users.id, existing.id)).limit(1);
+        return ok({ ...row, role: dbRoleX, attached: true });
+      }
+
+      // Inactive shell → activate with the supplied password + role.
+      const passwordHash = await bcrypt.hash(data.password, 12);
+      await db.update(users)
+        .set({ name: data.name, passwordHash, status: "Active", role: dbRoleX })
+        .where(eq(users.id, existing.id));
+      await db.insert(userOrganisations).values({ userId: existing.id, orgId: orgId!, role: dbRoleX }).onConflictDoNothing();
+      await db.update(userOrganisations).set({ role: dbRoleX })
+        .where(and(eq(userOrganisations.userId, existing.id), eq(userOrganisations.orgId, orgId!)));
+      const [row] = await db.select(userCols).from(users).where(eq(users.id, existing.id)).limit(1);
+      return ok({ ...row, role: dbRoleX, activated: true });
+    }
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const [created] = await db.insert(users).values({

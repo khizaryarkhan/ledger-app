@@ -29,6 +29,36 @@ import { stripe } from "@/lib/stripe";
 import { requirePlatformAdmin } from "@/lib/billing";
 import { logBillingEvent } from "@/lib/billing";
 import { logActivity } from "@/lib/admin/activities";
+import { sendSystemEmail } from "@/lib/system-mailer";
+
+/**
+ * Stripe does NOT email charge_automatically invoices (and only emails
+ * send_invoice ones if the dashboard setting is on) — so we always send our
+ * own branded email with the hosted payment link. Failure is surfaced in the
+ * response (emailSent) so the admin knows to share the link manually.
+ */
+async function emailInvoiceLink(opts: { to: string; orgName: string; hostedUrl: string; amountLabel: string; kind: string }): Promise<boolean> {
+  try {
+    await sendSystemEmail({
+      to: opts.to,
+      subject: `Your Prime Accountax invoice — ${opts.amountLabel}`,
+      html: `
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1c1917;max-width:560px;">
+  <h2 style="margin:0 0 12px;">Invoice for ${opts.orgName}</h2>
+  <p>Please find your ${opts.kind} invoice below. You can view and pay it securely online:</p>
+  <p style="margin:24px 0;">
+    <a href="${opts.hostedUrl}" style="background:#059669;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">View &amp; pay invoice — ${opts.amountLabel}</a>
+  </p>
+  <p style="color:#78716c;font-size:13px;">Payment is processed securely by Stripe. Once payment is received, your account access will be activated automatically.</p>
+  <p style="color:#78716c;font-size:13px;">If the button doesn't work, copy this link:<br/><a href="${opts.hostedUrl}">${opts.hostedUrl}</a></p>
+</div>`,
+    });
+    return true;
+  } catch (e: any) {
+    console.error("[create-invoice] invoice email failed:", e?.message);
+    return false;
+  }
+}
 
 export const maxDuration = 60;
 
@@ -206,6 +236,13 @@ export async function POST(req: Request) {
       });
       await markBilled();
 
+      // Stripe won't email a charge_automatically invoice — send ours.
+      let emailSent = false;
+      if (invoice?.hosted_invoice_url) {
+        const amountLabel = new Intl.NumberFormat("en-IE", { style: "currency", currency: currency.toUpperCase() }).format((d.amount ?? 0) / 100) + `/${d.interval}`;
+        emailSent = await emailInvoiceLink({ to: d.billingEmail, orgName: org.name, hostedUrl: invoice.hosted_invoice_url, amountLabel, kind: "subscription" });
+      }
+
       return NextResponse.json({
         ok:               true,
         mode:             "subscription",
@@ -215,6 +252,7 @@ export async function POST(req: Request) {
         invoiceId:        invoice?.id ?? null,
         hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null,
         invoicePdf:       invoice?.invoice_pdf ?? null,
+        emailSent,
       });
     }
 
@@ -265,9 +303,18 @@ export async function POST(req: Request) {
     });
     await markBilled();
 
+    // Belt-and-braces: Stripe's sendInvoice only emails if the dashboard
+    // setting is enabled — always send our own branded email too.
+    let emailSent = false;
+    if (sent.hosted_invoice_url) {
+      const amountLabel = new Intl.NumberFormat("en-IE", { style: "currency", currency: currency.toUpperCase() }).format((sent.total ?? 0) / 100);
+      emailSent = await emailInvoiceLink({ to: d.billingEmail, orgName: org.name, hostedUrl: sent.hosted_invoice_url, amountLabel, kind: "one-off" });
+    }
+
     return NextResponse.json({
       ok:               true,
       mode:             "oneoff",
+      emailSent,
       invoiceId:        sent.id,
       number:           sent.number ?? null,
       total:            sent.total ?? 0,

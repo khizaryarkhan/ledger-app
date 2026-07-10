@@ -16,8 +16,9 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { requirePlatformAdmin, logBillingEvent } from "@/lib/billing";
 import { db } from "@/db";
-import { subscriptions } from "@/db/schema";
+import { subscriptions, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { activateOrgOnPayment } from "@/lib/admin/provisioning/provision-customer";
 
 export const maxDuration = 60;
 
@@ -85,14 +86,41 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
       const paid = await stripe.invoices.pay(invoiceId, { paid_out_of_band: true });
 
+      // Activate directly — don't rely solely on the invoice.paid webhook
+      // (idempotent, so the webhook running too is harmless). Surfaces the
+      // "nobody to invite" case so the admin isn't left guessing why the
+      // customer never received credentials.
+      let activation: { activated: boolean; invited: number } | null = null;
+      let userCount = 0;
+      if (subRow?.orgId) {
+        try {
+          activation = await activateOrgOnPayment(subRow.orgId);
+          const orgUsers = await db.select({ id: users.id }).from(users).where(eq(users.orgId, subRow.orgId));
+          userCount = orgUsers.length;
+        } catch (e: any) {
+          console.error("[mark_paid] activation failed:", e?.message);
+        }
+      }
+
       await logBillingEvent({
         organizationId: subRow?.orgId ?? null,
         actorUserId:    userId,
         action:         "invoice_marked_paid_offline",
         newStatus:      paid.status,
-        metadata:       { invoiceId, method, note, total: paid.total },
+        metadata:       { invoiceId, method, note, total: paid.total, invited: activation?.invited ?? 0 },
       });
-      return NextResponse.json({ ok: true, action: "mark_paid", status: paid.status, method });
+      return NextResponse.json({
+        ok: true, action: "mark_paid", status: paid.status, method,
+        activated: activation?.activated ?? false,
+        invited: activation?.invited ?? 0,
+        // Loud warning the admin UI can show: paid, but no user account exists
+        // in the org — nobody received credentials.
+        warning: subRow?.orgId && userCount === 0
+          ? "Invoice marked paid, but this organisation has NO user accounts — nobody was sent credentials. Add the customer's admin user in the app (Settings → Team) or via the org's provisioning step."
+          : activation && activation.invited === 0 && subRow?.orgId
+          ? "Invoice marked paid. No pending users needed activation (existing users already active)."
+          : undefined,
+      });
     }
 
     // ── Refund a paid invoice ────────────────────────────────────────────────
