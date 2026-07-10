@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { subscriptions, organisations } from "@/db/schema";
-import { requirePlatformAdmin } from "@/lib/billing";
+import { requireSuperAdmin } from "@/lib/billing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -19,7 +19,8 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
-  const { error, userId } = await requirePlatformAdmin();
+  // Granting free access is a billing bypass — super admin only.
+  const { error, userId } = await requireSuperAdmin();
   if (error) return error;
 
   const body = await req.json().catch(() => ({}));

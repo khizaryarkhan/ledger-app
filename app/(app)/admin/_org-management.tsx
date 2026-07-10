@@ -602,7 +602,7 @@ export function DeleteOrgModal({ org, onClose, onDeleted }: { org: any; onClose:
     if (!canDelete) return;
     setDeleting(true); setError("");
     try {
-      const res = await fetch(`/api/admin/organisations?orgId=${org.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/organisations?orgId=${org.id}&confirmName=${encodeURIComponent(org.name)}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed to delete"); return; }
       onDeleted();

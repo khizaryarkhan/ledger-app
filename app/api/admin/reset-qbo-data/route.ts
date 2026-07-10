@@ -19,15 +19,17 @@ import {
   journalEntryArLines, deposits, qboWebhookEvents, qboSyncLog,
   customers, projects, contacts,
 } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requireSuperAdmin, logBillingEvent } from "@/lib/billing";
 import { eq } from "drizzle-orm";
 
 export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  const { error, session } = await requireAuth();
+  // DB-revalidated super-admin check — a stale JWT from a demoted or
+  // deactivated admin must not be able to wipe tenant data.
+  const { error, userId } = await requireSuperAdmin();
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Super admin only", 403);
 
   const url = new URL(req.url);
   const full       = url.searchParams.get("full") === "true";
@@ -76,6 +78,14 @@ export async function POST(req: Request) {
     await wipe("projects", projects);
     await wipe("customers", customers);
   }
+
+  // Audit: who wiped what.
+  await logBillingEvent({
+    organizationId: targetOrg ?? null,
+    actorUserId:    userId,
+    action:         "qbo_data_reset",
+    metadata:       { scope: targetOrg ?? "ALL_ORGS", full, deleted },
+  }).catch(() => {});
 
   return ok({
     scope:    targetOrg ? { orgId: targetOrg } : { allOrgs: true },

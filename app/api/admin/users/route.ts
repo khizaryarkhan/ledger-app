@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users, userOrganisations, reps } from "@/db/schema";
-import { requireAuth, isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
+import { isSuperAdmin, requireOrg, ok, bad } from "@/lib/api";
+import { requireSuperAdmin } from "@/lib/billing";
 import { logEvent } from "@/lib/audit";
 import { z } from "zod";
 import { eq, and, or, sql } from "drizzle-orm";
@@ -143,9 +144,8 @@ export async function POST(req: Request) {
 
 // ── PUT — full update (super admin only) ─────────────────────────────────────
 export async function PUT(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error } = await requireSuperAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   try {
     const { userId, name, email, role } = await req.json();
@@ -191,10 +191,11 @@ export async function PATCH(req: Request) {
       const { userId, role: virtualRole } = body;
       if (!userId) return bad("userId required");
 
-      // company_admin may not elevate to company_admin (only super can)
+      // company_admin may not elevate anyone to company_admin (only super can).
+      // NB: both branches of this ternary used to be identical — the guard was dead.
       const allowed = isSuper
         ? ["company_admin", "company_user", "rep", "ed"]
-        : ["company_admin", "company_user", "rep", "ed"];
+        : ["company_user", "rep", "ed"];
       if (!allowed.includes(virtualRole)) return bad("Invalid role or insufficient permissions", 403);
 
       const dbRole    = ["rep", "ed"].includes(virtualRole) ? "rep" : virtualRole;

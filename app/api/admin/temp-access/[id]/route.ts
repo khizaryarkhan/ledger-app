@@ -23,6 +23,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   const { action, daysAccess, adminNotes } = parsed.data;
+  // An approval without a duration produces expiresAt=null, which the access
+  // check rejects — the admin thinks they granted access but granted nothing.
+  if (action === "approve" && !daysAccess) {
+    return NextResponse.json({ error: "daysAccess is required when approving (1-90 days)" }, { status: 400 });
+  }
 
   const [existing] = await db
     .select({ id: tempAccessRequests.id, status: tempAccessRequests.status })

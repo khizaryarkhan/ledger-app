@@ -208,3 +208,21 @@ export async function requirePlatformAdmin() {
     userRole: userRow.role,
   };
 }
+
+/**
+ * requireSuperAdmin — like requirePlatformAdmin but super_admin ONLY, for
+ * destructive/platform-critical routes (org delete, data resets, platform
+ * user management). Always re-checks the DB — a stale JWT from a demoted or
+ * deactivated admin must NOT retain destructive powers.
+ */
+export async function requireSuperAdmin() {
+  const res = await requirePlatformAdmin();
+  if (res.error) return res;
+  if (res.userRole !== "super_admin") {
+    return {
+      error: NextResponse.json({ error: "Forbidden — super admin only" }, { status: 403 }),
+      userId: null, userName: null, userEmail: null, userRole: null,
+    };
+  }
+  return res;
+}

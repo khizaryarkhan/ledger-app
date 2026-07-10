@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users, userOrganisations, organisations } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requireSuperAdmin } from "@/lib/billing";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
@@ -8,9 +9,8 @@ import bcrypt from "bcryptjs";
 // Super admin: add an existing user (by email) or create a new one, then link to this org
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
-    const { error, session } = await requireAuth();
+    const { error } = await requireSuperAdmin(); // DB-revalidated
     if (error) return error;
-    if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
     const orgId = params.id;
 
@@ -76,9 +76,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 //   (preserves history but immediately blocks access since requireOrg() rejects inactive users)
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
-    const { error, session } = await requireAuth();
+    const { error, userId: selfId } = await requireSuperAdmin(); // DB-revalidated
     if (error) return error;
-    if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
     const orgId = params.id;
     const url = new URL(req.url);
@@ -86,7 +85,6 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     if (!userId) return bad("userId required");
 
     // Self-removal guard
-    const selfId = (session!.user as any).id;
     if (userId === selfId) return bad("You cannot remove yourself", 400);
 
     // 1. Remove the junction-table row for this org

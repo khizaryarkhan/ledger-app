@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { organisations, users, userOrganisations, subscriptions, crmAccounts } from "@/db/schema";
-import { requireAuth, isSuperAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requireSuperAdmin, logBillingEvent } from "@/lib/billing";
 import { z } from "zod";
 import { eq, desc, sql, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -15,9 +16,8 @@ const OrgSchema = z.object({
 });
 
 export async function GET() {
-  const { error, session } = await requireAuth();
+  const { error } = await requireSuperAdmin(); // DB-revalidated, not JWT-trusting
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const userCounts = await db
     .select({ orgId: userOrganisations.orgId, count: sql<number>`count(*)::int` })
@@ -64,9 +64,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error } = await requireSuperAdmin(); // DB-revalidated, not JWT-trusting
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   try {
     const data = OrgSchema.parse(await req.json());
@@ -133,9 +132,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error } = await requireSuperAdmin(); // DB-revalidated, not JWT-trusting
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { orgId, name, status } = await req.json();
   if (!orgId) return bad("orgId required");
@@ -152,9 +150,8 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error, userId } = await requireSuperAdmin(); // DB-revalidated, not JWT-trusting
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const url = new URL(req.url);
   const orgId = url.searchParams.get("orgId");
@@ -166,6 +163,24 @@ export async function DELETE(req: Request) {
     .where(eq(organisations.id, orgId))
     .limit(1);
   if (!org) return bad("Organisation not found", 404);
+
+  // Hard-deleting an org cascades ALL tenant data — irreversible. Require the
+  // caller to echo the exact org name so a mistyped id can't destroy a tenant.
+  const confirmName = url.searchParams.get("confirmName") ?? "";
+  if (confirmName !== org.name) {
+    return bad(
+      `Deletion requires confirmation: repeat the exact organisation name in ?confirmName=. This permanently deletes ALL data for this organisation.`,
+      428,
+    );
+  }
+
+  // Audit BEFORE the delete (the org row is about to disappear).
+  await logBillingEvent({
+    organizationId: orgId,
+    actorUserId:    userId,
+    action:         "organisation_deleted",
+    metadata:       { orgId, name: org.name },
+  }).catch(() => {});
 
   // Hard delete — cascade rules in schema handle all related data
   await db.delete(organisations).where(eq(organisations.id, orgId));

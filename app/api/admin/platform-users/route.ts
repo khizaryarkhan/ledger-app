@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { requireAuth, isSuperAdmin, isPlatformAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin, requireSuperAdmin } from "@/lib/billing";
 import { eq, or, desc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
@@ -8,9 +9,8 @@ import { randomUUID } from "crypto";
 const PLATFORM_ROLES = ["super_admin", "platform_admin"] as const;
 
 export async function GET() {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   const rows = await db
     .select({
@@ -25,9 +25,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error } = await requireSuperAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { name, email, password, role } = await req.json().catch(() => ({}));
   if (!name?.trim() || !email?.trim() || !password) return bad("Name, email and password are required");
@@ -56,20 +55,36 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { error, session } = await requireAuth();
+  const { error, userId: actorId } = await requireSuperAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isSuperAdmin(session)) return bad("Forbidden", 403);
 
   const { userId, status, role } = await req.json().catch(() => ({}));
   if (!userId) return bad("userId required");
 
   // Prevent self-modification
-  if (userId === (session as any)?.user?.id) return bad("Cannot modify your own account here");
+  if (userId === actorId) return bad("Cannot modify your own account here");
 
   const updates: Record<string, any> = {};
   if (status && ["Active", "Inactive"].includes(status)) updates.status = status;
   if (role && PLATFORM_ROLES.includes(role)) updates.role = role;
   if (Object.keys(updates).length === 0) return bad("Nothing to update");
+
+  // Last-super-admin invariant: never demote or deactivate the final active
+  // super_admin — that would permanently lock the platform out of itself.
+  const [target] = await db.select({ id: users.id, role: users.role, status: users.status })
+    .from(users).where(eq(users.id, userId)).limit(1);
+  if (!target) return bad("User not found", 404);
+  const losesSuper =
+    target.role === "super_admin" && target.status === "Active" &&
+    ((updates.role && updates.role !== "super_admin") || updates.status === "Inactive");
+  if (losesSuper) {
+    const supers = await db.select({ id: users.id, status: users.status }).from(users)
+      .where(eq(users.role, "super_admin"));
+    const otherActiveSupers = supers.filter(r => r.id !== target.id && r.status === "Active");
+    if (otherActiveSupers.length === 0) {
+      return bad("Cannot demote or deactivate the last active super admin", 409);
+    }
+  }
 
   await db.update(users).set(updates).where(eq(users.id, userId));
   const [updated] = await db.select({

@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { leadEmailTemplates } from "@/db/schema";
-import { requireAuth, isPlatformAdmin, ok, bad } from "@/lib/api";
+import { ok, bad } from "@/lib/api";
+import { requirePlatformAdmin } from "@/lib/billing";
 import { desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
@@ -10,9 +11,8 @@ function isTableMissingError(e: unknown): boolean {
 }
 
 export async function GET() {
-  const { error, session } = await requireAuth();
+  const { error } = await requirePlatformAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   try {
     const templates = await db
@@ -27,16 +27,15 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error, session } = await requireAuth();
+  const { error, userId: actorId } = await requirePlatformAdmin(); // DB-revalidated
   if (error) return error;
-  if (!isPlatformAdmin(session)) return bad("Forbidden", 403);
 
   const { name, subject, body, stage } = await req.json().catch(() => ({}));
   if (!name?.trim())    return bad("Name is required");
   if (!subject?.trim()) return bad("Subject is required");
   if (!body?.trim())    return bad("Body is required");
 
-  const createdBy = (session as any).user?.id ?? null;
+  const createdBy = actorId ?? null;
 
   try {
     const [tpl] = await db.insert(leadEmailTemplates).values({
