@@ -54,12 +54,17 @@ const ACTION_BADGE: Record<string, string> = {
 export default function AdminBillingPage() {
   const [data, setData]       = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [webhook, setWebhook] = useState<any>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/overview");
+      const [r, wh] = await Promise.all([
+        fetch("/api/admin/overview"),
+        fetch("/api/admin/billing/webhook-health"),
+      ]);
       if (r.ok) setData(await r.json());
+      if (wh.ok) setWebhook(await wh.json());
     } finally {
       setLoading(false);
     }
@@ -91,6 +96,27 @@ export default function AdminBillingPage() {
         <StatCard label="Pending cancellations" value={stats.pendingCancellations} icon={Clock}       color={stats.pendingCancellations > 0 ? "amber" : "stone"} href="/admin/cancellations" />
         <StatCard label="New leads"             value={stats.newLeads}            icon={FileText}     color={stats.newLeads > 0 ? "blue" : "stone"} href="/admin/leads" />
       </div>
+
+      {/* Stripe webhook health — "is Stripe actually reaching us?" */}
+      {webhook && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl ring-1 text-xs flex-wrap ${
+          webhook.hint || (webhook.counts?.errors7d ?? 0) > 0 || (webhook.hoursSinceLast ?? 0) > 72
+            ? "bg-amber-500/10 ring-amber-500/30 text-amber-300"
+            : "bg-emerald-500/5 ring-emerald-500/20 text-stone-400"
+        }`}>
+          <span className="font-semibold text-stone-200">Stripe webhooks:</span>
+          {webhook.hint ? (
+            <span>{webhook.hint}</span>
+          ) : (
+            <>
+              <span>last event <span className="text-stone-200 font-medium">{webhook.hoursSinceLast === 0 ? "under an hour" : `${webhook.hoursSinceLast}h`} ago</span> ({webhook.recent?.[0]?.eventType})</span>
+              <span>· {webhook.counts.last7d} events in 7d</span>
+              <span className={webhook.counts.errors7d > 0 ? "text-rose-400 font-semibold" : ""}>· {webhook.counts.errors7d} errors in 7d</span>
+              {(webhook.hoursSinceLast ?? 0) > 72 && <span className="font-semibold">— unusually quiet; check the Stripe dashboard endpoint</span>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid md:grid-cols-2 gap-5">
         <Card padding="md">
