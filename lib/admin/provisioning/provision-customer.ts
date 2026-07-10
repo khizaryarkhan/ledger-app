@@ -15,7 +15,10 @@ import { logBillingEvent } from "@/lib/billing";
  * invite. Must be called from every payment-success path (invoice.paid webhook,
  * checkout.session.completed, manual admin activation).
  */
-export async function activateOrgOnPayment(orgId: string): Promise<{ activated: boolean; invited: number }> {
+export async function activateOrgOnPayment(
+  orgId: string,
+  opts?: { reinviteUnusable?: boolean },
+): Promise<{ activated: boolean; invited: number }> {
   if (!orgId) return { activated: false, invited: 0 };
 
   const [org] = await db.select({ id: organisations.id, status: organisations.status, accountId: organisations.accountId }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
@@ -30,6 +33,19 @@ export async function activateOrgOnPayment(orgId: string): Promise<{ activated: 
   // touches users that aren't Active yet, so re-runs send no duplicate invites).
   const pending = await db.select({ id: users.id, name: users.name, email: users.email })
     .from(users).where(and(eq(users.orgId, orgId), ne(users.status, "Active")));
+
+  // Manual rescue path: also re-invite Active users whose password was never
+  // set (provisioning shells carry a random-hex hash; real bcrypt hashes start
+  // with "$2"). Covers "invite email was lost after activation already ran".
+  if (opts?.reinviteUnusable) {
+    const activeUnusable = await db
+      .select({ id: users.id, name: users.name, email: users.email, passwordHash: users.passwordHash })
+      .from(users).where(and(eq(users.orgId, orgId), eq(users.status, "Active")));
+    for (const u of activeUnusable) {
+      if (String(u.passwordHash ?? "").startsWith("$2")) continue; // real password — leave alone
+      pending.push({ id: u.id, name: u.name, email: u.email });
+    }
+  }
 
   let invited = 0;
   for (const u of pending) {

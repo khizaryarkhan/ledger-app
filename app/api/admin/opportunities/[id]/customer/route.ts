@@ -40,6 +40,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ── ensure the organisation ──
   let orgId = opp.orgId;
+  // Duplicate-org guard: the account may already have an org created via the
+  // Accounts → ensure-org path even when the opportunity was never backfilled.
+  if (!orgId) {
+    const [acct] = await db.select({ organisationId: crmAccounts.organisationId })
+      .from(crmAccounts).where(eq(crmAccounts.id, accountId)).limit(1);
+    if (acct?.organisationId) {
+      orgId = acct.organisationId;
+      await db.update(opportunities).set({ orgId, updatedAt: new Date() }).where(eq(opportunities.id, params.id));
+    }
+  }
   if (!orgId) {
     const slug = `${slugify(name)}-${randomUUID().slice(0, 6)}`;
     // Pending shell: created Inactive. Access is granted only when the invoice
@@ -55,12 +65,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // Link the account back to org/opp/lead (find-or-create already done above).
+  // A failure here breaks the CRM spine (lead 360 loses billing; ensure-org
+  // could later create a duplicate org) — log it and surface a warning.
+  let linkWarning: string | undefined;
   try {
     await db.update(crmAccounts).set({ organisationId: orgId, updatedAt: new Date() }).where(eq(crmAccounts.id, accountId));
     await db.update(organisations).set({ accountId }).where(eq(organisations.id, orgId!));
     await db.update(opportunities).set({ accountId }).where(eq(opportunities.id, params.id));
     if (opp.leadId) await db.update(landingPageRequests).set({ accountId }).where(eq(landingPageRequests.id, opp.leadId));
-  } catch { /* non-fatal */ }
+  } catch (e: any) {
+    console.error("[opportunities/customer] account↔org linking failed:", e?.message);
+    linkWarning = "Customer org was created but CRM linking partially failed — check the account's organisation link.";
+  }
 
   // ── provision the PENDING shell user (Inactive, no invite email) ──
   // The set-password invite + activation happen on payment, never at creation.
@@ -86,6 +102,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   return NextResponse.json({
-    orgId, billingEmail: lead?.email ?? "", country: lead?.country ?? "", name, provisioned, pending: true,
+    orgId, billingEmail: lead?.email ?? "", country: lead?.country ?? "", name, provisioned, pending: true, linkWarning,
   });
 }

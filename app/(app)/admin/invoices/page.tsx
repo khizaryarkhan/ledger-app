@@ -54,7 +54,8 @@ function MarkPaidModal({ invoice, onClose, onDone, onToast }: {
       });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Failed"); return; }
-      onToast({ type: "success", message: "Marked as received" });
+      if (d.warning) onToast({ type: "error", message: d.warning });
+      else onToast({ type: "success", message: `Marked as received${d.invited ? ` — ${d.invited} set-password invite(s) sent` : ""}` });
       onDone(); onClose();
     } catch (e: any) { setErr(e?.message || "Network error"); }
     finally { setSaving(false); }

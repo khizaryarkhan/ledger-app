@@ -79,7 +79,13 @@ export default function CustomerDetailPage() {
         body: JSON.stringify({ action: "mark_paid", method: payMethod, receivedDate: payDate, note: payNote.trim() || undefined }),
       });
       const d = await r.json();
-      if (r.ok) { setToast({ type: "success", message: "Offline payment recorded" }); setPayInv(null); load(); }
+      if (r.ok) {
+        // Surface the backend's provisioning outcome — a green toast on a
+        // paid org with zero users is how customers end up locked out.
+        if (d.warning) setToast({ type: "error", message: d.warning });
+        else setToast({ type: "success", message: `Offline payment recorded${d.invited ? ` — ${d.invited} set-password invite(s) sent` : ""}` });
+        setPayInv(null); load();
+      }
       else setToast({ type: "error", message: d.error ?? "Failed" });
     } finally { setPayingOff(false); }
   };
@@ -158,12 +164,27 @@ export default function CustomerDetailPage() {
             {sub && <> · <Badge variant={(STATUS_BADGE[sub.status] ?? "neutral") as any} size="sm">{sub.isActive ? "active" : sub.status}</Badge></>}
           </p>
         </div>
-        {data.crmLeadId && (
-          <Link href={`/admin/leads/${data.crmLeadId}`}
-            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 transition-colors">
-            <ExternalLink size={13} /> View in CRM
-          </Link>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={async () => {
+              const r = await fetch(`/api/admin/organisations/${orgId}/activate`, { method: "POST" });
+              const d = await r.json().catch(() => ({}));
+              if (!r.ok) { setToast({ type: "error", message: d.error ?? "Failed" }); return; }
+              if (d.warning) setToast({ type: "error", message: d.warning });
+              else setToast({ type: "success", message: `Activated — ${d.invited} set-password invite(s) sent (${d.userCount} user(s) in org)` });
+              load();
+            }}
+            title="Activate the org and (re)send set-password invites to users without working credentials"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-emerald-800 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+            <CheckCircle2 size={13} /> Activate &amp; send invites
+          </button>
+          {data.crmLeadId && (
+            <Link href={`/admin/leads/${data.crmLeadId}`}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 transition-colors">
+              <ExternalLink size={13} /> View in CRM
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Stats */}

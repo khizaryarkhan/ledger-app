@@ -124,6 +124,8 @@ export default function AccountsActionQueue() {
 function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => void; onDone: (msg: string) => void }) {
   const [mode, setMode] = useState<"subscription" | "oneoff">("subscription");
   const [email, setEmail] = useState(row.email ?? "");
+  const [adminEmail, setAdminEmail] = useState(row.email ?? "");
+  const [adminName, setAdminName] = useState("");
   const [currency, setCurrency] = useState(row.currency || "USD");
   const [amount, setAmount] = useState(row.value ? String(row.value) : "");
   const [interval, setInterval] = useState<"month" | "year">("month");
@@ -131,12 +133,23 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
   const [desc, setDesc] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  // Post-create result panel: the hosted link + email status must be visible
+  // and copyable — never assume the email arrived.
+  const [result, setResult] = useState<{ hostedInvoiceUrl: string | null; emailSent: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const submit = async () => {
     setErr(""); setSaving(true);
     try {
-      const og = await fetch(`/api/admin/accounts/${row.accountId}/ensure-org`, { method: "POST" }).then(r => r.json());
+      // ensure-org also provisions the pending admin user — on payment this is
+      // who receives the set-password invite. Without it the customer pays for
+      // an account nobody can log into.
+      const og = await fetch(`/api/admin/accounts/${row.accountId}/ensure-org`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminEmail: adminEmail.trim() || email.trim(), adminName: adminName.trim() || row.name }),
+      }).then(r => r.json());
       if (!og?.orgId) { setErr("Could not set up the customer org"); setSaving(false); return; }
+      if (!og.userCount) { setErr("The customer org has no user — enter the customer admin's email so they can receive login credentials on payment."); setSaving(false); return; }
       const body: any = { orgId: og.orgId, mode, billingEmail: email.trim(), currency: currency.toLowerCase(), daysUntilDue: 14 };
       if (mode === "subscription") {
         const amt = Math.round((parseFloat(amount) || 0) * 100);
@@ -150,7 +163,8 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
       const r = await fetch("/api/admin/billing/create-invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) { setErr(d.error || "Failed to create invoice"); setSaving(false); return; }
-      onDone(`Invoice created for ${row.name} — moved to Customers.`);
+      setSaving(false);
+      setResult({ hostedInvoiceUrl: d.hostedInvoiceUrl ?? null, emailSent: !!d.emailSent });
     } catch { setErr("Failed to create invoice"); setSaving(false); }
   };
 
@@ -162,6 +176,30 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
           <div><h2 className="font-semibold text-white">Bill {row.name}</h2><p className="text-[11px] text-stone-500 mt-0.5">Creating this moves them to Customers.</p></div>
           <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
         </div>
+        {result ? (
+          <div className="p-5 space-y-3">
+            <div className={`text-sm px-3 py-2 rounded ring-1 ${result.emailSent ? "text-emerald-400 bg-emerald-500/10 ring-emerald-500/30" : "text-amber-400 bg-amber-500/10 ring-amber-500/30"}`}>
+              {result.emailSent
+                ? `Invoice created and emailed to ${email.trim()}.`
+                : "Invoice created, but the email FAILED to send — share the payment link with the customer manually."}
+            </div>
+            {result.hostedInvoiceUrl && (
+              <div className="flex items-center gap-2">
+                <input readOnly value={result.hostedInvoiceUrl} className={`${inp} text-[11px] font-mono`} onFocus={e => e.target.select()} />
+                <button
+                  onClick={() => { navigator.clipboard.writeText(result.hostedInvoiceUrl!); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                  className="h-9 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 shrink-0">
+                  {copied ? "Copied ✓" : "Copy link"}
+                </button>
+              </div>
+            )}
+            <p className="text-[11px] text-stone-500">On payment, {adminEmail.trim() || email.trim()} automatically receives a set-password email and the account activates.</p>
+            <div className="flex justify-end">
+              <button onClick={() => onDone(`Invoice created for ${row.name} — moved to Customers.`)}
+                className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Done</button>
+            </div>
+          </div>
+        ) : (
         <div className="p-5 space-y-3">
           {err && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{err}</div>}
           <div className="flex gap-1 p-1 rounded-lg bg-stone-800 w-fit">
@@ -170,6 +208,11 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
             ))}
           </div>
           <div><label className="text-xs text-stone-400 block mb-1.5">Billing email</label><input className={inp} value={email} onChange={e => setEmail(e.target.value)} placeholder="billing@company.com" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="text-xs text-stone-400 block mb-1.5">Customer admin name</label><input className={inp} value={adminName} onChange={e => setAdminName(e.target.value)} placeholder="Who gets the login" /></div>
+            <div><label className="text-xs text-stone-400 block mb-1.5">Customer admin email</label><input className={inp} value={adminEmail} onChange={e => setAdminEmail(e.target.value)} placeholder="defaults to billing email" /></div>
+          </div>
+          <p className="text-[11px] text-stone-600 -mt-1">This person receives the set-password invite automatically when the invoice is paid.</p>
           {mode === "subscription" ? (
             <>
               <div><label className="text-xs text-stone-400 block mb-1.5">Plan name</label><input className={inp} value={planName} onChange={e => setPlanName(e.target.value)} /></div>
@@ -189,10 +232,13 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
             </>
           )}
         </div>
+        )}
+        {!result && (
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <button onClick={onClose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
           <button onClick={submit} disabled={saving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />} Create & send</button>
         </div>
+        )}
       </div>
     </div>
   );
