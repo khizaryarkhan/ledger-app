@@ -356,6 +356,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       }
       if (cf.email === "has" && !r.email) return false;
       if (cf.email === "none" && r.email) return false;
+      if (cf.emailText && !has(r.email, cf.emailText)) return false;
       if (cf.lastSent === "sent" && !r.lastSent) return false;
       if (cf.lastSent === "never" && r.lastSent) return false;
       if (cf.lastSent === "not-today" && r.lastSent?.slice(0, 10) === today) return false;
@@ -420,6 +421,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     multiLabel("escType", "Escalation");
     if (cf.response) chips.push({ key: "response", label: `Response: ${cf.response}` });
     if (cf.email) chips.push({ key: "email", label: cf.email === "has" ? "Has email" : "No email" });
+    if (cf.emailText) chips.push({ key: "emailText", label: `Email ~ "${cf.emailText}"` });
     if (cf.lastSent === "cutoff" && cf.lastSentBefore) chips.push({ key: "lastSent", label: `Not chased since ${cf.lastSentBefore}` });
     else if (cf.lastSent) chips.push({ key: "lastSent", label: cf.lastSent === "not-today" ? "Not sent today" : cf.lastSent === "never" ? "Never sent" : "Sent" });
     if (cf.lastRef) chips.push({ key: "lastRef", label: `Ref ~ "${cf.lastRef}"` });
@@ -1062,6 +1064,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     filter === "stage"    ? !!cf.stage :
                     filter === "lastSent" ? !!cf.lastSent :
                     filter === "bucket"   ? !!cf.bucket :
+                    filter === "email"    ? !!(cf.email || cf.emailText) :
                     !!cf[filter];
                   return (
                     <th key={label} className={`${thCls} relative`}>
@@ -1153,13 +1156,23 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             </div>
                           )}
                           {filter === "email" && (
-                            <div className="space-y-1">
-                              {[["", "All"], ["has", "Has email"], ["none", "No email"]].map(([v, l]) => (
-                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="radio" name="f-email" checked={(cf.email ?? "") === v} onChange={() => setFilter("email", v)} />
-                                  {l}
-                                </label>
-                              ))}
+                            <div className="space-y-2">
+                              <input
+                                autoFocus
+                                value={cf.emailText ?? ""}
+                                onChange={e => setFilter("emailText", e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setFilterOpen(null); }}
+                                placeholder="Filter email…"
+                                className={inputCls}
+                              />
+                              <div className="space-y-1 pt-1 border-t border-stone-800">
+                                {[["", "All"], ["has", "Has email"], ["none", "No email"]].map(([v, l]) => (
+                                  <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                    <input type="radio" name="f-email" checked={(cf.email ?? "") === v} onChange={() => setFilter("email", v)} />
+                                    {l}
+                                  </label>
+                                ))}
+                              </div>
                             </div>
                           )}
                           {filter === "lastSent" && (
