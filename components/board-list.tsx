@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport } from "@/lib/export-report";
@@ -56,6 +56,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [chaseRef, setChaseRef] = useState("");
   const [chaseMemo, setChaseMemo] = useState("");
   const [savingChase, setSavingChase] = useState(false);
+
+  // Toolbar dropdown menus (View / Export) — one open at a time
+  const [toolbarMenu, setToolbarMenu] = useState<"view" | "export" | null>(null);
 
   // Batch operations state
   const [batchPanel, setBatchPanel] = useState<"stage" | "chase" | null>(null);
@@ -801,46 +804,86 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           {selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
-          {selected.size > 0 && (
-            <button onClick={downloadPdfs} disabled={downloadingPdf}
-              className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-white border border-emerald-700 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md px-2.5 py-1.5 transition-colors disabled:opacity-50">
-              {downloadingPdf
-                ? <><span className="inline-block w-3 h-3 border-2 border-emerald-400/40 border-t-emerald-400 rounded-full animate-spin" /> Downloading…</>
-                : <><FileText size={13} /> Download PDFs ({selected.size})</>
-              }
+          {/* View menu — grouping, collapse, overdue */}
+          <div className="relative">
+            <button onClick={() => setToolbarMenu(m => m === "view" ? null : "view")}
+              className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
+                toolbarMenu === "view" || groupByCustomer || overdueOnly
+                  ? "text-white border-stone-500 bg-stone-800"
+                  : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
+              <SlidersHorizontal size={13} /> View
+              {(groupByCustomer || overdueOnly) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+              <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "view" ? "rotate-180" : ""}`} />
             </button>
-          )}
-          <button onClick={() => setGroupByCustomer(v => !v)}
-            title="Group rows under Customer → Project bands with subtotals, largest first"
-            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${groupByCustomer ? "bg-stone-200 text-stone-900 border-stone-200" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
-            <Users size={13} /> Group by customer
-          </button>
-          {groupByCustomer && (
-            <button
-              onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
-              className="flex items-center gap-1.5 text-xs font-medium text-stone-400 border border-stone-700 rounded-md px-2.5 py-1.5 hover:bg-stone-800 transition-colors">
-              {collapsedCust.size > 0 ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-              {collapsedCust.size > 0 ? "Expand all" : "Collapse all"}
+            {toolbarMenu === "view" && (
+              <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
+                <button onClick={() => setGroupByCustomer(v => !v)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <Users size={13} className="text-stone-500" />
+                  <span className="flex-1 text-left">Group by customer</span>
+                  {groupByCustomer && <Check size={13} className="text-emerald-400" />}
+                </button>
+                {groupByCustomer && (
+                  <button onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                    {collapsedCust.size > 0 ? <ChevronDown size={13} className="text-stone-500" /> : <ChevronUp size={13} className="text-stone-500" />}
+                    <span className="flex-1 text-left">{collapsedCust.size > 0 ? "Expand all groups" : "Collapse all groups"}</span>
+                  </button>
+                )}
+                <button onClick={() => setOverdueOnly(v => !v)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <AlertTriangle size={13} className="text-stone-500" />
+                  <span className="flex-1 text-left">Overdue only</span>
+                  {overdueOnly && <Check size={13} className="text-emerald-400" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Export menu — Excel, Chase Report, PDFs */}
+          <div className="relative">
+            <button onClick={() => setToolbarMenu(m => m === "export" ? null : "export")}
+              className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
+                toolbarMenu === "export" ? "text-white border-stone-500 bg-stone-800" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
+              <Download size={13} /> Export
+              <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "export" ? "rotate-180" : ""}`} />
             </button>
-          )}
-          <button onClick={() => setOverdueOnly(v => !v)}
-            className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${overdueOnly ? "bg-rose-600 text-white border-rose-600" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
-            <AlertTriangle size={13} /> Overdue only
-          </button>
-          <button onClick={exportExcel}
-            className="flex items-center gap-1.5 text-xs font-medium text-stone-400 hover:text-white border border-stone-700 rounded-md px-2.5 py-1.5 hover:bg-stone-800">
-            <Download size={13} /> Export to Excel{selected.size ? ` (${selected.size})` : ""}
-          </button>
-          <button
-            onClick={() => exportChaseReport({
-              orgName: orgName ?? "Organisation",
-              rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
-              comments: comments ?? [],
-            })}
-            title="Management chase report — pivot-ready detail + summary by owner"
-            className="flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-white border border-sky-800 bg-sky-500/10 hover:bg-sky-500/20 rounded-md px-2.5 py-1.5 transition-colors">
-            <FileText size={13} /> Chase Report{selected.size ? ` (${selected.size})` : ""}
-          </button>
+            {toolbarMenu === "export" && (
+              <div className="absolute right-0 top-full mt-1 z-30 w-64 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
+                <button onClick={() => { exportExcel(); setToolbarMenu(null); }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <Download size={13} className="text-stone-500" />
+                  <span className="flex-1 text-left">Excel — board view{selected.size ? ` (${selected.size} selected)` : ""}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    exportChaseReport({
+                      orgName: orgName ?? "Organisation",
+                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
+                      comments: comments ?? [],
+                    });
+                    setToolbarMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <FileText size={13} className="text-stone-500" />
+                  <div className="flex-1 text-left">
+                    Chase Report{selected.size ? ` (${selected.size} selected)` : ""}
+                    <div className="text-[10px] text-stone-600">Management report — detail + summary by owner</div>
+                  </div>
+                </button>
+                <button onClick={() => { downloadPdfs(); setToolbarMenu(null); }} disabled={selected.size === 0 || downloadingPdf}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent">
+                  <FileText size={13} className="text-stone-500" />
+                  <div className="flex-1 text-left">
+                    {downloadingPdf ? "Downloading PDFs…" : `Invoice PDFs (ZIP)${selected.size ? ` (${selected.size})` : ""}`}
+                    {selected.size === 0 && <div className="text-[10px] text-stone-600">Select invoices first</div>}
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Notify Owners — the one real action stays visible */}
           {ownerGroups.length > 0 && (
             <button
               onClick={() => { setNotifyInvChecked(new Set(ownerGroups.flatMap(g => g.items.map(r => r.inv.id)))); setNotifyExpanded(new Set()); setNotifyOpen(true); }}
@@ -851,6 +894,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           )}
         </div>
       </div>
+
+      {/* Click-away for toolbar menus — below the sticky thead (z-20) */}
+      {toolbarMenu && <div className="fixed inset-0 z-10" onClick={() => setToolbarMenu(null)} />}
 
       {/* Saved views + active filter chips */}
       {(savedViews.length > 0 || filterChips.length > 0 || anyFilter) && (
