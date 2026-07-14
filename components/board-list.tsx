@@ -1316,43 +1316,60 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     <td className="px-3 py-2">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <select
-                            value={pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel}
-                            disabled={busyId === inv.id}
-                            onChange={e => {
-                              const newStage = e.target.value;
-                              if (newStage === "Escalated") {
-                                openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined);
-                              } else {
-                                const patch: any = { collectionStage: newStage };
-                                if (stageLabel === "Escalated") {
-                                  patch.escalatedToUserId = null;
-                                  patch.escalatedToName   = null;
-                                  patch.escalatedToEmail  = null;
-                                  patch.escalationType    = null;
-                                  patch.escalationNote    = null;
-                                }
-                                save(inv.id, patch);
-                              }
-                            }}
-                            className={`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel)}`}>
-                            {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
-                            {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                          {stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id && (
-                            <button
-                              onClick={() => openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined)}
-                              title={[
-                                inv.escalatedToEmail ? `${inv.escalatedToName} · ${inv.escalatedToEmail}` : null,
-                                inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
-                                inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
-                                inv.escalatedAt ? `Escalated ${new Date(inv.escalatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : null,
-                              ].filter(Boolean).join("\n") || undefined}
-                              className="inline-flex items-center gap-1 text-[11px] bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5 hover:bg-rose-900/50 transition-colors"
-                            >
-                              → {inv.escalatedToName}{inv.escalationType ? <span className="text-rose-400/70">· {inv.escalationType}</span> : null}
-                            </button>
-                          )}
+                          {(() => {
+                            const isEscAssigned = stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id;
+                            const stageSelect = (extraCls: string) => (
+                              <select
+                                value={pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel}
+                                disabled={busyId === inv.id}
+                                onChange={e => {
+                                  const newStage = e.target.value;
+                                  if (newStage === "Escalated") {
+                                    openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined);
+                                  } else {
+                                    const patch: any = { collectionStage: newStage };
+                                    if (stageLabel === "Escalated") {
+                                      patch.escalatedToUserId = null;
+                                      patch.escalatedToName   = null;
+                                      patch.escalatedToEmail  = null;
+                                      patch.escalationType    = null;
+                                      patch.escalationNote    = null;
+                                    }
+                                    save(inv.id, patch);
+                                  }
+                                }}
+                                className={extraCls}>
+                                {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
+                                {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            );
+
+                            if (!isEscAssigned) {
+                              return stageSelect(`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel)}`);
+                            }
+
+                            // Escalated + assigned: ONE pill — the rose colour says "Escalated",
+                            // the text says who and why. An invisible select sits on top so a
+                            // click still opens the normal stage dropdown (re-picking Escalated
+                            // opens the reassign picker; any other stage de-escalates).
+                            return (
+                              <div
+                                className="relative inline-flex items-center gap-1 text-[11px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-1 hover:bg-rose-900/50 transition-colors"
+                                title={[
+                                  `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
+                                  inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
+                                  inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
+                                  inv.escalatedAt ? `Escalated ${new Date(inv.escalatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : null,
+                                  "Click to change stage or reassign",
+                                ].filter(Boolean).join("\n")}
+                              >
+                                → {inv.escalatedToName}
+                                {inv.escalationType && <span className="text-rose-400/70">· {inv.escalationType}</span>}
+                                <ChevronDown size={10} className="text-rose-500/70" />
+                                {stageSelect("absolute inset-0 w-full h-full opacity-0 cursor-pointer")}
+                              </div>
+                            );
+                          })()}
                         </div>
                         {pendingEscalation?.invoiceId === inv.id && (
                           <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-2 min-w-[260px]">
