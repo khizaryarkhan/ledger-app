@@ -475,14 +475,13 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
 
     const active = groups.filter(g => g.amount > 0);
     // "Blocked" = money that chasing alone can't collect (needs a decision/agreement)
-    const blocked = groups
-      .filter(g => ["legal", "disputed", "finalAccount", "retention", "escalatedOther"].includes(g.key))
-      .reduce((s, g) => s + g.amount, 0);
-    const workable = groups
-      .filter(g => ["inCollection", "committed", "forwardInvoicing"].includes(g.key))
-      .reduce((s, g) => s + g.amount, 0);
+    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "escalatedOther"].includes(g.key));
+    const workableParts = active.filter(g => ["inCollection", "committed", "forwardInvoicing"].includes(g.key));
+    const blocked  = blockedParts.reduce((s, g) => s + g.amount, 0);
+    const workable = workableParts.reduce((s, g) => s + g.amount, 0);
+    const currentAmount = groups.find(g => g.key === "current")?.amount ?? 0;
 
-    return { open, total, groups: active, blocked, workable };
+    return { open, total, groups: active, blocked, workable, blockedParts, workableParts, currentAmount };
   }, [invoices]);
 
   if (comp.total <= 0) return null;
@@ -498,12 +497,51 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
         </div>
       </div>
 
-      {/* Management insight line */}
-      <div className="text-[13px] text-stone-300 mb-4">
-        <span className="font-semibold text-white">{fmt.money(comp.workable, dominantCcy)}</span>
-        <span className="text-stone-500"> ({pct(comp.workable).toFixed(0)}%) collectable through normal chasing · </span>
-        <span className={`font-semibold ${comp.blocked > 0 ? "text-amber-400" : "text-stone-400"}`}>{fmt.money(comp.blocked, dominantCcy)}</span>
-        <span className="text-stone-500"> ({pct(comp.blocked).toFixed(0)}%) needs a decision or agreement before it can be collected</span>
+      {/* Management insight — each headline number shows its own derivation */}
+      <div className="grid md:grid-cols-3 gap-3 mb-4 mt-2">
+        {/* Workable */}
+        <div className="rounded-lg bg-stone-800/40 ring-1 ring-stone-800 px-3 py-2.5">
+          <div className="text-[13px]">
+            <span className="font-semibold text-white">{fmt.money(comp.workable, dominantCcy)}</span>
+            <span className="text-stone-500"> ({pct(comp.workable).toFixed(0)}%)</span>
+          </div>
+          <div className="text-[11px] text-stone-500 mb-1.5">collectable through normal chasing</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {comp.workableParts.map(g => (
+              <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
+                className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
+                <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
+                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, dominantCcy)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Blocked */}
+        <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-500/20 px-3 py-2.5">
+          <div className="text-[13px]">
+            <span className="font-semibold text-amber-400">{fmt.money(comp.blocked, dominantCcy)}</span>
+            <span className="text-stone-500"> ({pct(comp.blocked).toFixed(0)}%)</span>
+          </div>
+          <div className="text-[11px] text-stone-500 mb-1.5">needs a decision or agreement first</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {comp.blockedParts.map(g => (
+              <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
+                className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
+                <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
+                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, dominantCcy)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Not yet due */}
+        <div className="rounded-lg bg-emerald-500/5 ring-1 ring-emerald-500/20 px-3 py-2.5">
+          <div className="text-[13px]">
+            <span className="font-semibold text-emerald-400">{fmt.money(comp.currentAmount, dominantCcy)}</span>
+            <span className="text-stone-500"> ({pct(comp.currentAmount).toFixed(0)}%)</span>
+          </div>
+          <div className="text-[11px] text-stone-500">not yet due — within payment terms</div>
+          <div className="text-[10px] text-stone-600 mt-1.5">The three panels always sum to 100% of total receivable.</div>
+        </div>
       </div>
 
       {/* Stacked bar */}
