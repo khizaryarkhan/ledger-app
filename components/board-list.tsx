@@ -729,7 +729,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     onChange={e => setBatchEscTarget(e.target.value)}
                     className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
                     <option value="">Assign to…</option>
-                    {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
                   </select>
                   <select
                     value={batchEscType}
@@ -1297,6 +1297,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <button
                               onClick={() => openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined)}
                               title={[
+                                inv.escalatedToEmail ? `${inv.escalatedToName} · ${inv.escalatedToEmail}` : null,
                                 inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
                                 inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
                                 inv.escalatedAt ? `Escalated ${new Date(inv.escalatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : null,
