@@ -356,7 +356,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       }
       if (cf.email === "has" && !r.email) return false;
       if (cf.email === "none" && r.email) return false;
-      if (cf.emailText && !has(r.email, cf.emailText)) return false;
+      if (cf.emailText) {
+        // Match against each address individually (the cell can hold a
+        // comma-separated list); trim the query so stray spaces don't kill it.
+        const q = cf.emailText.trim().toLowerCase();
+        const addrs = (r.email ?? "").toLowerCase().split(/[,;]/).map(s => s.trim());
+        if (q && !addrs.some(a => a.includes(q))) return false;
+      }
       if (cf.lastSent === "sent" && !r.lastSent) return false;
       if (cf.lastSent === "never" && r.lastSent) return false;
       if (cf.lastSent === "not-today" && r.lastSent?.slice(0, 10) === today) return false;

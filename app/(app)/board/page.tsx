@@ -317,7 +317,7 @@ export default function BoardPage() {
       if (regionFilter && !(cust?.regionId === regionFilter || proj?.regionId === regionFilter)) return;
       if (stageFilter && stageLabel !== stageFilter) return;
       const q = search.trim().toLowerCase();
-      if (q && !(`${cust?.name ?? ""} ${proj?.name ?? ""} ${i.invoiceNumber ?? ""}`.toLowerCase().includes(q))) return;
+      if (q && !(`${cust?.name ?? ""} ${proj?.name ?? ""} ${i.invoiceNumber ?? ""} ${i.billingEmail ?? cust?.email ?? ""}`.toLowerCase().includes(q))) return;
       const regionId = cust?.regionId ?? proj?.regionId;
       rows.push({
         inv: i,
