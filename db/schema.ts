@@ -728,6 +728,9 @@ export const invoices = pgTable("invoices", {
   escalatedToUserId: uuid("escalated_to_user_id").references(() => users.id),
   escalatedToName:   varchar("escalated_to_name",  { length: 255 }),
   escalatedToEmail:  varchar("escalated_to_email", { length: 255 }),
+  escalationType:    varchar("escalation_type", { length: 64 }),  // label from lib/escalation-types.ts — the "why"
+  escalationNote:    text("escalation_note"),                     // optional context from the rep for the assignee
+  escalatedAt:       timestamp("escalated_at"),                   // when the invoice entered Escalated
   poNumber: varchar("po_number", { length: 64 }),
   notes: text("notes"),
   disputeReason: text("dispute_reason"),

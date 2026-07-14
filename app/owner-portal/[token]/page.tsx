@@ -17,7 +17,9 @@ type Activity = {
 type Inv = {
   id: string; invoiceNumber: string; customer: string; project: string | null;
   currency: string; total: number; outstanding: number; dueDate: string;
-  daysOverdue: number; status: string | null; activity: Activity[];
+  daysOverdue: number; status: string | null;
+  escalationType: string | null; escalationNote: string | null;
+  activity: Activity[];
 };
 type Data = { owner: string; org: { name: string; logoUrl: string | null } | null; invoices: Inv[] };
 
@@ -229,7 +231,17 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                             <FragmentGroup key={inv.id}>
                               <tr className={`border-b border-stone-800/70 hover:bg-stone-900/60 cursor-pointer ${expanded ? "bg-stone-900/60" : ""}`}
                                 onClick={() => setOpenId(expanded ? null : inv.id)}>
-                                <td className="pl-6 pr-3 py-2 font-mono text-[12px] text-stone-300 whitespace-nowrap">#{inv.invoiceNumber}</td>
+                                <td className="pl-6 pr-3 py-2 font-mono text-[12px] text-stone-300 whitespace-nowrap">
+                                  #{inv.invoiceNumber}
+                                  {inv.escalationType && (
+                                    <span
+                                      className="ml-2 inline-block font-sans text-[10px] bg-rose-900/30 text-rose-300 border border-rose-800/60 rounded-full px-1.5 py-px align-middle"
+                                      title={inv.escalationNote ?? undefined}
+                                    >
+                                      {inv.escalationType}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="px-3 py-2 text-[12px] text-stone-400 whitespace-nowrap">{fmtDate(inv.dueDate)}</td>
                                 <td className={`px-3 py-2 text-right text-[12px] font-medium tabular-nums ${inv.daysOverdue > 60 ? "text-rose-400" : inv.daysOverdue > 0 ? "text-amber-400" : "text-stone-500"}`}>
                                   {inv.daysOverdue > 0 ? `+${inv.daysOverdue}d` : "—"}
@@ -260,6 +272,13 @@ export default function OwnerPortalPage({ params }: { params: { token: string } 
                               {expanded && (
                                 <tr className="bg-stone-900/40 border-b border-stone-800">
                                   <td colSpan={8} className="px-6 py-3">
+                                    {inv.escalationType && (
+                                      <div className="mb-3 rounded-lg px-3 py-2 border-l-2 border-rose-500 bg-rose-950/20">
+                                        <div className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider">Why this was escalated to you</div>
+                                        <div className="text-[12px] text-stone-300 mt-0.5 font-medium">{inv.escalationType}</div>
+                                        {inv.escalationNote && <div className="text-[12px] text-stone-400 mt-0.5 italic">“{inv.escalationNote}”</div>}
+                                      </div>
+                                    )}
                                     {inv.activity.length > 0 && (
                                       <div className="mb-3 space-y-1.5 max-h-72 overflow-y-auto pr-1">
                                         <div className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">

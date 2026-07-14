@@ -31,6 +31,8 @@ const Schema = z.object({
     escalatedToUserId: z.string().uuid().nullable().optional(),
     escalatedToName:   z.string().max(255).nullable().optional(),
     escalatedToEmail:  z.string().max(255).nullable().optional(),
+    escalationType:    z.string().max(64).nullable().optional(),
+    escalationNote:    z.string().max(2000).nullable().optional(),
   }),
 });
 
@@ -66,11 +68,17 @@ export async function POST(req: Request) {
       if (patch.escalatedToUserId !== undefined) dbPatch.escalatedToUserId = patch.escalatedToUserId;
       if (patch.escalatedToName  !== undefined) dbPatch.escalatedToName   = patch.escalatedToName;
       if (patch.escalatedToEmail !== undefined) dbPatch.escalatedToEmail  = patch.escalatedToEmail;
+      if (patch.escalationType   !== undefined) dbPatch.escalationType    = patch.escalationType;
+      if (patch.escalationNote   !== undefined) dbPatch.escalationNote    = patch.escalationNote;
+      dbPatch.escalatedAt = new Date();
     } else {
-      // Moving away from Escalated always clears the assignee.
+      // Moving away from Escalated always clears the assignee and context.
       dbPatch.escalatedToUserId = null;
       dbPatch.escalatedToName   = null;
       dbPatch.escalatedToEmail  = null;
+      dbPatch.escalationType    = null;
+      dbPatch.escalationNote    = null;
+      dbPatch.escalatedAt       = null;
     }
   }
 
@@ -89,8 +97,11 @@ export async function POST(req: Request) {
       const toStage       = patch.collectionStage!;
       const assigneeName  = toStage === "Escalated" ? (patch.escalatedToName  ?? null) : null;
       const assigneeEmail = toStage === "Escalated" ? (patch.escalatedToEmail ?? null) : null;
+      const escType       = toStage === "Escalated" ? (patch.escalationType   ?? null) : null;
+      const escNote       = toStage === "Escalated" ? (patch.escalationNote   ?? null) : null;
       const bodyText      = assigneeName
-        ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
+        ? [`${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`, escNote ? `“${escNote}”` : null]
+            .filter(Boolean).join("\n")
         : null;
 
       const changed = targets.filter(inv => inv.collectionStage !== toStage);
@@ -103,7 +114,7 @@ export async function POST(req: Request) {
             invoiceId:  inv.id,
             direction:  "Outbound" as const,
             channel:    "StageChange",
-            subject:    `${inv.collectionStage ?? "—"} → ${toStage}`,
+            subject:    escType ? `${inv.collectionStage ?? "—"} → ${toStage} · ${escType}` : `${inv.collectionStage ?? "—"} → ${toStage}`,
             body:       bodyText,
             sender:     actorName,
             matchedBy:  "System",

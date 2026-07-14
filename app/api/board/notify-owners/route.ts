@@ -182,7 +182,7 @@ export async function POST(req: Request) {
       }
       const custGroups = [...custMap.values()].sort((a, b) => b.total - a.total);
 
-      const NCOLS = 6;
+      const NCOLS = 7;
       let tableRows = "";
       for (const cg of custGroups) {
         const nInv = [...cg.projects.values()].reduce((s, p) => s + p.items.length, 0);
@@ -210,8 +210,12 @@ export async function POST(req: Request) {
             const status = r.inv.hasOpenDispute
               ? `Disputed${r.inv.disputeReason ? ": " + esc(r.inv.disputeReason) : ""}`
               : r.inv.promiseDate ? `Committed ${esc(r.inv.promiseDate)}` : "No response";
+            const escInfo = r.inv.escalationType
+              ? `<span style="font-weight:600;color:#be123c;">${esc(r.inv.escalationType)}</span>${r.inv.escalationNote ? `<br/><span style="color:#57534e;font-size:11px;font-style:italic;">${esc(String(r.inv.escalationNote).slice(0, 200))}</span>` : ""}`
+              : "—";
             tableRows += `<tr>
               <td style="padding:7px 10px 7px 34px;border-bottom:1px solid #e7e5e4;font-family:monospace;">#${esc(r.inv.invoiceNumber)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;font-size:12px;">${escInfo}</td>
               <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;font-weight:600;white-space:nowrap;">${money(bal, ccy)}</td>
               <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;text-align:right;color:${daysOverdue(r.inv.dueDate) > 60 ? "#dc2626" : "#a16207"};">${daysOverdue(r.inv.dueDate)}d</td>
               <td style="padding:7px 10px;border-bottom:1px solid #e7e5e4;">${status}</td>
@@ -234,6 +238,7 @@ export async function POST(req: Request) {
     <thead>
       <tr style="background:#e7e5e4;text-align:left;">
         <th style="padding:8px 10px;">Invoice</th>
+        <th style="padding:8px 10px;">Reason</th>
         <th style="padding:8px 10px;text-align:right;">Outstanding</th>
         <th style="padding:8px 10px;text-align:right;">Overdue</th>
         <th style="padding:8px 10px;">Status</th>

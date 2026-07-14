@@ -23,13 +23,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   const body = await req.json();
 
-  // When moving away from Escalated, always clear the assignee — even if client
-  // forgot to send the null fields (server-side safety net).
+  // When moving away from Escalated, always clear the assignee and escalation
+  // context — even if client forgot to send the null fields (server-side safety net).
   if (body.collectionStage && body.collectionStage !== "Escalated" && before.collectionStage === "Escalated") {
     body.escalatedToUserId  = null;
     body.escalatedToName    = null;
     body.escalatedToEmail   = null;
+    body.escalationType     = null;
+    body.escalationNote     = null;
+    body.escalatedAt        = null;
   }
+  // Entering Escalated — stamp when it happened (server clock, not client).
+  if (body.collectionStage === "Escalated" && before.collectionStage !== "Escalated") {
+    body.escalatedAt = new Date();
+  }
+  // escalatedAt arrives as an ISO string from JSON when the client echoes it back — coerce.
+  if (typeof body.escalatedAt === "string") body.escalatedAt = new Date(body.escalatedAt);
 
   const [updated] = await db.update(invoices)
     .set({ ...body, updatedAt: new Date() })
@@ -54,11 +63,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const fromStage = before.collectionStage ?? "—";
     const assigneeName  = toStage === "Escalated" ? (body.escalatedToName  ?? updated.escalatedToName  ?? null) : null;
     const assigneeEmail = toStage === "Escalated" ? (body.escalatedToEmail ?? updated.escalatedToEmail ?? null) : null;
+    const escType       = toStage === "Escalated" ? (body.escalationType   ?? updated.escalationType   ?? null) : null;
+    const escNote       = toStage === "Escalated" ? (body.escalationNote   ?? updated.escalationNote   ?? null) : null;
 
     await logEvent({
       ...base,
       eventType: "stage_changed",
-      meta: { fromStage, toStage, invoiceNo: updated.invoiceNumber, escalatedToName: assigneeName, escalatedToEmail: assigneeEmail },
+      meta: { fromStage, toStage, invoiceNo: updated.invoiceNumber, escalatedToName: assigneeName, escalatedToEmail: assigneeEmail, escalationType: escType },
     });
 
     // Write a StageChange communication so it surfaces in the activity feed.
@@ -71,9 +82,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         invoiceId:  updated.id,
         direction:  "Outbound",
         channel:    "StageChange",
-        subject:    `${fromStage} → ${toStage}`,
+        subject:    escType ? `${fromStage} → ${toStage} · ${escType}` : `${fromStage} → ${toStage}`,
         body:       assigneeName
-                      ? `${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`
+                      ? [`${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`, escNote ? `“${escNote}”` : null]
+                          .filter(Boolean).join("\n")
                       : null,
         sender:     actorName ?? "Staff",
         matchedBy:  "System",

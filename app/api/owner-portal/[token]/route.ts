@@ -95,6 +95,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       status: r.inv.hasOpenDispute
         ? `Disputed${r.inv.disputeReason ? ": " + r.inv.disputeReason : ""}`
         : r.inv.promiseDate ? `Committed ${r.inv.promiseDate}` : null,
+      escalationType: r.inv.escalationType ?? null,
+      escalationNote: r.inv.escalationNote ?? null,
       activity: feedByInv[r.inv.id] ?? [],
     }))
     .sort((a, b) => b.outstanding - a.outstanding);

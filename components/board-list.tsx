@@ -9,6 +9,7 @@ import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport } from "@/lib/export-report";
 import { EmailComposer } from "@/components/feature";
+import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
 
 export type BoardRow = {
   inv: any;
@@ -60,6 +61,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [batchPanel, setBatchPanel] = useState<"stage" | "chase" | null>(null);
   const [batchStageVal, setBatchStageVal] = useState("");
   const [batchEscTarget, setBatchEscTarget] = useState("");
+  const [batchEscType, setBatchEscType] = useState("");
+  const [batchEscNote, setBatchEscNote] = useState("");
   const [batchChaseDate, setBatchChaseDate] = useState(todayStr());
   const [batchChaseRef, setBatchChaseRef] = useState("");
   const [batchChaseMemo, setBatchChaseMemo] = useState("");
@@ -159,6 +162,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               escalatedToUserId: escalateTarget.id,
               escalatedToName:   escalateTarget.name,
               escalatedToEmail:  escalateTarget.email,
+              escalationType:    batchEscType || null,
+              escalationNote:    batchEscNote.trim() || null,
             } : {}),
           },
         }),
@@ -169,7 +174,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         return;
       }
       const { updated } = await res.json();
-      setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget("");
+      setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget(""); setBatchEscType(""); setBatchEscNote("");
       setSelected(new Set());
       await refresh();
       toast?.(`Stage updated for ${updated} invoice${updated !== 1 ? "s" : ""}`, "success");
@@ -249,10 +254,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [pendingEscalation, setPendingEscalation] = useState<{ invoiceId: string; prevStage: string } | null>(null);
   const [escalateTargets, setEscalateTargets] = useState<{ id: string; name: string; email: string }[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<string>("");
+  const [selectedEscType, setSelectedEscType] = useState<string>("");
+  const [escNoteVal, setEscNoteVal] = useState<string>("");
 
-  function openEscalationPicker(invoiceId: string, prevStage: string, currentAssigneeId?: string) {
+  function openEscalationPicker(invoiceId: string, prevStage: string, currentAssigneeId?: string, currentType?: string, currentNote?: string) {
     setPendingEscalation({ invoiceId, prevStage });
     setSelectedTarget(currentAssigneeId ?? "");
+    setSelectedEscType(currentType ?? "");
+    setEscNoteVal(currentNote ?? "");
     if (!escalateTargets.length) {
       fetch("/api/org/escalate-targets")
         .then(r => r.json())
@@ -313,6 +322,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const repOpts    = useMemo(() => distinct(rows.map(r => r.repName)), [rows]);
   const stageOpts  = useMemo(() => distinct(rows.map(r => r.stageLabel)), [rows]);
   const ownerOpts  = useMemo(() => distinct(rows.map(r => r.inv.escalatedToName ?? null)), [rows]);
+  const escTypeOpts = useMemo(() => distinct(rows.map(r => r.inv.escalationType ?? null)), [rows]);
 
   const bucketOf = (days: number) => days <= 0 ? "current" : days <= 30 ? "d30" : days <= 60 ? "d60" : days <= 90 ? "d90" : "d90p";
   const BUCKETS: { key: string; label: string }[] = [
@@ -336,6 +346,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         if (cf.stageMode === "not" ? match : !match) return false;
       }
       if (cf.owner && !multiVals("owner").has(r.inv.escalatedToName ?? "")) return false;
+      if (cf.escType && !multiVals("escType").has(r.inv.escalationType ?? "")) return false;
       if (cf.response) {
         const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
         if (resp !== cf.response) return false;
@@ -403,6 +414,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       chips.push({ key: "stage", label: `Stage ${cf.stageMode === "not" ? "is not" : "is"}: ${vals.join(", ")}` });
     }
     multiLabel("owner", "Owner");
+    multiLabel("escType", "Escalation");
     if (cf.response) chips.push({ key: "response", label: `Response: ${cf.response}` });
     if (cf.email) chips.push({ key: "email", label: cf.email === "has" ? "Has email" : "No email" });
     if (cf.lastSent === "cutoff" && cf.lastSentBefore) chips.push({ key: "lastSent", label: `Not chased since ${cf.lastSentBefore}` });
@@ -645,7 +657,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // Export selected (or all filtered) rows to an Excel-compatible CSV.
   function exportExcel() {
     const src = selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows;
-    const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Owner", "Response", "Email", "Last sent", "Last ref", "Next action", "Due", "Days overdue", "Outstanding"];
+    const headers = ["Invoice", "Customer", "Project", "Region", "Rep", "Stage", "Owner", "Escalation type", "Response", "Email", "Last sent", "Last ref", "Next action", "Due", "Days overdue", "Outstanding"];
     const esc = (v: any) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [headers.join(",")];
     src.forEach(r => {
@@ -653,7 +665,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         : r.inv.promiseDate ? `Committed ${r.inv.promiseDate}` : "";
       lines.push([
         r.inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
-        r.stageLabel, r.inv.escalatedToName ?? "", resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
+        r.stageLabel, r.inv.escalatedToName ?? "", r.inv.escalationType ?? "", resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
         r.inv.nextActionDate ?? "", r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
       ].map(esc).join(","));
     });
@@ -711,16 +723,38 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
               {batchStageVal === "Escalated" && (
-                <select
-                  value={batchEscTarget}
-                  onChange={e => setBatchEscTarget(e.target.value)}
-                  className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
-                  <option value="">Assign to… (optional)</option>
-                  {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+                <>
+                  <select
+                    value={batchEscTarget}
+                    onChange={e => setBatchEscTarget(e.target.value)}
+                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                    <option value="">Assign to…</option>
+                    {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <select
+                    value={batchEscType}
+                    onChange={e => setBatchEscType(e.target.value)}
+                    title={escalationTypeByLabel(batchEscType)?.description}
+                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                    <option value="">Escalation type…</option>
+                    {ESCALATION_TYPES.map(t => <option key={t.key} value={t.label} title={t.description}>{t.label}</option>)}
+                  </select>
+                  <input
+                    value={batchEscNote}
+                    onChange={e => setBatchEscNote(e.target.value)}
+                    placeholder="Note for the assignee (optional)…"
+                    maxLength={2000}
+                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 flex-1 min-w-[160px] placeholder:text-stone-600"
+                  />
+                </>
+              )}
+              {batchStageVal === "Escalated" && batchEscType && (
+                <span className="basis-full text-[10px] text-stone-500 leading-snug">
+                  {escalationTypeByLabel(batchEscType)?.description}
+                </span>
               )}
               <button
-                disabled={!batchStageVal || batchBusy}
+                disabled={!batchStageVal || batchBusy || (batchStageVal === "Escalated" && !!batchEscTarget && !batchEscType)}
                 onClick={runBatchStage}
                 className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-emerald-700">
                 {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</> : <><Check size={13} /> Apply</>}
@@ -1046,6 +1080,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   </div>
                                 </>
                               )}
+                              {escTypeOpts.length > 0 && (
+                                <>
+                                  <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalation type</div>
+                                  <div className="max-h-32 overflow-y-auto space-y-1">
+                                    {escTypeOpts.map(o => (
+                                      <label key={o} title={escalationTypeByLabel(o)?.description} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                        <input type="checkbox" checked={multiVals("escType").has(o)} onChange={() => toggleMulti("escType", o)} className="rounded border-stone-600" />
+                                        {o}
+                                      </label>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
                             </>
                           )}
                           {/* Radio groups */}
@@ -1229,13 +1276,15 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             onChange={e => {
                               const newStage = e.target.value;
                               if (newStage === "Escalated") {
-                                openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined);
+                                openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined);
                               } else {
                                 const patch: any = { collectionStage: newStage };
                                 if (stageLabel === "Escalated") {
                                   patch.escalatedToUserId = null;
                                   patch.escalatedToName   = null;
                                   patch.escalatedToEmail  = null;
+                                  patch.escalationType    = null;
+                                  patch.escalationNote    = null;
                                 }
                                 save(inv.id, patch);
                               }
@@ -1246,49 +1295,84 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           </select>
                           {stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id && (
                             <button
-                              onClick={() => openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined)}
+                              onClick={() => openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined)}
+                              title={[
+                                inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
+                                inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
+                                inv.escalatedAt ? `Escalated ${new Date(inv.escalatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : null,
+                              ].filter(Boolean).join("\n") || undefined}
                               className="inline-flex items-center gap-1 text-[11px] bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5 hover:bg-rose-900/50 transition-colors"
                             >
-                              → {inv.escalatedToName}
+                              → {inv.escalatedToName}{inv.escalationType ? <span className="text-rose-400/70">· {inv.escalationType}</span> : null}
                             </button>
                           )}
                         </div>
                         {pendingEscalation?.invoiceId === inv.id && (
-                          <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-1.5">
+                          <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-2 min-w-[260px]">
                             <select
                               value={selectedTarget}
                               onChange={e => setSelectedTarget(e.target.value)}
-                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
                             >
-                              <option value="">Pick a person…</option>
+                              <option value="">Assign to…</option>
                               {escalateTargets.map(t => (
                                 <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
                               ))}
                             </select>
-                            <button
-                              disabled={!selectedTarget || busyId === inv.id}
-                              onClick={async () => {
-                                const target = escalateTargets.find(t => t.id === selectedTarget);
-                                if (!target) return;
-                                await save(inv.id, {
-                                  collectionStage:    "Escalated",
-                                  escalatedToUserId:  target.id,
-                                  escalatedToName:    target.name,
-                                  escalatedToEmail:   target.email,
-                                });
-                                setPendingEscalation(null);
-                                setSelectedTarget("");
-                              }}
-                              className="shrink-0 text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                            <select
+                              value={selectedEscType}
+                              onChange={e => setSelectedEscType(e.target.value)}
+                              title={escalationTypeByLabel(selectedEscType)?.description}
+                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
                             >
-                              Confirm
-                            </button>
-                            <button
-                              onClick={() => { setPendingEscalation(null); setSelectedTarget(""); }}
-                              className="shrink-0 text-[11px] text-stone-500 hover:text-stone-300 px-1"
-                            >
-                              Cancel
-                            </button>
+                              <option value="">Escalation type…</option>
+                              {ESCALATION_TYPES.map(t => (
+                                <option key={t.key} value={t.label} title={t.description}>{t.label}</option>
+                              ))}
+                            </select>
+                            {selectedEscType && (
+                              <p className="text-[10px] text-stone-500 leading-snug px-0.5">
+                                {escalationTypeByLabel(selectedEscType)?.description}
+                              </p>
+                            )}
+                            <input
+                              value={escNoteVal}
+                              onChange={e => setEscNoteVal(e.target.value)}
+                              placeholder="Note for the assignee (optional)…"
+                              maxLength={2000}
+                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600"
+                            />
+                            <div className="flex items-center gap-1.5 justify-end">
+                              <button
+                                onClick={() => { setPendingEscalation(null); setSelectedTarget(""); setSelectedEscType(""); setEscNoteVal(""); }}
+                                className="text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                disabled={!selectedTarget || !selectedEscType || busyId === inv.id}
+                                title={!selectedTarget ? "Pick a person first" : !selectedEscType ? "Pick an escalation type first" : undefined}
+                                onClick={async () => {
+                                  const target = escalateTargets.find(t => t.id === selectedTarget);
+                                  if (!target) return;
+                                  await save(inv.id, {
+                                    collectionStage:    "Escalated",
+                                    escalatedToUserId:  target.id,
+                                    escalatedToName:    target.name,
+                                    escalatedToEmail:   target.email,
+                                    escalationType:     selectedEscType,
+                                    escalationNote:     escNoteVal.trim() || null,
+                                  });
+                                  setPendingEscalation(null);
+                                  setSelectedTarget("");
+                                  setSelectedEscType("");
+                                  setEscNoteVal("");
+                                }}
+                                className="text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                              >
+                                Confirm
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1483,7 +1567,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   case "Email":    return { icon: n.direction === "Inbound" ? <ArrowDownRight size={11} /> : <Mail size={11} />, border: n.direction === "Inbound" ? "border-l-2 border-emerald-500" : "border-l-2 border-blue-500", label: n.direction === "Inbound" ? `Reply from ${n.sender || "customer"}` : `Sent to ${n.recipients || "customer"}`, labelCls: n.direction === "Inbound" ? "text-emerald-400" : "text-blue-400", bg: n.direction === "Inbound" ? "bg-emerald-950/20" : "bg-blue-950/20" };
                                   case "Chase":       return { icon: <ArrowUpRight size={11} />, border: "border-l-2 border-amber-500",  label: `${n.sender || "Staff"} · chased outside app`, labelCls: "text-amber-400",  bg: "bg-amber-950/20" };
                                   case "StageChange": {
-                                    const toStage = n.subject?.split(" → ")[1] ?? "";
+                                    // Subject may carry an escalation type suffix: "Open → Escalated · Handed Over"
+                                    const toStage = (n.subject?.split(" → ")[1] ?? "").split(" · ")[0];
                                     const isEsc   = toStage === "Escalated";
                                     return {
                                       icon:     isEsc ? <UserCheck size={11} /> : <Flag size={11} />,
@@ -1507,24 +1592,39 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
                                   </div>
                                   {n.channel === "StageChange" ? (() => {
-                                    const [fromStage, toStage] = (n.subject ?? "").split(" → ");
+                                    const [fromStage, toRaw] = (n.subject ?? "").split(" → ");
+                                    // Subject may carry an escalation type suffix: "Escalated · Handed Over"
+                                    const [toStage, escType] = (toRaw ?? "").split(" · ");
                                     const toColor = stageColor(toStage ?? "");
+                                    // Body: line 1 = "Name · email", line 2 (optional) = "note"
+                                    const [assigneeLine, ...noteLines] = (n.body ?? "").split("\n");
+                                    const noteText = noteLines.join("\n").trim();
                                     return (
                                       <div className="mt-1 space-y-1.5">
                                         <div className="flex items-center gap-1.5 flex-wrap">
                                           <span className="text-[10px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
                                           <span className="text-[10px] text-stone-500 font-bold">→</span>
                                           <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>{toStage}</span>
+                                          {escType && (
+                                            <span
+                                              title={escalationTypeByLabel(escType)?.description}
+                                              className="text-[10px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5">
+                                              {escType}
+                                            </span>
+                                          )}
                                         </div>
-                                        {n.body && (
+                                        {assigneeLine && (
                                           <div className="flex items-center gap-1.5 text-[11px] text-rose-300">
                                             <UserCheck size={11} className="text-rose-400 shrink-0" />
                                             <span className="font-medium">Assigned to</span>
-                                            <span>{n.body.split(" · ")[0]}</span>
-                                            {n.body.includes(" · ") && (
-                                              <span className="text-stone-500 text-[10px]">· {n.body.split(" · ")[1]}</span>
+                                            <span>{assigneeLine.split(" · ")[0]}</span>
+                                            {assigneeLine.includes(" · ") && (
+                                              <span className="text-stone-500 text-[10px]">· {assigneeLine.split(" · ")[1]}</span>
                                             )}
                                           </div>
+                                        )}
+                                        {noteText && (
+                                          <div className="text-[11px] text-stone-400 italic pl-4">{noteText}</div>
                                         )}
                                       </div>
                                     );
