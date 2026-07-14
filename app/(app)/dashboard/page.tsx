@@ -384,6 +384,167 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
   );
 }
 
+// ── Receivable Composition ──────────────────────────────────────────────────
+// Answers management's first question: "what IS the 2.6M, actually?"
+// Every open invoice is classified into exactly ONE category (priority order:
+// escalation type → dispute → commitment → overdue → current), so the segments
+// always sum to 100% of Total Receivable. Click any segment or legend row to
+// see the exact invoices behind it.
+const COMPOSITION_CATEGORIES: {
+  key: string; label: string; bar: string; dot: string; text: string;
+  drillColor: "rose" | "amber" | "sky" | "stone" | "white";
+  description: string;
+  match: (i: any, overdueDays: number) => boolean;
+}[] = [
+  {
+    key: "legal", label: "Legal & Insolvency", bar: "bg-rose-800", dot: "bg-rose-800", text: "text-rose-400",
+    drillColor: "rose",
+    description: "Escalated for legal review or insolvency risk — recovery uncertain, senior decision pending.",
+    match: i => i.collectionStage === "Escalated" && ["Legal Review", "Insolvency Risk"].includes(i.escalationType),
+  },
+  {
+    key: "disputed", label: "Disputed", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
+    drillColor: "rose",
+    description: "Customer contests the amount or the work — blocked until the dispute is resolved.",
+    match: i => i.hasOpenDispute || i.collectionStage === "Disputed" || (i.collectionStage === "Escalated" && i.escalationType === "Disputed"),
+  },
+  {
+    key: "finalAccount", label: "Final Account", bar: "bg-violet-500", dot: "bg-violet-500", text: "text-violet-400",
+    drillColor: "amber",
+    description: "Payment blocked until the final account is agreed — commercial negotiation, not collection.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Final Account Agreement",
+  },
+  {
+    key: "retention", label: "Retention", bar: "bg-teal-500", dot: "bg-teal-500", text: "text-teal-400",
+    drillColor: "sky",
+    description: "Retention money awaiting certification or practical-completion sign-off.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Retention Release",
+  },
+  {
+    key: "forwardInvoicing", label: "Forward Invoicing", bar: "bg-blue-500", dot: "bg-blue-500", text: "text-blue-400",
+    drillColor: "sky",
+    description: "Being resolved commercially through ongoing/future work with the customer.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Forward Invoicing",
+  },
+  {
+    key: "escalatedOther", label: "Escalated — Other", bar: "bg-orange-500", dot: "bg-orange-500", text: "text-orange-400",
+    drillColor: "amber",
+    description: "Handed over to a senior owner (certification pending, payment plan, handover, other).",
+    match: i => i.collectionStage === "Escalated",
+  },
+  {
+    key: "committed", label: "Committed", bar: "bg-sky-400", dot: "bg-sky-400", text: "text-sky-400",
+    drillColor: "sky",
+    description: "Customer has committed to a payment date — monitoring, not chasing.",
+    match: i => !!i.promiseDate,
+  },
+  {
+    key: "inCollection", label: "In Collection", bar: "bg-amber-400", dot: "bg-amber-400", text: "text-amber-400",
+    drillColor: "amber",
+    description: "Overdue and being actively chased — the collection team's working queue.",
+    match: (_i, overdueDays) => overdueDays > 0,
+  },
+  {
+    key: "current", label: "Not Yet Due", bar: "bg-emerald-500", dot: "bg-emerald-500", text: "text-emerald-400",
+    drillColor: "white",
+    description: "Within payment terms — no action needed yet.",
+    match: () => true,
+  },
+];
+
+function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
+  invoices: any[];
+  dominantCcy: string;
+  onDrill: (d: { title: string; subtitle: string; color: "rose" | "amber" | "sky" | "stone" | "white"; items: any[] }) => void;
+}) {
+  const comp = useMemo(() => {
+    const open = invoices.filter((i: any) =>
+      i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+      i.txnType !== "CreditMemo" && openBal(i) > 0
+    );
+    const total = open.reduce((s: number, i: any) => s + openBal(i), 0);
+
+    const groups = COMPOSITION_CATEGORIES.map(c => ({ ...c, amount: 0, count: 0, items: [] as any[] }));
+    for (const inv of open) {
+      const od = daysOverdue(inv.dueDate);
+      const g = groups.find(c => c.match(inv, od))!; // "current" always matches
+      g.amount += openBal(inv);
+      g.count  += 1;
+      g.items.push(inv);
+    }
+
+    const active = groups.filter(g => g.amount > 0);
+    // "Blocked" = money that chasing alone can't collect (needs a decision/agreement)
+    const blocked = groups
+      .filter(g => ["legal", "disputed", "finalAccount", "retention", "escalatedOther"].includes(g.key))
+      .reduce((s, g) => s + g.amount, 0);
+    const workable = groups
+      .filter(g => ["inCollection", "committed", "forwardInvoicing"].includes(g.key))
+      .reduce((s, g) => s + g.amount, 0);
+
+    return { open, total, groups: active, blocked, workable };
+  }, [invoices]);
+
+  if (comp.total <= 0) return null;
+
+  const pct = (v: number) => (v / comp.total) * 100;
+
+  return (
+    <Card padding="md" className="mb-3">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Receivable Composition</div>
+        <div className="text-[11px] text-stone-500">
+          What the {fmt.money(comp.total, dominantCcy)} is made of — click a segment for the invoices
+        </div>
+      </div>
+
+      {/* Management insight line */}
+      <div className="text-[13px] text-stone-300 mb-4">
+        <span className="font-semibold text-white">{fmt.money(comp.workable, dominantCcy)}</span>
+        <span className="text-stone-500"> ({pct(comp.workable).toFixed(0)}%) collectable through normal chasing · </span>
+        <span className={`font-semibold ${comp.blocked > 0 ? "text-amber-400" : "text-stone-400"}`}>{fmt.money(comp.blocked, dominantCcy)}</span>
+        <span className="text-stone-500"> ({pct(comp.blocked).toFixed(0)}%) needs a decision or agreement before it can be collected</span>
+      </div>
+
+      {/* Stacked bar */}
+      <div className="h-8 rounded-lg overflow-hidden flex ring-1 ring-stone-800 mb-4">
+        {comp.groups.map(g => (
+          <button
+            key={g.key}
+            className={`h-full ${g.bar} hover:opacity-80 transition-opacity relative group`}
+            style={{ width: `${Math.max(pct(g.amount), 0.75)}%` }}
+            title={`${g.label} — ${fmt.money(g.amount, dominantCcy)} (${pct(g.amount).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
+            onClick={() => onDrill({
+              title: g.label,
+              subtitle: g.description,
+              color: g.drillColor,
+              items: g.items,
+            })}
+          />
+        ))}
+      </div>
+
+      {/* Legend — amount, % and count per category */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
+        {comp.groups.map(g => (
+          <button
+            key={g.key}
+            onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
+            title={g.description}
+            className="flex items-center gap-2 text-left group rounded px-1.5 py-1 -mx-1.5 hover:bg-stone-800/60 transition-colors"
+          >
+            <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${g.dot}`} />
+            <span className="text-[12px] text-stone-300 flex-1 min-w-0 truncate group-hover:text-white">{g.label}</span>
+            <span className="text-[12px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(g.amount, dominantCcy)}</span>
+            <span className="text-[11px] text-stone-500 tabular-nums w-10 text-right shrink-0">{pct(g.amount).toFixed(1)}%</span>
+            <span className="text-[10px] text-stone-600 tabular-nums w-8 text-right shrink-0">{g.count}×</span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const { invoices, customers, contacts, projects, regions, communications, tasks, reps, orgSettings, refresh } = useData() as any;
   const { data: session } = useSession();
@@ -442,6 +603,12 @@ export default function DashboardPage() {
           promiseDate:      local.promiseDate,
           lastFollowupDate: local.lastFollowupDate,
           currency:         local.currency ?? snap.currency,
+          // Escalation + dispute context — powers the Receivable Composition breakdown
+          escalationType:   local.escalationType ?? null,
+          escalatedToName:  local.escalatedToName ?? null,
+          escalatedAt:      local.escalatedAt ?? null,
+          hasOpenDispute:   local.hasOpenDispute ?? false,
+          disputeReason:    local.disputeReason ?? null,
         };
       }
       return snap;
@@ -779,7 +946,7 @@ export default function DashboardPage() {
                   <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-white tracking-tight">
+                  <div className="text-3xl font-semibold text-white tracking-tight">
                     <CurrencyPills breakdown={stats.totalByCurrency} stacked />
                   </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
@@ -789,7 +956,7 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && stats.overdue.length > 0 && setDrillDown({ title: "Overdue Invoices", subtitle: "Past due date — action required", color: "rose", items: stats.overdue })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-rose-600 tracking-tight">
+                  <div className="text-3xl font-semibold text-rose-600 tracking-tight">
                     <CurrencyPills breakdown={stats.overdueByCurrency} />
                   </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.overdue.length} overdue invoices</div>
@@ -799,7 +966,7 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && stats.over90Items.length > 0 && setDrillDown({ title: "90+ Days Overdue", subtitle: "Escalation candidates — oldest outstanding invoices", color: "rose", items: stats.over90Items })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, stats.dominantCcy)}</div>
+                  <div className="text-3xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, stats.dominantCcy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
                 </>}
               </Card>
@@ -807,11 +974,19 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && stats.disputedItems.length > 0 && setDrillDown({ title: "Disputed Invoices", subtitle: "In dispute — pending resolution", color: "amber", items: stats.disputedItems })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-2xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, stats.dominantCcy)}</div>
+                  <div className="text-3xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, stats.dominantCcy)}</div>
                   <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
                 </>}
               </Card>
             </div>
+            {/* Receivable Composition — the management breakdown of Total Receivable */}
+            {!snapshotLoading && (
+              <ReceivableComposition
+                invoices={effectiveInvoices}
+                dominantCcy={stats.dominantCcy}
+                onDrill={setDrillDown}
+              />
+            )}
             {/* Promised — breakdown row */}
             <Card padding="md" className="mb-3">
               <div className="flex items-center justify-between mb-4">
