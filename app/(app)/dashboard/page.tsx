@@ -427,9 +427,27 @@ const COMPOSITION_CATEGORIES: {
     match: i => i.collectionStage === "Escalated" && i.escalationType === "Forward Invoicing",
   },
   {
-    key: "escalatedOther", label: "Escalated — Other", bar: "bg-orange-500", dot: "bg-orange-500", text: "text-orange-400",
+    key: "handedOver", label: "Handed Over", bar: "bg-fuchsia-500", dot: "bg-fuchsia-500", text: "text-fuchsia-400",
     drillColor: "amber",
-    description: "Handed over to a senior owner (certification pending, payment plan, handover, other).",
+    description: "General handover — a senior team member or director has taken over the chase.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Handed Over",
+  },
+  {
+    key: "certification", label: "Certification Pending", bar: "bg-cyan-500", dot: "bg-cyan-500", text: "text-cyan-400",
+    drillColor: "sky",
+    description: "Awaiting a QS/engineer valuation or payment certificate before it can be paid.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Certification Pending",
+  },
+  {
+    key: "paymentPlan", label: "Payment Plan", bar: "bg-indigo-500", dot: "bg-indigo-500", text: "text-indigo-400",
+    drillColor: "sky",
+    description: "Customer asked to pay in instalments — terms need senior approval.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Payment Plan",
+  },
+  {
+    key: "escalatedOther", label: "Escalated — Untyped", bar: "bg-orange-500", dot: "bg-orange-500", text: "text-orange-400",
+    drillColor: "amber",
+    description: "Escalated without a reason selected — open the invoice and set an escalation type so it's classified correctly here.",
     match: i => i.collectionStage === "Escalated",
   },
   {
@@ -475,8 +493,8 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
 
     const active = groups.filter(g => g.amount > 0);
     // "Blocked" = money that chasing alone can't collect (needs a decision/agreement)
-    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "escalatedOther"].includes(g.key));
-    const workableParts = active.filter(g => ["inCollection", "committed", "forwardInvoicing"].includes(g.key));
+    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "certification", "paymentPlan", "escalatedOther"].includes(g.key));
+    const workableParts = active.filter(g => ["inCollection", "committed", "forwardInvoicing", "handedOver"].includes(g.key));
     const blocked  = blockedParts.reduce((s, g) => s + g.amount, 0);
     const workable = workableParts.reduce((s, g) => s + g.amount, 0);
     const currentAmount = groups.find(g => g.key === "current")?.amount ?? 0;
