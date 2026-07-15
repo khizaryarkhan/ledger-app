@@ -445,10 +445,18 @@ const COMPOSITION_CATEGORIES: {
     match: i => i.collectionStage === "Escalated" && i.escalationType === "Payment Plan",
   },
   {
-    key: "escalatedOther", label: "Escalated — Untyped", bar: "bg-orange-500", dot: "bg-orange-500", text: "text-orange-400",
+    key: "escalatedOtherType", label: "Escalated — Other", bar: "bg-orange-600", dot: "bg-orange-600", text: "text-orange-400",
     drillColor: "amber",
-    description: "Escalated without a reason selected — open the invoice and set an escalation type so it's classified correctly here.",
-    match: i => i.collectionStage === "Escalated",
+    description: "Escalated for a reason not covered by the standard list — see the note on each invoice for detail.",
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Other",
+  },
+  {
+    // Only invoices with NO sub-type chosen land here — never invoices where
+    // the rep explicitly picked "Other" (that's escalatedOtherType above).
+    key: "escalatedUntyped", label: "Escalated — Untyped", bar: "bg-stone-500", dot: "bg-stone-500", text: "text-stone-400",
+    drillColor: "amber",
+    description: "Escalated before an escalation type was chosen — open each invoice and set a type so it's classified correctly here.",
+    match: i => i.collectionStage === "Escalated" && !i.escalationType,
   },
   {
     key: "committed", label: "Committed", bar: "bg-sky-400", dot: "bg-sky-400", text: "text-sky-400",
@@ -493,7 +501,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
 
     const active = groups.filter(g => g.amount > 0);
     // "Blocked" = money that chasing alone can't collect (needs a decision/agreement)
-    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "certification", "paymentPlan", "escalatedOther"].includes(g.key));
+    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "certification", "paymentPlan", "escalatedOtherType", "escalatedUntyped"].includes(g.key));
     const workableParts = active.filter(g => ["inCollection", "committed", "forwardInvoicing", "handedOver"].includes(g.key));
     const blocked  = blockedParts.reduce((s, g) => s + g.amount, 0);
     const workable = workableParts.reduce((s, g) => s + g.amount, 0);
