@@ -10,6 +10,7 @@ import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport } from "@/lib/export-report";
 import { EmailComposer } from "@/components/feature";
 import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
+import { classifyComposition } from "@/lib/receivable-composition";
 
 export type BoardRow = {
   inv: any;
@@ -59,6 +60,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   // Toolbar dropdown menus (View / Export) — one open at a time
   const [toolbarMenu, setToolbarMenu] = useState<"view" | "export" | null>(null);
+  const [compositionOpen, setCompositionOpen] = useState(true);
 
   // Batch operations state
   const [batchPanel, setBatchPanel] = useState<"stage" | "chase" | null>(null);
@@ -377,6 +379,53 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       return true;
     });
   }, [rows, cf, overdueOnly]);
+
+  // ── Receivable Composition strip ────────────────────────────────────────
+  // Same classifier as the Dashboard widget (lib/receivable-composition.ts),
+  // computed from the FULL board (not the currently filtered rows) so a
+  // segment always shows what clicking it will select, unaffected by
+  // whatever filter happens to be active right now.
+  const composition = useMemo(() => {
+    const items = rows.map(r => ({
+      escalationType:  r.inv.escalationType ?? null,
+      collectionStage: r.inv.collectionStage ?? null,
+      hasOpenDispute:  r.inv.hasOpenDispute,
+      promiseDate:     r.inv.promiseDate,
+      overdueDays:     r.days,
+      amount:          r.bal,
+    }));
+    return classifyComposition(items);
+  }, [rows]);
+
+  const compositionCcy = useMemo(() => {
+    const byCcy: Record<string, number> = {};
+    rows.forEach(r => { const c = r.inv.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + r.bal; });
+    return Object.entries(byCcy).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "EUR";
+  }, [rows]);
+
+  // Clicking a composition segment replaces the working filter set with
+  // exactly the filter(s) that reproduce that segment — a fresh "show me
+  // this bucket" action rather than a filter merge.
+  function applyCompositionFilter(key: string) {
+    const next: Record<string, string> = {};
+    switch (key) {
+      case "legal":               next.stage = "Escalated"; next.escType = ["Legal Review", "Insolvency Risk"].join(MULTI_SEP); break;
+      case "disputed":            next.response = "Disputed"; break;
+      case "finalAccount":        next.stage = "Escalated"; next.escType = "Final Account Agreement"; break;
+      case "retention":           next.stage = "Escalated"; next.escType = "Retention Release"; break;
+      case "forwardInvoicing":    next.stage = "Escalated"; next.escType = "Forward Invoicing"; break;
+      case "handedOver":          next.stage = "Escalated"; next.escType = "Handed Over"; break;
+      case "certification":       next.stage = "Escalated"; next.escType = "Certification Pending"; break;
+      case "paymentPlan":         next.stage = "Escalated"; next.escType = "Payment Plan"; break;
+      case "escalatedOtherType":  next.stage = "Escalated"; next.escType = "Other"; break;
+      case "escalatedUntyped":    next.stage = "Escalated"; break; // no filter primitive for "type is blank" — narrows to Escalated
+      case "committed":           next.response = "Committed"; break;
+      case "inCollection":        next.stage = "Escalated"; next.stageMode = "not"; break;
+      case "current":             next.bucket = "current"; break;
+    }
+    setOverdueOnly(key === "inCollection");
+    setCf(next);
+  }
 
   // Persist the working view (filters + grouping + overdue) across visits.
   // Only after hydration — otherwise the initial empty state would clobber
@@ -905,6 +954,43 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
       {/* Click-away for toolbar menus — below the sticky thead (z-20) */}
       {toolbarMenu && <div className="fixed inset-0 z-10" onClick={() => setToolbarMenu(null)} />}
+
+      {/* Receivable Composition — click a segment to filter the board to it */}
+      {composition.total > 0 && (
+        <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 shrink-0">
+          <button onClick={() => setCompositionOpen(v => !v)} className="w-full flex items-center gap-2 mb-1.5">
+            <ChevronDown size={11} className={`text-stone-600 transition-transform ${compositionOpen ? "" : "-rotate-90"}`} />
+            <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Composition</span>
+            <span className="text-[11px] text-stone-600">click a segment to filter</span>
+            <div className="flex-1" />
+            <span className="text-[11px] text-stone-400 tabular-nums">{fmt.money(composition.total, compositionCcy)}</span>
+          </button>
+          {compositionOpen && (
+            <>
+              <div className="h-2 rounded-full overflow-hidden flex mb-1.5">
+                {composition.groups.map(g => (
+                  <button key={g.key} onClick={() => applyCompositionFilter(g.key)}
+                    className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}
+                    style={{ width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%` }}
+                    title={`${g.label} — ${fmt.money(g.amount, compositionCcy)} (${((g.amount / composition.total) * 100).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {composition.groups.map(g => (
+                  <button key={g.key} onClick={() => applyCompositionFilter(g.key)} title={g.description}
+                    className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
+                    <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
+                    {g.label}
+                    <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, compositionCcy)}</span>
+                    <span className="text-stone-600">{((g.amount / composition.total) * 100).toFixed(0)}%</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Saved views + active filter chips */}
       {(savedViews.length > 0 || filterChips.length > 0 || anyFilter) && (

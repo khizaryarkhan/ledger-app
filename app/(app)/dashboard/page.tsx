@@ -9,6 +9,7 @@ import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/form
 import { ArrowUpRight, ChevronRight, ChevronDown, Circle, AlertTriangle, Mail, X } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
+import { classifyComposition } from "@/lib/receivable-composition";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -390,94 +391,8 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
 // escalation type → dispute → commitment → overdue → current), so the segments
 // always sum to 100% of Total Receivable. Click any segment or legend row to
 // see the exact invoices behind it.
-const COMPOSITION_CATEGORIES: {
-  key: string; label: string; bar: string; dot: string; text: string;
-  drillColor: "rose" | "amber" | "sky" | "stone" | "white";
-  description: string;
-  match: (i: any, overdueDays: number) => boolean;
-}[] = [
-  {
-    key: "legal", label: "Legal & Insolvency", bar: "bg-rose-800", dot: "bg-rose-800", text: "text-rose-400",
-    drillColor: "rose",
-    description: "Escalated for legal review or insolvency risk — recovery uncertain, senior decision pending.",
-    match: i => i.collectionStage === "Escalated" && ["Legal Review", "Insolvency Risk"].includes(i.escalationType),
-  },
-  {
-    key: "disputed", label: "Disputed", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
-    drillColor: "rose",
-    description: "Customer contests the amount or the work — blocked until the dispute is resolved.",
-    match: i => i.hasOpenDispute || i.collectionStage === "Disputed" || (i.collectionStage === "Escalated" && i.escalationType === "Disputed"),
-  },
-  {
-    key: "finalAccount", label: "Final Account", bar: "bg-violet-500", dot: "bg-violet-500", text: "text-violet-400",
-    drillColor: "amber",
-    description: "Payment blocked until the final account is agreed — commercial negotiation, not collection.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Final Account Agreement",
-  },
-  {
-    key: "retention", label: "Retention", bar: "bg-teal-500", dot: "bg-teal-500", text: "text-teal-400",
-    drillColor: "sky",
-    description: "Retention money awaiting certification or practical-completion sign-off.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Retention Release",
-  },
-  {
-    key: "forwardInvoicing", label: "Forward Invoicing", bar: "bg-blue-500", dot: "bg-blue-500", text: "text-blue-400",
-    drillColor: "sky",
-    description: "Being resolved commercially through ongoing/future work with the customer.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Forward Invoicing",
-  },
-  {
-    key: "handedOver", label: "Handed Over", bar: "bg-fuchsia-500", dot: "bg-fuchsia-500", text: "text-fuchsia-400",
-    drillColor: "amber",
-    description: "General handover — a senior team member or director has taken over the chase.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Handed Over",
-  },
-  {
-    key: "certification", label: "Certification Pending", bar: "bg-cyan-500", dot: "bg-cyan-500", text: "text-cyan-400",
-    drillColor: "sky",
-    description: "Awaiting a QS/engineer valuation or payment certificate before it can be paid.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Certification Pending",
-  },
-  {
-    key: "paymentPlan", label: "Payment Plan", bar: "bg-indigo-500", dot: "bg-indigo-500", text: "text-indigo-400",
-    drillColor: "sky",
-    description: "Customer asked to pay in instalments — terms need senior approval.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Payment Plan",
-  },
-  {
-    key: "escalatedOtherType", label: "Escalated — Other", bar: "bg-orange-600", dot: "bg-orange-600", text: "text-orange-400",
-    drillColor: "amber",
-    description: "Escalated for a reason not covered by the standard list — see the note on each invoice for detail.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Other",
-  },
-  {
-    // Only invoices with NO sub-type chosen land here — never invoices where
-    // the rep explicitly picked "Other" (that's escalatedOtherType above).
-    key: "escalatedUntyped", label: "Escalated — Untyped", bar: "bg-stone-500", dot: "bg-stone-500", text: "text-stone-400",
-    drillColor: "amber",
-    description: "Escalated before an escalation type was chosen — open each invoice and set a type so it's classified correctly here.",
-    match: i => i.collectionStage === "Escalated" && !i.escalationType,
-  },
-  {
-    key: "committed", label: "Committed", bar: "bg-sky-400", dot: "bg-sky-400", text: "text-sky-400",
-    drillColor: "sky",
-    description: "Customer has committed to a payment date — monitoring, not chasing.",
-    match: i => !!i.promiseDate,
-  },
-  {
-    key: "inCollection", label: "In Collection", bar: "bg-amber-400", dot: "bg-amber-400", text: "text-amber-400",
-    drillColor: "amber",
-    description: "Overdue and being actively chased — the collection team's working queue.",
-    match: (_i, overdueDays) => overdueDays > 0,
-  },
-  {
-    key: "current", label: "Not Yet Due", bar: "bg-emerald-500", dot: "bg-emerald-500", text: "text-emerald-400",
-    drillColor: "white",
-    description: "Within payment terms — no action needed yet.",
-    match: () => true,
-  },
-];
-
+// Classification itself lives in lib/receivable-composition.ts — shared with
+// the Collections Board, which uses the same buckets to drive its filters.
 function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
   invoices: any[];
   dominantCcy: string;
@@ -488,26 +403,24 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
       i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
       i.txnType !== "CreditMemo" && openBal(i) > 0
     );
-    const total = open.reduce((s: number, i: any) => s + openBal(i), 0);
-
-    const groups = COMPOSITION_CATEGORIES.map(c => ({ ...c, amount: 0, count: 0, items: [] as any[] }));
-    for (const inv of open) {
-      const od = daysOverdue(inv.dueDate);
-      const g = groups.find(c => c.match(inv, od))!; // "current" always matches
-      g.amount += openBal(inv);
-      g.count  += 1;
-      g.items.push(inv);
-    }
-
-    const active = groups.filter(g => g.amount > 0);
-    // "Blocked" = money that chasing alone can't collect (needs a decision/agreement)
-    const blockedParts  = active.filter(g => ["legal", "disputed", "finalAccount", "retention", "certification", "paymentPlan", "escalatedOtherType", "escalatedUntyped"].includes(g.key));
-    const workableParts = active.filter(g => ["inCollection", "committed", "forwardInvoicing", "handedOver"].includes(g.key));
-    const blocked  = blockedParts.reduce((s, g) => s + g.amount, 0);
-    const workable = workableParts.reduce((s, g) => s + g.amount, 0);
-    const currentAmount = groups.find(g => g.key === "current")?.amount ?? 0;
-
-    return { open, total, groups: active, blocked, workable, blockedParts, workableParts, currentAmount };
+    const items = open.map((inv: any) => ({
+      escalationType:   inv.escalationType ?? null,
+      collectionStage:  inv.collectionStage ?? null,
+      hasOpenDispute:   inv.hasOpenDispute,
+      promiseDate:      inv.promiseDate,
+      overdueDays:      daysOverdue(inv.dueDate),
+      amount:           openBal(inv),
+      ref:              inv, // original invoice — used by drill-down
+    }));
+    const result = classifyComposition(items);
+    // Unwrap `ref` back to the plain invoice objects the drill-down modal expects.
+    const unwrap = (g: typeof result.groups[number]) => ({ ...g, items: g.items.map(it => it.ref) });
+    return {
+      ...result, open,
+      groups:        result.groups.map(unwrap),
+      blockedParts:  result.blockedParts.map(unwrap),
+      workableParts: result.workableParts.map(unwrap),
+    };
   }, [invoices]);
 
   if (comp.total <= 0) return null;
