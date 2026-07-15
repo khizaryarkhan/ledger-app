@@ -967,7 +967,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           </button>
           {compositionOpen && (
             <>
-              <div className="h-2 rounded-full overflow-hidden flex mb-1.5">
+              <div className="h-2 rounded-full overflow-hidden flex gap-[1.5px] bg-stone-950 mb-1.5">
                 {composition.groups.map(g => (
                   <button key={g.key} onClick={() => applyCompositionFilter(g.key)}
                     className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}

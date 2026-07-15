@@ -484,7 +484,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
       </div>
 
       {/* Stacked bar */}
-      <div className="h-8 rounded-lg overflow-hidden flex ring-1 ring-stone-800 mb-4">
+      <div className="h-8 rounded-lg overflow-hidden flex gap-[1.5px] bg-stone-950 ring-1 ring-stone-800 mb-4">
         {comp.groups.map(g => (
           <button
             key={g.key}
