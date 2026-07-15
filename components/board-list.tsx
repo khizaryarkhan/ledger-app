@@ -352,6 +352,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       }
       if (cf.owner && !multiVals("owner").has(r.inv.escalatedToName ?? "")) return false;
       if (cf.escType && !multiVals("escType").has(r.inv.escalationType ?? "")) return false;
+      // Separate from the multi-select above — "" is never addable to a
+      // multiVals set (split().filter(Boolean) strips empty strings), so
+      // "escalation type is blank" needs its own flag rather than an entry
+      // in cf.escType.
+      if (cf.escTypeState === "untyped" && r.inv.escalationType) return false;
       if (cf.response) {
         const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
         if (resp !== cf.response) return false;
@@ -418,7 +423,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       case "certification":       next.stage = "Escalated"; next.escType = "Certification Pending"; break;
       case "paymentPlan":         next.stage = "Escalated"; next.escType = "Payment Plan"; break;
       case "escalatedOtherType":  next.stage = "Escalated"; next.escType = "Other"; break;
-      case "escalatedUntyped":    next.stage = "Escalated"; break; // no filter primitive for "type is blank" — narrows to Escalated
+      case "escalatedUntyped":    next.stage = "Escalated"; next.escTypeState = "untyped"; break;
       case "committed":           next.response = "Committed"; break;
       case "inCollection":        next.stage = "Escalated"; next.stageMode = "not"; break;
       case "current":             next.bucket = "current"; break;
@@ -474,6 +479,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     }
     multiLabel("owner", "Owner");
     multiLabel("escType", "Escalation");
+    if (cf.escTypeState === "untyped") chips.push({ key: "escTypeState", label: "Escalation type: Untyped" });
     if (cf.response) chips.push({ key: "response", label: `Response: ${cf.response}` });
     if (cf.email) chips.push({ key: "email", label: cf.email === "has" ? "Has email" : "No email" });
     if (cf.emailText) chips.push({ key: "emailText", label: `Email ~ "${cf.emailText}"` });
@@ -967,11 +973,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           </button>
           {compositionOpen && (
             <>
-              <div className="h-2 rounded-full overflow-hidden flex gap-[1.5px] bg-stone-950 mb-1.5">
-                {composition.groups.map(g => (
+              <div className="h-2.5 rounded-full overflow-hidden flex mb-1.5">
+                {composition.groups.map((g, i) => (
                   <button key={g.key} onClick={() => applyCompositionFilter(g.key)}
                     className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}
-                    style={{ width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%` }}
+                    style={{
+                      width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%`,
+                      borderLeft: i > 0 ? "2px solid #0c0a09" : undefined,
+                    }}
                     title={`${g.label} — ${fmt.money(g.amount, compositionCcy)} (${((g.amount / composition.total) * 100).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
                   />
                 ))}

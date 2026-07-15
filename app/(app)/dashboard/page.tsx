@@ -484,12 +484,15 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
       </div>
 
       {/* Stacked bar */}
-      <div className="h-8 rounded-lg overflow-hidden flex gap-[1.5px] bg-stone-950 ring-1 ring-stone-800 mb-4">
-        {comp.groups.map(g => (
+      <div className="h-8 rounded-lg overflow-hidden flex ring-1 ring-stone-800 mb-4">
+        {comp.groups.map((g, i) => (
           <button
             key={g.key}
             className={`h-full ${g.bar} hover:opacity-80 transition-opacity relative group`}
-            style={{ width: `${Math.max(pct(g.amount), 0.75)}%` }}
+            style={{
+              width: `${Math.max(pct(g.amount), 0.75)}%`,
+              borderLeft: i > 0 ? "2px solid #0c0a09" : undefined,
+            }}
             title={`${g.label} — ${fmt.money(g.amount, dominantCcy)} (${pct(g.amount).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
             onClick={() => onDrill({
               title: g.label,
