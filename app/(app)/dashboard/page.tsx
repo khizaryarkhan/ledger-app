@@ -539,10 +539,6 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
 }) {
   const [collapsedCust, setCollapsedCust] = useState<Set<string>>(new Set());
 
-  // Reset the collapse state whenever a NEW bucket is opened (title changes)
-  // — an already-expanded customer from the last bucket shouldn't carry over.
-  useEffect(() => { setCollapsedCust(new Set()); }, [drillDown.title]);
-
   const groups = useMemo(() => {
     type ProjGroup = { key: string; name: string; total: number; ccy: string; items: any[] };
     type CustGroup = { key: string; name: string; total: number; ccy: string; projects: Map<string, ProjGroup> };
@@ -571,6 +567,20 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
       .map(cg => ({ ...cg, projects: [...cg.projects.values()].sort((a, b) => b.total - a.total) }));
   }, [drillDown.items, customers, projects, dominantCcy]);
 
+  // Bucket total across all customers — used to show each customer's % share.
+  // Sums raw amounts across currencies (same simplification the rest of the
+  // dashboard already uses, e.g. AR Health's combined AR total) rather than
+  // doing FX conversion, which is fine for the single/dominant-currency case
+  // this app is built around.
+  const bucketTotal = useMemo(() => groups.reduce((s, g) => s + g.total, 0), [groups]);
+
+  // Collapsed by default — opening a 74-customer bucket should land on 74
+  // one-line bands, not 74 expanded groups. Re-collapse whenever a NEW
+  // bucket is opened (title changes) so nothing carries over from the last
+  // one; `groups` is already recomputed for the new bucket by the time this
+  // effect runs (useMemo executes during render, before effects).
+  useEffect(() => { setCollapsedCust(new Set(groups.map(g => g.key))); }, [drillDown.title]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleCust = (key: string) => setCollapsedCust(p => {
     const n = new Set(p);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -583,6 +593,14 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
     drillDown.color === "rose"  ? "text-rose-400"  :
     drillDown.color === "amber" ? "text-amber-400" :
     drillDown.color === "sky"   ? "text-sky-400"   : "text-white";
+  // Written as literal strings (not derived via .replace on colorClass) —
+  // Tailwind's content scanner only picks up class names that appear
+  // verbatim in source; a runtime-constructed "bg-" + hue string would be
+  // invisible to it, same failure mode fixed earlier for the composition bar.
+  const barBgClass =
+    drillDown.color === "rose"  ? "bg-rose-400"  :
+    drillDown.color === "amber" ? "bg-amber-400" :
+    drillDown.color === "sky"   ? "bg-sky-400"   : "bg-stone-300";
 
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
@@ -635,19 +653,27 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
           ) : (
             groups.map(cg => {
               const collapsed = collapsedCust.has(cg.key);
+              const pct = bucketTotal > 0 ? (cg.total / bucketTotal) * 100 : 0;
               return (
                 <div key={cg.key} className="rounded-lg border border-stone-800 overflow-hidden">
                   {/* Customer band */}
                   <button
                     onClick={() => toggleCust(cg.key)}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-stone-900 hover:bg-stone-800/80 transition-colors text-left"
+                    className="w-full flex flex-col gap-1 px-3 py-2 bg-stone-900 hover:bg-stone-800/80 transition-colors text-left"
                   >
-                    <ChevronRight size={12} className={`text-stone-500 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
-                    <span className="text-[13px] font-medium text-white flex-1 truncate">{cg.name}</span>
-                    <span className="text-[10px] text-stone-500 shrink-0">
-                      {cg.projects.reduce((s, p) => s + p.items.length, 0)} inv
-                    </span>
-                    <span className="text-[13px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(cg.total, cg.ccy)}</span>
+                    <div className="w-full flex items-center gap-2">
+                      <ChevronRight size={12} className={`text-stone-500 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
+                      <span className="text-[13px] font-medium text-white flex-1 truncate">{cg.name}</span>
+                      <span className="text-[10px] text-stone-500 shrink-0">
+                        {cg.projects.reduce((s, p) => s + p.items.length, 0)} inv
+                      </span>
+                      <span className="text-[11px] text-stone-500 tabular-nums w-9 text-right shrink-0">{pct.toFixed(0)}%</span>
+                      <span className="text-[13px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(cg.total, cg.ccy)}</span>
+                    </div>
+                    {/* Share of the bucket — same pattern as "Largest Open Balances" */}
+                    <div className="h-1 bg-stone-800 rounded-full overflow-hidden ml-5">
+                      <div className={`h-full ${barBgClass}`} style={{ width: `${Math.max(pct, 1)}%` }} />
+                    </div>
                   </button>
 
                   {/* Projects + invoices */}
