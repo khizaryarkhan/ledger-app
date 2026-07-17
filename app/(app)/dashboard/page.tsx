@@ -1289,51 +1289,43 @@ export default function DashboardPage() {
         );
       })()}
 
-      {/* Customer Responses summary → inbox */}
+      {/* ── Needs attention — the act-today zone ─────────────────── */}
+      <div className="mt-6 mb-3">
+        <h2 className="text-base font-semibold text-white">Needs attention</h2>
+        <p className="text-[11px] text-stone-500 mt-0.5">Act on these today — chase, respond, follow up</p>
+      </div>
+      {alerts.length > 0 && (
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
+              <h3 className="text-sm font-semibold text-white">Needs attention</h3>
+            </div>
+            <div className="space-y-2">
+              {alerts.map((alert, i) => (
+                <Link
+                  key={i}
+                  href={alert.href}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-r-lg border-l-2 ${alert.color === "rose" ? "border-rose-500 bg-rose-500/10 hover:bg-rose-500/15" : "border-amber-400 bg-amber-500/10 hover:bg-amber-500/15"}`}
+                >
+                  <div className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>
+                    {alert.icon === "AlertTriangle" ? <AlertTriangle size={16} /> : <Mail size={16} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-[13px] font-semibold ${alert.color === "rose" ? "text-rose-200" : "text-amber-200"}`}>{alert.label}</div>
+                    <div className={`text-[11px] mt-0.5 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>{alert.sub}</div>
+                  </div>
+                  <ChevronRight size={14} className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-500" : "text-amber-500"}`} />
+                </Link>
+              ))}
+            </div>
+          </Card>
+        )}
+
+      <div className="mb-3">
       <ResponsesDashboardWidget />
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Card className="col-span-2">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-semibold text-white">Aging buckets</h3>
-            <Link href="/reports" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
-          </div>
-          <div className="space-y-3">
-            {["Current", "1-30", "31-60", "61-90", "90+"].map((bucket, i) => {
-              const colors = ["bg-emerald-500", "bg-amber-400", "bg-orange-500", "bg-rose-500", "bg-rose-700"];
-              const labels = ["Current (not due)", "1-30 days", "31-60 days", "61-90 days", "90+ days"];
-              const pct = (stats.buckets[bucket] / maxBucket) * 100;
-              return (
-                <div key={bucket} className="flex items-center gap-3">
-                  <div className="w-32 text-xs text-stone-400 font-medium">{labels[i]}</div>
-                  <div className="flex-1 h-7 bg-stone-800 rounded relative overflow-hidden">
-                    <div className={`h-full ${colors[i]}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="w-28 text-right text-sm font-semibold text-white tabular-nums">{fmt.money(stats.buckets[bucket], stats.dominantCcy)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-
-        <Card>
-          <h3 className="text-sm font-semibold text-white mb-4">Activity (7 days)</h3>
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Emails sent</span><span className="text-lg font-semibold text-white">{stats.emailsSent}</span></div>
-              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-600 rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
-            </div>
-            <div>
-              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Replies received</span><span className="text-lg font-semibold text-white">{stats.replies}</span></div>
-              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(stats.replies * 20, 100)}%` }} /></div>
-            </div>
-            <div className="pt-3 border-t border-stone-800">
-              <div className="text-xs text-stone-400 mb-1">Reply rate</div>
-              <div className="text-lg font-semibold text-white">{stats.emailsSent ? Math.round(stats.replies / stats.emailsSent * 100) : 0}%</div>
-            </div>
-          </div>
-        </Card>
-
         <Card className="col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Top overdue customers</h3>
@@ -1362,130 +1354,6 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-white">My tasks today</h3>
-            <Link href="/tasks" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
-          </div>
-          {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">All caught up</div> : (
-            <div className="space-y-2">
-              {myTasks.map(t => {
-                const overdue = new Date(t.dueDate) < new Date(today());
-                const href = t.invoiceId ? `/invoices/${t.invoiceId}` : "/tasks";
-                return (
-                  <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-800/60">
-                    <Circle size={14} className="text-stone-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm text-white truncate">{t.title}</div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[11px] ${overdue ? "text-rose-600 font-medium" : "text-stone-500"}`}>{fmt.relative(t.dueDate)}</span>
-                        {t.priority === "Urgent" && <Badge variant="red" size="sm">Urgent</Badge>}
-                        {t.priority === "High" && <Badge variant="orange" size="sm">High</Badge>}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {/* Priority Attention Alerts */}
-        {alerts.length > 0 && (
-          <Card className="col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
-              <h3 className="text-sm font-semibold text-white">Needs attention</h3>
-            </div>
-            <div className="space-y-2">
-              {alerts.map((alert, i) => (
-                <Link
-                  key={i}
-                  href={alert.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-r-lg border-l-2 ${alert.color === "rose" ? "border-rose-500 bg-rose-500/10 hover:bg-rose-500/15" : "border-amber-400 bg-amber-500/10 hover:bg-amber-500/15"}`}
-                >
-                  <div className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>
-                    {alert.icon === "AlertTriangle" ? <AlertTriangle size={16} /> : <Mail size={16} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-[13px] font-semibold ${alert.color === "rose" ? "text-rose-200" : "text-amber-200"}`}>{alert.label}</div>
-                    <div className={`text-[11px] mt-0.5 ${alert.color === "rose" ? "text-rose-400" : "text-amber-400"}`}>{alert.sub}</div>
-                  </div>
-                  <ChevronRight size={14} className={`flex-shrink-0 ${alert.color === "rose" ? "text-rose-500" : "text-amber-500"}`} />
-                </Link>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        <Card className="col-span-3">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-white">Invoices due this week</h3>
-            <span className="text-xs text-stone-500">{stats.dueThisWeek.length} invoices</span>
-          </div>
-          {stats.dueThisWeek.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No invoices due this week</div> : (
-            <div className="grid grid-cols-2 gap-2">
-              {stats.dueThisWeek.slice(0, 6).map(inv => {
-                const customer = customers.find(c => c.id === inv.customerId);
-                return (
-                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md border border-stone-800 hover:border-stone-700 hover:bg-stone-800/50">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-white truncate">{customer?.name}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5 font-mono">{inv.invoiceNumber}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {/* Concentration Risk */}
-        <Card className="col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-white">Concentration risk</h3>
-              <p className="text-[11px] text-stone-500 mt-0.5">Top 5 customers as % of total AR</p>
-            </div>
-            {concentrationRisk.top5Pct > 50 && (
-              <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-md">
-                <AlertTriangle size={11} /> High concentration
-              </div>
-            )}
-          </div>
-          {concentrationRisk.rows.length === 0 ? (
-            <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
-          ) : (
-            <div className="space-y-2.5">
-              {concentrationRisk.rows.map(({ customer, amount, pct, currency }) => (
-                <Link key={customer.id} href={`/customers/${customer.id}`} className="block group">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-medium text-stone-300 truncate group-hover:text-white">{customer.name}</span>
-                    <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, currency)}</span>
-                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${pct > 20 ? "bg-amber-400" : "bg-stone-500"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                  </div>
-                </Link>
-              ))}
-              <div className="pt-2 border-t border-stone-800 flex items-center justify-between">
-                <span className="text-[11px] text-stone-500">Top 5 total concentration</span>
-                <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-400" : "text-emerald-400"}`}>
-                  {concentrationRisk.top5Pct.toFixed(1)}%
-                </span>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* Proactive Pipeline */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -1523,6 +1391,102 @@ export default function DashboardPage() {
               {stats.proactivePipeline.length > 4 && (
                 <div className="text-center text-[11px] text-stone-500 pt-1">+{stats.proactivePipeline.length - 4} more</div>
               )}
+            </div>
+          )}
+        </Card>
+
+        <Card className="col-span-3">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">Invoices due this week</h3>
+            <span className="text-xs text-stone-500">{stats.dueThisWeek.length} invoices</span>
+          </div>
+          {stats.dueThisWeek.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">No invoices due this week</div> : (
+            <div className="grid grid-cols-2 gap-2">
+              {stats.dueThisWeek.slice(0, 6).map(inv => {
+                const customer = customers.find(c => c.id === inv.customerId);
+                return (
+                  <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 p-3 rounded-md border border-stone-800 hover:border-stone-700 hover:bg-stone-800/50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-white truncate">{customer?.name}</div>
+                      <div className="text-[11px] text-stone-500 mt-0.5 font-mono">{inv.invoiceNumber}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-white tabular-nums">{fmt.money(openBal(inv), inv.currency)}</div>
+                      <div className="text-[11px] text-stone-500 mt-0.5">Due {fmt.shortDate(inv.dueDate)}</div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* ── Aging & risk — portfolio structure ───────────────────── */}
+      <div className="mt-6 mb-3">
+        <h2 className="text-base font-semibold text-white">Aging & risk</h2>
+        <p className="text-[11px] text-stone-500 mt-0.5">Portfolio structure and exposure</p>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="col-span-2">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold text-white">Aging buckets</h3>
+            <Link href="/reports" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">Aging report <ArrowUpRight size={12} /></Link>
+          </div>
+          <div className="space-y-3">
+            {["Current", "1-30", "31-60", "61-90", "90+"].map((bucket, i) => {
+              const colors = ["bg-emerald-500", "bg-amber-400", "bg-orange-500", "bg-rose-500", "bg-rose-700"];
+              const labels = ["Current (not due)", "1-30 days", "31-60 days", "61-90 days", "90+ days"];
+              const pct = (stats.buckets[bucket] / maxBucket) * 100;
+              return (
+                <div key={bucket} className="flex items-center gap-3">
+                  <div className="w-32 text-xs text-stone-400 font-medium">{labels[i]}</div>
+                  <div className="flex-1 h-7 bg-stone-800 rounded relative overflow-hidden">
+                    <div className={`h-full ${colors[i]}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="w-28 text-right text-sm font-semibold text-white tabular-nums">{fmt.money(stats.buckets[bucket], stats.dominantCcy)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Concentration risk</h3>
+              <p className="text-[11px] text-stone-500 mt-0.5">Top 5 customers as % of total AR</p>
+            </div>
+            {concentrationRisk.top5Pct > 50 && (
+              <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-md">
+                <AlertTriangle size={11} /> High concentration
+              </div>
+            )}
+          </div>
+          {concentrationRisk.rows.length === 0 ? (
+            <div className="py-6 text-center text-sm text-stone-500">No open AR</div>
+          ) : (
+            <div className="space-y-2.5">
+              {concentrationRisk.rows.map(({ customer, amount, pct, currency }) => (
+                <Link key={customer.id} href={`/customers/${customer.id}`} className="block group">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[12px] font-medium text-stone-300 truncate group-hover:text-white">{customer.name}</span>
+                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                      <span className="text-[11px] font-semibold text-stone-200 tabular-nums">{fmt.money(amount, currency)}</span>
+                      <span className={`text-[11px] font-bold tabular-nums w-10 text-right ${pct > 20 ? "text-amber-400" : "text-stone-500"}`}>{pct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${pct > 20 ? "bg-amber-400" : "bg-stone-500"}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </Link>
+              ))}
+              <div className="pt-2 border-t border-stone-800 flex items-center justify-between">
+                <span className="text-[11px] text-stone-500">Top 5 total concentration</span>
+                <span className={`text-[12px] font-bold tabular-nums ${concentrationRisk.top5Pct > 50 ? "text-amber-400" : "text-emerald-400"}`}>
+                  {concentrationRisk.top5Pct.toFixed(1)}%
+                </span>
+              </div>
             </div>
           )}
         </Card>
@@ -1609,6 +1573,59 @@ export default function DashboardPage() {
           reps={reps ?? []}
           communications={communications}
         />
+      </div>
+
+      {/* ── Team activity — collections output & personal tasks ──── */}
+      <div className="mt-6 mb-3">
+        <h2 className="text-base font-semibold text-white">Team activity</h2>
+        <p className="text-[11px] text-stone-500 mt-0.5">Collections output this week and your open tasks</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <h3 className="text-sm font-semibold text-white mb-4">Activity (7 days)</h3>
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Emails sent</span><span className="text-lg font-semibold text-white">{stats.emailsSent}</span></div>
+              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-600 rounded" style={{ width: `${Math.min(stats.emailsSent * 10, 100)}%` }} /></div>
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between mb-1"><span className="text-xs text-stone-400">Replies received</span><span className="text-lg font-semibold text-white">{stats.replies}</span></div>
+              <div className="h-1.5 bg-stone-800 rounded"><div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(stats.replies * 20, 100)}%` }} /></div>
+            </div>
+            <div className="pt-3 border-t border-stone-800">
+              <div className="text-xs text-stone-400 mb-1">Reply rate</div>
+              <div className="text-lg font-semibold text-white">{stats.emailsSent ? Math.round(stats.replies / stats.emailsSent * 100) : 0}%</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">My tasks today</h3>
+            <Link href="/tasks" className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1">All tasks <ArrowUpRight size={12} /></Link>
+          </div>
+          {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">All caught up</div> : (
+            <div className="space-y-2">
+              {myTasks.map(t => {
+                const overdue = new Date(t.dueDate) < new Date(today());
+                const href = t.invoiceId ? `/invoices/${t.invoiceId}` : "/tasks";
+                return (
+                  <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-800/60">
+                    <Circle size={14} className="text-stone-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{t.title}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-[11px] ${overdue ? "text-rose-600 font-medium" : "text-stone-500"}`}>{fmt.relative(t.dueDate)}</span>
+                        {t.priority === "Urgent" && <Badge variant="red" size="sm">Urgent</Badge>}
+                        {t.priority === "High" && <Badge variant="orange" size="sm">High</Badge>}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </Card>
       </div>
 
       {/* ── Promised-bucket drill-down slide-over ──────────────────────── */}
