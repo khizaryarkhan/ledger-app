@@ -13,12 +13,15 @@
  *     escalatedToUserId?:  string | null
  *     escalatedToName?:    string | null
  *     escalatedToEmail?:   string | null
+ *     escalationType?:     string | null
+ *     escalationNote?:     string | null
+ *     promiseDate?:        string | null   // set when bulk-moving to the "Committed" stage
  *   }
  * }
  */
 
 import { db } from "@/db";
-import { invoices, communications } from "@/db/schema";
+import { invoices, communications, invoicePromises } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -33,6 +36,7 @@ const Schema = z.object({
     escalatedToEmail:  z.string().max(255).nullable().optional(),
     escalationType:    z.string().max(64).nullable().optional(),
     escalationNote:    z.string().max(2000).nullable().optional(),
+    promiseDate:       z.string().max(32).nullable().optional(),
   }),
 });
 
@@ -50,6 +54,8 @@ export async function POST(req: Request) {
   const { ids, patch } = body;
   const actorId   = (session?.user as any)?.id   ?? null;
   const actorName = (session?.user as any)?.name ?? "Staff";
+  const actorRole = (session?.user as any)?.role;
+  const staffSource = actorRole === "rep" ? "Rep" : "Accountant";
 
   // Load all target invoices in one query — confirms org ownership.
   const targets = await db
@@ -81,6 +87,7 @@ export async function POST(req: Request) {
       dbPatch.escalatedAt       = null;
     }
   }
+  if (patch.promiseDate !== undefined) dbPatch.promiseDate = patch.promiseDate;
 
   const stageChanging = patch.collectionStage !== undefined;
 
@@ -99,10 +106,11 @@ export async function POST(req: Request) {
       const assigneeEmail = toStage === "Escalated" ? (patch.escalatedToEmail ?? null) : null;
       const escType       = toStage === "Escalated" ? (patch.escalationType   ?? null) : null;
       const escNote       = toStage === "Escalated" ? (patch.escalationNote   ?? null) : null;
+      const promiseDate   = patch.promiseDate ?? null;
       const bodyText      = assigneeName
         ? [`${assigneeName}${assigneeEmail ? ` · ${assigneeEmail}` : ""}`, escNote ? `“${escNote}”` : null]
             .filter(Boolean).join("\n")
-        : null;
+        : promiseDate ? `Committed to pay ${promiseDate}` : null;
 
       const changed = targets.filter(inv => inv.collectionStage !== toStage);
       if (changed.length > 0) {
@@ -125,6 +133,26 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       console.error("[batch-update] Failed to log StageChange comms:", e);
+    }
+  }
+
+  // 3. Record each new commitment in invoicePromises — same audit trail the
+  //    single-invoice PATCH route writes, so the Responses inbox and invoice
+  //    timeline see bulk commitments exactly like individually-entered ones.
+  if (patch.promiseDate) {
+    try {
+      const changedPromise = targets.filter(inv => inv.promiseDate !== patch.promiseDate);
+      if (changedPromise.length > 0) {
+        await db.insert(invoicePromises).values(
+          changedPromise.map(inv => ({
+            orgId: orgId!, invoiceId: inv.id, customerId: inv.customerId,
+            promiseDate: String(patch.promiseDate).slice(0, 16),
+            amount: null, source: staffSource, enteredBy: actorId, status: "Active" as const,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error("[batch-update] Failed to log invoicePromises:", e);
     }
   }
 

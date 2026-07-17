@@ -68,6 +68,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const [batchEscTarget, setBatchEscTarget] = useState("");
   const [batchEscType, setBatchEscType] = useState("");
   const [batchEscNote, setBatchEscNote] = useState("");
+  const [batchCommitDate, setBatchCommitDate] = useState("");
   const [batchChaseDate, setBatchChaseDate] = useState(todayStr());
   const [batchChaseRef, setBatchChaseRef] = useState("");
   const [batchChaseMemo, setBatchChaseMemo] = useState("");
@@ -156,6 +157,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     setBatchBusy(true);
     try {
       const isEscalated = batchStageVal === "Escalated";
+      const isCommitted = batchStageVal === "Committed";
       const escalateTarget = isEscalated ? escalateTargets.find(t => t.id === batchEscTarget) : undefined;
       const res = await fetch("/api/invoices/batch-update", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -170,6 +172,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               escalationType:    batchEscType || null,
               escalationNote:    batchEscNote.trim() || null,
             } : {}),
+            ...(isCommitted && batchCommitDate ? { promiseDate: batchCommitDate } : {}),
           },
         }),
       });
@@ -179,7 +182,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         return;
       }
       const { updated } = await res.json();
-      setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget(""); setBatchEscType(""); setBatchEscNote("");
+      setBatchPanel(null); setBatchStageVal(""); setBatchEscTarget(""); setBatchEscType(""); setBatchEscNote(""); setBatchCommitDate("");
       setSelected(new Set());
       await refresh();
       toast?.(`Stage updated for ${updated} invoice${updated !== 1 ? "s" : ""}`, "success");
@@ -272,6 +275,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         .then(r => r.json())
         .then(d => setEscalateTargets(d.targets ?? []));
     }
+  }
+
+  // Commitment-date picker state — mirrors the escalation picker above.
+  // Moving a row to "Committed" needs a promiseDate; without one the stage
+  // pill would say "Committed" while none of the Response/composition logic
+  // (which reads promiseDate, not collectionStage) would treat it as such.
+  const [pendingCommit, setPendingCommit] = useState<{ invoiceId: string; prevStage: string } | null>(null);
+  const [commitDateVal, setCommitDateVal] = useState<string>("");
+
+  function openCommitPicker(invoiceId: string, prevStage: string, currentDate?: string | null) {
+    setPendingCommit({ invoiceId, prevStage });
+    setCommitDateVal(currentDate ?? "");
   }
 
   // ── Column filters ─────────────────────────────────────────────────────
@@ -819,8 +834,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   {escalationTypeByLabel(batchEscType)?.description}
                 </span>
               )}
+              {batchStageVal === "Committed" && (
+                <>
+                  <span className="text-[12px] text-stone-400">Promised date:</span>
+                  <input
+                    type="date"
+                    value={batchCommitDate}
+                    onChange={e => setBatchCommitDate(e.target.value)}
+                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </>
+              )}
               <button
-                disabled={!batchStageVal || batchBusy || (batchStageVal === "Escalated" && !!batchEscTarget && !batchEscType)}
+                disabled={!batchStageVal || batchBusy || (batchStageVal === "Escalated" && !!batchEscTarget && !batchEscType) || (batchStageVal === "Committed" && !batchCommitDate)}
                 onClick={runBatchStage}
                 className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-md px-3 py-1.5 disabled:opacity-40 hover:bg-emerald-700">
                 {batchBusy ? <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</> : <><Check size={13} /> Apply</>}
@@ -1432,14 +1458,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {(() => {
                             const isEscAssigned = stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id;
+                            const displayStage =
+                              pendingEscalation?.invoiceId === inv.id ? "Escalated" :
+                              pendingCommit?.invoiceId    === inv.id ? "Committed" : stageLabel;
                             const stageSelect = (extraCls: string) => (
                               <select
-                                value={pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel}
+                                value={displayStage}
                                 disabled={busyId === inv.id}
                                 onChange={e => {
                                   const newStage = e.target.value;
                                   if (newStage === "Escalated") {
                                     openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined);
+                                  } else if (newStage === "Committed") {
+                                    openCommitPicker(inv.id, stageLabel, inv.promiseDate);
                                   } else {
                                     const patch: any = { collectionStage: newStage };
                                     if (stageLabel === "Escalated") {
@@ -1459,7 +1490,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             );
 
                             if (!isEscAssigned) {
-                              return stageSelect(`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(pendingEscalation?.invoiceId === inv.id ? "Escalated" : stageLabel)}`);
+                              return stageSelect(`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(displayStage)}`);
                             }
 
                             // Escalated + assigned: ONE pill — the rose colour says "Escalated",
@@ -1551,6 +1582,35 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                 Confirm
                               </button>
                             </div>
+                          </div>
+                        )}
+                        {pendingCommit?.invoiceId === inv.id && (
+                          <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-1.5">
+                            <input
+                              type="date"
+                              autoFocus
+                              value={commitDateVal}
+                              onChange={e => setCommitDateVal(e.target.value)}
+                              className="text-[11px] flex-1 min-w-0 border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                            <button
+                              disabled={!commitDateVal || busyId === inv.id}
+                              title={!commitDateVal ? "Pick the promised date first" : undefined}
+                              onClick={async () => {
+                                await save(inv.id, { collectionStage: "Committed", promiseDate: commitDateVal });
+                                setPendingCommit(null);
+                                setCommitDateVal("");
+                              }}
+                              className="shrink-0 text-[11px] font-semibold bg-emerald-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-emerald-700"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => { setPendingCommit(null); setCommitDateVal(""); }}
+                              className="shrink-0 text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                            >
+                              Cancel
+                            </button>
                           </div>
                         )}
                       </div>
