@@ -191,7 +191,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
               <div key={label} className="text-center group relative">
                 <div className="relative w-16 h-16 mx-auto mb-1">
                   <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#44403c" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--ring-track)" strokeWidth="3" />
                     <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3"
                       stroke={score >= 70 ? "#34d399" : score >= 40 ? "#fbbf24" : "#f87171"}
                       strokeDasharray={`${score} 100`} strokeLinecap="round" />
@@ -491,7 +491,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
             className={`h-full ${g.bar} hover:opacity-80 transition-opacity relative group`}
             style={{
               width: `${Math.max(pct(g.amount), 0.75)}%`,
-              borderLeft: i > 0 ? "2px solid #0c0a09" : undefined,
+              borderLeft: i > 0 ? "2px solid var(--seg-gap)" : undefined,
             }}
             title={`${g.label} — ${fmt.money(g.amount, dominantCcy)} (${pct(g.amount).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
             onClick={() => onDrill({

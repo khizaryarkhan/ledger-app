@@ -2,14 +2,29 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
+import { Menu, Sun, Moon } from "lucide-react";
 import AuthProvider from "@/components/auth-provider";
 import { DataProvider, useData } from "@/components/data-provider";
+import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { Sidebar } from "@/components/sidebar";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { SyncButton } from "@/components/sync-button";
 import { Toast } from "@/components/ui";
 import { SubscriptionGate } from "@/components/subscription-gate";
+
+function ThemeToggle() {
+  const { resolved, setPref } = useTheme();
+  return (
+    <button
+      onClick={() => setPref(resolved === "dark" ? "light" : "dark")}
+      className="p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
+      title={`Switch to ${resolved === "dark" ? "light" : "dark"} view · more options in Settings → Appearance`}
+      aria-label="Toggle theme"
+    >
+      {resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  );
+}
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { loaded, toastState, clearToast } = useData();
@@ -59,6 +74,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <SyncButton />
             <OrgSwitcher />
           </div>
@@ -78,7 +94,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <DataProvider>
-        <AppShell>{children}</AppShell>
+        <ThemeProvider>
+          <AppShell>{children}</AppShell>
+        </ThemeProvider>
       </DataProvider>
     </AuthProvider>
   );

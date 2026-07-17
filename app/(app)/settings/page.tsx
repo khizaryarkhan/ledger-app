@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { Card } from "@/components/ui";
-import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3 } from "lucide-react";
+import { Building2, Users, Link2, Mail, Layers, CreditCard, ChevronRight, CheckCircle, AlertCircle, Loader, BookOpen, BarChart3, SunMoon } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -97,6 +97,13 @@ export default function SettingsPage() {
       icon: CreditCard,
       title: "Billing",
       description: "View your plan, payment history, manage payment method and request cancellation.",
+      badge: null,
+    },
+    {
+      href: "/settings/appearance",
+      icon: SunMoon,
+      title: "Appearance",
+      description: "Dark, light or system theme — choose how the app looks on this device.",
       badge: null,
     },
     {

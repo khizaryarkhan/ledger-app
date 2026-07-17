@@ -1005,7 +1005,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}
                     style={{
                       width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%`,
-                      borderLeft: i > 0 ? "2px solid #0c0a09" : undefined,
+                      borderLeft: i > 0 ? "2px solid var(--seg-gap)" : undefined,
                     }}
                     title={`${g.label} — ${fmt.money(g.amount, compositionCcy)} (${((g.amount / composition.total) * 100).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
                   />

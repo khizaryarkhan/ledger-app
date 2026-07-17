@@ -4,6 +4,77 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   THEME TOKENS
+   The app's Tailwind palette (stone + the accent steps used as text/tints on
+   dark surfaces) resolves through these variables — see tailwind.config.js.
+   :root carries the DARK values (identical to Tailwind's literals, so the
+   default look is pixel-identical and the light-first landing pages, which
+   never receive a [data-theme] ancestor, are untouched).
+   [data-theme="light"] — set on the app shell wrapper only — inverts the
+   stone ramp and swaps each accent's text steps for darker ones that keep
+   contrast on white. Meaning never changes per theme, only the exact step.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* stone ramp (Tailwind defaults) */
+  --st-50: 250 250 249; --st-100: 245 245 244; --st-200: 231 229 228;
+  --st-300: 214 211 209; --st-400: 168 162 158; --st-500: 120 113 108;
+  --st-600: 87 83 78; --st-700: 68 64 60; --st-800: 41 37 36;
+  --st-900: 28 25 23; --st-950: 12 10 9;
+  --c-white: 255 255 255;
+
+  /* accent text/tint steps (Tailwind defaults) */
+  --emerald-200: 167 243 208; --emerald-300: 110 231 183; --emerald-400: 52 211 153; --emerald-500: 16 185 129;
+  --rose-200: 254 205 211; --rose-300: 253 164 175; --rose-400: 251 113 133; --rose-500: 244 63 94;
+  --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36; --amber-500: 245 158 11;
+  --sky-200: 186 230 253; --sky-300: 125 211 252; --sky-400: 56 189 248; --sky-500: 14 165 233;
+  --blue-200: 191 219 254; --blue-300: 147 197 253; --blue-400: 96 165 250; --blue-500: 59 130 246;
+  --violet-200: 221 214 254; --violet-300: 196 181 253; --violet-400: 167 139 250; --violet-500: 139 92 246;
+  --orange-200: 254 215 170; --orange-300: 253 186 116; --orange-400: 251 146 60; --orange-500: 249 115 22;
+  --teal-200: 153 246 228; --teal-300: 94 234 212; --teal-400: 45 212 191; --teal-500: 20 184 166;
+  --cyan-200: 165 243 252; --cyan-300: 103 232 249; --cyan-400: 34 211 238; --cyan-500: 6 182 212;
+  --indigo-200: 199 210 254; --indigo-300: 165 180 252; --indigo-400: 129 140 248; --indigo-500: 99 102 241;
+  --fuchsia-200: 245 208 254; --fuchsia-300: 240 171 252; --fuchsia-400: 232 121 249; --fuchsia-500: 217 70 239;
+
+  /* non-Tailwind hooks (inline styles / scrollbars / SVG) */
+  --seg-gap: #0c0a09;        /* gap color between stacked-bar segments   */
+  --ring-track: #44403c;     /* SVG score-ring track                     */
+  --sb-thumb: #44403c;       /* scrollbar thumb                          */
+  --sb-thumb-hover: #57534e;
+  --date-indicator-invert: 40%;
+}
+
+[data-theme="light"] {
+  /* stone ramp inverted — bg-stone-950 becomes near-white, text-stone-300
+     becomes dark ink, stone-500 is the pivot and stays put */
+  --st-50: 12 10 9; --st-100: 28 25 23; --st-200: 41 37 36;
+  --st-300: 68 64 60; --st-400: 87 83 78; --st-500: 120 113 108;
+  --st-600: 168 162 158; --st-700: 214 211 209; --st-800: 231 229 228;
+  --st-900: 245 245 244; --st-950: 250 250 249;
+  --c-white: 28 25 23;   /* text-white = primary ink */
+
+  /* accents: 200→800, 300→700, 400→700, 500→600 of the same family —
+     dark-tuned pastels are unreadable on white, so each step drops to a
+     deeper cut of the SAME hue (meaning preserved, contrast restored) */
+  --emerald-200: 6 95 70; --emerald-300: 4 120 87; --emerald-400: 4 120 87; --emerald-500: 5 150 105;
+  --rose-200: 159 18 57; --rose-300: 190 18 60; --rose-400: 190 18 60; --rose-500: 225 29 72;
+  --amber-200: 146 64 14; --amber-300: 180 83 9; --amber-400: 180 83 9; --amber-500: 217 119 6;
+  --sky-200: 7 89 133; --sky-300: 3 105 161; --sky-400: 3 105 161; --sky-500: 2 132 199;
+  --blue-200: 30 64 175; --blue-300: 29 78 216; --blue-400: 29 78 216; --blue-500: 37 99 235;
+  --violet-200: 91 33 182; --violet-300: 109 40 217; --violet-400: 109 40 217; --violet-500: 124 58 237;
+  --orange-200: 154 52 18; --orange-300: 194 65 12; --orange-400: 194 65 12; --orange-500: 234 88 12;
+  --teal-200: 17 94 89; --teal-300: 15 118 110; --teal-400: 15 118 110; --teal-500: 13 148 136;
+  --cyan-200: 21 94 117; --cyan-300: 14 116 144; --cyan-400: 14 116 144; --cyan-500: 8 145 178;
+  --indigo-200: 55 48 163; --indigo-300: 67 56 202; --indigo-400: 67 56 202; --indigo-500: 79 70 229;
+  --fuchsia-200: 134 25 143; --fuchsia-300: 162 28 175; --fuchsia-400: 162 28 175; --fuchsia-500: 192 38 211;
+
+  --seg-gap: #ffffff;
+  --ring-track: #e7e5e4;
+  --sb-thumb: #d6d3d1;
+  --sb-thumb-hover: #a8a29e;
+  --date-indicator-invert: 0%;
+}
+
 html, body { height: 100%; }
 body {
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -27,7 +98,7 @@ body {
 .animate-bounce-slow { animation: bounce-slow 2.5s ease-in-out infinite; }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(40%);
+  filter: invert(var(--date-indicator-invert));
   cursor: pointer;
 }
 
@@ -37,18 +108,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    with contrast on hover.
    ══════════════════════════════════════════════════════════════════════════ */
 * {
-  scrollbar-width: thin;                       /* Firefox */
-  scrollbar-color: #44403c transparent;        /* stone-700 on transparent */
+  scrollbar-width: thin;                        /* Firefox */
+  scrollbar-color: var(--sb-thumb) transparent; /* theme-aware thumb */
 }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: #44403c;                          /* stone-700 */
+  background: var(--sb-thumb);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: #57534e; } /* stone-600 */
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
 *::-webkit-scrollbar-corner { background: transparent; }
 
 /* ══════════════════════════════════════════════════════════════════════════
