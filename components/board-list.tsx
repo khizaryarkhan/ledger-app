@@ -247,10 +247,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }
 
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [respEdit, setRespEdit] = useState<{ id: string; mode: "promise" | "dispute" } | null>(null);
   // Optimistic response overrides per invoice (instant UI feedback until refetch)
   const [opt, setOpt] = useState<Record<string, { hasOpenDispute?: boolean; promiseDate?: string | null; disputeReason?: string | null }>>({});
-  const [rDate, setRDate] = useState(""); const [rCat, setRCat] = useState(DISPUTE_CATEGORIES[0]); const [rReason, setRReason] = useState("");
   const [emailEdit, setEmailEdit] = useState<string | null>(null);
   const [emailVal, setEmailVal] = useState("");
   const [showSend, setShowSend] = useState(false);
@@ -287,6 +285,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   function openCommitPicker(invoiceId: string, prevStage: string, currentDate?: string | null) {
     setPendingCommit({ invoiceId, prevStage });
     setCommitDateVal(currentDate ?? "");
+  }
+
+  // Dispute picker state — selecting "Disputed" from the stage dropdown opens
+  // this inline (category + reason), same pattern as escalation/commitment.
+  const [pendingDispute, setPendingDispute] = useState<{ invoiceId: string; prevStage: string } | null>(null);
+  const [disputeCat, setDisputeCat] = useState<string>(DISPUTE_CATEGORIES[0]);
+  const [disputeReasonVal, setDisputeReasonVal] = useState<string>("");
+
+  function openDisputePicker(invoiceId: string, prevStage: string, currentReason?: string | null) {
+    setPendingDispute({ invoiceId, prevStage });
+    setDisputeCat(DISPUTE_CATEGORIES[0]);
+    setDisputeReasonVal(currentReason ?? "");
   }
 
   // ── Column filters ─────────────────────────────────────────────────────
@@ -372,10 +382,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       // "escalation type is blank" needs its own flag rather than an entry
       // in cf.escType.
       if (cf.escTypeState === "untyped" && r.inv.escalationType) return false;
-      if (cf.response) {
-        const resp = r.inv.hasOpenDispute ? "Disputed" : r.inv.promiseDate ? "Committed" : "None";
-        if (resp !== cf.response) return false;
-      }
+      // Commitment sub-filter (Stage popover). A broken commitment is a
+      // promise whose date has passed and isn't superseded by a dispute.
+      if (cf.commitment === "broken"   && !(r.inv.promiseDate && r.inv.promiseDate < today && !r.inv.hasOpenDispute)) return false;
+      if (cf.commitment === "upcoming" && !(r.inv.promiseDate && r.inv.promiseDate >= today && !r.inv.hasOpenDispute)) return false;
+      if (cf.commitment === "disputed" && !r.inv.hasOpenDispute) return false;
       if (cf.email === "has" && !r.email) return false;
       if (cf.email === "none" && r.email) return false;
       if (cf.emailText) {
@@ -495,7 +506,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     multiLabel("owner", "Owner");
     multiLabel("escType", "Escalation");
     if (cf.escTypeState === "untyped") chips.push({ key: "escTypeState", label: "Escalation type: Untyped" });
-    if (cf.response) chips.push({ key: "response", label: `Response: ${cf.response}` });
+    if (cf.commitment) chips.push({ key: "commitment", label: cf.commitment === "broken" ? "Broken commitments" : cf.commitment === "upcoming" ? "Upcoming commitments" : "Disputed" });
     if (cf.email) chips.push({ key: "email", label: cf.email === "has" ? "Has email" : "No email" });
     if (cf.emailText) chips.push({ key: "emailText", label: `Email ~ "${cf.emailText}"` });
     if (cf.lastSent === "cutoff" && cf.lastSentBefore) chips.push({ key: "lastSent", label: `Not chased since ${cf.lastSentBefore}` });
@@ -543,7 +554,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         case "region":      primary = cmp(a.regionName, b.regionName); break;
         case "rep":         primary = cmp(a.repName, b.repName); break;
         case "stage":       primary = cmp(a.stageLabel, b.stageLabel); break;
-        case "response":    primary = cmp(a.inv.hasOpenDispute ? "Disputed" : a.inv.promiseDate ? "Committed" : "None", b.inv.hasOpenDispute ? "Disputed" : b.inv.promiseDate ? "Committed" : "None"); break;
         case "lastSent":    primary = cmp(a.lastSent, b.lastSent); break;
         case "nextAction":  primary = cmp(a.inv.nextActionDate, b.inv.nextActionDate); break;
         case "due":         primary = cmp(a.inv.dueDate, b.inv.dueDate); break;
@@ -719,21 +729,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     } finally { setBusyId(null); }
   }
 
-  async function submitResponse() {
-    if (!respEdit) return;
-    if (respEdit.mode === "promise") {
-      if (!rDate) return;
-      await postResponse(respEdit.id, { type: "promise", promiseDate: rDate });
-    } else {
-      await postResponse(respEdit.id, { type: "dispute", category: rCat, reason: rReason });
-    }
-    setRespEdit(null); setRDate(""); setRReason("");
-  }
-
-  async function clearResponse(id: string) {
-    await postResponse(id, { type: "clear" });
-    setRespEdit(null);
-  }
 
   // Export selected (or all filtered) rows to an Excel-compatible CSV.
   function exportExcel() {
@@ -1180,7 +1175,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   { label: "Region",      sort: "region",     filter: "region" },
                   { label: "Rep",         sort: "rep",        filter: "rep" },
                   { label: "Stage",       sort: "stage",      filter: "stage" },
-                  { label: "Response",    sort: "response",   filter: "response" },
                   { label: "Email",       sort: null,         filter: "email" },
                   { label: "Last sent",   sort: "lastSent",   filter: "lastSent" },
                   { label: "Last ref",    sort: null,         filter: "lastRef" },
@@ -1188,7 +1182,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   { label: "Due",         sort: "due",        filter: "bucket" },
                 ] as { label: string; sort: string | null; filter: string }[]).map(({ label, sort, filter }) => {
                   const active =
-                    filter === "stage"    ? !!cf.stage :
+                    filter === "stage"    ? !!(cf.stage || cf.owner || cf.escType || cf.escTypeState || cf.commitment) :
                     filter === "lastSent" ? !!cf.lastSent :
                     filter === "bucket"   ? !!cf.bucket :
                     filter === "email"    ? !!(cf.email || cf.emailText) :
@@ -1269,18 +1263,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   </div>
                                 </>
                               )}
+                              {/* Commitment / dispute — response state now lives on the Stage column */}
+                              <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Commitment</div>
+                              <div className="space-y-1">
+                                {[["", "Any"], ["broken", "Broken commitments"], ["upcoming", "Upcoming commitments"], ["disputed", "Disputed"]].map(([v, l]) => (
+                                  <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                    <input type="radio" name="f-commitment" checked={(cf.commitment ?? "") === v} onChange={() => setFilter("commitment", v)} />
+                                    {l}
+                                  </label>
+                                ))}
+                              </div>
                             </>
-                          )}
-                          {/* Radio groups */}
-                          {filter === "response" && (
-                            <div className="space-y-1">
-                              {[["", "All"], ["Disputed", "Disputed"], ["Committed", "Committed"], ["None", "No response"]].map(([v, l]) => (
-                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="radio" name="f-response" checked={(cf.response ?? "") === v} onChange={() => setFilter("response", v)} />
-                                  {l}
-                                </label>
-                              ))}
-                            </div>
                           )}
                           {filter === "email" && (
                             <div className="space-y-2">
@@ -1337,7 +1330,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             </div>
                           )}
                           <div className="flex items-center justify-between pt-1 border-t border-stone-800">
-                            <button onClick={() => { clearChip(filter === "bucket" ? "bucket" : filter); if (filter === "stage") clearChip("owner"); }}
+                            <button onClick={() => { clearChip(filter === "bucket" ? "bucket" : filter); if (filter === "stage") { clearChip("owner"); clearChip("escType"); clearChip("escTypeState"); clearChip("commitment"); } }}
                               className="text-[11px] text-stone-500 hover:text-rose-400">Clear</button>
                             <button onClick={() => setFilterOpen(null)} className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Done</button>
                           </div>
@@ -1399,7 +1392,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       className="bg-stone-800/90 border-b border-stone-700 select-none cursor-pointer hover:bg-stone-800"
                       onClick={() => setCollapsedCust(p => { const n = new Set(p); n.has(item.custId) ? n.delete(item.custId) : n.add(item.custId); return n; })}>
                       <td className="px-3 py-2" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
-                      <td colSpan={12} className="px-3 py-2 font-semibold text-white text-[13px]">
+                      <td colSpan={11} className="px-3 py-2 font-semibold text-white text-[13px]">
                         <span className="inline-block w-4 text-stone-400">{item.collapsed ? "▸" : "▾"}</span>
                         {item.custName}
                         <span className="text-[11px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
@@ -1424,7 +1417,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       className="bg-stone-900/80 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-900"
                       onClick={() => setCollapsedProj(p => { const n = new Set(p); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                       <td className="px-3 py-1.5 pl-6" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
-                      <td colSpan={12} className="px-3 py-1.5 pl-6 text-[12px] font-medium text-stone-400">
+                      <td colSpan={11} className="px-3 py-1.5 pl-6 text-[12px] font-medium text-stone-400">
                         <span className="inline-block w-4 text-stone-600">{item.collapsed ? "▸" : "▾"}</span>
                         {item.projName}
                         <span className="text-[10px] text-stone-600 ml-2">{item.count} inv</span>
@@ -1442,7 +1435,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                 const { inv, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef } = item.r;
                 const isSel = selected.has(inv.id);
-                const editingResp = respEdit?.id === inv.id;
                 return (
                   <tr key={inv.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${isSel ? "bg-emerald-500/10" : ""}`}>
                     <td className="px-3 py-2"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-300 cursor-pointer" /></td>
@@ -1457,63 +1449,92 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {(() => {
-                            const isEscAssigned = stageLabel === "Escalated" && inv.escalatedToName && pendingEscalation?.invoiceId !== inv.id;
+                            // Effective (optimistic) response values so the pill updates instantly.
+                            const o = opt[inv.id] || {};
+                            const effDispute = o.hasOpenDispute ?? inv.hasOpenDispute;
+                            const effPromise = "promiseDate" in o ? o.promiseDate : inv.promiseDate;
+                            const effReason  = o.disputeReason ?? inv.disputeReason;
+                            const todayS = todayStr();
+                            // Broken = a promise whose date has passed, not superseded by a dispute.
+                            const broken = !!effPromise && effPromise < todayS && !effDispute;
+
+                            const picking =
+                              pendingEscalation?.invoiceId === inv.id ||
+                              pendingCommit?.invoiceId === inv.id ||
+                              pendingDispute?.invoiceId === inv.id;
                             const displayStage =
                               pendingEscalation?.invoiceId === inv.id ? "Escalated" :
-                              pendingCommit?.invoiceId    === inv.id ? "Committed" : stageLabel;
+                              pendingCommit?.invoiceId    === inv.id ? "Committed" :
+                              pendingDispute?.invoiceId   === inv.id ? "Disputed" : stageLabel;
+
+                            // Every stage change routes through here. Committed/Disputed/Escalated
+                            // open their inline picker (they need metadata); any other stage clears
+                            // an active promise/dispute first so the board and the dashboard never
+                            // disagree about what state the invoice is in.
+                            const changeStage = async (newStage: string) => {
+                              if (newStage === "Escalated") { openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined); return; }
+                              if (newStage === "Committed")  { openCommitPicker(inv.id, stageLabel, effPromise); return; }
+                              if (newStage === "Disputed")   { openDisputePicker(inv.id, stageLabel, effReason); return; }
+                              if (effDispute || effPromise)  await postResponse(inv.id, { type: "clear" });
+                              const patch: any = { collectionStage: newStage };
+                              if (stageLabel === "Escalated") { patch.escalatedToUserId = null; patch.escalatedToName = null; patch.escalatedToEmail = null; patch.escalationType = null; patch.escalationNote = null; }
+                              await save(inv.id, patch);
+                            };
+
+                            const plainCls = `text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(displayStage)}`;
                             const stageSelect = (extraCls: string) => (
-                              <select
-                                value={displayStage}
-                                disabled={busyId === inv.id}
-                                onChange={e => {
-                                  const newStage = e.target.value;
-                                  if (newStage === "Escalated") {
-                                    openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined);
-                                  } else if (newStage === "Committed") {
-                                    openCommitPicker(inv.id, stageLabel, inv.promiseDate);
-                                  } else {
-                                    const patch: any = { collectionStage: newStage };
-                                    if (stageLabel === "Escalated") {
-                                      patch.escalatedToUserId = null;
-                                      patch.escalatedToName   = null;
-                                      patch.escalatedToEmail  = null;
-                                      patch.escalationType    = null;
-                                      patch.escalationNote    = null;
-                                    }
-                                    save(inv.id, patch);
-                                  }
-                                }}
-                                className={extraCls}>
+                              <select value={displayStage} disabled={busyId === inv.id}
+                                onChange={e => changeStage(e.target.value)} className={extraCls}>
                                 {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
                                 {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                             );
 
-                            if (!isEscAssigned) {
-                              return stageSelect(`text-[11px] font-medium rounded px-1.5 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(displayStage)}`);
-                            }
+                            // While a picker is open, show the plain dropdown (value = pending choice).
+                            if (picking) return stageSelect(plainCls);
 
-                            // Escalated + assigned: ONE pill — the rose colour says "Escalated",
-                            // the text says who and why. An invisible select sits on top so a
-                            // click still opens the normal stage dropdown (re-picking Escalated
-                            // opens the reassign picker; any other stage de-escalates).
-                            return (
-                              <div
-                                className="relative inline-flex items-center gap-1 text-[11px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-1 hover:bg-rose-900/50 transition-colors"
-                                title={[
-                                  `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
-                                  inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
-                                  inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
-                                  inv.escalatedAt ? `Escalated ${new Date(inv.escalatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : null,
-                                  "Click to change stage or reassign",
-                                ].filter(Boolean).join("\n")}
-                              >
-                                → {inv.escalatedToName}
-                                {inv.escalationType && <span className="text-rose-400/70">· {inv.escalationType}</span>}
-                                <ChevronDown size={10} className="text-rose-500/70" />
+                            // Dynamic pill = visible label + invisible overlay <select> (click → dropdown).
+                            const pill = (cls: string, title: string, content: any) => (
+                              <div className={`relative inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-1 transition-colors ${cls}`} title={title}>
+                                {content}
+                                <ChevronDown size={10} className="opacity-60" />
                                 {stageSelect("absolute inset-0 w-full h-full opacity-0 cursor-pointer")}
                               </div>
                             );
+
+                            // Priority: Escalated → Disputed → Broken commitment → Committed → plain.
+                            if (stageLabel === "Escalated" && inv.escalatedToName) {
+                              return pill(
+                                "bg-rose-900/30 text-rose-300 border border-rose-800 hover:bg-rose-900/50",
+                                [ `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
+                                  inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
+                                  inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
+                                  "Click to change stage or reassign" ].filter(Boolean).join("\n"),
+                                <>→ {inv.escalatedToName}{inv.escalationType && <span className="text-rose-400/70">· {inv.escalationType}</span>}</>
+                              );
+                            }
+                            if (effDispute) {
+                              return pill(
+                                "bg-rose-500/15 text-rose-400 border border-rose-800/60 hover:bg-rose-500/25",
+                                `Disputed${effReason ? " — " + effReason : ""}\nClick to change stage or resolve`,
+                                <><AlertOctagon size={10} /> Disputed{effReason && <span className="text-rose-300/70 max-w-[110px] truncate">· {effReason}</span>}</>
+                              );
+                            }
+                            if (broken) {
+                              return pill(
+                                "bg-rose-600/25 text-rose-200 border border-rose-700 hover:bg-rose-600/35",
+                                `Broken commitment — was promised ${effPromise}\nClick to re-negotiate a date or change stage`,
+                                <><AlertTriangle size={10} /> Broken commitment <span className="text-rose-300/70">· was {fmt.shortDate(effPromise!)}</span></>
+                              );
+                            }
+                            if (effPromise) {
+                              return pill(
+                                "bg-blue-500/15 text-blue-400 border border-blue-800/50 hover:bg-blue-500/25",
+                                `Committed to pay ${effPromise}\nClick to change stage`,
+                                <><CalendarClock size={10} /> Committed <span className="text-blue-300/70">· {fmt.shortDate(effPromise)}</span></>
+                              );
+                            }
+                            return stageSelect(plainCls);
                           })()}
                         </div>
                         {pendingEscalation?.invoiceId === inv.id && (
@@ -1597,7 +1618,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               disabled={!commitDateVal || busyId === inv.id}
                               title={!commitDateVal ? "Pick the promised date first" : undefined}
                               onClick={async () => {
-                                await save(inv.id, { collectionStage: "Committed", promiseDate: commitDateVal });
+                                // Route through the response endpoint so the promise event
+                                // is recorded and recompute drives the stage to Committed.
+                                await postResponse(inv.id, { type: "promise", promiseDate: commitDateVal });
                                 setPendingCommit(null);
                                 setCommitDateVal("");
                               }}
@@ -1613,76 +1636,44 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             </button>
                           </div>
                         )}
-                      </div>
-                    </td>
-
-                    {/* Response (editable) */}
-                    <td className="px-3 py-2 min-w-[200px]">
-                      {(() => {
-                        // Always use effective (optimistic) values so UI is instant
-                        const o = opt[inv.id] || {};
-                        const effDispute = o.hasOpenDispute ?? inv.hasOpenDispute;
-                        const effPromise = "promiseDate" in o ? o.promiseDate : inv.promiseDate;
-                        const effReason  = o.disputeReason ?? inv.disputeReason;
-
-                        if (editingResp) return (
-                          <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg p-2">
-                            <div className="flex gap-1">
-                              <button onClick={() => setRespEdit({ id: inv.id, mode: "promise" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "promise" ? "bg-blue-600 text-white" : "bg-stone-700 text-stone-400"}`}>📅 Commitment</button>
-                              <button onClick={() => setRespEdit({ id: inv.id, mode: "dispute" })} className={`flex-1 text-[10px] py-1 rounded ${respEdit!.mode === "dispute" ? "bg-rose-600 text-white" : "bg-stone-700 text-stone-400"}`}>⚠️ Dispute</button>
-                            </div>
-                            {respEdit!.mode === "promise" ? (
-                              <input type="date" min={todayStr()} value={rDate} onChange={e => setRDate(e.target.value)} className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300" />
-                            ) : (
-                              <>
-                                <select value={rCat} onChange={e => setRCat(e.target.value)} className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300">
-                                  {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                                <input value={rReason} onChange={e => setRReason(e.target.value)} placeholder="Reason" className="text-[12px] border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 placeholder-stone-600" />
-                              </>
-                            )}
-                            <div className="flex items-center justify-between gap-1">
-                              {/* Use effective values — not raw inv — to avoid stale state */}
-                              {(effDispute || effPromise) ? (
-                                <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
-                                  className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800 disabled:opacity-50">
-                                  {effDispute ? "✓ Resolve" : "✕ Clear"}
-                                </button>
-                              ) : <span />}
-                              <div className="flex gap-1">
-                                <button onClick={() => setRespEdit(null)} className="text-[11px] text-stone-500 px-2 py-0.5">Cancel</button>
-                                <button onClick={submitResponse} disabled={busyId === inv.id} className="text-[11px] font-semibold text-white bg-stone-900 rounded px-2 py-0.5 disabled:opacity-50">Save</button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-
-                        // Collapsed view — badge + edit pencil
-                        // Disputed badge also shows inline Resolve to avoid the extra click
-                        return (
-                          <div className="group inline-flex items-center gap-1">
-                            {effDispute ? (
-                              <>
-                                <button onClick={() => clearResponse(inv.id)} disabled={busyId === inv.id}
-                                  title={effReason || "Click to resolve"}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 font-semibold inline-flex items-center gap-1 hover:bg-rose-500/25 disabled:opacity-50">
-                                  <AlertOctagon size={10} /> Disputed
-                                </button>
-                                <span className="text-[10px] text-emerald-600 opacity-0 group-hover:opacity-100 font-medium">click to resolve</span>
-                              </>
-                            ) : effPromise ? (
-                              <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(effPromise || ""); setRReason(""); }}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-semibold inline-flex items-center gap-1 hover:bg-blue-500/25">
-                                <CalendarClock size={10} /> Committed {effPromise}
+                        {pendingDispute?.invoiceId === inv.id && (
+                          <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-2 min-w-[240px]">
+                            <select
+                              value={disputeCat}
+                              onChange={e => setDisputeCat(e.target.value)}
+                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-rose-500"
+                            >
+                              {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <input
+                              value={disputeReasonVal}
+                              onChange={e => setDisputeReasonVal(e.target.value)}
+                              placeholder="Reason / detail (optional)…"
+                              maxLength={500}
+                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-rose-500 placeholder:text-stone-600"
+                            />
+                            <div className="flex items-center gap-1.5 justify-end">
+                              <button
+                                onClick={() => { setPendingDispute(null); setDisputeReasonVal(""); }}
+                                className="text-[11px] text-stone-500 hover:text-stone-300 px-1"
+                              >
+                                Cancel
                               </button>
-                            ) : (
-                              <button onClick={() => { setRespEdit({ id: inv.id, mode: "promise" }); setRDate(""); setRReason(""); }}
-                                className="text-stone-300 text-[12px] hover:text-stone-500">—</button>
-                            )}
-                            {!effDispute && <Pencil size={11} className="text-stone-300 opacity-0 group-hover:opacity-100" onClick={() => { setRespEdit({ id: inv.id, mode: effDispute ? "dispute" : "promise" }); setRDate(effPromise || ""); setRReason(effReason || ""); }} />}
+                              <button
+                                disabled={busyId === inv.id}
+                                onClick={async () => {
+                                  await postResponse(inv.id, { type: "dispute", category: disputeCat, reason: disputeReasonVal.trim() || disputeCat });
+                                  setPendingDispute(null);
+                                  setDisputeReasonVal("");
+                                }}
+                                className="text-[11px] font-semibold bg-rose-600 text-white rounded px-2 py-1 disabled:opacity-40 hover:bg-rose-700"
+                              >
+                                Mark disputed
+                              </button>
+                            </div>
                           </div>
-                        );
-                      })()}
+                        )}
+                      </div>
                     </td>
 
                     {/* Email (editable inline) */}
@@ -1951,7 +1942,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
-                <td colSpan={13} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
+                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
                   {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
