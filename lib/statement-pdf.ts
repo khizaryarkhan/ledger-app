@@ -3,9 +3,13 @@
  *
  * Runs client-side (pdf-lib, already a dependency). Produces a clean,
  * printable statement grouped Customer → Project with per-level subtotals
- * and a grand total. Company name sits in the header band; the run
- * timestamp (date + time) is stamped in the header and repeated in the
- * page footer. Multi-currency safe — subtotals render per currency.
+ * and a grand total. Company name sits in the masthead; the run timestamp
+ * (date + time) is stamped in the masthead and repeated in the page footer.
+ * Multi-currency safe — subtotals render per currency.
+ *
+ * Design: Swiss-minimalist — whitespace, hairline rules (no heavy filled
+ * blocks), a single restrained deep-green accent, and a small monogram for
+ * identity. Aims to read "considered", not "template".
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from "pdf-lib";
@@ -20,27 +24,30 @@ export type StatementRow = {
 
 // ── Page geometry (A4 portrait, points) ──────────────────────────────────────
 const PAGE_W = 595.28, PAGE_H = 841.89;
-const M = 42;                    // outer margin
+const M = 48;
 const CONTENT_W = PAGE_W - M * 2;
-const BOTTOM = 64;               // reserve for footer
+const RIGHT = PAGE_W - M;
+const BOTTOM = 70;
 
-// ── Palette (light, document-appropriate) ────────────────────────────────────
-const NAVY   = rgb(0.035, 0.153, 0.349); // brand navy #092759 — header band
-const INK    = rgb(0.11, 0.10, 0.09);
-const MUTED  = rgb(0.45, 0.43, 0.40);
-const RULE   = rgb(0.83, 0.82, 0.81);
-const BAND   = rgb(0.945, 0.94, 0.93);    // customer row background
+// ── Palette — warm neutrals + one deep-green accent ───────────────────────────
+const INK    = rgb(0.13, 0.12, 0.11);
+const MUTED  = rgb(0.48, 0.45, 0.42);
+const FAINT  = rgb(0.64, 0.61, 0.58);
+const HAIR   = rgb(0.87, 0.85, 0.83);
+const BAND   = rgb(0.972, 0.968, 0.962);
+const ACCENT = rgb(0.086, 0.365, 0.278); // deep emerald — money, positive
 const WHITE  = rgb(1, 1, 1);
+const RED    = rgb(0.64, 0.15, 0.15);
 
-// ── Column x-positions (numbers are right-aligned to their x) ─────────────────
+// ── Columns (right-aligned numbers align to their x) ──────────────────────────
 const COL = {
-  label:   M,           // Invoice # / customer / project (indented)
-  invDate: M + 168,
-  dueDate: M + 232,
-  overdue: M + 300,     // right-aligned
-  cur:     M + 312,
-  amount:  M + 442,     // right-aligned
-  out:     M + CONTENT_W, // right-aligned (page right edge)
+  label:   M,
+  invDate: M + 176,
+  dueDate: M + 240,
+  overdue: M + 312,       // right
+  cur:     M + 322,
+  amount:  M + 436,       // right
+  out:     RIGHT,         // right
 };
 
 const num2 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -48,7 +55,7 @@ const num2 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2
 function fmtCcyMap(map: Record<string, number>): string {
   const parts = Object.entries(map).filter(([, v]) => Math.abs(v) > 0.005).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   if (!parts.length) return num2(0);
-  return parts.map(([c, v]) => `${c} ${num2(v)}`).join("  ·  ");
+  return parts.map(([c, v]) => `${c} ${num2(v)}`).join("   ·   ");
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -58,7 +65,13 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Build the statement PDF bytes (no DOM) — reusable server-side too. */
+function monogram(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const first = words[0] ?? "";
+  if (first.length >= 2 && first.length <= 4 && first === first.toUpperCase()) return first.slice(0, 2);
+  return words.slice(0, 2).map(w => (w[0] ?? "").toUpperCase()).join("") || "•";
+}
+
 export async function buildStatementPdf({ orgName, rows }: { orgName: string; rows: StatementRow[] }): Promise<Uint8Array> {
   const now = new Date();
   const stamp =
@@ -89,6 +102,7 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const mark = monogram(orgName);
 
   let page!: PDFPage;
   let y = 0;
@@ -100,117 +114,134 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
     while (s.length > 1 && tW(s + "…", size, f) > maxW) s = s.slice(0, -1);
     return s + "…";
   };
-  const right = (t: string, xR: number, yy: number, size: number, f: PDFFont, color = INK) =>
-    page.drawText(t, { x: xR - tW(t, size, f), y: yy, size, font: f, color });
+  const left  = (t: string, x: number, yy: number, size: number, f: PDFFont, color = INK) => page.drawText(t, { x, y: yy, size, font: f, color });
+  const right = (t: string, xR: number, yy: number, size: number, f: PDFFont, color = INK) => page.drawText(t, { x: xR - tW(t, size, f), y: yy, size, font: f, color });
+  const rule  = (yy: number, x1 = M, x2 = RIGHT, thickness = 0.5, color = HAIR) => page.drawLine({ start: { x: x1, y: yy }, end: { x: x2, y: yy }, thickness, color });
 
-  function header() {
-    // Navy band
-    page.drawRectangle({ x: 0, y: PAGE_H - 92, width: PAGE_W, height: 92, color: NAVY });
-    // Auto-fit the company name (shrink 20→13 before clipping) so a long
-    // name isn't truncated on the customer's own statement.
-    const nameMaxW = CONTENT_W - 170;
-    let nameSize = 20;
-    while (nameSize > 13 && tW(orgName, nameSize, bold) > nameMaxW) nameSize -= 0.5;
-    page.drawText(clip(orgName, nameMaxW, nameSize, bold), { x: M, y: PAGE_H - 44, size: nameSize, font: bold, color: WHITE });
-    page.drawText("STATEMENT OF ACCOUNT", { x: M, y: PAGE_H - 66, size: 10, font, color: rgb(0.75, 0.82, 0.92) });
-    // Right-aligned run stamp
-    const gen = `Generated ${stamp}`;
-    page.drawText(gen, { x: PAGE_W - M - tW(gen, 9, font), y: PAGE_H - 44, size: 9, font, color: rgb(0.82, 0.87, 0.95) });
-    const tot = `Total outstanding  ${fmtCcyMap(grand)}`;
-    page.drawText(tot, { x: PAGE_W - M - tW(tot, 10, bold), y: PAGE_H - 62, size: 10, font: bold, color: WHITE });
-    const meta = `${rows.length} invoice${rows.length !== 1 ? "s" : ""} · ${customers.length} customer${customers.length !== 1 ? "s" : ""}`;
-    page.drawText(meta, { x: PAGE_W - M - tW(meta, 8, font), y: PAGE_H - 78, size: 8, font, color: rgb(0.75, 0.82, 0.92) });
-    y = PAGE_H - 116;
+  function masthead(first: boolean) {
+    // Monogram mark
+    const sz = first ? 32 : 22;
+    page.drawRectangle({ x: M, y: PAGE_H - (first ? 66 : 52), width: sz, height: sz, color: ACCENT });
+    const mSize = first ? 14 : 10;
+    left(mark, M + (sz - tW(mark, mSize, bold)) / 2, PAGE_H - (first ? 66 : 52) + (sz - mSize) / 2 + 1, mSize, bold, WHITE);
+
+    // Wordmark (auto-fit)
+    const wx = M + sz + 14;
+    const wordMax = RIGHT - wx - (first ? 190 : 150);
+    let wSize = first ? 19 : 13;
+    while (wSize > 11 && tW(orgName, wSize, bold) > wordMax) wSize -= 0.5;
+    left(clip(orgName, wordMax, wSize, bold), wx, PAGE_H - (first ? 50 : 42), wSize, bold, INK);
+    left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), wx, PAGE_H - (first ? 64 : 53), first ? 8 : 7, font, MUTED);
+
+    // Right meta
+    if (first) {
+      right("STATEMENT DATE", RIGHT, PAGE_H - 42, 7, font, FAINT);
+      right(stamp, RIGHT, PAGE_H - 55, 9.5, bold, INK);
+      right(`${rows.length} invoice${rows.length !== 1 ? "s" : ""}  ·  ${customers.length} customer${customers.length !== 1 ? "s" : ""}`, RIGHT, PAGE_H - 68, 8, font, MUTED);
+    }
+
+    // Accent hairline under the masthead
+    const ruleY = first ? PAGE_H - 84 : PAGE_H - 66;
+    rule(ruleY, M, RIGHT, 1.5, ACCENT);
+
+    if (first) {
+      // Focal figure — total outstanding
+      right("TOTAL OUTSTANDING", RIGHT, ruleY - 22, 8, font, MUTED);
+      right(fmtCcyMap(grand), RIGHT, ruleY - 40, 18, bold, ACCENT);
+      left("Outstanding balances", M, ruleY - 26, 9, font, MUTED);
+      left("as at the statement date", M, ruleY - 38, 8, font, FAINT);
+      y = ruleY - 66;
+    } else {
+      y = ruleY - 24;
+    }
   }
 
   function columnHeads() {
-    page.drawText("INVOICE", { x: COL.label, y, size: 7.5, font: bold, color: MUTED });
-    page.drawText("INV DATE", { x: COL.invDate, y, size: 7.5, font: bold, color: MUTED });
-    page.drawText("DUE", { x: COL.dueDate, y, size: 7.5, font: bold, color: MUTED });
-    right("OVERDUE", COL.overdue, y, 7.5, bold, MUTED);
-    page.drawText("CUR", { x: COL.cur, y, size: 7.5, font: bold, color: MUTED });
-    right("AMOUNT", COL.amount, y, 7.5, bold, MUTED);
-    right("OUTSTANDING", COL.out, y, 7.5, bold, MUTED);
-    y -= 6;
-    page.drawLine({ start: { x: M, y }, end: { x: PAGE_W - M, y }, thickness: 0.75, color: RULE });
-    y -= 14;
+    left("INVOICE", COL.label, y, 7.5, bold, FAINT);
+    left("INV DATE", COL.invDate, y, 7.5, bold, FAINT);
+    left("DUE", COL.dueDate, y, 7.5, bold, FAINT);
+    right("OVERDUE", COL.overdue, y, 7.5, bold, FAINT);
+    left("CUR", COL.cur, y, 7.5, bold, FAINT);
+    right("AMOUNT", COL.amount, y, 7.5, bold, FAINT);
+    right("OUTSTANDING", COL.out, y, 7.5, bold, FAINT);
+    y -= 8;
+    rule(y);
+    y -= 16;
   }
 
-  function newPage() {
+  function newPage(first = false) {
     page = doc.addPage([PAGE_W, PAGE_H]);
-    header();
+    masthead(first);
     columnHeads();
   }
 
-  function ensure(space: number) {
-    if (y - space < BOTTOM) newPage();
-  }
+  function ensure(space: number) { if (y - space < BOTTOM) newPage(false); }
 
-  newPage();
+  newPage(true);
 
   for (const [custName, cg] of customers) {
-    ensure(40);
-    // Customer band
-    page.drawRectangle({ x: M - 6, y: y - 5, width: CONTENT_W + 12, height: 20, color: BAND });
-    // Heading is a label only — the amount lives on the "Total —" row below,
-    // so it isn't shown twice.
-    page.drawText(clip(custName, CONTENT_W - 20, 11, bold), { x: COL.label, y, size: 11, font: bold, color: INK });
-    y -= 24;
+    ensure(48);
+    // Customer section header — light band + accent tick, label only.
+    page.drawRectangle({ x: M, y: y - 6, width: CONTENT_W, height: 22, color: BAND });
+    page.drawRectangle({ x: M, y: y - 6, width: 3, height: 22, color: ACCENT });
+    left(clip(custName, CONTENT_W - 24, 12, bold), M + 12, y, 12, bold, INK);
+    y -= 26;
 
     const projects = [...cg.projects.entries()].sort((a, b) => sumT(b[1].total) - sumT(a[1].total));
     for (const [projName, pg] of projects) {
       const showProj = projName !== "No project" || projects.length > 1;
       if (showProj) {
         ensure(24);
-        page.drawText(clip(projName, CONTENT_W - 30, 9.5, bold), { x: COL.label + 10, y, size: 9.5, font: bold, color: rgb(0.30, 0.28, 0.26) });
-        y -= 16;
+        left(clip(projName, CONTENT_W - 24, 9.5, bold), M + 12, y, 9.5, bold, rgb(0.32, 0.30, 0.28));
+        y -= 17;
       }
 
       const invRows = [...pg.rows].sort((a, b) => String(a.inv.dueDate).localeCompare(String(b.inv.dueDate)));
       for (const r of invRows) {
-        ensure(16);
+        ensure(17);
         const inv = r.inv;
         const total = Number(inv.total || 0);
-        page.drawText(clip(`#${inv.invoiceNumber}`, 150, 9, font), { x: COL.label + 20, y, size: 9, font, color: INK });
-        page.drawText(fmtDate(inv.invoiceDate), { x: COL.invDate, y, size: 8.5, font, color: MUTED });
-        page.drawText(fmtDate(inv.dueDate), { x: COL.dueDate, y, size: 8.5, font, color: MUTED });
-        right(r.days > 0 ? `${r.days}d` : "—", COL.overdue, y, 8.5, font, r.days > 90 ? rgb(0.72, 0.11, 0.20) : r.days > 0 ? rgb(0.70, 0.42, 0.05) : MUTED);
-        page.drawText(inv.currency || "EUR", { x: COL.cur, y, size: 8, font, color: MUTED });
-        right(num2(total), COL.amount, y, 9, font, INK);
+        left(clip(`#${inv.invoiceNumber}`, 140, 9, font), COL.label + 12, y, 9, font, INK);
+        left(fmtDate(inv.invoiceDate), COL.invDate, y, 8.5, font, MUTED);
+        left(fmtDate(inv.dueDate), COL.dueDate, y, 8.5, font, MUTED);
+        right(r.days > 0 ? `${r.days}d` : "—", COL.overdue, y, 8.5, font, r.days > 90 ? RED : MUTED);
+        left(inv.currency || "EUR", COL.cur, y, 8, font, FAINT);
+        right(num2(total), COL.amount, y, 9, font, MUTED);
         right(num2(r.bal), COL.out, y, 9, bold, INK);
-        y -= 14;
+        y -= 16;
       }
       if (showProj) {
-        ensure(16);
-        page.drawLine({ start: { x: COL.amount - 40, y: y + 8 }, end: { x: PAGE_W - M, y: y + 8 }, thickness: 0.5, color: RULE });
-        right("Subtotal", COL.amount, y, 8, bold, MUTED);
+        ensure(18);
+        rule(y + 9, COL.amount - 44, RIGHT);
+        right("Subtotal", COL.amount, y, 8, font, MUTED);
         right(fmtCcyMap(pg.total), COL.out, y, 8.5, bold, INK);
-        y -= 16;
+        y -= 18;
       }
     }
     // Customer total
-    ensure(20);
-    page.drawLine({ start: { x: M, y: y + 9 }, end: { x: PAGE_W - M, y: y + 9 }, thickness: 0.75, color: RULE });
-    page.drawText(`Total — ${clip(custName, 220, 9.5, bold)}`, { x: COL.label, y, size: 9.5, font: bold, color: INK });
-    right(fmtCcyMap(cg.total), COL.out, y, 10, bold, NAVY);
-    y -= 26;
+    ensure(22);
+    rule(y + 10, M, RIGHT, 0.75, HAIR);
+    left(`Total — ${clip(custName, 240, 9.5, bold)}`, M, y, 9.5, bold, INK);
+    right(fmtCcyMap(cg.total), COL.out, y, 10.5, bold, ACCENT);
+    y -= 30;
   }
 
-  // Grand total block
-  ensure(40);
-  page.drawRectangle({ x: M - 6, y: y - 6, width: CONTENT_W + 12, height: 26, color: NAVY });
-  page.drawText("GRAND TOTAL", { x: COL.label, y: y + 2, size: 11, font: bold, color: WHITE });
-  right(fmtCcyMap(grand), COL.out, y + 2, 12, bold, WHITE);
+  // Grand total — elegant, no heavy fill: double rule + large accent figure.
+  ensure(44);
+  rule(y + 14, M, RIGHT, 0.5, HAIR);
+  rule(y + 11, M, RIGHT, 1.5, ACCENT);
+  left("GRAND TOTAL", M, y - 6, 11, bold, INK);
+  right(fmtCcyMap(grand), RIGHT, y - 8, 15, bold, ACCENT);
 
-  // Footers: page x of y + run stamp, on every page.
+  // Footers on every page.
   const pages = doc.getPages();
   pages.forEach((p, i) => {
-    p.drawLine({ start: { x: M, y: 46 }, end: { x: PAGE_W - M, y: 46 }, thickness: 0.5, color: RULE });
-    p.drawText(`${orgName} · Statement of Account`, { x: M, y: 34, size: 7.5, font, color: MUTED });
+    p.drawLine({ start: { x: M, y: 50 }, end: { x: RIGHT, y: 50 }, thickness: 0.5, color: HAIR });
+    p.drawText(`${orgName} · Statement of Account`, { x: M, y: 38, size: 7.5, font, color: FAINT });
     const pg = `Page ${i + 1} of ${pages.length}`;
-    p.drawText(pg, { x: (PAGE_W - font.widthOfTextAtSize(pg, 7.5)) / 2, y: 34, size: 7.5, font, color: MUTED });
+    p.drawText(pg, { x: (PAGE_W - font.widthOfTextAtSize(pg, 7.5)) / 2, y: 38, size: 7.5, font, color: FAINT });
     const gen = `Generated ${stamp}`;
-    p.drawText(gen, { x: PAGE_W - M - font.widthOfTextAtSize(gen, 7.5), y: 34, size: 7.5, font, color: MUTED });
+    p.drawText(gen, { x: RIGHT - font.widthOfTextAtSize(gen, 7.5), y: 38, size: 7.5, font, color: FAINT });
   });
 
   return await doc.save();
