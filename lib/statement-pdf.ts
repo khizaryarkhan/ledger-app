@@ -152,8 +152,9 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
     ensure(40);
     // Customer band
     page.drawRectangle({ x: M - 6, y: y - 5, width: CONTENT_W + 12, height: 20, color: BAND });
-    page.drawText(clip(custName, CONTENT_W - 170, 11, bold), { x: COL.label, y, size: 11, font: bold, color: INK });
-    right(fmtCcyMap(cg.total), COL.out, y, 10, bold, INK);
+    // Heading is a label only — the amount lives on the "Total —" row below,
+    // so it isn't shown twice.
+    page.drawText(clip(custName, CONTENT_W - 20, 11, bold), { x: COL.label, y, size: 11, font: bold, color: INK });
     y -= 24;
 
     const projects = [...cg.projects.entries()].sort((a, b) => sumT(b[1].total) - sumT(a[1].total));
@@ -161,8 +162,7 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
       const showProj = projName !== "No project" || projects.length > 1;
       if (showProj) {
         ensure(24);
-        page.drawText(clip(projName, CONTENT_W - 170, 9.5, bold), { x: COL.label + 10, y, size: 9.5, font: bold, color: rgb(0.30, 0.28, 0.26) });
-        right(fmtCcyMap(pg.total), COL.out, y, 9, font, MUTED);
+        page.drawText(clip(projName, CONTENT_W - 30, 9.5, bold), { x: COL.label + 10, y, size: 9.5, font: bold, color: rgb(0.30, 0.28, 0.26) });
         y -= 16;
       }
 

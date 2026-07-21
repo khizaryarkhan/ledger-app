@@ -601,11 +601,12 @@ export function exportStatement({ orgName, rows }: StatementExportInput) {
   ];
 
   for (const [custName, cg] of customers) {
-    data.push([custName, "", "", "", "", "", "", fmtCcyMap(cg.total)]);
+    // Heading rows are labels only — amounts live on the subtotal / total rows.
+    data.push([custName]);
     const projects = [...cg.projects.entries()].sort((a, b) => custTotalNum(b[1].total) - custTotalNum(a[1].total));
     for (const [projName, pg] of projects) {
       const showProj = projName !== "No project" || projects.length > 1;
-      if (showProj) data.push([`    ${projName}`, "", "", "", "", "", "", fmtCcyMap(pg.total)]);
+      if (showProj) data.push([`    ${projName}`]);
       const invRows = [...pg.rows].sort((a, b) => String(a.inv.dueDate).localeCompare(String(b.inv.dueDate)));
       for (const r of invRows) {
         const inv = r.inv;
