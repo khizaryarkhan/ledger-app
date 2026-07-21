@@ -105,8 +105,17 @@ export async function PATCH(req: Request) {
   if (body.logoUrl !== undefined) {
     if (body.logoUrl) {
       const url = String(body.logoUrl).trim();
-      if (url.length > 2048) return bad("logoUrl must be 2048 characters or fewer");
-      if (!url.startsWith("https://")) return bad("logoUrl must start with https://");
+      // Two accepted forms:
+      //  - an https:// URL (Vercel Blob / any CDN) — kept short
+      //  - an inline data:image/… URL, used when no Blob store is configured;
+      //    the client downscales the logo so this stays well under the cap.
+      const isData = url.startsWith("data:image/");
+      if (isData) {
+        if (url.length > 600_000) return bad("Logo is too large — please use a smaller image.");
+      } else {
+        if (url.length > 2048) return bad("logoUrl must be 2048 characters or fewer");
+        if (!url.startsWith("https://")) return bad("logoUrl must start with https:// (or be an uploaded image)");
+      }
       updates.logoUrl = url;
     } else {
       updates.logoUrl = null;

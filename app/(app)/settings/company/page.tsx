@@ -15,19 +15,47 @@ export default function CompanySettingsPage() {
   const logoFileRef = useRef<HTMLInputElement>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
+  // Downscale the chosen image in the browser to a small PNG data URL, so a
+  // logo works with no external storage (no Vercel Blob / token needed). Max
+  // 512px on the longest side keeps it tiny (typically 20–90 KB) — plenty for
+  // the sidebar (~32px) and the statement PDF masthead (~36px). Rasterising
+  // also means SVG logos render on the PDF, which pdf-lib can't embed directly.
+  function fileToScaledDataUrl(file: File, max = 512): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Couldn't read the file"));
+      reader.onload = () => {
+        img.onerror = () => reject(new Error("That file isn't a valid image"));
+        img.onload = () => {
+          const w0 = img.naturalWidth || max, h0 = img.naturalHeight || max;
+          const scale = Math.min(max / w0, max / h0, 1);
+          const w = Math.max(1, Math.round(w0 * scale));
+          const h = Math.max(1, Math.round(h0 * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject(new Error("Canvas not available"));
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handleLogoFile(file: File) {
+    if (!file.type.startsWith("image/")) { toast?.("Please choose an image file (PNG, JPG or SVG)", "error"); return; }
+    if (file.size > 8 * 1024 * 1024) { toast?.("Image must be 8 MB or smaller", "error"); return; }
     setUploadingLogo(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/org/logo", { method: "POST", body: fd });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || "Upload failed");
-      setBrandingForm(p => ({ ...p, logoUrl: d.url }));
-      await updateOrgSettings({ logoUrl: d.url });
-      toast?.("Logo uploaded");
+      const dataUrl = await fileToScaledDataUrl(file);
+      setBrandingForm(p => ({ ...p, logoUrl: dataUrl }));
+      await updateOrgSettings({ logoUrl: dataUrl });
+      toast?.("Logo saved");
     } catch (e: any) {
-      toast?.(e?.message || "Upload failed", "error");
+      toast?.(e?.message || "Couldn't process that image", "error");
     } finally {
       setUploadingLogo(false);
     }
