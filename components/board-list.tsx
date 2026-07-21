@@ -8,6 +8,7 @@ import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Dow
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport, exportStatement } from "@/lib/export-report";
+import { exportStatementPdf } from "@/lib/statement-pdf";
 import { EmailComposer } from "@/components/feature";
 import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
 import { classifyComposition } from "@/lib/receivable-composition";
@@ -957,7 +958,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </button>
                 <button
                   onClick={() => {
-                    exportStatement({
+                    exportStatementPdf({
                       orgName: orgName ?? "Organisation",
                       rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
                     });
@@ -966,8 +967,23 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
-                    Statement{selected.size ? ` (${selected.size} selected)` : ""}
-                    <div className="text-[10px] text-stone-600">Statement of account — grouped by customer, then project</div>
+                    Statement — PDF{selected.size ? ` (${selected.size} selected)` : ""}
+                    <div className="text-[10px] text-stone-600">Printable statement of account — grouped by customer, then project</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    exportStatement({
+                      orgName: orgName ?? "Organisation",
+                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
+                    });
+                    setToolbarMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <Download size={13} className="text-stone-500" />
+                  <div className="flex-1 text-left">
+                    Statement — Excel{selected.size ? ` (${selected.size} selected)` : ""}
+                    <div className="text-[10px] text-stone-600">Same statement as a spreadsheet</div>
                   </div>
                 </button>
                 <button onClick={() => { downloadPdfs(); setToolbarMenu(null); }} disabled={selected.size === 0 || downloadingPdf}
