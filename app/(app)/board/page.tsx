@@ -486,6 +486,7 @@ export default function BoardPage() {
           toast={toast}
           comments={communications ?? []}
           orgName={orgSettings?.displayName ?? orgSettings?.name}
+          orgLogoUrl={orgSettings?.logoUrl}
         />
         </div>
       )}

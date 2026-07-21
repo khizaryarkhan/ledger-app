@@ -6,12 +6,32 @@ import { useSession } from "next-auth/react";
 import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import { MfaCard } from "@/components/mfa-card";
-import { ChevronLeft, User, Palette, Calendar, LayoutDashboard, ChevronDown, Search, Check } from "lucide-react";
+import { ChevronLeft, User, Palette, Calendar, LayoutDashboard, ChevronDown, Search, Check, Upload } from "lucide-react";
 
 
 export default function CompanySettingsPage() {
   const { data: session } = useSession();
-  const { orgSettings, updateOrgSettings } = useData();
+  const { orgSettings, updateOrgSettings, toast } = useData();
+  const logoFileRef = useRef<HTMLInputElement>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  async function handleLogoFile(file: File) {
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/org/logo", { method: "POST", body: fd });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Upload failed");
+      setBrandingForm(p => ({ ...p, logoUrl: d.url }));
+      await updateOrgSettings({ logoUrl: d.url });
+      toast?.("Logo uploaded");
+    } catch (e: any) {
+      toast?.(e?.message || "Upload failed", "error");
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
 
   const role = (session?.user as any)?.role;
   const isAdmin = role === "company_admin" || role === "super_admin";
@@ -152,15 +172,41 @@ export default function CompanySettingsPage() {
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">
-                  Logo URL
+                  Logo
                 </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={logoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml"
+                    className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.currentTarget.value = ""; }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => logoFileRef.current?.click()}
+                    disabled={uploadingLogo}
+                    className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 hover:ring-stone-500 inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+                  >
+                    <Upload size={14} /> {uploadingLogo ? "Uploading…" : "Upload logo"}
+                  </button>
+                  {brandingForm.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={async () => { setBrandingForm(p => ({ ...p, logoUrl: "" })); await updateOrgSettings({ logoUrl: null }); toast?.("Logo removed"); }}
+                      className="text-[12px] text-stone-500 hover:text-rose-400 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
                 <input
                   value={brandingForm.logoUrl}
                   onChange={e => setBrandingForm(p => ({ ...p, logoUrl: e.target.value }))}
-                  placeholder="https://example.com/logo.png"
-                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  placeholder="…or paste a logo URL"
+                  className="w-full h-9 px-3 mt-2 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
-                <p className="text-[11px] text-stone-400 mt-1">Paste a URL to your company logo (PNG/SVG).</p>
+                <p className="text-[11px] text-stone-400 mt-1">PNG, JPG or SVG · up to 4 MB. Used on statements and in the sidebar.</p>
               </div>
             </div>
 

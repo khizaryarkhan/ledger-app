@@ -36,7 +36,7 @@ const uniqEmails = (vals: (string | null)[]) => {
   return [...set];
 };
 
-export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [], orgName }: {
+export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [], orgName, orgLogoUrl }: {
   rows: BoardRow[];
   stages: Stage[];
   updateInvoice: (id: string, patch: any) => Promise<any>;
@@ -44,6 +44,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   toast?: (m: string, t?: string) => void;
   comments?: any[];
   orgName?: string;
+  orgLogoUrl?: string | null;
 }) {
   const { data: session } = useSession();
   const userName = (session?.user?.name as string) || "User";
@@ -961,6 +962,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     exportStatementPdf({
                       orgName: orgName ?? "Organisation",
                       rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
+                      logoUrl: orgLogoUrl ?? null,
                     });
                     setToolbarMenu(null);
                   }}

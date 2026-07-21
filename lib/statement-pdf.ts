@@ -72,7 +72,7 @@ function monogram(name: string): string {
   return words.slice(0, 2).map(w => (w[0] ?? "").toUpperCase()).join("") || "•";
 }
 
-export async function buildStatementPdf({ orgName, rows }: { orgName: string; rows: StatementRow[] }): Promise<Uint8Array> {
+export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }): Promise<Uint8Array> {
   const now = new Date();
   const stamp =
     now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) +
@@ -104,6 +104,28 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const mark = monogram(orgName);
 
+  // Embed the org logo if provided and in a raster format pdf-lib supports
+  // (PNG/JPEG — SVG isn't supported, so it silently falls back to the
+  // monogram). Any fetch/parse failure also falls back — the statement must
+  // never fail to generate because of a bad logo.
+  let logo: { img: any; w: number; h: number } | null = null;
+  if (logoUrl) {
+    try {
+      const res = await fetch(logoUrl);
+      if (res.ok) {
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50;
+        const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
+        const img = isPng ? await doc.embedPng(buf) : isJpg ? await doc.embedJpg(buf) : null;
+        if (img) {
+          const maxH = 36, maxW = 210;
+          const scale = Math.min(maxH / img.height, maxW / img.width, 1);
+          logo = { img, w: img.width * scale, h: img.height * scale };
+        }
+      }
+    } catch { logo = null; }
+  }
+
   let page!: PDFPage;
   let y = 0;
 
@@ -119,19 +141,28 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
   const rule  = (yy: number, x1 = M, x2 = RIGHT, thickness = 0.5, color = HAIR) => page.drawLine({ start: { x: x1, y: yy }, end: { x: x2, y: yy }, thickness, color });
 
   function masthead(first: boolean) {
-    // Monogram mark
-    const sz = first ? 32 : 22;
-    page.drawRectangle({ x: M, y: PAGE_H - (first ? 66 : 52), width: sz, height: sz, color: ACCENT });
-    const mSize = first ? 14 : 10;
-    left(mark, M + (sz - tW(mark, mSize, bold)) / 2, PAGE_H - (first ? 66 : 52) + (sz - mSize) / 2 + 1, mSize, bold, WHITE);
+    if (logo) {
+      // Uploaded logo — drawn at its aspect ratio; the company name still
+      // appears in the footer, so we don't repeat it here as text.
+      const h = first ? logo.h : logo.h * 0.72;
+      const w = first ? logo.w : logo.w * 0.72;
+      const topY = PAGE_H - (first ? 34 : 28);
+      page.drawImage(logo.img, { x: M, y: topY - h, width: w, height: h });
+      left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), M, topY - h - 11, first ? 8 : 7, font, MUTED);
+    } else {
+      // Monogram mark + wordmark
+      const sz = first ? 32 : 22;
+      page.drawRectangle({ x: M, y: PAGE_H - (first ? 66 : 52), width: sz, height: sz, color: ACCENT });
+      const mSize = first ? 14 : 10;
+      left(mark, M + (sz - tW(mark, mSize, bold)) / 2, PAGE_H - (first ? 66 : 52) + (sz - mSize) / 2 + 1, mSize, bold, WHITE);
 
-    // Wordmark (auto-fit)
-    const wx = M + sz + 14;
-    const wordMax = RIGHT - wx - (first ? 190 : 150);
-    let wSize = first ? 19 : 13;
-    while (wSize > 11 && tW(orgName, wSize, bold) > wordMax) wSize -= 0.5;
-    left(clip(orgName, wordMax, wSize, bold), wx, PAGE_H - (first ? 50 : 42), wSize, bold, INK);
-    left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), wx, PAGE_H - (first ? 64 : 53), first ? 8 : 7, font, MUTED);
+      const wx = M + sz + 14;
+      const wordMax = RIGHT - wx - (first ? 190 : 150);
+      let wSize = first ? 19 : 13;
+      while (wSize > 11 && tW(orgName, wSize, bold) > wordMax) wSize -= 0.5;
+      left(clip(orgName, wordMax, wSize, bold), wx, PAGE_H - (first ? 50 : 42), wSize, bold, INK);
+      left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), wx, PAGE_H - (first ? 64 : 53), first ? 8 : 7, font, MUTED);
+    }
 
     // Right meta
     if (first) {
@@ -248,8 +279,8 @@ export async function buildStatementPdf({ orgName, rows }: { orgName: string; ro
 }
 
 /** Client-side: build + trigger a download. */
-export async function exportStatementPdf({ orgName, rows }: { orgName: string; rows: StatementRow[] }) {
-  const bytes = await buildStatementPdf({ orgName, rows });
+export async function exportStatementPdf({ orgName, rows, logoUrl }: { orgName: string; rows: StatementRow[]; logoUrl?: string | null }) {
+  const bytes = await buildStatementPdf({ orgName, rows, logoUrl });
   const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
