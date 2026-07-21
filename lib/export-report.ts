@@ -541,6 +541,100 @@ export function exportChaseReport({ orgName, rows, comments }: ChaseExportInput)
   XLSX.writeFile(wb, `Chase-Report_${todayIso}.xlsx`);
 }
 
+// ─── Statement of account (Collections Board) ─────────────────────────────
+
+export type StatementExportInput = {
+  orgName: string;
+  /** Selected/visible board rows. */
+  rows: { inv: any; custName: string; projName: string | null; bal: number; days: number }[];
+};
+
+/** Format a per-currency total map as "€1,234.00 · $500.00". */
+function fmtCcyMap(map: Record<string, number>): string {
+  const parts = Object.entries(map).filter(([, v]) => Math.abs(v) > 0.005).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (parts.length === 0) return num2(0);
+  return parts.map(([c, v]) => `${c} ${num2(v)}`).join(" · ");
+}
+function num2(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Statement of account — one document, grouped Customer → Project, with a
+ * subtotal at each level and a grand total. Built for handing to a customer
+ * or attaching to a chase: invoices are listed chronologically (oldest due
+ * first) within each project, exactly how a statement reads.
+ */
+export function exportStatement({ orgName, rows }: StatementExportInput) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Group Customer → Project, preserving each invoice.
+  type Grp = { total: Record<string, number>; rows: typeof rows };
+  const byCust = new Map<string, { total: Record<string, number>; projects: Map<string, Grp> }>();
+  for (const r of rows) {
+    const ccy = r.inv.currency || "EUR";
+    const cKey = r.custName || "—";
+    if (!byCust.has(cKey)) byCust.set(cKey, { total: {}, projects: new Map() });
+    const cg = byCust.get(cKey)!;
+    cg.total[ccy] = (cg.total[ccy] ?? 0) + r.bal;
+    const pKey = r.projName || "No project";
+    if (!cg.projects.has(pKey)) cg.projects.set(pKey, { total: {}, rows: [] });
+    const pg = cg.projects.get(pKey)!;
+    pg.total[ccy] = (pg.total[ccy] ?? 0) + r.bal;
+    pg.rows.push(r);
+  }
+
+  const custTotalNum = (t: Record<string, number>) => Object.values(t).reduce((s, v) => s + v, 0);
+  const customers = [...byCust.entries()].sort((a, b) => custTotalNum(b[1].total) - custTotalNum(a[1].total));
+
+  const grand: Record<string, number> = {};
+  rows.forEach(r => { const c = r.inv.currency || "EUR"; grand[c] = (grand[c] ?? 0) + r.bal; });
+
+  const COLS = ["Customer / Project / Invoice", "Invoice Date", "Due Date", "Days Overdue", "Currency", "Invoice Total", "Paid", "Outstanding"];
+
+  const data: any[][] = [
+    [orgName],
+    ["Statement of Account"],
+    ["Generated:", todayIso, "", "Invoices:", rows.length, "", "Total outstanding:", fmtCcyMap(grand)],
+    [],
+    COLS,
+  ];
+
+  for (const [custName, cg] of customers) {
+    data.push([custName, "", "", "", "", "", "", fmtCcyMap(cg.total)]);
+    const projects = [...cg.projects.entries()].sort((a, b) => custTotalNum(b[1].total) - custTotalNum(a[1].total));
+    for (const [projName, pg] of projects) {
+      const showProj = projName !== "No project" || projects.length > 1;
+      if (showProj) data.push([`    ${projName}`, "", "", "", "", "", "", fmtCcyMap(pg.total)]);
+      const invRows = [...pg.rows].sort((a, b) => String(a.inv.dueDate).localeCompare(String(b.inv.dueDate)));
+      for (const r of invRows) {
+        const inv = r.inv;
+        const total = Number(inv.total || 0);
+        data.push([
+          `        #${inv.invoiceNumber}`,
+          inv.invoiceDate ?? "",
+          inv.dueDate ?? "",
+          Math.max(0, r.days),
+          inv.currency || "EUR",
+          round2(total),
+          round2(Math.max(0, total - r.bal)),
+          round2(r.bal),
+        ]);
+      }
+      if (showProj) data.push(["", "", "", "", "", "", "    Project subtotal:", fmtCcyMap(pg.total)]);
+    }
+    data.push(["", "", "", "", "", "", `Total — ${custName}:`, fmtCcyMap(cg.total)]);
+    data.push([]);
+  }
+
+  data.push([]);
+  data.push(["", "", "", "", "", "", "GRAND TOTAL:", fmtCcyMap(grand)]);
+
+  const wb = XLSX.utils.book_new();
+  appendSheet(wb, "Statement", data);
+  XLSX.writeFile(wb, `Statement_${todayIso}.xlsx`);
+}
+
 // ─── util ──────────────────────────────────────────────────────────────────
 
 function appendSheet(wb: XLSX.WorkBook, name: string, data: any[][]) {
