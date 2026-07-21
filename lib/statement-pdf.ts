@@ -8,8 +8,8 @@
  * Multi-currency safe — subtotals render per currency.
  *
  * Design: Swiss-minimalist — whitespace, hairline rules (no heavy filled
- * blocks), a single restrained deep-green accent, and a small monogram for
- * identity. Aims to read "considered", not "template".
+ * blocks), black used only for lines/borders/totals, and a small monogram
+ * for identity. Aims to read "considered", not "template".
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from "pdf-lib";
@@ -29,13 +29,13 @@ const CONTENT_W = PAGE_W - M * 2;
 const RIGHT = PAGE_W - M;
 const BOTTOM = 70;
 
-// ── Palette — warm neutrals + one deep-green accent ───────────────────────────
+// ── Palette — warm neutrals; black accent for lines/borders/totals only ──────
 const INK    = rgb(0.13, 0.12, 0.11);
 const MUTED  = rgb(0.48, 0.45, 0.42);
 const FAINT  = rgb(0.64, 0.61, 0.58);
 const HAIR   = rgb(0.87, 0.85, 0.83);
 const BAND   = rgb(0.972, 0.968, 0.962);
-const ACCENT = rgb(0.086, 0.365, 0.278); // deep emerald — money, positive
+const ACCENT = rgb(0.06, 0.06, 0.06);     // black — used only for lines, borders, totals
 const WHITE  = rgb(1, 1, 1);
 const RED    = rgb(0.64, 0.15, 0.15);
 
@@ -148,7 +148,7 @@ export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: s
       const w = first ? logo.w : logo.w * 0.72;
       const topY = PAGE_H - (first ? 34 : 28);
       page.drawImage(logo.img, { x: M, y: topY - h, width: w, height: h });
-      left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), M, topY - h - 11, first ? 8 : 7, font, MUTED);
+      left("STATEMENT OF OPEN INVOICES" + (first ? "" : "  (continued)"), M, topY - h - 11, first ? 8 : 7, font, MUTED);
     } else {
       // Monogram mark + wordmark
       const sz = first ? 32 : 22;
@@ -161,7 +161,7 @@ export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: s
       let wSize = first ? 19 : 13;
       while (wSize > 11 && tW(orgName, wSize, bold) > wordMax) wSize -= 0.5;
       left(clip(orgName, wordMax, wSize, bold), wx, PAGE_H - (first ? 50 : 42), wSize, bold, INK);
-      left("STATEMENT OF ACCOUNT" + (first ? "" : "  (continued)"), wx, PAGE_H - (first ? 64 : 53), first ? 8 : 7, font, MUTED);
+      left("STATEMENT OF OPEN INVOICES" + (first ? "" : "  (continued)"), wx, PAGE_H - (first ? 64 : 53), first ? 8 : 7, font, MUTED);
     }
 
     // Right meta
@@ -268,7 +268,7 @@ export async function buildStatementPdf({ orgName, rows, logoUrl }: { orgName: s
   const pages = doc.getPages();
   pages.forEach((p, i) => {
     p.drawLine({ start: { x: M, y: 50 }, end: { x: RIGHT, y: 50 }, thickness: 0.5, color: HAIR });
-    p.drawText(`${orgName} · Statement of Account`, { x: M, y: 38, size: 7.5, font, color: FAINT });
+    p.drawText(`${orgName} · Statement of Open Invoices`, { x: M, y: 38, size: 7.5, font, color: FAINT });
     const pg = `Page ${i + 1} of ${pages.length}`;
     p.drawText(pg, { x: (PAGE_W - font.widthOfTextAtSize(pg, 7.5)) / 2, y: 38, size: 7.5, font, color: FAINT });
     const gen = `Generated ${stamp}`;

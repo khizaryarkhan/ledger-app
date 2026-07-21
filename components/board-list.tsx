@@ -969,8 +969,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
-                    Statement — PDF{selected.size ? ` (${selected.size} selected)` : ""}
-                    <div className="text-[10px] text-stone-600">Printable statement of account — grouped by customer, then project</div>
+                    Statement of Open Invoices — PDF{selected.size ? ` (${selected.size})` : ""}
+                    <div className="text-[10px] text-stone-600">Printable, grouped by customer then project</div>
                   </div>
                 </button>
                 <button
@@ -984,7 +984,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <Download size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
-                    Statement — Excel{selected.size ? ` (${selected.size} selected)` : ""}
+                    Statement of Open Invoices — Excel{selected.size ? ` (${selected.size})` : ""}
                     <div className="text-[10px] text-stone-600">Same statement as a spreadsheet</div>
                   </div>
                 </button>

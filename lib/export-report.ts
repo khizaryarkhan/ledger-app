@@ -594,7 +594,7 @@ export function exportStatement({ orgName, rows }: StatementExportInput) {
 
   const data: any[][] = [
     [orgName],
-    ["Statement of Account"],
+    ["Statement of Open Invoices"],
     ["Generated:", todayIso, "", "Invoices:", rows.length, "", "Total outstanding:", fmtCcyMap(grand)],
     [],
     COLS,
