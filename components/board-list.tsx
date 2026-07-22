@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
 import { fmt } from "@/lib/format";
-import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal } from "lucide-react";
+import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal, Phone } from "lucide-react";
+import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/lib/next-action";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport, exportStatement } from "@/lib/export-report";
@@ -362,6 +363,40 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     { key: "d90", label: "61–90 days" }, { key: "d90p", label: "90+ days" },
   ];
 
+  // ── Next Best Action ─────────────────────────────────────────────────────
+  // Chase count per invoice = outbound Email/Chase comms. Feeds the
+  // Email → Call → Escalate ladder in lib/next-action.ts.
+  const chaseCountByInv = useMemo(() => {
+    const m: Record<string, number> = {};
+    (comments ?? []).forEach((c: any) => {
+      if (!c.invoiceId || c.isDraft) return;
+      if (c.direction === "Outbound" && (c.channel === "Email" || c.channel === "Chase")) {
+        m[c.invoiceId] = (m[c.invoiceId] ?? 0) + 1;
+      }
+    });
+    return m;
+  }, [comments]);
+
+  const nextActionByInv = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const m: Record<string, ReturnType<typeof computeNextAction>> = {};
+    rows.forEach(r => {
+      m[r.inv.id] = computeNextAction({
+        days: r.days,
+        email: r.email,
+        promiseDate: r.inv.promiseDate,
+        hasOpenDispute: r.inv.hasOpenDispute,
+        stageLabel: r.stageLabel,
+        escalatedToName: r.inv.escalatedToName,
+        daysSinceChase: r.lastSent ? Math.floor((Date.now() - new Date(r.lastSent).getTime()) / 86400000) : null,
+        chaseCount: chaseCountByInv[r.inv.id] ?? 0,
+        unreadReply: hasUnreadReply(r.inv.id),
+        todayStr: today,
+      });
+    });
+    return m;
+  }, [rows, chaseCountByInv, notesByInv, notesSeen]);
+
   const filteredRows = useMemo(() => {
     const has = (v: string | null, q: string) => (v ?? "").toLowerCase().includes(q.toLowerCase());
     const today = new Date().toISOString().slice(0, 10);
@@ -406,12 +441,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.bucket && !multiVals("bucket").has(bucketOf(r.days))) return false;
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
       if (cf.maxAmount && r.bal > Number(cf.maxAmount)) return false;
-      if (cf.next === "due" && !(r.inv.nextActionDate && r.inv.nextActionDate <= today)) return false;
-      if (cf.next === "has" && !r.inv.nextActionDate) return false;
-      if (cf.next === "none" && r.inv.nextActionDate) return false;
+      if (cf.action && !multiVals("action").has(nextActionByInv[r.inv.id]?.type ?? "none")) return false;
       return true;
     });
-  }, [rows, cf, overdueOnly]);
+  }, [rows, cf, overdueOnly, nextActionByInv]);
 
   // ── Receivable Composition strip ────────────────────────────────────────
   // Same classifier as the Dashboard widget (lib/receivable-composition.ts),
@@ -516,7 +549,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     if (cf.lastRef) chips.push({ key: "lastRef", label: `Ref ~ "${cf.lastRef}"` });
     if (cf.bucket) chips.push({ key: "bucket", label: `Aging: ${[...multiVals("bucket")].map(b => BUCKETS.find(x => x.key === b)?.label ?? b).join(", ")}` });
     if (cf.minAmount || cf.maxAmount) chips.push({ key: "amount", label: `Amount ${cf.minAmount ? `≥ ${cf.minAmount}` : ""}${cf.minAmount && cf.maxAmount ? " " : ""}${cf.maxAmount ? `≤ ${cf.maxAmount}` : ""}` });
-    if (cf.next) chips.push({ key: "next", label: cf.next === "due" ? "Next action due" : cf.next === "has" ? "Has next action" : "No next action" });
+    if (cf.action) { const vals = [...multiVals("action")]; chips.push({ key: "action", label: `Action: ${vals.map(v => NEXT_ACTION_FILTERS.find(f => f.key === v)?.label ?? v).join(", ")}` }); }
     return chips;
   }, [cf]);
   function clearChip(key: string) {
@@ -557,7 +590,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         case "rep":         primary = cmp(a.repName, b.repName); break;
         case "stage":       primary = cmp(a.stageLabel, b.stageLabel); break;
         case "lastSent":    primary = cmp(a.lastSent, b.lastSent); break;
-        case "nextAction":  primary = cmp(a.inv.nextActionDate, b.inv.nextActionDate); break;
+        case "action":      primary = cmp(nextActionByInv[a.inv.id]?.rank ?? 0, nextActionByInv[b.inv.id]?.rank ?? 0); break;
         case "due":         primary = cmp(a.inv.dueDate, b.inv.dueDate); break;
         case "outstanding": primary = cmp(a.bal, b.bal); break;
         case "days":        primary = cmp(a.days, b.days); break;
@@ -568,7 +601,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       const s2 = cmp(a.projName, b.projName); if (s2 !== 0) return s2;
       return cmp(a.inv.dueDate, b.inv.dueDate);
     });
-  }, [filteredRows, sortCol, sortDir]);
+  }, [filteredRows, sortCol, sortDir, nextActionByInv]);
 
   // Rows to render — flat, or Customer → Project bands (both levels sorted by
   // subtotal desc, both collapsible) interleaved with their rows.
@@ -744,7 +777,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       lines.push([
         r.inv.invoiceNumber, r.custName, r.projName ?? "", r.regionName ?? "", r.repName ?? "",
         r.stageLabel, r.inv.escalatedToName ?? "", r.inv.escalationType ?? "", resp, r.email ?? "", r.lastSent ? fmtSent(r.lastSent) : "", r.lastRef ?? "",
-        r.inv.nextActionDate ?? "", r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
+        (() => { const na = nextActionByInv[r.inv.id]; return na ? `${na.label}${na.detail ? " (" + na.detail + ")" : ""}` : ""; })(), r.inv.dueDate, r.days > 0 ? r.days : 0, r.bal,
       ].map(esc).join(","));
     });
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1211,7 +1244,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   { label: "Email",       sort: null,         filter: "email" },
                   { label: "Last sent",   sort: "lastSent",   filter: "lastSent" },
                   { label: "Last ref",    sort: null,         filter: "lastRef" },
-                  { label: "Next action", sort: "nextAction", filter: "next" },
+                  { label: "Next action", sort: "action", filter: "action" },
                   { label: "Due",         sort: "due",        filter: "bucket" },
                 ] as { label: string; sort: string | null; filter: string }[]).map(({ label, sort, filter }) => {
                   const active =
@@ -1342,12 +1375,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               )}
                             </div>
                           )}
-                          {filter === "next" && (
+                          {filter === "action" && (
                             <div className="space-y-1">
-                              {[["", "All"], ["due", "Due today or earlier"], ["has", "Has next action"], ["none", "No next action"]].map(([v, l]) => (
-                                <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="radio" name="f-next" checked={(cf.next ?? "") === v} onChange={() => setFilter("next", v)} />
-                                  {l}
+                              {NEXT_ACTION_FILTERS.map(o => (
+                                <label key={o.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
+                                  <input type="checkbox" checked={multiVals("action").has(o.key)} onChange={() => toggleMulti("action", o.key)} className="rounded border-stone-600" />
+                                  {o.label}
                                 </label>
                               ))}
                             </div>
@@ -1737,19 +1770,45 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {lastRef ? <span className="text-stone-400">{lastRef}</span> : <span className="text-stone-600">—</span>}
                     </td>
                     {/* Next action — the forward-looking queue date, editable inline */}
+                    {/* Next best action — computed, one-click, filterable by type */}
                     <td className="px-3 py-2 whitespace-nowrap text-[12px]">
-                      <input
-                        type="date"
-                        value={inv.nextActionDate ?? ""}
-                        onChange={e => save(inv.id, { nextActionDate: e.target.value || null })}
-                        className={`bg-transparent border rounded px-1 py-0.5 text-[11px] cursor-pointer outline-none focus:ring-1 focus:ring-emerald-500 ${
-                          inv.nextActionDate
-                            ? inv.nextActionDate <= todayStr()
-                              ? "border-rose-800 text-rose-300 bg-rose-950/30 font-semibold"
-                              : "border-stone-700 text-stone-300"
-                            : "border-transparent text-stone-700 hover:border-stone-700"
-                        }`}
-                      />
+                      {(() => {
+                        const na = nextActionByInv[inv.id];
+                        if (!na) return <span className="text-stone-600">—</span>;
+                        const tone: Record<string, string> = {
+                          reply:     "bg-emerald-500/15 text-emerald-300 border-emerald-800/60",
+                          email:     "bg-blue-500/15 text-blue-300 border-blue-800/60",
+                          call:      "bg-orange-500/15 text-orange-300 border-orange-800/60",
+                          escalate:  "bg-rose-500/15 text-rose-300 border-rose-800/60",
+                          add_email: "bg-amber-500/15 text-amber-300 border-amber-800/60",
+                          resolve:   "bg-rose-500/10 text-rose-300 border-rose-900/60",
+                          await:     "text-stone-400 border-stone-700",
+                          none:      "text-stone-600 border-transparent",
+                        };
+                        const Icon =
+                          na.type === "reply" ? CornerUpLeft :
+                          na.type === "call" ? Phone :
+                          na.type === "escalate" ? UserCheck :
+                          na.type === "resolve" ? AlertOctagon :
+                          na.type === "await" ? Clock :
+                          (na.type === "email" || na.type === "add_email") ? Mail : null;
+                        const body = <>{Icon && <Icon size={11} />}<span>{na.label}</span>{na.detail && <span className="opacity-60">· {na.detail}</span>}</>;
+                        if (!na.act) return <span className={`inline-flex items-center gap-1 text-[11px] ${na.type === "none" ? "text-stone-600" : "text-stone-400"}`}>{body}</span>;
+                        const onClick = () => {
+                          if (na.act === "send") { setPreQuickSendSelection(selected); setSelected(new Set([inv.id])); setShowSend(true); }
+                          else if (na.act === "email") { setEmailEdit(inv.id); setEmailVal(email ?? ""); }
+                          else if (na.act === "reply") { setNotesOpenId(inv.id); markNotesSeen(inv.id); }
+                          else if (na.act === "escalate") { openEscalationPicker(inv.id, stageLabel, inv.escalatedToUserId ?? undefined, inv.escalationType ?? undefined, inv.escalationNote ?? undefined); }
+                          else if (na.act === "log") { setNotesOpenId(inv.id); }
+                        };
+                        return (
+                          <button onClick={onClick}
+                            title="Click to act on this"
+                            className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full border px-2 py-1 hover:opacity-80 transition-opacity ${tone[na.type]}`}>
+                            {body}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-stone-400 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-400 font-medium">+{days}d</span>}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
