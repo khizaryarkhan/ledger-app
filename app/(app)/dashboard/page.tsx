@@ -65,8 +65,7 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
     const highRiskPct = totalAR > 0 ? (highRiskAR / totalAR) * 100 : 0;
 
     const brokenPromises = open.filter((i: any) =>
-      (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
-      i.promiseDate && daysOverdue(i.promiseDate) > 0
+      i.promiseDate && !i.hasOpenDispute && daysOverdue(i.promiseDate) > 0
     ).length;
     const neverContacted = open.filter((i: any) => daysOverdue(i.dueDate) > 0 && !i.lastFollowupDate).length;
 
@@ -859,8 +858,7 @@ export default function DashboardPage() {
     const list: Array<{ type: string; label: string; sub: string; color: string; href: string; icon: string }> = [];
 
     const brokenPromises = effectiveInvoices.filter((i: any) =>
-      (i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay") &&
-      i.promiseDate &&
+      i.promiseDate && !i.hasOpenDispute &&
       new Date(i.promiseDate) < new Date() &&
       i.paymentStatus !== "Paid"
     );
@@ -939,8 +937,12 @@ export default function DashboardPage() {
     const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
     open.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
     activeCMs.forEach((i: any) => { buckets[getAgingBucket(i)] += openBal(i); });
-    const disputed = open.filter((i: any) => i.collectionStage === "Disputed").reduce((s: number, i: any) => s + openBal(i), 0);
-    const promisedAll = open.filter((i: any) => i.collectionStage === "Promised" || i.collectionStage === "Promise to Pay");
+    // Drive "Committed to Pay" and "Disputed" off the real flags (promiseDate /
+    // hasOpenDispute) — the same source of truth the Receivable Composition
+    // uses — not the collectionStage string, which drifts between the key
+    // ("Promised") and the label ("Committed") and left this card empty.
+    const disputed = open.filter((i: any) => i.hasOpenDispute).reduce((s: number, i: any) => s + openBal(i), 0);
+    const promisedAll = open.filter((i: any) => !!i.promiseDate && !i.hasOpenDispute);
     const promised = promisedAll.reduce((s: number, i: any) => s + openBal(i), 0);
 
     // Broken promises — promise date has already passed
@@ -971,7 +973,7 @@ export default function DashboardPage() {
     // 90+ days overdue
     const over90Items = open.filter((i: any) => daysOverdue(i.dueDate) > 90);
     const over90 = over90Items.reduce((s: number, i: any) => s + openBal(i), 0);
-    const disputedItems = open.filter((i: any) => i.collectionStage === "Disputed");
+    const disputedItems = open.filter((i: any) => i.hasOpenDispute);
     const openItems = [...open, ...activeCMs];
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
