@@ -992,12 +992,18 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </button>
                 <button
                   onClick={() => {
-                    exportAgeingChaseReport({
-                      orgName: orgName ?? "Organisation",
-                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
-                      comments: comments ?? [],
-                    });
                     setToolbarMenu(null);
+                    // Selection if any; otherwise the whole open-invoice set
+                    // (an ageing report covers the book, not just the on-screen
+                    // filtered view — and this avoids a blank file when a
+                    // stale selection or an empty filter would leave 0 rows).
+                    const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : rows;
+                    if (!src.length) { toast?.("No open invoices to include in the report", "error"); return; }
+                    try {
+                      exportAgeingChaseReport({ orgName: orgName ?? "Organisation", rows: src, comments: comments ?? [] });
+                    } catch (e: any) {
+                      toast?.(e?.message || "Couldn't generate the report", "error");
+                    }
                   }}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <FileText size={13} className="text-stone-500" />
