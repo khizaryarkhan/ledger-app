@@ -541,6 +541,120 @@ export function exportChaseReport({ orgName, rows, comments }: ChaseExportInput)
   XLSX.writeFile(wb, `Chase-Report_${todayIso}.xlsx`);
 }
 
+// ─── A/R Ageing & Chase report (Collections Board) ─────────────────────────
+
+export type AgeingChaseInput = {
+  orgName: string;
+  rows: {
+    inv: any; custName: string; projName: string | null;
+    bal: number; days: number; lastSent: string | null; lastRef: string | null; stageLabel: string;
+  }[];
+  comments: any[];
+};
+
+/**
+ * A/R Ageing & Chase — the management report firms circulate: grouped
+ * Customer → Project, aged into buckets with a per-customer subtotal and a
+ * grand total, plus a Status column derived from the stage (escalation status
+ * if escalated, otherwise the normal chase stage), the reference number of the
+ * last email sent, and the total chase count.
+ */
+export function exportAgeingChaseReport({ orgName, rows, comments }: AgeingChaseInput) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Chase count per invoice = outbound Email/Chase comms.
+  const chaseCount = new Map<string, number>();
+  for (const c of comments) {
+    if (!c.invoiceId || c.isDraft) continue;
+    if (c.direction === "Outbound" && (c.channel === "Email" || c.channel === "Chase")) {
+      chaseCount.set(c.invoiceId, (chaseCount.get(c.invoiceId) ?? 0) + 1);
+    }
+  }
+
+  const bucketOf = (days: number) => days <= 0 ? "Current" : days <= 30 ? "1-30" : days <= 60 ? "31-60" : days <= 90 ? "61-90" : "90+";
+
+  // Status (Column H): escalation status when escalated, else the normal chase stage.
+  const projectStatus = (prjRows: AgeingChaseInput["rows"]): string => {
+    if (prjRows.some(r => r.inv.hasOpenDispute)) return "Disputed";
+    const esc = prjRows.find(r => r.stageLabel === "Escalated" && r.inv.escalatedToName);
+    if (esc) return `Escalated: ${esc.inv.escalationType || "Handed over"}${esc.inv.escalatedToName ? " → " + esc.inv.escalatedToName : ""}`;
+    if (prjRows.some(r => r.inv.promiseDate && r.inv.promiseDate < todayIso)) return "Broken commitment";
+    const committed = prjRows.filter(r => r.inv.promiseDate && r.inv.promiseDate >= todayIso);
+    if (committed.length) return `Awaiting payment ${committed.map(r => r.inv.promiseDate).sort()[0]}`;
+    if (prjRows.some(r => r.days > 0)) return [...prjRows].sort((a, b) => b.days - a.days)[0].stageLabel || "Chasing";
+    return "N/A";
+  };
+
+  // Group Customer → Project.
+  type Prj = { name: string; rows: AgeingChaseInput["rows"] };
+  const byCust = new Map<string, { name: string; projects: Map<string, Prj> }>();
+  for (const r of rows) {
+    const cKey = r.custName || "—";
+    if (!byCust.has(cKey)) byCust.set(cKey, { name: cKey, projects: new Map() });
+    const cg = byCust.get(cKey)!;
+    const pKey = r.projName || "— No project —";
+    if (!cg.projects.has(pKey)) cg.projects.set(pKey, { name: pKey, rows: [] });
+    cg.projects.get(pKey)!.rows.push(r);
+  }
+
+  const bucketsFor = (prjRows: AgeingChaseInput["rows"]) => {
+    const b: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
+    for (const r of prjRows) { b[bucketOf(r.days)] += r.bal; b.total += r.bal; }
+    return b;
+  };
+  const lastEmail = (prjRows: AgeingChaseInput["rows"]) => {
+    const withSent = prjRows.filter(r => r.lastSent).sort((a, b) => String(b.lastSent).localeCompare(String(a.lastSent)));
+    return withSent[0] ? { date: withSent[0].lastSent!.slice(0, 10), ref: withSent[0].lastRef ?? "" } : { date: "", ref: "" };
+  };
+  const chasesFor = (prjRows: AgeingChaseInput["rows"]) => prjRows.reduce((s, r) => s + (chaseCount.get(r.inv.id) ?? 0), 0);
+
+  const customers = [...byCust.values()].sort((a, b) =>
+    bucketsFor([...b.projects.values()].flatMap(p => p.rows)).total -
+    bucketsFor([...a.projects.values()].flatMap(p => p.rows)).total);
+
+  const data: any[][] = [
+    [orgName],
+    ["A/R Ageing & Chase Report"],
+    [`As of ${todayIso}`],
+    [],
+    ["Customer / Project", "Current", "1 – 30", "31 – 60", "61 – 90", "91 and over", "Total", "Status", "Last email", "Last ref", "Chases"],
+  ];
+
+  const grand: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
+
+  for (const cg of customers) {
+    data.push([cg.name]);
+    const cust: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
+    const projects = [...cg.projects.values()].sort((a, b) => bucketsFor(b.rows).total - bucketsFor(a.rows).total);
+    for (const pg of projects) {
+      const b = bucketsFor(pg.rows);
+      const le = lastEmail(pg.rows);
+      (Object.keys(cust) as string[]).forEach(k => { cust[k] += b[k]; grand[k] += b[k]; });
+      data.push([
+        `    ${pg.name}`,
+        round2(b.Current), round2(b["1-30"]), round2(b["31-60"]), round2(b["61-90"]), round2(b["90+"]), round2(b.total),
+        projectStatus(pg.rows), le.date, le.ref, chasesFor(pg.rows),
+      ]);
+    }
+    data.push([
+      `Total for ${cg.name}`,
+      round2(cust.Current), round2(cust["1-30"]), round2(cust["31-60"]), round2(cust["61-90"]), round2(cust["90+"]), round2(cust.total),
+      "", "", "", "",
+    ]);
+    data.push([]);
+  }
+
+  data.push([
+    "GRAND TOTAL",
+    round2(grand.Current), round2(grand["1-30"]), round2(grand["31-60"]), round2(grand["61-90"]), round2(grand["90+"]), round2(grand.total),
+    "", "", "", "",
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  appendSheet(wb, "A-R Ageing & Chase", data);
+  XLSX.writeFile(wb, `AR-Ageing-Chase_${todayIso}.xlsx`);
+}
+
 // ─── Statement of account (Collections Board) ─────────────────────────────
 
 export type StatementExportInput = {

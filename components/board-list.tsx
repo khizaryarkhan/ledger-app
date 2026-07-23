@@ -8,7 +8,7 @@ import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Dow
 import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/lib/next-action";
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
-import { exportChaseReport, exportStatement } from "@/lib/export-report";
+import { exportChaseReport, exportStatement, exportAgeingChaseReport } from "@/lib/export-report";
 import { exportStatementPdf } from "@/lib/statement-pdf";
 import { EmailComposer } from "@/components/feature";
 import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
@@ -988,6 +988,22 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <div className="flex-1 text-left">
                     Chase Report{selected.size ? ` (${selected.size} selected)` : ""}
                     <div className="text-[10px] text-stone-600">Management report — detail + summary by owner</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    exportAgeingChaseReport({
+                      orgName: orgName ?? "Organisation",
+                      rows: selected.size ? sortedRows.filter(r => selected.has(r.inv.id)) : sortedRows,
+                      comments: comments ?? [],
+                    });
+                    setToolbarMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                  <FileText size={13} className="text-stone-500" />
+                  <div className="flex-1 text-left">
+                    A/R Ageing &amp; Chase{selected.size ? ` (${selected.size})` : ""}
+                    <div className="text-[10px] text-stone-600">Customer → project ageing, status, last ref &amp; chase count</div>
                   </div>
                 </button>
                 <button
