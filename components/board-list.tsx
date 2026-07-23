@@ -991,7 +991,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   </div>
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setToolbarMenu(null);
                     // Selection if any; otherwise the whole open-invoice set
                     // (an ageing report covers the book, not just the on-screen
@@ -1000,7 +1000,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     const src = selected.size ? rows.filter(r => selected.has(r.inv.id)) : rows;
                     if (!src.length) { toast?.("No open invoices to include in the report", "error"); return; }
                     try {
-                      exportAgeingChaseReport({ orgName: orgName ?? "Organisation", rows: src, comments: comments ?? [] });
+                      await exportAgeingChaseReport({ orgName: orgName ?? "Organisation", rows: src, comments: comments ?? [] });
                     } catch (e: any) {
                       toast?.(e?.message || "Couldn't generate the report", "error");
                     }

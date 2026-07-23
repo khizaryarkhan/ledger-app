@@ -553,14 +553,23 @@ export type AgeingChaseInput = {
 };
 
 /**
- * A/R Ageing & Chase — the management report firms circulate: grouped
- * Customer → Project, aged into buckets with a per-customer subtotal and a
- * grand total, plus a Status column derived from the stage (escalation status
- * if escalated, otherwise the normal chase stage), the reference number of the
- * last email sent, and the total chase count.
+ * A/R Ageing & Chase — the management report firms circulate, styled to match
+ * the QuickBooks "A/R Ageing Summary" layout: centred title block, grouped
+ * Customer → Project, aged into buckets with a bold per-customer subtotal
+ * (ruled above) and a grand total, plus a Status column from the stage
+ * (escalation status when escalated, else the normal chase stage), the last
+ * email reference, and the chase count. Stays an editable workbook so reps can
+ * type into the RC Comments column.
+ *
+ * Uses exceljs (dynamically imported so it never weighs down the app bundle)
+ * because it supports the cell styling — bold, borders, currency number
+ * formats, merges — that the QBO look needs and SheetJS's free build can't do.
  */
-export function exportAgeingChaseReport({ orgName, rows, comments }: AgeingChaseInput) {
-  const todayIso = new Date().toISOString().slice(0, 10);
+export async function exportAgeingChaseReport({ orgName, rows, comments }: AgeingChaseInput) {
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const asOf = `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`.replace(/(\w+) (\d{4})$/, "$1, $2");
+  const rcDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 
   // Chase count per invoice = outbound Email/Chase comms.
   const chaseCount = new Map<string, number>();
@@ -612,47 +621,93 @@ export function exportAgeingChaseReport({ orgName, rows, comments }: AgeingChase
     bucketsFor([...b.projects.values()].flatMap(p => p.rows)).total -
     bucketsFor([...a.projects.values()].flatMap(p => p.rows)).total);
 
-  const data: any[][] = [
-    [orgName],
-    ["A/R Ageing & Chase Report"],
-    [`As of ${todayIso}`],
-    [],
-    ["Customer / Project", "Current", "1 – 30", "31 – 60", "61 – 90", "91 and over", "Total", "Status", "Last email", "Last ref", "Chases"],
+  // ── Build the styled workbook (exceljs) ──────────────────────────────────
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("AR Ageing & Chase", { views: [{ state: "frozen", ySplit: 5 }] });
+
+  const PLAIN = '#,##0.00;-#,##0.00';           // detail amounts — no symbol
+  const EURO  = '"€"#,##0.00;-"€"#,##0.00';      // totals — with € symbol
+  const AMOUNT_COLS = [2, 3, 4, 5, 6, 7];        // B..G
+
+  ws.columns = [
+    { width: 44 }, { width: 13 }, { width: 13 }, { width: 13 }, { width: 13 },
+    { width: 14 }, { width: 15 }, { width: 30 }, { width: 20 }, { width: 9 },
   ];
+
+  const title = (text: string, size: number, bold: boolean) => {
+    const r = ws.addRow([text]);
+    ws.mergeCells(r.number, 1, r.number, 10);
+    r.getCell(1).font = { bold, size };
+    r.getCell(1).alignment = { horizontal: "center" };
+    return r;
+  };
+  title(orgName, 14, true);
+  title("A/R Ageing Summary Report", 11, true);
+  title(`As of ${asOf}`, 10, false);
+  ws.addRow([]);
+
+  // Header row (row 5 — frozen)
+  const hdr = ws.addRow(["", "CURRENT", "1 - 30", "31 - 60", "61 - 90", "91 AND OVER", "Total", `RC Comments ${rcDate}`, "Last email", "Chases"]);
+  hdr.eachCell((c, col) => {
+    c.font = { bold: true };
+    c.border = { bottom: { style: "thin" } };
+    c.alignment = { horizontal: (AMOUNT_COLS.includes(col) || col === 10) ? "right" : "left" };
+  });
 
   const grand: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
 
   for (const cg of customers) {
-    data.push([cg.name]);
+    // Customer group header (label only)
+    ws.addRow([cg.name]).getCell(1).font = { bold: false };
+
     const cust: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
     const projects = [...cg.projects.values()].sort((a, b) => bucketsFor(b.rows).total - bucketsFor(a.rows).total);
+
     for (const pg of projects) {
       const b = bucketsFor(pg.rows);
       const le = lastEmail(pg.rows);
       (Object.keys(cust) as string[]).forEach(k => { cust[k] += b[k]; grand[k] += b[k]; });
-      data.push([
-        `    ${pg.name}`,
-        round2(b.Current), round2(b["1-30"]), round2(b["31-60"]), round2(b["61-90"]), round2(b["90+"]), round2(b.total),
-        projectStatus(pg.rows), le.date, le.ref, chasesFor(pg.rows),
+      // Detail: blank cells for empty buckets, plain number format (no €).
+      const cell = (v: number) => (Math.abs(v) < 0.005 ? null : round2(v));
+      const row = ws.addRow([
+        pg.name,
+        cell(b.Current), cell(b["1-30"]), cell(b["31-60"]), cell(b["61-90"]), cell(b["90+"]), round2(b.total),
+        projectStatus(pg.rows), le.ref ? `${le.ref}${le.date ? ` · ${le.date.slice(5)}` : ""}` : "", chasesFor(pg.rows),
       ]);
+      row.getCell(1).alignment = { indent: 2 };
+      AMOUNT_COLS.forEach(col => (row.getCell(col).numFmt = PLAIN));
+      row.getCell(10).alignment = { horizontal: "right" };
     }
-    data.push([
+
+    // Customer total — bold, € format (shows €0.00 for empty), ruled above.
+    const tr = ws.addRow([
       `Total for ${cg.name}`,
       round2(cust.Current), round2(cust["1-30"]), round2(cust["31-60"]), round2(cust["61-90"]), round2(cust["90+"]), round2(cust.total),
-      "", "", "", "",
     ]);
-    data.push([]);
+    tr.font = { bold: true };
+    AMOUNT_COLS.forEach(col => { tr.getCell(col).numFmt = EURO; tr.getCell(col).border = { top: { style: "thin" } }; });
+    tr.getCell(1).border = { top: { style: "thin" } };
+    ws.addRow([]);
   }
 
-  data.push([
+  // Grand total — bold, double rule above.
+  const gr = ws.addRow([
     "GRAND TOTAL",
     round2(grand.Current), round2(grand["1-30"]), round2(grand["31-60"]), round2(grand["61-90"]), round2(grand["90+"]), round2(grand.total),
-    "", "", "", "",
   ]);
+  gr.font = { bold: true, size: 11 };
+  gr.getCell(1).border = { top: { style: "double" } };
+  AMOUNT_COLS.forEach(col => { gr.getCell(col).numFmt = EURO; gr.getCell(col).border = { top: { style: "double" } }; });
 
-  const wb = XLSX.utils.book_new();
-  appendSheet(wb, "A-R Ageing & Chase", data);
-  XLSX.writeFile(wb, `AR-Ageing-Chase_${todayIso}.xlsx`);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `AR-Ageing-Chase_${todayIso}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Statement of account (Collections Board) ─────────────────────────────
