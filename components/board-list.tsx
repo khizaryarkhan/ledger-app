@@ -99,6 +99,51 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     return m;
   }, [comments]);
 
+  // ── Project-level comments (the collaboration hub) ────────────────────────
+  // A project comment = a communication with a projectId, NO invoiceId, and
+  // matchedBy "ProjectNote". One source of truth: it shows on the project band,
+  // feeds the A/R Ageing report's Comments column, and is rendered inside every
+  // invoice's chatbox for that project (context flows down without duplication).
+  const projectNotesById = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    (comments ?? []).forEach((c: any) => {
+      if (c.invoiceId || !c.projectId) return;
+      if (c.channel !== "Note" && c.channel !== "ProjectNote") return;
+      (m[c.projectId] ??= []).push(c);
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
+    return m;
+  }, [comments]);
+
+  const [projNotesOpen, setProjNotesOpen] = useState<string | null>(null); // projectId
+  const [projNoteText, setProjNoteText] = useState("");
+  const [savingProjNote, setSavingProjNote] = useState(false);
+
+  async function addProjectNote(projectId: string, customerId: string) {
+    if (!projNoteText.trim()) return;
+    setSavingProjNote(true);
+    try {
+      await fetch("/api/communications", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId, projectId, invoiceId: null,
+          direction: "Outbound", channel: "Note", subject: "Project note",
+          body: projNoteText.trim(), sender: userName, matchedBy: "ProjectNote",
+        }),
+      });
+      setProjNoteText("");
+      await refresh();
+    } finally { setSavingProjNote(false); }
+  }
+
+  // An invoice's chat feed = its own events + the project-level comments for
+  // its project (so account context flows down to every invoice).
+  const feedForInv = (inv: any): any[] => {
+    const invNotes = notesByInv[inv.id] ?? [];
+    const projNotes = inv.projectId ? (projectNotesById[inv.projectId] ?? []) : [];
+    return projNotes.length ? [...invNotes, ...projNotes] : invNotes;
+  };
+
   // Unread inbound tracking — a customer reply (or owner-portal comment) newer
   // than the last time this invoice's activity panel was opened shows a dot.
   const NOTES_SEEN_KEY = "board-notes-seen";
@@ -611,7 +656,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   type DisplayItem =
     | { type: "row"; r: BoardRow }
     | { type: "band"; custId: string; custName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean }
-    | { type: "projBand"; key: string; custId: string; projName: string; count: number; total: Record<string, number>; ids: string[]; collapsed: boolean };
+    | { type: "projBand"; key: string; custId: string; projectId: string | null; projName: string; count: number; total: Record<string, number>; ids: string[]; collapsed: boolean };
 
   const displayRows = useMemo((): DisplayItem[] => {
     if (!groupByCustomer) return sortedRows.map(r => ({ type: "row" as const, r }));
@@ -647,7 +692,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         const projKey = `${custId}|${p.projName}`;
         const projCollapsed = collapsedProj.has(projKey);
         if (showProjBands) {
-          out.push({ type: "projBand", key: projKey, custId, projName: p.projName, count: p.rows.length, total: p.total, ids: p.rows.map(r => r.inv.id), collapsed: projCollapsed });
+          out.push({ type: "projBand", key: projKey, custId, projectId: p.rows[0]?.inv.projectId ?? null, projName: p.projName, count: p.rows.length, total: p.total, ids: p.rows.map(r => r.inv.id), collapsed: projCollapsed });
           if (projCollapsed) continue;
         }
         p.rows.forEach(r => out.push({ type: "row", r }));
@@ -1500,17 +1545,71 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 }
 
                 if (item.type === "projBand") {
+                  const pid = item.projectId;
+                  const pNotes = pid ? (projectNotesById[pid] ?? []) : [];
+                  const latestNote = pNotes[0];
+                  const notesOpen = !!pid && projNotesOpen === pid;
                   return (
                     <tr key={`proj-${item.key}`}
                       className="bg-stone-900/80 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-900"
                       onClick={() => setCollapsedProj(p => { const n = new Set(p); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                       <td className="px-3 py-1.5 pl-6" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
-                      <td colSpan={11} className="px-3 py-1.5 pl-6 text-[12px] font-medium text-stone-400">
+                      <td colSpan={11} className="px-3 py-1.5 pl-6 text-[12px] font-medium text-stone-400 relative">
                         <span className="inline-block w-4 text-stone-600">{item.collapsed ? "▸" : "▾"}</span>
                         {item.projName}
                         <span className="text-[10px] text-stone-600 ml-2">{item.count} inv</span>
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
                           <span className="text-[10px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
+                        )}
+                        {/* Project comment hub */}
+                        {pid && (
+                          <span className="inline-flex items-center gap-2 ml-3 align-middle" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => { setProjNotesOpen(notesOpen ? null : pid); setProjNoteText(""); }}
+                              title="Project comments — visible on every invoice in this project"
+                              className={`inline-flex items-center gap-1 text-[10px] rounded-full px-1.5 py-0.5 border transition-colors ${pNotes.length ? "border-sky-800 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20" : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
+                              <MessageSquare size={10} /> {pNotes.length || "Comment"}
+                            </button>
+                            {latestNote && !notesOpen && (
+                              <span className="text-[11px] text-stone-500 italic truncate max-w-[420px]" title={latestNote.body}>“{latestNote.body}”</span>
+                            )}
+                          </span>
+                        )}
+                        {notesOpen && pid && (
+                          <div className="absolute left-6 top-8 z-30 w-[440px] bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{ maxHeight: "460px" }} onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
+                              <div className="flex items-center gap-2">
+                                <MessageSquare size={13} className="text-sky-400" />
+                                <span className="text-[12px] font-semibold text-stone-200">Project comments · {item.projName}</span>
+                              </div>
+                              <button onClick={() => setProjNotesOpen(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
+                            </div>
+                            <div className="px-4 py-1.5 text-[10px] text-stone-500 border-b border-stone-800/60">Shared across all {item.count} invoice{item.count !== 1 ? "s" : ""} in this project.</div>
+                            <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
+                              {pNotes.length === 0 ? (
+                                <div className="text-[12px] text-stone-600 text-center py-5">No project comments yet</div>
+                              ) : [...pNotes].reverse().map((n: any) => {
+                                const ts = new Date(n.sentAt ?? n.createdAt);
+                                return (
+                                  <div key={n.id} className="rounded-lg px-3 py-2 border-l-2 border-sky-600 bg-sky-950/20">
+                                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                                      <span className="text-[10px] font-semibold text-sky-300">{n.sender || "Staff"}</span>
+                                      <span className="text-[10px] text-stone-600 tabular-nums">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+                                    </div>
+                                    <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="p-2.5 border-t border-stone-800 flex items-center gap-1.5">
+                              <input value={projNoteText} onChange={e => setProjNoteText(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addProjectNote(pid, item.custId); } }}
+                                placeholder="Add a project comment…" autoFocus
+                                className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-sky-500" />
+                              <button onClick={() => addProjectNote(pid, item.custId)} disabled={savingProjNote || !projNoteText.trim()}
+                                className="text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg px-3 py-1.5 disabled:opacity-40">Add</button>
+                            </div>
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">
@@ -1857,8 +1956,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <button onClick={() => { const opening = notesOpenId !== inv.id; setNotesOpenId(opening ? inv.id : null); setNoteText(""); if (opening) markNotesSeen(inv.id); }}
                         className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200" title="Notes">
                         <MessageSquare size={15} />
-                        {(notesByInv[inv.id]?.length ?? 0) > 0 && (
-                          <span className={`absolute -top-1 -right-1 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{notesByInv[inv.id].length}</span>
+                        {feedForInv(inv).length > 0 && (
+                          <span className={`absolute -top-1 -right-1 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{feedForInv(inv).length}</span>
                         )}
                       </button>
                       {notesOpenId === inv.id && (
@@ -1868,8 +1967,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="flex items-center gap-2">
                               <MessageSquare size={13} className="text-stone-400" />
                               <span className="text-[12px] font-semibold text-stone-200">Activity · #{inv.invoiceNumber}</span>
-                              {(notesByInv[inv.id]?.length ?? 0) > 0 && (
-                                <span className="text-[10px] text-stone-500">{notesByInv[inv.id].length} event{notesByInv[inv.id].length !== 1 ? "s" : ""}</span>
+                              {feedForInv(inv).length > 0 && (
+                                <span className="text-[10px] text-stone-500">{feedForInv(inv).length} event{feedForInv(inv).length !== 1 ? "s" : ""}</span>
                               )}
                             </div>
                             <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
@@ -1877,9 +1976,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                           {/* Feed */}
                           <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
-                            {(notesByInv[inv.id] ?? []).length === 0 ? (
+                            {feedForInv(inv).length === 0 ? (
                               <div className="text-[12px] text-stone-600 text-center py-6">No activity yet</div>
-                            ) : [...(notesByInv[inv.id] ?? [])].sort((a: any, b: any) => new Date(a.sentAt ?? a.createdAt).getTime() - new Date(b.sentAt ?? b.createdAt).getTime()).map((n: any) => {
+                            ) : [...feedForInv(inv)].sort((a: any, b: any) => new Date(a.sentAt ?? a.createdAt).getTime() - new Date(b.sentAt ?? b.createdAt).getTime()).map((n: any) => {
                               const ts = new Date(n.sentAt ?? n.createdAt);
                               const dateStr = ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
                               const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -1887,6 +1986,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               // Per-channel config
                               type ChanCfg = { icon: React.ReactNode; border: string; label: string; labelCls: string; bg: string };
                               const cfg: ChanCfg = (() => {
+                                // Project-level comments (logged once at the project, mirrored into
+                                // every invoice's feed) get a distinct sky look so they read as
+                                // shared account context, not an invoice-specific note.
+                                if (n.matchedBy === "ProjectNote")
+                                  return { icon: <MessageSquare size={11} />, border: "border-l-2 border-sky-500", label: `${n.sender || "Staff"} · project comment`, labelCls: "text-sky-400", bg: "bg-sky-950/20" };
                                 switch (n.channel) {
                                   case "Portal":   return { icon: <Globe size={11} />,         border: "border-l-2 border-emerald-500", label: n.matchedBy === "OwnerPortal" ? `${n.sender || "Owner"} · via owner portal` : "Customer · via portal", labelCls: "text-emerald-400", bg: "bg-emerald-950/30" };
                                   case "Dispute":  return {

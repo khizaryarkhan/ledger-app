@@ -571,14 +571,20 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
   const asOf = `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`.replace(/(\w+) (\d{4})$/, "$1, $2");
   const rcDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 
-  // Chase count per invoice = outbound Email/Chase comms.
-  const chaseCount = new Map<string, number>();
+  // Latest project-level comment per projectId (invoiceId null, channel Note).
+  const projComment = new Map<string, { body: string; at: number }>();
   for (const c of comments) {
-    if (!c.invoiceId || c.isDraft) continue;
-    if (c.direction === "Outbound" && (c.channel === "Email" || c.channel === "Chase")) {
-      chaseCount.set(c.invoiceId, (chaseCount.get(c.invoiceId) ?? 0) + 1);
-    }
+    if (!c.projectId || c.invoiceId || c.isDraft) continue;
+    if (c.channel !== "Note" && c.channel !== "ProjectNote") continue;
+    if (!c.body) continue;
+    const at = new Date(c.sentAt ?? c.createdAt ?? 0).getTime();
+    const prev = projComment.get(c.projectId);
+    if (!prev || at > prev.at) projComment.set(c.projectId, { body: String(c.body), at });
   }
+  const commentFor = (prjRows: AgeingChaseInput["rows"]) => {
+    const pid = prjRows.find(r => r.inv.projectId)?.inv.projectId;
+    return pid ? (projComment.get(pid)?.body ?? "") : "";
+  };
 
   const bucketOf = (days: number) => days <= 0 ? "Current" : days <= 30 ? "1-30" : days <= 60 ? "31-60" : days <= 90 ? "61-90" : "90+";
 
@@ -611,12 +617,6 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
     for (const r of prjRows) { b[bucketOf(r.days)] += r.bal; b.total += r.bal; }
     return b;
   };
-  const lastEmail = (prjRows: AgeingChaseInput["rows"]) => {
-    const withSent = prjRows.filter(r => r.lastSent).sort((a, b) => String(b.lastSent).localeCompare(String(a.lastSent)));
-    return withSent[0] ? { date: withSent[0].lastSent!.slice(0, 10), ref: withSent[0].lastRef ?? "" } : { date: "", ref: "" };
-  };
-  const chasesFor = (prjRows: AgeingChaseInput["rows"]) => prjRows.reduce((s, r) => s + (chaseCount.get(r.inv.id) ?? 0), 0);
-
   const customers = [...byCust.values()].sort((a, b) =>
     bucketsFor([...b.projects.values()].flatMap(p => p.rows)).total -
     bucketsFor([...a.projects.values()].flatMap(p => p.rows)).total);
@@ -638,7 +638,7 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
 
   const title = (text: string, size: number, bold: boolean) => {
     const r = ws.addRow([text]);
-    ws.mergeCells(r.number, 1, r.number, 10);
+    ws.mergeCells(r.number, 1, r.number, 9);
     r.getCell(1).font = { name: FONT, bold, size };
     r.getCell(1).alignment = { horizontal: "center" };
     return r;
@@ -648,12 +648,12 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
   title(`As of ${asOf}`, 10, false);
   ws.addRow([]);
 
-  // Header row (row 5 — frozen)
-  const hdr = ws.addRow(["", "CURRENT", "1 - 30", "31 - 60", "61 - 90", "91 AND OVER", "Total", `RC Comments ${rcDate}`, "Last email", "Chases"]);
+  // Header row (row 5 — frozen). H = Action (stage), I = Comments (project-level).
+  const hdr = ws.addRow(["", "CURRENT", "1 - 30", "31 - 60", "61 - 90", "91 AND OVER", "Total", "Action", "Comments"]);
   hdr.eachCell((c, col) => {
     c.font = { name: FONT, bold: true };
     c.border = { bottom: { style: "thin" } };
-    c.alignment = { horizontal: (AMOUNT_COLS.includes(col) || col === 10) ? "right" : "left" };
+    c.alignment = { horizontal: AMOUNT_COLS.includes(col) ? "right" : "left" };
   });
   track(hdr);
 
@@ -670,19 +670,18 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
 
     for (const pg of projects) {
       const b = bucketsFor(pg.rows);
-      const le = lastEmail(pg.rows);
       (Object.keys(cust) as string[]).forEach(k => { cust[k] += b[k]; grand[k] += b[k]; });
       // Detail: blank cells for empty buckets, plain number format (no €).
       const cell = (v: number) => (Math.abs(v) < 0.005 ? null : round2(v));
       const row = ws.addRow([
         pg.name,
         cell(b.Current), cell(b["1-30"]), cell(b["31-60"]), cell(b["61-90"]), cell(b["90+"]), round2(b.total),
-        projectStatus(pg.rows), le.ref ? `${le.ref}${le.date ? ` · ${le.date.slice(5)}` : ""}` : "", chasesFor(pg.rows),
+        projectStatus(pg.rows), commentFor(pg.rows),
       ]);
       row.getCell(1).alignment = { indent: 2 };
+      row.getCell(9).alignment = { wrapText: true, vertical: "top" };  // Comments can be long
       row.eachCell({ includeEmpty: false }, c => (c.font = { name: FONT, size: 11 }));
       AMOUNT_COLS.forEach(col => (row.getCell(col).numFmt = PLAIN));
-      row.getCell(10).alignment = { horizontal: "right" };
       // Track width using the indented label + a couple of chars for indent.
       wLen[1] = Math.max(wLen[1], pg.name.length + 3);
       track(row);
@@ -713,10 +712,11 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
 
   // Auto-fit column widths to content (title rows excluded from col A so the
   // merged company name doesn't blow the width out).
-  const MIN = [16, 12, 12, 12, 12, 13, 14, 22, 18, 8];
+  const MIN = [16, 12, 12, 12, 12, 13, 14, 22, 30];
+  const MAX = [52, 16, 16, 16, 16, 16, 18, 34, 48];  // Comments column allowed wider
   ws.columns.forEach((col, i) => {
     const n = i + 1;
-    col.width = Math.min(Math.max((wLen[n] || 0) + 2, MIN[i] ?? 10), 52);
+    col.width = Math.min(Math.max((wLen[n] || 0) + 2, MIN[i] ?? 10), MAX[i] ?? 52);
   });
 
   const buf = await wb.xlsx.writeBuffer();
