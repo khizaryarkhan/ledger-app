@@ -99,11 +99,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     return m;
   }, [comments]);
 
-  // ── Project-level comments (the collaboration hub) ────────────────────────
-  // A project comment = a communication with a projectId, NO invoiceId, and
-  // matchedBy "ProjectNote". One source of truth: it shows on the project band,
-  // feeds the A/R Ageing report's Comments column, and is rendered inside every
-  // invoice's chatbox for that project (context flows down without duplication).
+  // ── Account comments (the collaboration hub) ──────────────────────────────
+  // A comment logged at the Customer or Project level, NOT tied to one invoice.
+  //   • Customer comment = customerId set, NO projectId, NO invoiceId → matchedBy "CustomerNote"
+  //   • Project comment  = projectId set,  NO invoiceId              → matchedBy "ProjectNote"
+  // One source of truth: comments show on their band, feed the A/R Ageing
+  // report's Comments column, and are mirrored into every invoice chatbox in
+  // scope (context flows down without duplication).
   const projectNotesById = useMemo(() => {
     const m: Record<string, any[]> = {};
     (comments ?? []).forEach((c: any) => {
@@ -115,33 +117,116 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     return m;
   }, [comments]);
 
-  const [projNotesOpen, setProjNotesOpen] = useState<string | null>(null); // projectId
-  const [projNoteText, setProjNoteText] = useState("");
-  const [savingProjNote, setSavingProjNote] = useState(false);
+  const customerNotesById = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    (comments ?? []).forEach((c: any) => {
+      if (c.invoiceId || c.projectId || !c.customerId) return;
+      if (c.channel !== "Note" && c.channel !== "ProjectNote") return;
+      if (c.matchedBy !== "CustomerNote") return; // only comments explicitly logged at customer level
+      (m[c.customerId] ??= []).push(c);
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => new Date(b.sentAt ?? b.createdAt).getTime() - new Date(a.sentAt ?? a.createdAt).getTime()));
+    return m;
+  }, [comments]);
 
-  async function addProjectNote(projectId: string, customerId: string) {
-    if (!projNoteText.trim()) return;
-    setSavingProjNote(true);
+  // Unified open-state keyed "cust:<id>" | "proj:<id>" so one popover impl serves both bands.
+  const [noteHub, setNoteHub] = useState<string | null>(null);
+  const [hubText, setHubText] = useState("");
+  const [savingHub, setSavingHub] = useState(false);
+
+  async function addHubNote(opts: { customerId: string; projectId: string | null }) {
+    const body = hubText.trim();
+    if (!body) return;
+    setSavingHub(true);
     try {
       await fetch("/api/communications", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId, projectId, invoiceId: null,
-          direction: "Outbound", channel: "Note", subject: "Project note",
-          body: projNoteText.trim(), sender: userName, matchedBy: "ProjectNote",
+          customerId: opts.customerId, projectId: opts.projectId, invoiceId: null,
+          direction: "Outbound", channel: "Note",
+          subject: opts.projectId ? "Project note" : "Customer note",
+          body, sender: userName, matchedBy: opts.projectId ? "ProjectNote" : "CustomerNote",
         }),
       });
-      setProjNoteText("");
+      setHubText("");
       await refresh();
-    } finally { setSavingProjNote(false); }
+    } finally { setSavingHub(false); }
   }
 
-  // An invoice's chat feed = its own events + the project-level comments for
-  // its project (so account context flows down to every invoice).
+  // An invoice's chat feed = its own events + the project comments for its
+  // project + the customer comments for its customer (account context flows down).
   const feedForInv = (inv: any): any[] => {
-    const invNotes = notesByInv[inv.id] ?? [];
+    const invNotes  = notesByInv[inv.id] ?? [];
     const projNotes = inv.projectId ? (projectNotesById[inv.projectId] ?? []) : [];
-    return projNotes.length ? [...invNotes, ...projNotes] : invNotes;
+    const custNotes = inv.customerId ? (customerNotesById[inv.customerId] ?? []) : [];
+    return projNotes.length || custNotes.length ? [...invNotes, ...projNotes, ...custNotes] : invNotes;
+  };
+
+  // One comment-hub UI for both the Customer band and the Project band. Renders
+  // a pill (count + latest inline) and, when open, a popover thread + composer.
+  // Must live inside a `position: relative` cell.
+  const renderCommentHub = (o: {
+    kind: "cust" | "proj"; customerId: string; projectId: string | null;
+    notes: any[]; title: string; scopeCount: number;
+  }) => {
+    const key = `${o.kind}:${o.projectId ?? o.customerId}`;
+    const open = noteHub === key;
+    const latest = o.notes[0];
+    const accent = o.kind === "cust" ? "violet" : "sky";
+    const pillOn  = o.kind === "cust" ? "border-violet-800 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20" : "border-sky-800 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20";
+    return (
+      <>
+        <span className="inline-flex items-center gap-2 ml-3 align-middle" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => { setNoteHub(open ? null : key); setHubText(""); }}
+            title={`${o.kind === "cust" ? "Customer" : "Project"} comments — shown on every invoice in scope`}
+            className={`inline-flex items-center gap-1 text-[10px] rounded-full px-1.5 py-0.5 border transition-colors ${o.notes.length ? pillOn : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
+            <MessageSquare size={10} /> {o.notes.length || "Comment"}
+          </button>
+          {latest && !open && (
+            <span className="text-[11px] text-stone-500 italic truncate max-w-[380px]" title={latest.body}>“{latest.body}”</span>
+          )}
+        </span>
+        {open && (
+          <div className="absolute left-6 top-8 z-30 w-[440px] bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{ maxHeight: "460px" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={13} className={o.kind === "cust" ? "text-violet-400" : "text-sky-400"} />
+                <span className="text-[12px] font-semibold text-stone-200">{o.kind === "cust" ? "Customer" : "Project"} comments · {o.title}</span>
+              </div>
+              <button onClick={() => setNoteHub(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
+            </div>
+            <div className="px-4 py-1.5 text-[10px] text-stone-500 border-b border-stone-800/60">
+              Shared across all {o.scopeCount} invoice{o.scopeCount !== 1 ? "s" : ""} for this {o.kind === "cust" ? "customer" : "project"}.
+            </div>
+            <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
+              {o.notes.length === 0 ? (
+                <div className="text-[12px] text-stone-600 text-center py-5">No comments yet</div>
+              ) : [...o.notes].reverse().map((n: any) => {
+                const ts = new Date(n.sentAt ?? n.createdAt);
+                return (
+                  <div key={n.id} className={`rounded-lg px-3 py-2 border-l-2 ${o.kind === "cust" ? "border-violet-600 bg-violet-950/20" : "border-sky-600 bg-sky-950/20"}`}>
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <span className={`text-[10px] font-semibold ${o.kind === "cust" ? "text-violet-300" : "text-sky-300"}`}>{n.sender || "Staff"}</span>
+                      <span className="text-[10px] text-stone-600 tabular-nums">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="p-2.5 border-t border-stone-800 flex items-center gap-1.5">
+              <input value={hubText} onChange={e => setHubText(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addHubNote({ customerId: o.customerId, projectId: o.projectId }); } }}
+                placeholder={`Add a ${o.kind === "cust" ? "customer" : "project"} comment…`} autoFocus
+                className={`flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 ${o.kind === "cust" ? "focus:ring-violet-500" : "focus:ring-sky-500"}`} />
+              <button onClick={() => addHubNote({ customerId: o.customerId, projectId: o.projectId })} disabled={savingHub || !hubText.trim()}
+                className={`text-[11px] font-semibold text-white rounded-lg px-3 py-1.5 disabled:opacity-40 ${o.kind === "cust" ? "bg-violet-600 hover:bg-violet-700" : "bg-sky-600 hover:bg-sky-700"}`}>Add</button>
+            </div>
+          </div>
+        )}
+      </>
+    );
   };
 
   // Unread inbound tracking — a customer reply (or owner-portal comment) newer
@@ -1525,7 +1610,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       className="bg-stone-800/90 border-b border-stone-700 select-none cursor-pointer hover:bg-stone-800"
                       onClick={() => setCollapsedCust(p => { const n = new Set(p); n.has(item.custId) ? n.delete(item.custId) : n.add(item.custId); return n; })}>
                       <td className="px-3 py-2" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
-                      <td colSpan={11} className="px-3 py-2 font-semibold text-white text-[13px]">
+                      <td colSpan={11} className="px-3 py-2 font-semibold text-white text-[13px] relative">
                         <span className="inline-block w-4 text-stone-400">{item.collapsed ? "▸" : "▾"}</span>
                         {item.custName}
                         <span className="text-[11px] text-stone-400 font-normal ml-2">{item.count} invoice{item.count !== 1 ? "s" : ""}</span>
@@ -1535,6 +1620,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         {item.maxDays > 90 && (
                           <span className="text-[10px] font-semibold text-rose-300 bg-rose-500/15 border border-rose-900 rounded-full px-2 py-0.5 ml-2">oldest +{item.maxDays}d</span>
                         )}
+                        {renderCommentHub({ kind: "cust", customerId: item.custId, projectId: null, notes: customerNotesById[item.custId] ?? [], title: item.custName, scopeCount: item.count })}
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-white tabular-nums whitespace-nowrap">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
@@ -1546,9 +1632,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                 if (item.type === "projBand") {
                   const pid = item.projectId;
-                  const pNotes = pid ? (projectNotesById[pid] ?? []) : [];
-                  const latestNote = pNotes[0];
-                  const notesOpen = !!pid && projNotesOpen === pid;
                   return (
                     <tr key={`proj-${item.key}`}
                       className="bg-stone-900/80 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-900"
@@ -1561,56 +1644,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
                           <span className="text-[10px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
                         )}
-                        {/* Project comment hub */}
-                        {pid && (
-                          <span className="inline-flex items-center gap-2 ml-3 align-middle" onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={() => { setProjNotesOpen(notesOpen ? null : pid); setProjNoteText(""); }}
-                              title="Project comments — visible on every invoice in this project"
-                              className={`inline-flex items-center gap-1 text-[10px] rounded-full px-1.5 py-0.5 border transition-colors ${pNotes.length ? "border-sky-800 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20" : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
-                              <MessageSquare size={10} /> {pNotes.length || "Comment"}
-                            </button>
-                            {latestNote && !notesOpen && (
-                              <span className="text-[11px] text-stone-500 italic truncate max-w-[420px]" title={latestNote.body}>“{latestNote.body}”</span>
-                            )}
-                          </span>
-                        )}
-                        {notesOpen && pid && (
-                          <div className="absolute left-6 top-8 z-30 w-[440px] bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{ maxHeight: "460px" }} onClick={e => e.stopPropagation()}>
-                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
-                              <div className="flex items-center gap-2">
-                                <MessageSquare size={13} className="text-sky-400" />
-                                <span className="text-[12px] font-semibold text-stone-200">Project comments · {item.projName}</span>
-                              </div>
-                              <button onClick={() => setProjNotesOpen(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
-                            </div>
-                            <div className="px-4 py-1.5 text-[10px] text-stone-500 border-b border-stone-800/60">Shared across all {item.count} invoice{item.count !== 1 ? "s" : ""} in this project.</div>
-                            <div className="flex-1 overflow-auto p-3 space-y-2 min-h-0">
-                              {pNotes.length === 0 ? (
-                                <div className="text-[12px] text-stone-600 text-center py-5">No project comments yet</div>
-                              ) : [...pNotes].reverse().map((n: any) => {
-                                const ts = new Date(n.sentAt ?? n.createdAt);
-                                return (
-                                  <div key={n.id} className="rounded-lg px-3 py-2 border-l-2 border-sky-600 bg-sky-950/20">
-                                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                                      <span className="text-[10px] font-semibold text-sky-300">{n.sender || "Staff"}</span>
-                                      <span className="text-[10px] text-stone-600 tabular-nums">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
-                                    </div>
-                                    <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="p-2.5 border-t border-stone-800 flex items-center gap-1.5">
-                              <input value={projNoteText} onChange={e => setProjNoteText(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addProjectNote(pid, item.custId); } }}
-                                placeholder="Add a project comment…" autoFocus
-                                className="flex-1 text-[12px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-900 text-stone-300 placeholder-stone-600 outline-none focus:ring-1 focus:ring-sky-500" />
-                              <button onClick={() => addProjectNote(pid, item.custId)} disabled={savingProjNote || !projNoteText.trim()}
-                                className="text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg px-3 py-1.5 disabled:opacity-40">Add</button>
-                            </div>
-                          </div>
-                        )}
+                        {pid && renderCommentHub({ kind: "proj", customerId: item.custId, projectId: pid, notes: projectNotesById[pid] ?? [], title: item.projName, scopeCount: item.count })}
                       </td>
                       <td className="px-3 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}

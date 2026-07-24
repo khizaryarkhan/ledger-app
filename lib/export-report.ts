@@ -571,19 +571,28 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
   const asOf = `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`.replace(/(\w+) (\d{4})$/, "$1, $2");
   const rcDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 
-  // Latest project-level comment per projectId (invoiceId null, channel Note).
+  // Latest account comment (invoiceId null, channel Note), indexed at both the
+  // project level and the customer level. A project row shows its project
+  // comment, falling back to the customer-level comment when it has none.
   const projComment = new Map<string, { body: string; at: number }>();
+  const custComment = new Map<string, { body: string; at: number }>();
   for (const c of comments) {
-    if (!c.projectId || c.invoiceId || c.isDraft) continue;
+    if (c.invoiceId || c.isDraft || !c.body) continue;
     if (c.channel !== "Note" && c.channel !== "ProjectNote") continue;
-    if (!c.body) continue;
     const at = new Date(c.sentAt ?? c.createdAt ?? 0).getTime();
-    const prev = projComment.get(c.projectId);
-    if (!prev || at > prev.at) projComment.set(c.projectId, { body: String(c.body), at });
+    if (c.projectId) {
+      const prev = projComment.get(c.projectId);
+      if (!prev || at > prev.at) projComment.set(c.projectId, { body: String(c.body), at });
+    } else if (c.customerId && c.matchedBy === "CustomerNote") {
+      const prev = custComment.get(c.customerId);
+      if (!prev || at > prev.at) custComment.set(c.customerId, { body: String(c.body), at });
+    }
   }
   const commentFor = (prjRows: AgeingChaseInput["rows"]) => {
     const pid = prjRows.find(r => r.inv.projectId)?.inv.projectId;
-    return pid ? (projComment.get(pid)?.body ?? "") : "";
+    if (pid && projComment.has(pid)) return projComment.get(pid)!.body;
+    const cid = prjRows.find(r => r.inv.customerId)?.inv.customerId;
+    return cid ? (custComment.get(cid)?.body ?? "") : "";
   };
 
   const bucketOf = (days: number) => days <= 0 ? "Current" : days <= 30 ? "1-30" : days <= 60 ? "31-60" : days <= 90 ? "61-90" : "90+";
