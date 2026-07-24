@@ -22,22 +22,32 @@ export function isLockedStage(key: string): boolean {
   return (LOCKED_STAGE_KEYS as readonly string[]).includes(key);
 }
 
-/** Ensure all mandatory stages exist in a stage list (injects any missing).
- *  Also migrates existing orgs: "Promised" label → "Committed". */
+// Stages retired from the product — stripped from every org's effective list
+// (even if still in their saved config) so they vanish from the board. Any
+// invoice still on one is remapped to "New" by resolveStageLabel's LEGACY map.
+const RETIRED_STAGE_KEYS = new Set(["Second Notice", "Final Notice"]);
+
+/** Normalise a stage list: drop retired stages, ensure the mandatory ones and
+ *  Retention exist, and migrate the old "Promised" label → "Committed". */
 export function ensureLockedStages(stages: Stage[]): Stage[] {
-  const byKey = new Map(stages.map(s => [s.key, s]));
-  const result = [...stages];
+  let result = stages.filter(s => !RETIRED_STAGE_KEYS.has(s.key));
+  const byKey = new Map(result.map(s => [s.key, s]));
   for (const key of LOCKED_STAGE_KEYS) {
     if (!byKey.has(key)) {
-      const fallback = DEFAULT_STAGES.find(s => s.key === key)!;
-      result.push({ ...fallback });
+      result.push({ ...DEFAULT_STAGES.find(s => s.key === key)! });
     } else if (key === "Promised") {
-      // Migrate orgs that still have the old "Promised" label
       const idx = result.findIndex(s => s.key === "Promised");
       if (idx !== -1 && result[idx].label === "Promised") {
         result[idx] = { ...result[idx], label: "Committed" };
       }
     }
+  }
+  // Retention is a standard stage now — ensure it exists (insert before
+  // Disputed for a sensible order), so every org gets it without editing.
+  if (!result.find(s => s.key === "Retention")) {
+    const ret = { ...DEFAULT_STAGES.find(s => s.key === "Retention")! };
+    const di = result.findIndex(s => s.key === "Disputed");
+    if (di >= 0) result.splice(di, 0, ret); else result.push(ret);
   }
   return result;
 }
@@ -46,10 +56,9 @@ export const DEFAULT_STAGES: Stage[] = [
   { key: "New",           label: "New",           color: "stone",   isDefault: true,  isClosed: false, visible: true },
   { key: "Scheduled",     label: "Scheduled",     color: "blue",    isDefault: false, isClosed: false, visible: true },
   { key: "Reminder Sent", label: "Reminder Sent", color: "blue",    isDefault: false, isClosed: false, visible: true },
-  { key: "Second Notice", label: "Second Notice", color: "violet",  isDefault: false, isClosed: false, visible: true },
-  { key: "Final Notice",  label: "Final Notice",  color: "violet",  isDefault: false, isClosed: false, visible: true },
   { key: "Awaiting",      label: "Awaiting",      color: "amber",   isDefault: false, isClosed: false, visible: true },
   { key: "Promised",      label: "Committed",     color: "amber",   isDefault: false, isClosed: false, visible: true },
+  { key: "Retention",     label: "Retention",     color: "cyan",    isDefault: false, isClosed: false, visible: true },
   { key: "Disputed",      label: "Disputed",      color: "rose",    isDefault: false, isClosed: false, visible: true },
   { key: "Escalated",     label: "Escalated",     color: "rose",    isDefault: false, isClosed: false, visible: true },
   { key: "On Hold",       label: "On Hold",       color: "orange",  isDefault: false, isClosed: false, visible: true },
@@ -80,11 +89,15 @@ export function resolveStageLabel(value: string | null | undefined, stages: Stag
   // Key match (pre-rename invoices)
   const byKey = stages.find(s => s.key === value);
   if (byKey) return byKey.label;
-  // Legacy label mappings for old DB values
+  // Legacy label mappings for old DB values. "Second Notice" / "Final Notice"
+  // were retired (merged into the funnel) — any invoice still on them shows
+  // as "New" so those stages disappear from the board without a data migration.
   const LEGACY: Record<string, string> = {
     "Reminder Scheduled": "Scheduled",
     "Awaiting Reply":     "Awaiting",
     "Promise to Pay":     "Promised",
+    "Second Notice":      "New",
+    "Final Notice":       "New",
   };
   const legacyKey = LEGACY[value];
   if (legacyKey) {

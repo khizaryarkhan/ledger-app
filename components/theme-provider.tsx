@@ -43,10 +43,18 @@ const ThemeContext = createContext<{
 export const useTheme = () => useContext(ThemeContext);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [pref, setPrefState] = useState<ThemePref>(readStored);
-  const [resolved, setResolved] = useState<"dark" | "light">(() => resolve(readStored()));
+  // Start at the SSR default ("dark") so server and first client render match.
+  // The saved preference is loaded in a mount effect below — this forces a
+  // real re-render that PATCHES data-theme (previously suppressHydrationWarning
+  // made React skip that patch, so a saved "light" never took and it always
+  // reverted to dark).
+  const [pref, setPrefState] = useState<ThemePref>("dark");
+  const [resolved, setResolved] = useState<"dark" | "light">("dark");
 
-  // Track OS preference while in System mode
+  // Load the saved preference once, on the client, after mount.
+  useEffect(() => { setPrefState(readStored()); }, []);
+
+  // Resolve whenever the preference changes, and track the OS in System mode.
   useEffect(() => {
     setResolved(resolve(pref));
     if (pref !== "system") return;

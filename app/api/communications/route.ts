@@ -84,10 +84,11 @@ export async function POST(req: Request) {
               eq(communications.orgId, orgId!),
             ));
 
-          const prevCount = prevEmails.length; // 0 = this is 1st email, 1 = 2nd, 2 = 3rd+
+          // First email moves New → Reminder Sent. We no longer auto-advance to
+          // "Second Notice" / "Final Notice" (those stages were retired) — the
+          // chase count is surfaced separately, so the stage stays "Reminder Sent".
+          const prevCount = prevEmails.length;
           if (prevCount === 0) autoStage = "Reminder Sent";
-          else if (prevCount === 1) autoStage = "Second Notice";
-          else autoStage = "Final Notice";
         }
       }
     }

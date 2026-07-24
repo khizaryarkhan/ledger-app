@@ -35,11 +35,6 @@ export const ESCALATION_TYPES: EscalationType[] = [
     description: "The customer contests the amount or the work. The dispute must be resolved before normal chasing resumes.",
   },
   {
-    key: "retention_release",
-    label: "Retention Release",
-    description: "Retention money is due — needs a certificate or practical-completion sign-off before it can be released.",
-  },
-  {
     key: "certification_pending",
     label: "Certification Pending",
     description: "Awaiting a QS/engineer valuation or payment certificate — the invoice can't be paid until it's certified.",

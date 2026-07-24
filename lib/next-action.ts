@@ -52,6 +52,9 @@ export function computeNextAction(i: NextActionInput): NextAction {
   // 3. Disputed — resolve, don't chase.
   if (i.hasOpenDispute) return { type: "resolve", label: "Resolve dispute", rank: 55, act: "log" };
 
+  // 3b. Retention — awaiting certification/sign-off, not a normal chase.
+  if (i.stageLabel === "Retention") return { type: "await", label: "Retention", detail: "awaiting sign-off", rank: 22, act: null };
+
   // 4. Broke a promise — a call is warranted, not another email.
   if (i.promiseDate && i.promiseDate < i.todayStr)
     return { type: "call", label: "Call — broke promise", rank: 88, act: "log" };

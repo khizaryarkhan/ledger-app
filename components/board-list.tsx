@@ -478,7 +478,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       case "legal":               next.stage = "Escalated"; next.escType = ["Legal Review", "Insolvency Risk"].join(MULTI_SEP); break;
       case "disputed":            next.response = "Disputed"; break;
       case "finalAccount":        next.stage = "Escalated"; next.escType = "Final Account Agreement"; break;
-      case "retention":           next.stage = "Escalated"; next.escType = "Retention Release"; break;
+      case "retention":           next.stage = "Retention"; break;
       case "forwardInvoicing":    next.stage = "Escalated"; next.escType = "Forward Invoicing"; break;
       case "handedOver":          next.stage = "Escalated"; next.escType = "Handed Over"; break;
       case "certification":       next.stage = "Escalated"; next.escType = "Certification Pending"; break;

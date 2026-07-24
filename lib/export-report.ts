@@ -626,19 +626,20 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("AR Ageing & Chase", { views: [{ state: "frozen", ySplit: 5 }] });
 
-  const PLAIN = '#,##0.00;-#,##0.00';           // detail amounts — no symbol
-  const EURO  = '"€"#,##0.00;-"€"#,##0.00';      // totals — with € symbol
-  const AMOUNT_COLS = [2, 3, 4, 5, 6, 7];        // B..G
-
-  ws.columns = [
-    { width: 44 }, { width: 13 }, { width: 13 }, { width: 13 }, { width: 13 },
-    { width: 14 }, { width: 15 }, { width: 30 }, { width: 20 }, { width: 9 },
-  ];
+  const FONT = "Calibri";                        // crisp, standard Excel face
+  const PLAIN = '#,##0.00;-#,##0.00';            // detail amounts — no symbol
+  const EURO  = '"€"#,##0.00;-"€"#,##0.00';       // totals — with € symbol
+  const AMOUNT_COLS = [2, 3, 4, 5, 6, 7];         // B..G
+  const wLen = new Array(11).fill(0);             // widest content seen per column
+  const track = (r: any) => r.eachCell({ includeEmpty: false }, (c: any, col: number) => {
+    const len = String(c.value ?? "").length;
+    if (len > wLen[col]) wLen[col] = len;
+  });
 
   const title = (text: string, size: number, bold: boolean) => {
     const r = ws.addRow([text]);
     ws.mergeCells(r.number, 1, r.number, 10);
-    r.getCell(1).font = { bold, size };
+    r.getCell(1).font = { name: FONT, bold, size };
     r.getCell(1).alignment = { horizontal: "center" };
     return r;
   };
@@ -650,16 +651,19 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
   // Header row (row 5 — frozen)
   const hdr = ws.addRow(["", "CURRENT", "1 - 30", "31 - 60", "61 - 90", "91 AND OVER", "Total", `RC Comments ${rcDate}`, "Last email", "Chases"]);
   hdr.eachCell((c, col) => {
-    c.font = { bold: true };
+    c.font = { name: FONT, bold: true };
     c.border = { bottom: { style: "thin" } };
     c.alignment = { horizontal: (AMOUNT_COLS.includes(col) || col === 10) ? "right" : "left" };
   });
+  track(hdr);
 
   const grand: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
 
   for (const cg of customers) {
     // Customer group header (label only)
-    ws.addRow([cg.name]).getCell(1).font = { bold: false };
+    const cr = ws.addRow([cg.name]);
+    cr.getCell(1).font = { name: FONT, bold: false };
+    track(cr);
 
     const cust: Record<string, number> = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0, total: 0 };
     const projects = [...cg.projects.values()].sort((a, b) => bucketsFor(b.rows).total - bucketsFor(a.rows).total);
@@ -676,8 +680,12 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
         projectStatus(pg.rows), le.ref ? `${le.ref}${le.date ? ` · ${le.date.slice(5)}` : ""}` : "", chasesFor(pg.rows),
       ]);
       row.getCell(1).alignment = { indent: 2 };
+      row.eachCell({ includeEmpty: false }, c => (c.font = { name: FONT, size: 11 }));
       AMOUNT_COLS.forEach(col => (row.getCell(col).numFmt = PLAIN));
       row.getCell(10).alignment = { horizontal: "right" };
+      // Track width using the indented label + a couple of chars for indent.
+      wLen[1] = Math.max(wLen[1], pg.name.length + 3);
+      track(row);
     }
 
     // Customer total — bold, € format (shows €0.00 for empty), ruled above.
@@ -685,9 +693,11 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
       `Total for ${cg.name}`,
       round2(cust.Current), round2(cust["1-30"]), round2(cust["31-60"]), round2(cust["61-90"]), round2(cust["90+"]), round2(cust.total),
     ]);
-    tr.font = { bold: true };
+    tr.font = { name: FONT, bold: true };
+    tr.eachCell({ includeEmpty: false }, c => (c.font = { name: FONT, bold: true }));
     AMOUNT_COLS.forEach(col => { tr.getCell(col).numFmt = EURO; tr.getCell(col).border = { top: { style: "thin" } }; });
     tr.getCell(1).border = { top: { style: "thin" } };
+    track(tr);
     ws.addRow([]);
   }
 
@@ -696,9 +706,18 @@ export async function exportAgeingChaseReport({ orgName, rows, comments }: Agein
     "GRAND TOTAL",
     round2(grand.Current), round2(grand["1-30"]), round2(grand["31-60"]), round2(grand["61-90"]), round2(grand["90+"]), round2(grand.total),
   ]);
-  gr.font = { bold: true, size: 11 };
+  gr.eachCell({ includeEmpty: false }, c => (c.font = { name: FONT, bold: true, size: 11 }));
   gr.getCell(1).border = { top: { style: "double" } };
   AMOUNT_COLS.forEach(col => { gr.getCell(col).numFmt = EURO; gr.getCell(col).border = { top: { style: "double" } }; });
+  track(gr);
+
+  // Auto-fit column widths to content (title rows excluded from col A so the
+  // merged company name doesn't blow the width out).
+  const MIN = [16, 12, 12, 12, 12, 13, 14, 22, 18, 8];
+  ws.columns.forEach((col, i) => {
+    const n = i + 1;
+    col.width = Math.min(Math.max((wLen[n] || 0) + 2, MIN[i] ?? 10), 52);
+  });
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

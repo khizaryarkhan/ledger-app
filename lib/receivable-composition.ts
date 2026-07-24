@@ -62,10 +62,11 @@ export const COMPOSITION_CATEGORIES: CompCategory[] = [
     match: i => i.collectionStage === "Escalated" && i.escalationType === "Final Account Agreement",
   },
   {
+    // Retention is its own collection STAGE now (not an escalation reason).
     key: "retention", label: "Retention", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
     drillColor: "sky", group: "blocked",
     description: "Retention money awaiting certification or practical-completion sign-off.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Retention Release",
+    match: i => i.collectionStage === "Retention",
   },
   {
     key: "certification", label: "Certification Pending", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
@@ -83,7 +84,9 @@ export const COMPOSITION_CATEGORIES: CompCategory[] = [
     key: "escalatedOtherType", label: "Escalated — Other", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
     drillColor: "amber", group: "blocked",
     description: "Escalated for a reason not covered by the standard list — see the note on each invoice for detail.",
-    match: i => i.collectionStage === "Escalated" && i.escalationType === "Other",
+    // Any escalated invoice with a type not matched above (incl. legacy types
+    // like the old "Retention Release" now that Retention is a stage).
+    match: i => i.collectionStage === "Escalated" && !!i.escalationType,
   },
   {
     // Deliberately OFF the rose family — gray reads as "unclassified" rather
