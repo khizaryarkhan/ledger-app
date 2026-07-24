@@ -83,10 +83,11 @@ export const COMPOSITION_CATEGORIES: CompCategory[] = [
   {
     key: "escalatedOtherType", label: "Escalated — Other", bar: "bg-rose-500", dot: "bg-rose-500", text: "text-rose-400",
     drillColor: "amber", group: "blocked",
-    description: "Escalated for a reason not covered by the standard list — see the note on each invoice for detail.",
-    // Any escalated invoice with a type not matched above (incl. legacy types
-    // like the old "Retention Release" now that Retention is a stage).
-    match: i => i.collectionStage === "Escalated" && !!i.escalationType,
+    description: "Escalated with the reason set to \"Other\".",
+    // ONLY the explicit "Other" type. Must not be greedy: Handed Over and
+    // Forward Invoicing are matched by their own categories further down, so a
+    // broad "any type" match here would wrongly swallow them.
+    match: i => i.collectionStage === "Escalated" && i.escalationType === "Other",
   },
   {
     // Deliberately OFF the rose family — gray reads as "unclassified" rather
