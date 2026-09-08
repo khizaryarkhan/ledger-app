@@ -339,6 +339,23 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
       })))).catch(() => {});
   }, [open]);
 
+  // Prefill from the org's existing Stripe customer (if any) — re-invoicing
+  // an org (e.g. after voiding) shouldn't require retyping an address Stripe
+  // already has on file.
+  useEffect(() => {
+    if (!open || !orgId) return;
+    fetch(`/api/admin/billing/org/${orgId}/customer`).then(r => r.ok ? r.json() : { exists: false })
+      .then(d => {
+        if (!d.exists) return;
+        if (d.email) setBillingEmail(d.email);
+        if (d.address?.country) setCountry(d.address.country);
+        if (d.address?.line1) setLine1(d.address.line1);
+        if (d.address?.city) setCity(d.address.city);
+        if (d.address?.state) setStateRegion(d.address.state);
+        if (d.address?.postalCode) setPostalCode(d.address.postalCode);
+      }).catch(() => {});
+  }, [open, orgId]);
+
   const setItem = (i: number, k: "description" | "amount", v: string) =>
     setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
 
