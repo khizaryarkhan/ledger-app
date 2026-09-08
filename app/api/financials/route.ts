@@ -59,7 +59,10 @@ export async function GET(req: Request) {
     }
     if (statement === "general-ledger") {
       const accountId = url.searchParams.get("accountId") || undefined;
-      return ok({ ...(await generalLedger(orgIds, { accountId, from: isDate(from) ? from! : undefined, to: isDate(to) ? to! : undefined })), meta });
+      const customerId = url.searchParams.get("customerId") || undefined;
+      const projectId = url.searchParams.get("projectId") || undefined;
+      const nameId = url.searchParams.get("nameId") || undefined;
+      return ok({ ...(await generalLedger(orgIds, { accountId, customerId, projectId, nameId, from: isDate(from) ? from! : undefined, to: isDate(to) ? to! : undefined })), meta });
     }
     return bad("Unknown statement", 404);
   } catch (e: any) {

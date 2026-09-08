@@ -203,7 +203,7 @@ export async function balanceSheet(orgIds: string[], asOf?: string, fyStartMonth
 // where every line shows the NATURE of the posting (Invoice, Bill, Payment…),
 // its document number and backend TXN id. This is what a CA "opens the ledger"
 // to see. Optionally scoped to one account and/or a date window.
-export async function generalLedger(orgIds: string[], opts: { accountId?: string; from?: string; to?: string } = {}) {
+export async function generalLedger(orgIds: string[], opts: { accountId?: string; from?: string; to?: string; customerId?: string; projectId?: string; nameId?: string } = {}) {
   if (orgIds.length === 0) return { accounts: [] as any[] };
 
   // Accounts in scope (single, or all that have movement).
@@ -218,6 +218,12 @@ export async function generalLedger(orgIds: string[], opts: { accountId?: string
   const conds = [inArray(journalLines.orgId, orgIds), inArray(journalEntries.status, ["Posted", "Reversed"])];
   if (opts.accountId) conds.push(eq(journalLines.accountId, opts.accountId));
   if (opts.to) conds.push(lte(journalEntries.entryDate, opts.to));
+  // Dimension filters — Customer/Project/Supplier ("Supplier" is nameId,
+  // since AP has no dedicated supplierId column; the party is carried via
+  // the same generic nameType/nameId QBO-style pair used for AR).
+  if (opts.customerId) conds.push(eq(journalLines.customerId, opts.customerId));
+  if (opts.projectId) conds.push(eq(journalLines.projectId, opts.projectId));
+  if (opts.nameId) conds.push(eq(journalLines.nameId, opts.nameId));
 
   const rows = await db.select({
     accountId: journalLines.accountId,
@@ -230,6 +236,8 @@ export async function generalLedger(orgIds: string[], opts: { accountId?: string
     memo: journalEntries.memo,
     description: journalLines.description,
     nameLabel: journalLines.nameLabel,
+    customerId: journalLines.customerId,
+    projectId: journalLines.projectId,
     lineNo: journalLines.lineNo,
     debit: journalLines.debit,
     credit: journalLines.credit,

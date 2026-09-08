@@ -218,6 +218,52 @@ export async function reconcileOrg(orgId: string, orgName: string): Promise<OrgR
       : `${drift.length} native invoice(s) agree`,
   });
 
+  // ── 7. every posted AR/AP control line has a party ────────────────────────
+  // journal_lines.nameId is what makes a receivable/payable collectible or
+  // payable to someone specific — an AR/AP line with no party is invisible
+  // to any customer/supplier-scoped report and can't be chased or paid.
+  const noParty = await rows<{ doc_number: string | null; entry_number: number | null; amt: string }>(sql`
+    select e.doc_number, e.entry_number, coalesce(sum(l.debit) - sum(l.credit),0) as amt
+      from journal_lines l
+      join journal_entries e on e.id = l.entry_id
+      join accounts a on a.id = l.account_id
+     where l.org_id = ${orgId} and e.status = 'Posted'
+       and e.source_type in ('Invoice','Bill')
+       and lower(a.subtype) in ('accountsreceivable','accountspayable')
+       and l.name_id is null
+     group by e.id, e.doc_number, e.entry_number`);
+  checks.push({
+    key: "ar_ap_has_party",
+    label: "Every posted AR/AP line has a party (customer/supplier)",
+    status: noParty.length ? "fail" : "pass",
+    detail: noParty.length
+      ? `${noParty.length} line(s) with no party: ${noParty.slice(0, 5).map(n => n.doc_number ?? `JE-${n.entry_number}`).join(", ")}`
+      : "none",
+  });
+
+  // ── 8. native invoice's GL customer agrees with its collections record ────
+  // Two independent things claim to say who owes an invoice: the invoice
+  // row's own customerId, and the AR journal line's customerId (derived from
+  // the party posted at entry time). They should never disagree — if they
+  // do, AR-by-customer reporting and the GL silently tell two different
+  // stories about the same invoice.
+  const custMismatch = await rows<{ invoice_number: string | null }>(sql`
+    select i.invoice_number
+      from invoices i
+      join journal_lines l on l.entry_id = i.journal_entry_id
+      join accounts a on a.id = l.account_id
+     where i.org_id = ${orgId} and i.journal_entry_id is not null
+       and lower(a.subtype) = 'accountsreceivable'
+       and l.customer_id is distinct from i.customer_id`);
+  checks.push({
+    key: "ar_customer_agrees",
+    label: "Native invoice's GL customer agrees with its collections record",
+    status: custMismatch.length ? "fail" : "pass",
+    detail: custMismatch.length
+      ? `${custMismatch.length} disagree: ${custMismatch.slice(0, 5).map(m => m.invoice_number ?? "(no number)").join(", ")}`
+      : `${drift.length} native invoice(s) agree`,
+  });
+
   return {
     orgId, orgName, usesNativeLedger, checks,
     failures: checks.filter(c => c.status === "fail").length,

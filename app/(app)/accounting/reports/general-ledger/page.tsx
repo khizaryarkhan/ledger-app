@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, Loader } from "lucide-react";
 import { txnTypeLabel } from "@/lib/accounting/doc-format";
+import { useData } from "@/components/data-provider";
 
 const today = () => new Date().toISOString().slice(0, 10);
 function fyStart() { const n = new Date(); const y = n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1; return `${y}-07-01`; }
@@ -17,8 +18,13 @@ export default function GeneralLedgerPage() {
 function GeneralLedgerInner() {
   // Drilled into from a report number: ?accountId=&from=&to=
   const sp = useSearchParams();
+  const { customers, projects } = useData() as { customers: any[]; projects: any[] };
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [accountId, setAccountId] = useState(sp.get("accountId") || "");
+  const [customerId, setCustomerId] = useState(sp.get("customerId") || "");
+  const [projectId, setProjectId] = useState(sp.get("projectId") || "");
+  const [nameId, setNameId] = useState(sp.get("nameId") || "");
   const [from, setFrom] = useState(sp.get("from") || fyStart());
   const [to, setTo] = useState(sp.get("to") || today());
   const [data, setData] = useState<any>(null);
@@ -26,17 +32,21 @@ function GeneralLedgerInner() {
   const [showFx, setShowFx] = useState(false);
 
   useEffect(() => { fetch("/api/accounting/accounts").then(r => r.json()).then(a => setAccounts(Array.isArray(a) ? a : [])).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/payables/suppliers").then(r => r.json()).then(d => setSuppliers(Array.isArray(d) ? d : (d?.suppliers ?? []))).catch(() => {}); }, []);
 
   async function run() {
     setLoading(true);
     try {
       const qs = new URLSearchParams({ statement: "general-ledger", from, to });
       if (accountId) qs.set("accountId", accountId);
+      if (customerId) qs.set("customerId", customerId);
+      if (projectId) qs.set("projectId", projectId);
+      if (nameId) qs.set("nameId", nameId);
       const d = await fetch(`/api/financials?${qs}`).then(r => r.json());
       setData(d);
     } finally { setLoading(false); }
   }
-  useEffect(() => { run(); /* eslint-disable-next-line */ }, [accountId, from, to]);
+  useEffect(() => { run(); /* eslint-disable-next-line */ }, [accountId, customerId, projectId, nameId, from, to]);
 
   const curr = data?.meta?.currency || "";
   const input = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100";
@@ -55,6 +65,24 @@ function GeneralLedgerInner() {
           <select value={accountId} onChange={e => setAccountId(e.target.value)} className={`${input} min-w-[240px]`}>
             <option value="">All accounts</option>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
+          </select>
+        </div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Customer</label>
+          <select value={customerId} onChange={e => setCustomerId(e.target.value)} className={`${input} min-w-[200px]`}>
+            <option value="">All customers</option>
+            {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Supplier</label>
+          <select value={nameId} onChange={e => setNameId(e.target.value)} className={`${input} min-w-[200px]`}>
+            <option value="">All suppliers</option>
+            {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.displayName || s.name}</option>)}
+          </select>
+        </div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Project</label>
+          <select value={projectId} onChange={e => setProjectId(e.target.value)} className={`${input} min-w-[200px]`}>
+            <option value="">All projects</option>
+            {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={input} /></div>

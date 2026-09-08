@@ -70,6 +70,7 @@ export type PostDocInput = {
   dueDate?: string | null;         // Invoice/Bill: when payable (aging basis)
   termsDays?: number | null;       // if dueDate omitted, due = date + termsDays
   reference?: string | null;       // supplier bill no. / customer PO / free ref
+  projectId?: string | null;       // header-level project (matches the form's single picker — never per-line)
   lines?: DocLineInput[];
   sweptPaymentIds?: string[];      // Deposit: native Payment entry ids being swept into this deposit
 };
@@ -181,7 +182,11 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
   const grand = round2(netTotal + taxTotal);
   if (taxTotal !== 0 && !taxId) err("No Sales Tax Payable account is set up.");
-  const lineCommon = (l: typeof priced[number]) => ({ description: l.description ?? null, classId: l.classId ?? null, locationId: l.locationId ?? null });
+  // projectId is header-level (the form has one project picker per document,
+  // not per line) — applied to every revenue/expense line, never the AR/AP
+  // control line itself, matching how class/location already behave and how
+  // QBO never puts Customer:Job on the control line either.
+  const lineCommon = (l: typeof priced[number]) => ({ description: l.description ?? null, classId: l.classId ?? null, locationId: l.locationId ?? null, projectId: input.projectId ?? null });
 
   if (type === "Invoice" || type === "SalesReceipt") {
     for (const l of priced) lines.push({ accountId: l.accountId!, credit: l.net, ...lineCommon(l) });
