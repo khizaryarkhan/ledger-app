@@ -145,6 +145,20 @@ exactly the anti-pattern this rule exists to prevent.)
   real screen for that type. See migration `0079_unify_parties.sql` and the
   "Accounting foundation" section below for the underlying data-model change
   this nav fix sits on top of.
+- **Projects joined the same pattern (2026-09-07)**: Accounting's Sales
+  section links `Projects` straight at Receivables' `/projects` (a
+  customer-grouping entity, own rep/region reclassification) rather than
+  building a second copy. This surfaced a real bug in the pattern:
+  `components/sidebar.tsx`'s active-module detection was pure
+  `pathname.startsWith(...)`, so landing on any shared entity's URL
+  (`/customers`, `/payables/suppliers`, `/projects`) from Accounting
+  force-switched the whole sidebar to whichever module owns that URL —
+  confusing, reported as a bug. Fixed once, for all three: these paths now
+  fall into the same `isChrome`-style "no module" bucket that Settings/Guide
+  already used, so the sidebar keeps showing whichever module the user was
+  actually in (`lastDept`) instead of snapping away. Apply this same
+  treatment to any future shared-entity link, don't special-case it per
+  entity.
 
 ## White-label Phase 1 — branded subdomain (2026-09-07)
 

@@ -49,8 +49,22 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // must NOT snap the sidebar back to Receivable — keep the module the user was
   // in so "click Settings → go back" stays in context.
   const isChrome = pathname.startsWith("/settings") || pathname.startsWith("/guide");
+  // Shared entities (Customer, Supplier, Project) live at one real URL each,
+  // reachable from more than one module's sidebar (see CLAUDE.md — "shared
+  // master data, not a third copy"). Landing on one must NOT force-switch the
+  // sidebar to whichever module happens to own that URL (e.g. clicking
+  // "Customers" from Accounting was snapping the whole sidebar to
+  // Receivables — reported as a bug) — treat them like the chrome pages
+  // above: preserve whatever module the user was already in.
+  const isSharedEntity =
+    pathname === "/customers" || pathname.startsWith("/customers/") ||
+    pathname === "/payables/suppliers" || pathname.startsWith("/payables/suppliers/") ||
+    pathname === "/projects" || pathname.startsWith("/projects/");
   const pathDepartment: Department | null =
-    isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting" : isPayables ? "ap" : isChrome ? null : "ar";
+    isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
+    : (isPayables && !isSharedEntity) ? "ap"
+    : (isChrome || isSharedEntity) ? null
+    : "ar";
   const [lastDept, setLastDept] = useState<Department>(() => {
     if (typeof window === "undefined") return "ar";
     return ((localStorage.getItem("pa:lastDept") as Department) || "ar");
@@ -198,6 +212,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       label: "Sales",
       items: [
         { href: "/customers",  label: "Customers", icon: Users },
+        { href: "/projects",   label: "Projects", icon: Briefcase },
         { href: "/accounting/trade/estimates",    label: "Estimates", icon: FileText },
       ],
     },
