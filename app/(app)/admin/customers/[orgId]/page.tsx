@@ -91,7 +91,7 @@ export default function CustomerDetailPage() {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "mark_paid", method: payMethod, receivedDate: payDate, note: payNote.trim() || undefined }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) {
         // Surface the backend's provisioning outcome — a green toast on a
         // paid org with zero users is how customers end up locked out.
@@ -99,7 +99,9 @@ export default function CustomerDetailPage() {
         else setToast({ type: "success", message: `Offline payment recorded${d.invited ? ` — ${d.invited} set-password invite(s) sent` : ""}` });
         setPayInv(null); load();
       }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setPayingOff(false); }
   };
 
@@ -109,9 +111,11 @@ export default function CustomerDetailPage() {
     setActing(invId);
     try {
       const r = await fetch(`/api/admin/billing/invoices/${invId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: "Done" }); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setActing(null); }
   };
 
@@ -121,9 +125,11 @@ export default function CustomerDetailPage() {
     setActing("sub");
     try {
       const r = await fetch(`/api/admin/subscriptions/${sub.id}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ atPeriodEnd: false }) });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: "Subscription cancelled" }); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setActing(null); }
   };
 
@@ -136,9 +142,11 @@ export default function CustomerDetailPage() {
         method: "PATCH", headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabledModules: next }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: `${MODULES[key].label} ${enabled ? "enabled" : "disabled"}` }); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setSavingModules(false); }
   };
 
@@ -159,9 +167,11 @@ export default function CustomerDetailPage() {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ amount: cents, interval: newInterval, prorate }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: "Price updated" }); setPriceOpen(false); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setSavingPrice(false); }
   };
 
@@ -172,9 +182,11 @@ export default function CustomerDetailPage() {
       const r = await fetch(`/api/admin/organisations/${orgId}/subdomain`, {
         method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ subdomain: subdomainInput.trim() || null }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: d.subdomain ? `Subdomain set to ${d.subdomain}.primeaccountax.com` : "Subdomain cleared" }); setSubdomainOpen(false); load(); }
-      else setSubdomainError(d.error ?? "Failed");
+      else setSubdomainError(d.error ?? `Failed (${r.status})`);
+    } catch (e: any) {
+      setSubdomainError(e?.message ?? "Network error");
     } finally { setSavingSubdomain(false); }
   };
 
@@ -186,9 +198,11 @@ export default function CustomerDetailPage() {
       const r = await fetch(`/api/admin/billing/org/${orgId}/customer`, {
         method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: newName.trim() }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: "Stripe customer name updated — future invoices will use it" }); setNameOpen(false); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error — the name was not updated" });
     } finally { setSavingName(false); }
   };
 
@@ -201,9 +215,11 @@ export default function CustomerDetailPage() {
     setCreatingInvoice(true);
     try {
       const r = await fetch(`/api/admin/subscriptions/${sub.id}/create-invoice`, { method: "POST" });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (r.ok) { setToast({ type: "success", message: `Invoice ${d.number ?? ""} created` }); load(); }
-      else setToast({ type: "error", message: d.error ?? "Failed" });
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
     } finally { setCreatingInvoice(false); }
   };
 
