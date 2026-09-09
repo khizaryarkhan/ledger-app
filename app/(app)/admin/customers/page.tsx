@@ -420,7 +420,7 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
             <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center"><CheckCircle2 size={18} /></div>
             <div>
               <p className="text-sm font-medium text-white">{result.recurring ? "First invoice ready to share" : "Invoice created & emailed"}</p>
-              <p className="text-xs text-stone-400">{result.recurring ? "Share the link below to collect the first payment." : <>Status: <span className="text-stone-200 capitalize">{result.status}</span></>}</p>
+              <p className="text-xs text-stone-400">{result.recurring ? "Share the link below to collect the first payment — the recurring subscription is created automatically once it's paid, and future periods auto-charge from there." : <>Status: <span className="text-stone-200 capitalize">{result.status}</span></>}</p>
             </div>
           </div>
           {result.hostedInvoiceUrl && (

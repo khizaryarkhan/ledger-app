@@ -292,6 +292,62 @@ is additive, not a rebuild.
   (module-gated, renders nothing if `resources` isn't enabled) added to a
   Project's detail page and reusable on MO/Job Work detail pages later.
 
+## Stripe recurring billing — invoice-first two-step flow (2026-09-09)
+
+A real customer invoice (14-day terms configured in the admin form) showed
+Stripe's due date as the same day it was issued, and was later voided by
+Stripe — root-caused against Stripe's own API docs, not guessed:
+
+- **`days_until_due` only applies when `collection_method='send_invoice'`.**
+  The old subscription-mode code
+  (`app/api/admin/billing/create-invoice/route.ts`) created the Stripe
+  subscription with `collection_method:'charge_automatically'` and never
+  passed `days_until_due` at all — the admin form's "Payment terms" field
+  was silently discarded for Recurring mode (it only ever reached the
+  one-off branch).
+- **The real bug, and the reason the invoice was voided**: Stripe's docs
+  state, verbatim, for a `charge_automatically` subscription: "If the first
+  invoice is not paid within **23 hours**, the subscription transitions to
+  `incomplete_expired`. This is a terminal status, the open invoice will be
+  voided and no further invoices will be generated." Nothing to do with the
+  14-day field — it's fixed Stripe behavior for that collection method, and
+  it isn't configurable away. `due_date`/`collection_method` also "can only
+  be updated on `draft` invoices," so an already-finalized invoice like this
+  one can't be patched after the fact — that's a manual/support matter, not
+  a code fix.
+- **Fix — two-step "invoice first, subscribe after payment"**, since a
+  `send_invoice`-collected invoice and a `charge_automatically` subscription
+  can't be the same object (and Stripe activates `send_invoice`
+  subscriptions immediately regardless of payment, which would break
+  `activateOrgOnPayment`'s payment-gated access):
+  1. **`create-invoice` route, subscription mode**: creates a **standalone**
+     Stripe invoice (`collection_method:'send_invoice'`, real
+     `days_until_due`) for the first period's amount — same shape as the
+     one-off branch (`invoices.create` → `invoiceItems.create` →
+     `finalizeInvoice` → `sendInvoice`). Our `subscriptions` row is inserted
+     as before (`status:'incomplete'`), but **no Stripe subscription object
+     exists yet** — nothing for Stripe to auto-expire in 23 hours, and
+     nothing for an admin to accidentally auto-cancel by voiding (see the
+     `[id]/create-invoice/route.ts` comment below — that landmine no longer
+     applies to invoices created after this fix).
+  2. **`app/api/webhooks/stripe/route.ts`'s `invoice.paid` handler**: when
+     the paid invoice carries `metadata.purpose ===
+     'subscription_first_invoice'`, it retrieves the PaymentIntent's
+     payment method, sets it as the customer's default, and creates the
+     REAL subscription (`collection_method:'charge_automatically'`,
+     `default_payment_method` set explicitly, `trial_end` one interval out
+     so the period already paid for manually isn't billed again — the
+     subscription just starts `trialing` and auto-charges cleanly at
+     period 2). `activateOrgOnPayment` already runs unconditionally later
+     in the same handler, so access-gating is untouched.
+- **Guard against a second subscription**: if an org already has a live
+  Stripe subscription when "Create Stripe invoice" is used again, the route
+  now returns a 400 pointing at `/api/admin/subscriptions/[id]/create-invoice`
+  (the existing "generate a new invoice for an existing subscription" tool)
+  instead of silently starting a competing one. A dead subscription
+  (`canceled`/`incomplete_expired`) doesn't block — it's cleared and a fresh
+  invoice is issued.
+
 ## ⚠️ Gotchas that have bitten us
 
 - **neon-http has NO transactions.** `db.transaction()` throws. Use

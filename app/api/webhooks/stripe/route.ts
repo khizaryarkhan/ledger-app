@@ -291,6 +291,65 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Recurring signup, phase 2: this "first invoice" (see create-invoice
+      // route) was just paid manually — create the REAL charge_automatically
+      // subscription now, using the payment method just used, with trial_end
+      // one interval out so the period already paid for here isn't billed
+      // again. This is what makes "days until due" a real grace period instead
+      // of Stripe's 23-hour incomplete_expired cliff — see CLAUDE.md.
+      if (inv.metadata?.purpose === "subscription_first_invoice") {
+        try {
+          const [subRow3] = await db.select().from(subscriptions).where(eq(subscriptions.stripeCustomerId, customerId)).limit(1);
+          if (subRow3 && !subRow3.stripeSubscriptionId) {
+            let pmId: string | null = null;
+            try {
+              const full = await stripe.invoices.retrieve(inv.id, { expand: ["payment_intent"] }) as any;
+              const piId = typeof full.payment_intent === "string" ? full.payment_intent : full.payment_intent?.id;
+              if (piId) {
+                const pi = await stripe.paymentIntents.retrieve(piId);
+                pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method?.id ?? null;
+              }
+            } catch { /* fall through without a saved payment method */ }
+            if (pmId) await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: pmId } }).catch(() => {});
+
+            const interval = inv.metadata.planInterval === "year" ? "year" : "month";
+            const trialEnd = new Date();
+            if (interval === "year") trialEnd.setFullYear(trialEnd.getFullYear() + 1); else trialEnd.setMonth(trialEnd.getMonth() + 1);
+
+            const newSub = await stripe.subscriptions.create({
+              customer:          customerId,
+              collection_method: "charge_automatically",
+              ...(pmId ? { default_payment_method: pmId } : {}),
+              trial_end: Math.floor(trialEnd.getTime() / 1000),
+              items: [{
+                price_data: {
+                  currency:    inv.metadata.planCurrency,
+                  product:     inv.metadata.productId,
+                  unit_amount: Number(inv.metadata.planAmount),
+                  recurring:   { interval },
+                },
+              }],
+              ...(inv.metadata.couponId ? { discounts: [{ coupon: inv.metadata.couponId }] } : {}),
+              payment_settings: { save_default_payment_method: "on_subscription" },
+              metadata: { orgId: inv.metadata.orgId, createdBy: inv.metadata.createdBy ?? "" },
+              expand:   ["default_payment_method", "items.data.price.product"],
+            });
+
+            await db.update(subscriptions).set({ stripeSubscriptionId: newSub.id, stripeUpdatedAt: new Date() }).where(eq(subscriptions.id, subRow3.id));
+            await syncSubscriptionFromStripe(newSub);
+            await logBillingEvent({
+              organizationId: inv.metadata.orgId,
+              action:         "subscription_activated_after_first_invoice",
+              newStatus:      newSub.status,
+              stripeEventId:  event.id,
+              metadata:       { stripeSubscriptionId: newSub.id, firstInvoiceId: inv.id, savedPaymentMethod: !!pmId },
+            });
+          }
+        } catch (err) {
+          console.error("[stripe-webhook] subscription_first_invoice activation error:", err);
+        }
+      }
+
       // Payment received → activate the org + send set-password invites (idempotent).
       // Single provisioning path for both subscription and one-off invoices.
       try {

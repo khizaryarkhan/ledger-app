@@ -118,7 +118,7 @@ export async function POST(req: Request) {
 
   // ── Existing subscription row (for a reusable Stripe customer) ────────────
   const [existingSub] = await db
-    .select({ id: subscriptions.id, stripeCustomerId: subscriptions.stripeCustomerId, source: subscriptions.source })
+    .select({ id: subscriptions.id, stripeCustomerId: subscriptions.stripeCustomerId, source: subscriptions.source, stripeSubscriptionId: subscriptions.stripeSubscriptionId })
     .from(subscriptions)
     .where(eq(subscriptions.orgId, d.orgId))
     .limit(1);
@@ -155,6 +155,23 @@ export async function POST(req: Request) {
       if (!d.amount || !d.interval) {
         return NextResponse.json({ error: "amount and interval are required for a subscription" }, { status: 400 });
       }
+
+      // Refuse to spin up a second, competing subscription if a live one already
+      // exists for this org — direct the admin at the dedicated re-invoice tool
+      // instead. A dead subscription (voided/expired) doesn't block; clear it so
+      // this request can start a fresh one.
+      if (existingSub?.stripeSubscriptionId) {
+        let liveStatus: string | null = null;
+        try {
+          const s = await stripe.subscriptions.retrieve(existingSub.stripeSubscriptionId);
+          liveStatus = s.status;
+        } catch { /* already gone in Stripe — treat as dead */ }
+        if (liveStatus && liveStatus !== "canceled" && liveStatus !== "incomplete_expired") {
+          return NextResponse.json({ error: `This org already has an active Stripe subscription (${liveStatus}). Use "Generate new invoice" on that subscription instead of creating a new one.` }, { status: 400 });
+        }
+        await db.update(subscriptions).set({ stripeSubscriptionId: null }).where(eq(subscriptions.id, existingSub.id));
+      }
+
       const fallbackProductId = process.env.STRIPE_PRODUCT_ID?.trim();
       if (!fallbackProductId) {
         return NextResponse.json({ error: "STRIPE_PRODUCT_ID is not configured" }, { status: 500 });
@@ -207,57 +224,61 @@ export async function POST(req: Request) {
         });
       }
 
-      // Invoice-first recurring subscription:
-      //   collection_method:'charge_automatically' → future periods auto-charge.
-      //   payment_behavior:'default_incomplete'    → it issues a FIRST INVOICE
-      //     and stays "incomplete" until that invoice is paid (no card yet).
-      //   save_default_payment_method:'on_subscription' → the card the customer
-      //     uses to pay the first invoice is SAVED and becomes the default, so
-      //     every period after is charged to it automatically.
-      // We share the first invoice's hosted link; on payment Stripe activates
-      // the subscription and our webhook syncs status → access.
-      const sub = await stripe.subscriptions.create({
+      // Invoice-first recurring billing, done in two steps so "days until due"
+      // is a real, Stripe-enforced grace period instead of the 23-hour cliff:
+      //
+      //   Step 1 (here): a STANDALONE invoice — collection_method:'send_invoice',
+      //     days_until_due: the admin's actual value — for the first period's
+      //     amount. No Stripe subscription exists yet, so there is nothing for
+      //     Stripe to auto-expire/void if the customer takes longer than a day
+      //     to pay (Stripe's docs: a charge_automatically subscription's first
+      //     invoice, unpaid within 23 hours, transitions to incomplete_expired
+      //     — "terminal status, the open invoice will be voided" — which is
+      //     exactly what happened to a real customer invoice and is why this
+      //     was rebuilt; see CLAUDE.md).
+      //   Step 2 (app/api/webhooks/stripe/route.ts's invoice.paid handler):
+      //     once this invoice is actually paid, create the REAL recurring
+      //     subscription (collection_method:'charge_automatically') using the
+      //     payment method just used, with trial_end set one interval out so
+      //     the period already paid for here isn't billed again — auto-charge
+      //     starts cleanly at period 2.
+      const draft = await stripe.invoices.create({
         customer:          customerId,
-        collection_method: "charge_automatically",
-        payment_behavior:  "default_incomplete",
-        payment_settings:  { save_default_payment_method: "on_subscription" },
-        items: [{
-          price_data: {
-            currency,
-            product:     productId,
-            unit_amount: d.amount,
-            recurring:   { interval: d.interval },
-          },
-        }],
+        collection_method: "send_invoice",
+        days_until_due:    d.daysUntilDue,
+        description:       d.planName,
         ...(d.couponId ? { discounts: [{ coupon: d.couponId }] } : {}),
-        metadata: { orgId: org.id, createdBy: userId ?? "" },
-        expand:   ["latest_invoice"],
+        metadata: {
+          orgId: org.id, createdBy: userId ?? "", purpose: "subscription_first_invoice",
+          productId, planAmount: String(d.amount), planCurrency: currency, planInterval: d.interval,
+          ...(d.couponId ? { couponId: d.couponId } : {}),
+        },
+        auto_advance: true,
       });
-
-      await db.update(subscriptions)
-        .set({ stripeSubscriptionId: sub.id, status: sub.status, stripeUpdatedAt: new Date() })
-        .where(eq(subscriptions.orgId, org.id));
-
-      // Finalise the first invoice so it has a shareable hosted link.
-      let invoice: any = sub.latest_invoice;
-      if (invoice && typeof invoice === "object" && invoice.status === "draft") {
-        invoice = await stripe.invoices.finalizeInvoice(invoice.id);
-      }
+      await stripe.invoiceItems.create({
+        customer:    customerId,
+        invoice:     draft.id,
+        amount:      d.amount,
+        currency,
+        description: planNameForDb,
+      });
+      let invoice: any = await stripe.invoices.finalizeInvoice(draft.id);
+      try { invoice = await stripe.invoices.sendInvoice(invoice.id); } catch { /* already sent on finalize */ }
 
       await logBillingEvent({
         organizationId: org.id,
-        action:         "subscription_created",
-        newStatus:      sub.status,
+        action:         "subscription_first_invoice_sent",
         metadata:       { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id },
       });
       await logActivity({
         type: "invoice_issued", title: `Invoice issued — ${planNameForDb} (${d.interval})`.slice(0, 300),
         orgId: org.id, actorId: userId,
-        meta: { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id, stripeSubscriptionId: sub.id, hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null },
+        meta: { mode: "subscription", amount: d.amount, currency, interval: d.interval, invoiceId: invoice?.id, hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null },
       });
       await markBilled();
 
-      // Stripe won't email a charge_automatically invoice — send ours.
+      // Stripe's own dashboard setting decides whether it also emails
+      // send_invoice invoices — always send ours too, belt-and-braces.
       let emailSent = false;
       if (invoice?.hosted_invoice_url) {
         const amountLabel = new Intl.NumberFormat("en-IE", { style: "currency", currency: currency.toUpperCase() }).format((d.amount ?? 0) / 100) + `/${d.interval}`;
@@ -268,8 +289,7 @@ export async function POST(req: Request) {
         ok:               true,
         mode:             "subscription",
         recurring:        true,
-        subscriptionId:   sub.id,
-        status:           sub.status,
+        pending:          true, // no Stripe subscription exists yet — it's created once this invoice is paid
         invoiceId:        invoice?.id ?? null,
         hostedInvoiceUrl: invoice?.hosted_invoice_url ?? null,
         invoicePdf:       invoice?.invoice_pdf ?? null,
