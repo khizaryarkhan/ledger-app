@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { invoices, customers, projects, users, reps as repsTable, communications, contacts } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
-import { getOrgQboToken } from "@/lib/qbo-token";
+import { getOrgQboToken, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
@@ -632,6 +632,14 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     }
   }
 
+  // QBO's own "Review and pay" link, when available (Xero/native → null).
+  const payUrls = new Map(
+    await Promise.all(rows.map(async i => [
+      i.id,
+      (i as any).xeroId ? null : await fetchQboInvoiceLink(orgId, i as { qboId?: string | null; invoiceNumber: string }).catch(() => null),
+    ] as const))
+  );
+
   // HTML email body — shared branded template (single source of truth)
   const body = renderInvoiceEmail({
     subject,
@@ -646,6 +654,7 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
       balance:       openBal(i),
       currency:      i.currency,
       daysOverdue:   daysOverdue(i.dueDate),
+      payUrl:        payUrls.get(i.id) ?? null,
     })),
     portalUrl,
   });

@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations, invoicePromises } from "@/db/schema";
 import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
 import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
-import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
@@ -161,6 +161,14 @@ export async function GET(req: Request) {
             console.warn("cron: portal link generation failed:", e?.message);
           }
 
+          // QBO's own "Review and pay" link, when available (Xero/native → null).
+          const payUrls = new Map(
+            await Promise.all(relatedInvoices.map(async (i) => [
+              i.id,
+              (i as any).xeroId ? null : await fetchQboInvoiceLink(orgId, i).catch(() => null),
+            ] as const))
+          );
+
           const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
           const bodyHtml = renderInvoiceEmail({
             subject, dateStr, portalUrl, intro: introText,
@@ -169,6 +177,7 @@ export async function GET(req: Request) {
               invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,
               invoiceDate: i.invoiceDate, dueDate: i.dueDate, balance: i.total - (i.paid || 0),
               currency: i.currency, daysOverdue: daysFromDate(i.dueDate),
+              payUrl: payUrls.get(i.id) ?? null,
             })),
           });
 

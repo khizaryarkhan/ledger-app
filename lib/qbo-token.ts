@@ -126,3 +126,49 @@ export async function fetchQboInvoicePdf(
     return null;
   }
 }
+
+/**
+ * Fetch QBO's own online-invoice payment link ("Review and pay") for an
+ * invoice — this is what QBO embeds when the customer's own accountant sends
+ * the invoice directly from QBO, and what our own emails were missing.
+ *
+ * QBO only returns `InvoiceLink` when explicitly asked via `include=invoiceLink`
+ * on the single-invoice read endpoint (it's never present on a bulk `/query`
+ * response) — so this is one extra per-invoice GET, done only when an invoice
+ * is actually being emailed, not during routine sync. QBO only generates the
+ * link when Online Invoicing/QuickBooks Payments is enabled for the org AND
+ * the invoice has a billing email — returns null otherwise (silently; the
+ * email still sends, just without a "Pay online" button, exactly as today).
+ */
+export async function fetchQboInvoiceLink(
+  orgId: string,
+  invoice: { qboId?: string | null; invoiceNumber: string }
+): Promise<string | null> {
+  if (!invoice.qboId || invoice.qboId.startsWith("CM-")) return null;
+
+  const token = await getOrgQboToken(orgId).catch(() => null);
+  if (!token) return null;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), QBO_PDF_TIMEOUT_MS);
+
+    const res = await fetch(
+      `${QBO_API}/${token.realmId}/invoice/${invoice.qboId}?minorversion=65&include=invoiceLink`,
+      { headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" }, signal: controller.signal },
+    );
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn(`fetchQboInvoiceLink: QBO returned ${res.status} for invoice ${invoice.invoiceNumber}`);
+      return null;
+    }
+
+    const data = await res.json();
+    return data?.Invoice?.InvoiceLink ?? null;
+  } catch (e: any) {
+    console.warn(`fetchQboInvoiceLink: failed for ${invoice.invoiceNumber}:`, e?.message);
+    return null;
+  }
+}

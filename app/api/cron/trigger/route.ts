@@ -29,7 +29,7 @@ function addDays(date: Date, days: number): Date {
 }
 import { requireOrg } from "@/lib/api";
 import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
-import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 
@@ -196,6 +196,15 @@ export async function POST(req: Request) {
       console.warn("trigger: portal link generation failed:", e?.message);
     }
 
+    // QBO's own "Review and pay" link, when available (Xero/native → null).
+    // Skipped in dryRun — nothing will be sent, so no reason to burn API calls.
+    const payUrls = new Map(
+      dryRun ? [] : await Promise.all(triggeredInvoices.map(async (i) => [
+        i.id,
+        (i as any).xeroId ? null : await fetchQboInvoiceLink(orgId!, i).catch(() => null),
+      ] as const))
+    );
+
     const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const bodyHtml = renderInvoiceEmail({
       subject, dateStr, portalUrl, intro: introText,
@@ -204,6 +213,7 @@ export async function POST(req: Request) {
         invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,
         invoiceDate: i.invoiceDate, dueDate: i.dueDate, balance: i.total - (i.paid || 0),
         currency: i.currency, daysOverdue: daysFromDate(i.dueDate),
+        payUrl: payUrls.get(i.id) ?? null,
       })),
     });
 

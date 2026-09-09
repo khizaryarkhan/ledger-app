@@ -22,7 +22,7 @@ import type { EmailTemplate } from "@/db/schema";
 import { eq, and, or, isNull, isNotNull, lte, lt, ne, notInArray, inArray } from "drizzle-orm";
 import { sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { requireActiveSubscription } from "@/lib/billing";
-import { fetchQboInvoicePdf } from "@/lib/qbo-token";
+import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
@@ -175,6 +175,16 @@ export const runOrgChase = inngest.createFunction(
           console.warn("inngest/chase: portal link failed:", e?.message);
         }
 
+        // QBO's own "Review and pay" link, when available — fetched fresh per
+        // send (only /query bulk sync exists otherwise, and QBO never returns
+        // InvoiceLink from that). Xero/native invoices get null (out of scope).
+        const payUrls = new Map(
+          await Promise.all(relatedInvoices.map(async i => [
+            i.id,
+            (i as any).xeroId ? null : await fetchQboInvoiceLink(orgId, i as { qboId?: string | null; invoiceNumber: string }).catch(() => null),
+          ] as const))
+        );
+
         const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
         const bodyHtml = renderInvoiceEmail({
           subject, dateStr, portalUrl, intro: introText,
@@ -184,6 +194,7 @@ export const runOrgChase = inngest.createFunction(
             invoiceDate: i.invoiceDate, dueDate: i.dueDate,
             balance: i.total - (i.paid || 0),
             currency: i.currency, daysOverdue: daysFromDate(i.dueDate),
+            payUrl: payUrls.get(i.id) ?? null,
           })),
         });
 

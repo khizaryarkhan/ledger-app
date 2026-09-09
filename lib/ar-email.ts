@@ -13,6 +13,11 @@ export type ArEmailRow = {
   balance: number;
   currency?: string;
   daysOverdue: number;
+  /** QBO's own online-invoice "Review and pay" link, when available (QBO
+   *  Online Invoicing/Payments must be enabled on the org). Null for Xero,
+   *  native invoices, or when QBO doesn't generate one — the row just
+   *  renders without a pay link, same as before this existed. */
+  payUrl?: string | null;
 };
 
 function money(n: number, ccy = "EUR") {
@@ -58,7 +63,10 @@ export function renderInvoiceEmail(opts: {
         </td>
         <td style="padding:10px 12px;font-size:13px;color:#374151;">${i.invoiceDate}</td>
         <td style="padding:10px 12px;font-size:13px;${style}">${label}</td>
-        <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">${money(i.balance, i.currency)}</td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">
+          ${money(i.balance, i.currency)}
+          ${i.payUrl ? `<br><a href="${i.payUrl}" style="font-size:11px;font-weight:600;color:#059669;text-decoration:none;">Pay online &rarr;</a>` : ""}
+        </td>
       </tr>`;
   }).join("");
 

@@ -348,6 +348,49 @@ Stripe — root-caused against Stripe's own API docs, not guessed:
   (`canceled`/`incomplete_expired`) doesn't block — it's cleared and a fresh
   invoice is issued.
 
+## AR invoice emails — QBO "Pay online" link (2026-09-09)
+
+Reported: invoices sent directly from QuickBooks Online carry a clickable
+"Review and pay" link; the same invoice re-sent from this app (chase emails,
+the AI chat "send invoices" command) did not. Root cause: every AR-email
+path attaches the raw PDF pulled from QBO/Xero's plain PDF-export endpoint
+— a different artifact from QBO's own emailed "online invoice" page, and one
+that never carries a payment link. The only link this app ever added was
+our own portal (`lib/portal.ts`'s `createPortalToken` → `/portal/[token]`,
+rendered by `lib/ar-email.ts`'s `portalButton`) — which only supports
+promise-to-pay/dispute, **not payment**; it was never meant to be a payment
+link, and isn't one.
+
+Fixed by surfacing QBO's own link rather than building payment collection
+ourselves (that's a materially bigger, separate feature — Stripe
+Checkout/Payment Links for AR invoices, needed for Xero/native orgs too —
+deliberately out of scope here):
+
+- **`lib/qbo-token.ts`'s `fetchQboInvoiceLink(orgId, invoice)`** — QBO only
+  returns `Invoice.InvoiceLink` when a single-invoice GET explicitly asks for
+  it via `?include=invoiceLink`; it is **never** present on a bulk `/query`
+  response (confirmed against Intuit's docs), so this is one extra
+  per-invoice GET, done only at send time — not during the routine
+  `lib/qbo-sync.ts` sync, and no new schema column. Returns `null` (silently
+  — email still sends without the button) when QBO Online
+  Invoicing/Payments isn't enabled for the org, the invoice has no billing
+  email, or it's a Xero/native/credit-memo invoice — this is QBO-only, by
+  the same scoping decision as the fix itself.
+- **`lib/ar-email.ts`'s `ArEmailRow.payUrl`** — the shared branded template
+  renders a small "Pay online →" link under the balance when present; `null`
+  renders exactly as before this existed.
+- Wired into the four automated AR-email send paths that already share this
+  template and an existing PDF-fetch loop: `app/api/chat/route.ts`,
+  `inngest/functions/chase.ts` (daily chase), `app/api/cron/route.ts`
+  (legacy chase), `app/api/cron/trigger/route.ts` (manual trigger — skips
+  the fetch in `dryRun`, matching how it already skips PDF attachments).
+- **Known remaining gap, not yet fixed**: the free-text "Send" composer
+  (`components/feature.tsx`'s `EmailComposer` → `app/api/email/send/route.ts`)
+  builds its default body client-side with no link of any kind — it wasn't
+  touched here because doing so needs a new API surface (the composer has
+  no server-side QBO token access), not a one-line change like the four
+  paths above.
+
 ## ⚠️ Gotchas that have bitten us
 
 - **neon-http has NO transactions.** `db.transaction()` throws. Use
