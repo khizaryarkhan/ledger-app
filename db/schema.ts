@@ -3065,4 +3065,52 @@ export const crmFieldValues = pgTable("crm_field_values", {
 }));
 
 export type CrmFieldDef = typeof crmFieldDefs.$inferSelect;
+
+// =========================================================================
+// RESOURCE MANAGEMENT (Phase 1: capacity & scheduling) — a `resources` row
+// is a bookable person or piece of equipment; `resource_assignments` books
+// one against a Project/Manufacturing Order/Job Work order over a date
+// range. Deliberately does NOT duplicate `employees` (contact master-data)
+// or `projects` (customer-grouping label) — `employeeId` links to an
+// existing employee record rather than re-storing name/email.
+// =========================================================================
+export const resources = pgTable("resources", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  type:          varchar("type", { length: 16 }).notNull(),          // person | equipment
+  employeeId:    uuid("employee_id").references(() => employees.id, { onDelete: "set null" }), // set only for type=person linked to an existing Employee
+  name:          varchar("name", { length: 160 }).notNull(),
+  category:      varchar("category", { length: 80 }),                // free-text role/type, e.g. "Machine Operator", "CNC Machine #2"
+  dailyCapacity: numeric("daily_capacity", { precision: 6, scale: 2 }).notNull().default("1"), // hours/day (person) or slots/day (equipment)
+  status:        varchar("status", { length: 16 }).notNull().default("active"), // active | inactive
+  notes:         text("notes"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgTypeStatus: index("resources_org_type_status_idx").on(t.orgId, t.type, t.status),
+}));
+export type Resource = typeof resources.$inferSelect;
+
+export const resourceAssignments = pgTable("resource_assignments", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId:        uuid("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  // No FK: assignableType/assignableId are polymorphic across projects /
+  // manufacturing_orders / job_work_orders, same tradeoff as
+  // transactionLinks.fromType/fromId above.
+  assignableType:    varchar("assignable_type", { length: 24 }).notNull(), // project | manufacturing_order | job_work_order
+  assignableId:      uuid("assignable_id").notNull(),
+  startDate:         date("start_date").notNull(),
+  endDate:           date("end_date"),                                // null = open-ended
+  allocationPercent: numeric("allocation_percent", { precision: 5, scale: 2 }).notNull().default("100"),
+  status:            varchar("status", { length: 16 }).notNull().default("scheduled"), // scheduled | active | completed | cancelled
+  notes:             text("notes"),
+  createdBy:         uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgResourceDates: index("resource_assignments_org_resource_dates_idx").on(t.orgId, t.resourceId, t.startDate, t.endDate),
+  orgAssignable:    index("resource_assignments_org_assignable_idx").on(t.orgId, t.assignableType, t.assignableId),
+}));
+export type ResourceAssignment = typeof resourceAssignments.$inferSelect;
 export type CrmFieldValue = typeof crmFieldValues.$inferSelect;

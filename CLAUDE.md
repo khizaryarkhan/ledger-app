@@ -210,11 +210,12 @@ The product is expanding into vertical-specific functionality — Manufacturing
 the first, more will follow. Every org has an `organisations.enabled_modules`
 jsonb array (`db/schema.ts`) recording which `ModuleKey`s
 (`lib/modules.ts` — `receivables`/`payables`/`studio`/`accounting`/
-`manufacturing`) it has access to. Existing orgs default to the four core
-modules; `manufacturing` is opt-in, assigned per org by a platform admin via
-the **Modules** card on `/admin/customers/[orgId]` (`PATCH
-/api/admin/organisations/[id]/modules`) — not a self-service toggle, since
-it's a vertical the org has bought into, not a preference.
+`manufacturing`/`resources`) it has access to. Existing orgs default to the
+four core modules; `manufacturing` and `resources` are opt-in, assigned per
+org by a platform admin via the **Modules** card on
+`/admin/customers/[orgId]` (`PATCH /api/admin/organisations/[id]/modules`)
+— not a self-service toggle, since each is a vertical the org has bought
+into, not a preference.
 
 - **`lib/modules.ts`** is client-safe (no `db` import) — `MODULE_KEYS`,
   `MODULES` (label/description/`core` metadata), `hasModule(enabledModules,
@@ -246,6 +247,51 @@ it's a vertical the org has bought into, not a preference.
   registry — it's a separate, working, unrelated feature. Don't extend it
   further; new gated features should use the module registry instead.
 
+## Resource Management module (Phase 1: capacity & scheduling, 2026-09-09)
+
+Requested explicitly as a NEW module, with an explicit constraint to check
+first: "ensure you are not duplicating any existing thing, as we already
+have projects in place." An audit confirmed `projects` is a pure
+customer/invoice-grouping label (no dates/budget/resource columns),
+`employees` is pure contact master-data, `reps` is a sales-collections
+hierarchy, and `job_work_orders`/`manufacturing_orders`/`production_runs`
+track quantities and only a `createdBy` audit stamp — nothing anywhere
+modeled people/equipment capacity, scheduling, or allocation. This module
+is additive, not a rebuild.
+
+- **`resources`** (`db/schema.ts`) — a bookable person or piece of
+  equipment. `type` discriminates `person`/`equipment`. `employeeId`
+  (nullable) LINKS a person resource to an existing `employees` row rather
+  than re-storing name/email — the resource always keeps its own `name` too
+  so equipment (and a person whose linked employee is later removed) still
+  displays correctly. `dailyCapacity` is hours/day for a person or
+  slots/day for equipment (usually 1 = exclusive booking).
+- **`resource_assignments`** — books one resource against a Project,
+  Manufacturing Order, or Job Work order over a `[startDate, endDate]`
+  range (`endDate` null = open-ended) at some `allocationPercent` of the
+  resource's capacity. `assignableType`/`assignableId` is a **no-FK
+  polymorphic reference**, same tradeoff as `transactionLinks.fromType/
+  fromId` — adding a fourth assignable type later (e.g. Sales Orders) is a
+  one-line addition to the type list, not a schema change. Over-allocation
+  (>100% of capacity on an overlapping range) is computed at query time in
+  `GET /api/resources/assignments`, not stored.
+- **Module key `resources`** (`lib/modules.ts`) — opt-in, same precedent as
+  `manufacturing`. The admin Modules card picks it up automatically (it
+  iterates `MODULE_KEYS` generically, no per-key admin code).
+- **Phase 1 is scheduling-only.** Time-tracking (actual hours logged) and
+  any billing integration (billable time → invoice line) are explicitly
+  deferred to a later phase — don't build them in without a fresh ask, the
+  Phase 1 data model doesn't carry a rate or a billable flag.
+- **UI**: a new top-level workspace (`components/sidebar.tsx`, pink accent,
+  `CalendarClock` icon) — Resource Board (`/resources/board`, a from-scratch
+  date-axis grid; confirmed no prior calendar/gantt component existed
+  anywhere to adapt — `mo-console.tsx` is a status Kanban, not a date
+  grid) and a collapsible Setup group (People, Equipment —
+  `components/resource-list.tsx`, one component parameterized by `type`).
+  `components/assigned-resources-panel.tsx` is a small read-only panel
+  (module-gated, renders nothing if `resources` isn't enabled) added to a
+  Project's detail page and reusable on MO/Job Work detail pages later.
+
 ## ⚠️ Gotchas that have bitten us
 
 - **neon-http has NO transactions.** `db.transaction()` throws. Use
@@ -254,8 +300,8 @@ it's a vertical the org has bought into, not a preference.
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0079` at `when`
-  `1788700000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0081` at `when`
+  `1788900000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
 - **Tailwind `content` globs must include `lib/**`** — classes defined in shared
   lib files were silently unstyled until it was added.

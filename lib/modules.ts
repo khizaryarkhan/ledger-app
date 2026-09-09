@@ -11,7 +11,7 @@
  * lib/modules-server.ts so it never gets pulled into a client bundle.
  */
 
-export const MODULE_KEYS = ["receivables", "payables", "studio", "accounting", "manufacturing"] as const;
+export const MODULE_KEYS = ["receivables", "payables", "studio", "accounting", "manufacturing", "resources"] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
 export const MODULES: Record<ModuleKey, { label: string; core: boolean; description: string }> = {
@@ -20,6 +20,7 @@ export const MODULES: Record<ModuleKey, { label: string; core: boolean; descript
   studio:        { label: "Data Studio",            core: true,  description: "Bulk QBO/Xero import, export, update, delete" },
   accounting:    { label: "Native Accounting",       core: true,  description: "General ledger, journal, native financial statements" },
   manufacturing: { label: "Manufacturing & Production", core: false, description: "Bill of materials, production builds, job work, receiving, shipping, lot traceability" },
+  resources:     { label: "Resource Management",    core: false, description: "Schedule people and equipment against projects and production orders" },
 };
 
 export function isModuleKey(v: unknown): v is ModuleKey {

@@ -561,6 +561,13 @@
       "when": 1788800000000,
       "tag": "0080_org_subdomain",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1788900000000,
+      "tag": "0081_resource_management",
+      "breakpoints": true
     }
   ]
 }

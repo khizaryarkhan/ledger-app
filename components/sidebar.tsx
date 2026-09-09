@@ -10,7 +10,8 @@ import {
   MessageSquare, ShoppingCart, Receipt, Building2, CreditCard,
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
-  Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText
+  Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
+  CalendarClock, Wrench
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
@@ -44,7 +45,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const isBatch       = pathname.startsWith("/batch");
   const isSupplyChain = pathname.startsWith("/supply-chain");
   const isAccounting  = pathname.startsWith("/accounting");
-  type Department = "ar" | "ap" | "reporting" | "batch" | "accounting" | "supplychain";
+  const isResources   = pathname.startsWith("/resources");
+  type Department = "ar" | "ap" | "reporting" | "batch" | "accounting" | "supplychain" | "resources";
   // Cross-cutting pages (Settings, Help) belong to no module. Landing on one
   // must NOT snap the sidebar back to Receivable — keep the module the user was
   // in so "click Settings → go back" stays in context.
@@ -61,7 +63,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     pathname === "/payables/suppliers" || pathname.startsWith("/payables/suppliers/") ||
     pathname === "/projects" || pathname.startsWith("/projects/");
   const pathDepartment: Department | null =
-    isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
+    isResources ? "resources"
+    : isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
     : (isPayables && !isSharedEntity) ? "ap"
     : (isChrome || isSharedEntity) ? null
     : "ar";
@@ -194,6 +197,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   ];
 
   const manufacturingEnabled = Array.isArray(orgSettings?.enabledModules) && orgSettings.enabledModules.includes("manufacturing");
+  const resourcesEnabled = Array.isArray(orgSettings?.enabledModules) && orgSettings.enabledModules.includes("resources");
 
   // Phase 1a module IA restructure (see CLAUDE.md "Module information
   // architecture" section): Accounting's old "Master Data" group mixed the
@@ -327,10 +331,32 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     },
   ];
 
+  // Phase 1 of the Resource Management module (see CLAUDE.md): capacity &
+  // scheduling of people/equipment against Projects and Manufacturing/Job
+  // Work orders. Board first (the daily working screen), Setup (People,
+  // Equipment CRUD) collapsible, matching the accounting Setup pattern.
+  const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
+    {
+      items: [
+        { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
+      ],
+    },
+    {
+      label: "Setup",
+      collapsible: true,
+      icon: Database,
+      items: [
+        { href: "/resources/people", label: "People", icon: Users },
+        { href: "/resources/equipment", label: "Equipment", icon: Wrench },
+      ],
+    },
+  ];
+
   const sections = department === "batch" ? batchSections
     : department === "supplychain" ? supplyChainSections
     : department === "accounting" ? accountingSections
     : department === "reporting" ? reportingSections
+    : department === "resources" ? resourcesSections
     : department === "ap" ? apSections
     : arSections;
 
@@ -341,6 +367,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     { key: "ap",         label: "Payables",    Icon: Package,        href: "/payables/dashboard", active: "bg-violet-500/20 text-violet-400",   dot: "bg-violet-400" },
     ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-orange-500/20 text-orange-400", dot: "bg-orange-400" }] : []),
     { key: "accounting", label: "Accounting",  Icon: BookOpen,       href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400",       dot: "bg-teal-400" },
+    ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/board", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
     ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/20 text-blue-400", dot: "bg-blue-400" }] : []),
     { key: "batch",      label: "Studio",      Icon: Layers,         href: "/batch",              active: "bg-amber-500/20 text-amber-400",     dot: "bg-amber-400" },
   ];

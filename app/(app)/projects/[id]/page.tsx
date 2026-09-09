@@ -8,6 +8,7 @@ import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/c
 import { EmailComposer, AddContactModal, AuditTimeline } from "@/components/feature";
 import { TransactionsTab } from "@/components/transactions-tab";
 import { ContactsPanel } from "@/components/contacts-panel";
+import { AssignedResourcesPanel } from "@/components/assigned-resources-panel";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
 import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, MessageSquare, Users, Plus, Phone } from "lucide-react";
 
@@ -170,6 +171,8 @@ export default function ProjectDetailPage() {
           <div className="text-xl font-semibold text-stone-100">{open.length}</div>
         </Card>
       </div>
+
+      <AssignedResourcesPanel assignableType="project" assignableId={id} />
 
       {/* Tabs */}
       <div className="border-b border-stone-800 mb-5 flex items-center gap-1">
