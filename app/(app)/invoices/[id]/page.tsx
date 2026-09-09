@@ -9,7 +9,7 @@ import { Timeline, EmailComposer, PaymentModal, DisputeModal, PromiseModal, Task
 import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown } from "lucide-react";
+import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink } from "lucide-react";
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +23,7 @@ export default function InvoiceDetailPage() {
   const [showPromise, setShowPromise] = useState(false);
   const [showTask, setShowTask] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [loadingPayLink, setLoadingPayLink] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showStageMenu, setShowStageMenu] = useState(false);
@@ -48,6 +49,29 @@ export default function InvoiceDetailPage() {
   const canDownloadPdf =
     (inv.qboId && !inv.qboId.startsWith("CM-")) ||
     (inv.xeroId && !inv.xeroId.startsWith("CN-"));
+
+  // QBO's own hosted "Review and pay" link — QBO-only (see CLAUDE.md "AR
+  // invoice emails — QBO 'Pay online' link"). This can NEVER be embedded in
+  // the downloaded PDF itself (QBO's PDF-export doesn't render it, even when
+  // downloaded straight from QBO) — it's a separate hosted page, so it's a
+  // separate action here too, fetched on demand rather than on every page load.
+  const canPayOnline = !!(inv.qboId && !inv.qboId.startsWith("CM-") && !(inv.xeroId && !inv.xeroId.startsWith("CN-")));
+
+  const handlePayOnline = async () => {
+    if (!canPayOnline) return;
+    setLoadingPayLink(true);
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/pay-link`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.error || "Failed to get payment link"); return; }
+      if (!data.payUrl) { alert("QuickBooks hasn't generated an online payment link for this invoice — this needs QuickBooks Payments / Online Invoicing enabled on the org, and a billing email on the invoice."); return; }
+      window.open(data.payUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      alert("Failed to get payment link");
+    } finally {
+      setLoadingPayLink(false);
+    }
+  };
 
   const handleDownloadPdf = async () => {
     if (!canDownloadPdf) return;
@@ -195,6 +219,13 @@ export default function InvoiceDetailPage() {
               {downloadingPdf
                 ? <span className="flex items-center gap-1.5"><Loader size={14} className="animate-spin" />Downloading…</span>
                 : <span className="flex items-center gap-1.5"><Download size={14} />Download PDF</span>}
+            </Button>
+          )}
+          {canPayOnline && (
+            <Button variant="secondary" onClick={handlePayOnline} disabled={loadingPayLink} title="Opens QuickBooks' own hosted payment page — this link can't be embedded in the downloaded PDF itself">
+              {loadingPayLink
+                ? <span className="flex items-center gap-1.5"><Loader size={14} className="animate-spin" />Loading…</span>
+                : <span className="flex items-center gap-1.5"><ExternalLink size={14} />Pay online</span>}
             </Button>
           )}
           <Button variant="secondary" icon={CheckSquare} onClick={() => setShowTask(true)}>Task</Button>

@@ -390,6 +390,15 @@ deliberately out of scope here):
   touched here because doing so needs a new API surface (the composer has
   no server-side QBO token access), not a one-line change like the four
   paths above.
+- **The downloaded/attached PDF itself can never carry this link** — QBO's
+  `/invoice/{id}/pdf` export endpoint doesn't render one into the document,
+  a limitation of that endpoint regardless of who calls it (true even if the
+  org's own accountant downloads the same PDF straight from QBO; the link
+  only ever exists on QBO's separate hosted page/email). So
+  `app/(app)/invoices/[id]/page.tsx`'s "Download PDF" button got a sibling
+  **"Pay online"** button (`GET /api/invoices/[id]/pay-link`, same
+  `fetchQboInvoiceLink`, fetched on demand rather than embedded in the PDF
+  bytes) — a separate action, not a fix to the PDF.
 
 ## ⚠️ Gotchas that have bitten us
 
