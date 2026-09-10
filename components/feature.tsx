@@ -1057,6 +1057,18 @@ ${senderName}`;
         const cust = (customers as any[]).find((c: any) => c.id === inv.customerId);
         const proj = (projects as any[]).find((p: any) => p.id === inv.projectId);
         const outstanding = isClosedOrPaid ? 0 : inv.total - (inv.paid || 0);
+
+        // QBO "Pay now" link — must come from the server (no QBO token in the
+        // browser), same as the portal token fetched just above.
+        let payUrl: string | null = null;
+        try {
+          const pl = await fetch("/api/invoices/pay-links", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invoiceIds: [inv.id] }),
+          });
+          if (pl.ok) payUrl = (await pl.json())?.links?.[inv.id] ?? null;
+        } catch {}
+
         const html = renderInvoiceEmail({
           subject: filledSubject,
           dateStr: fmt.date(new Date()),
@@ -1065,6 +1077,7 @@ ${senderName}`;
             invoiceNumber: inv.invoiceNumber, customerName: cust?.name ?? null, projectName: proj?.name ?? null,
             invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, balance: outstanding,
             currency: inv.currency, daysOverdue: daysOverdue(inv.dueDate),
+            payUrl,
           }],
         });
 

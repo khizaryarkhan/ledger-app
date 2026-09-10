@@ -130,12 +130,25 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
         if (tk.ok) portalUrl = (await tk.json()).url ?? null;
       } catch {}
     }
+    // QBO "Pay now" links — resolved server-side (no QBO token in the browser),
+    // same pre-render fetch as the portal token above. Failure just means no
+    // pay buttons; the email still goes.
+    let payLinks: Record<string, string | null> = {};
+    try {
+      const pl = await fetch("/api/invoices/pay-links", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceIds: ids }),
+      });
+      if (pl.ok) payLinks = (await pl.json())?.links ?? {};
+    } catch {}
+
     const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const html = renderInvoiceEmail({
       subject, dateStr, total, currency: emailCurrency, portalUrl, intro: body,
       rows: rowsList.map(r => ({
         invoiceNumber: r.inv.invoiceNumber, customerName: r.custName, projectName: r.projName,
         invoiceDate: r.inv.invoiceDate, dueDate: r.inv.dueDate, balance: r.bal, currency: r.inv.currency, daysOverdue: r.days,
+        payUrl: payLinks[r.inv.id] ?? null,
       })),
     });
     // Build the Statement of Open Invoices PDF for THIS email's rows — the

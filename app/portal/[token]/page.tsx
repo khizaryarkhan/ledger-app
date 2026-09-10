@@ -15,6 +15,9 @@ type Invoice = {
   alreadyDisputed: boolean;
   existingPromise: string | null;
   hasPdf: boolean;
+  /** QBO's hosted "Review and pay" page for this invoice; null when QBO
+   *  issues none (Xero/native org, or online payments off in QBO). */
+  payUrl?: string | null;
 };
 
 type PaidInvoice = {
@@ -119,6 +122,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const overdueInvs      = invoices.filter(i => isOverdue(i.dueDate));
   const totalOverdue     = overdueInvs.reduce((s, i) => s + i.balance, 0);
   const currency         = invoices[0]?.currency || "EUR";
+  // Hide the Pay column entirely unless at least one invoice is payable online,
+  // so a Xero/native org's portal looks exactly as it did before.
+  const anyPayable       = invoices.some(i => !!i.payUrl);
 
   const actionCount = Object.values(rowActions).filter(a => {
     if (a.type === "commit") return !!a.commitDate;
@@ -392,6 +398,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                         <col style={{ width:140 }} />  {/* query */}
                         <col />                         {/* comment — fills remaining */}
                         <col style={{ width:52 }} />   {/* pdf */}
+                        {anyPayable && <col style={{ width:84 }} />}  {/* pay */}
                       </colgroup>
                       <thead>
                         <tr style={{ background:"#F9FAFB", borderBottom:"1px solid #E5E7EB" }}>
@@ -404,6 +411,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                           <Th>Query</Th>
                           <Th>Comment</Th>
                           <Th align="center">PDF</Th>
+                          {anyPayable && <Th align="center">Pay</Th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -529,6 +537,22 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                                   </a>
                                 ) : <span style={{ color:"#D1D5DB", fontSize:12 }}>—</span>}
                               </td>
+
+                              {/* Pay — QBO's own hosted payment page for this invoice */}
+                              {anyPayable && (
+                                <td style={{ ...S.td, textAlign:"center" }}>
+                                  {inv.payUrl ? (
+                                    <a
+                                      href={inv.payUrl}
+                                      target="_blank" rel="noopener noreferrer"
+                                      title="Pay this invoice online"
+                                      style={{ display:"inline-block", background:"#059669", color:"#fff", fontSize:11, fontWeight:700, padding:"6px 10px", borderRadius:5, textDecoration:"none", whiteSpace:"nowrap" }}
+                                    >
+                                      Pay now
+                                    </a>
+                                  ) : <span style={{ color:"#D1D5DB", fontSize:12 }}>—</span>}
+                                </td>
+                              )}
                             </tr>
                           );
                         })}

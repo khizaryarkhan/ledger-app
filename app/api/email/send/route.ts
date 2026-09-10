@@ -15,7 +15,7 @@ import { invoices, communications } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
-import { getOrgQboToken, stampQboPayButton } from "@/lib/qbo-token";
+import { getOrgQboToken, stampQboPayButton, fetchQboInvoiceLink } from "@/lib/qbo-token";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -179,11 +179,40 @@ export async function POST(req: Request) {
       if (prev?.messageId) inReplyTo = prev.messageId;
     }
 
+    // Make sure a single-invoice email carries QBO's "Pay now" button even when
+    // the caller composed the body itself. The free-text composer
+    // (components/feature.tsx's EmailComposer) sends whatever the user typed —
+    // no branded table, so no pay button — which is why an invoice emailed that
+    // way arrived with the link only on the PDF attachment. Bodies that already
+    // include the link (the branded senders, which render their own per-row
+    // buttons) are left alone, so nobody gets two buttons.
+    let finalBody = data.body;
+    if (data.invoiceId) {
+      const [inv] = await db
+        .select({ qboId: invoices.qboId, xeroId: invoices.xeroId, invoiceNumber: invoices.invoiceNumber })
+        .from(invoices).where(and(eq(invoices.id, data.invoiceId), eq(invoices.orgId, targetOrg))).limit(1);
+      const payable = inv?.qboId && !inv.qboId.startsWith("CM-") && !(inv.xeroId && !inv.xeroId.startsWith("CN-"));
+      if (payable) {
+        const payUrl = await fetchQboInvoiceLink(targetOrg, inv).catch(() => null);
+        if (payUrl && !finalBody.includes(payUrl)) {
+          finalBody += `
+            <div style="margin:24px 0 8px;">
+              <a href="${payUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:13px;font-weight:700;line-height:1;padding:11px 18px;border-radius:6px;mso-padding-alt:0;">
+                <!--[if mso]><i style="letter-spacing:18px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+                <span style="mso-text-raise:7px;">Pay invoice ${inv.invoiceNumber} online</span>
+                <!--[if mso]><i style="letter-spacing:18px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+              </a>
+              <p style="font-size:11px;color:#9ca3af;margin:8px 0 0;">Secure payment page hosted by QuickBooks.</p>
+            </div>`;
+        }
+      }
+    }
+
     // Send via whichever transport is configured (Gmail → Microsoft → SMTP)
     const result = await sendEmail(targetOrg, {
       to:          data.to,
       subject:     data.subject,
-      body:        data.body,
+      body:        finalBody,
       cc:          data.cc,
       replyTo:     data.replyTo,
       inReplyTo,

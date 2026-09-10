@@ -5,6 +5,7 @@ import { customerPortalTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { fetchQboInvoiceLink } from "@/lib/qbo-token";
 
 /**
  * GET /api/portal/[token]
@@ -68,8 +69,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         inArray(invoices.id, ids),
       ));
 
-    invList = rows
-      .filter(i => i.paymentStatus !== "Paid")
+    const open = rows.filter(i => i.paymentStatus !== "Paid");
+
+    // QBO's own "Review and pay" link per invoice, so the customer can pay
+    // right here instead of only being able to promise a date. Resolved in
+    // parallel and never fatal — a null just hides that row's Pay button.
+    // Capped because this is a public endpoint: a token covering a huge set
+    // of invoices shouldn't fan out into unbounded QBO calls.
+    const payables = open.filter(i => i.qboId && !i.qboId.startsWith("CM-") && !(i.xeroId && !i.xeroId.startsWith("CN-"))).slice(0, 20);
+    const payUrls = new Map<string, string | null>(
+      await Promise.all(payables.map(async i => [
+        i.id,
+        await fetchQboInvoiceLink(row.orgId, { qboId: i.qboId, invoiceNumber: i.invoiceNumber }).catch(() => null),
+      ] as const)),
+    );
+
+    invList = open
       .map(i => ({
         id: i.id,
         invoiceNumber: i.invoiceNumber,
@@ -81,6 +96,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         alreadyDisputed: i.hasOpenDispute,
         existingPromise: i.promiseDate,
         hasPdf: !!(i.qboId && !i.qboId.startsWith("CM-")) || !!(i.xeroId && !i.xeroId.startsWith("CN-")),
+        payUrl: payUrls.get(i.id) ?? null,
       }));
   }
 

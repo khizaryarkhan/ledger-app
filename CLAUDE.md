@@ -384,12 +384,30 @@ deliberately out of scope here):
   `inngest/functions/chase.ts` (daily chase), `app/api/cron/route.ts`
   (legacy chase), `app/api/cron/trigger/route.ts` (manual trigger — skips
   the fetch in `dryRun`, matching how it already skips PDF attachments).
-- **Known remaining gap, not yet fixed**: the free-text "Send" composer
-  (`components/feature.tsx`'s `EmailComposer` → `app/api/email/send/route.ts`)
-  builds its default body client-side with no link of any kind — it wasn't
-  touched here because doing so needs a new API surface (the composer has
-  no server-side QBO token access), not a one-line change like the four
-  paths above.
+- **There are SEVEN send paths, not four — grep `renderInvoiceEmail` before
+  assuming you've covered them.** The first fix wired only the four
+  server-side ones and shipped, and the customer still saw no button,
+  because the paths they actually use render the branded template
+  **client-side**, in the browser, where there is no QBO token:
+  `components/send-invoices-modal.tsx` (the "Send invoices" modal) and the
+  bulk sender in `components/feature.tsx`. Both now fetch links first from
+  **`POST /api/invoices/pay-links`** (bulk sibling of the single-invoice
+  route; org- and rep-scoped) and pass `payUrl` per row — the same
+  fetch-before-render they already did for the portal token.
+- The seventh is the free-text composer (`EmailComposer`), which sends
+  whatever the user typed with no branded table at all. Rather than push
+  HTML into a textarea the user edits, **`app/api/email/send/route.ts`
+  appends the pay button server-side** when the email names a single
+  `invoiceId` — and skips it when the body already contains that URL, so
+  the branded senders (which draw their own per-row buttons) don't end up
+  with two. That makes it the safety net for any future caller too.
+- **The customer-facing portal** (`app/portal/[token]/`) had no way to pay
+  at all — it only ever offered "promise a date" or "raise a query", which
+  is what the portal button in the email leads to. `GET
+  /api/portal/[token]` now returns `payUrl` per open invoice (resolved in
+  parallel, capped at 20 since it's a public endpoint) and the page renders
+  a "Pay now" column beside the PDF one. The column is hidden entirely when
+  nothing is payable, so a Xero/native org's portal is unchanged.
 - `app/(app)/invoices/[id]/page.tsx`'s "Download PDF" button has a sibling
   **"Pay online"** button (`GET /api/invoices/[id]/pay-link`) that opens
   QBO's hosted payment page directly.
