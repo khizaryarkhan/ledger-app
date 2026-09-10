@@ -24,6 +24,11 @@ function money(n: number, ccy = "EUR") {
   return new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
 }
 
+/** Minimal attribute escape so a stray quote in a URL can't break out of href="". */
+function escapeAttr(v: string) {
+  return v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const DEFAULT_INTRO =
   "Hi,\n\nPlease find attached the statement of open invoices along with the invoice copies for your reference.\nKindly share the tentative payment dates at your earliest convenience.\nFeel free to reach out for any queries.";
 
@@ -52,6 +57,24 @@ export function renderInvoiceEmail(opts: {
        </div>`
     : "";
 
+  // Only render the Pay column when at least one invoice actually has a link
+  // (QBO-only, and only when QBO issues one) — otherwise every Xero/native
+  // org would get a permanently empty column.
+  const anyPay = opts.rows.some(i => !!i.payUrl);
+
+  /**
+   * Email-client-safe button: inline-styled <a>, no classes, no flexbox.
+   * `mso-padding-alt` + `<!--[if mso]>` spacers are what give Outlook (Word
+   * rendering engine, which ignores padding on <a> and border-radius) a
+   * button that still looks like a button rather than bare text.
+   */
+  const payButton = (url: string) => `
+    <a href="${escapeAttr(url)}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:12px;font-weight:700;line-height:1;padding:9px 14px;border-radius:6px;mso-padding-alt:0;white-space:nowrap;">
+      <!--[if mso]><i style="letter-spacing:14px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+      <span style="mso-text-raise:6px;">Pay now</span>
+      <!--[if mso]><i style="letter-spacing:14px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+    </a>`;
+
   const rowsHtml = opts.rows.map(i => {
     const style = i.daysOverdue > 0 ? "color:#dc2626;font-weight:600;" : "color:#374151;";
     const label = i.daysOverdue > 0 ? `${i.daysOverdue}d overdue` : `Due ${i.dueDate}`;
@@ -63,10 +86,8 @@ export function renderInvoiceEmail(opts: {
         </td>
         <td style="padding:10px 12px;font-size:13px;color:#374151;">${i.invoiceDate}</td>
         <td style="padding:10px 12px;font-size:13px;${style}">${label}</td>
-        <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">
-          ${money(i.balance, i.currency)}
-          ${i.payUrl ? `<br><a href="${i.payUrl}" style="font-size:11px;font-weight:600;color:#059669;text-decoration:none;">Pay online &rarr;</a>` : ""}
-        </td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">${money(i.balance, i.currency)}</td>
+        ${anyPay ? `<td style="padding:10px 12px;text-align:right;">${i.payUrl ? payButton(i.payUrl) : ""}</td>` : ""}
       </tr>`;
   }).join("");
 
@@ -87,6 +108,7 @@ export function renderInvoiceEmail(opts: {
               <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Date</th>
               <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:left;">Due</th>
               <th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:right;">Balance</th>
+              ${anyPay ? `<th style="padding:10px 12px;font-size:11px;text-transform:uppercase;color:#6b7280;text-align:right;">Pay</th>` : ""}
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -94,6 +116,7 @@ export function renderInvoiceEmail(opts: {
             <tr style="background:#f9fafb;">
               <td colspan="4" style="padding:12px;font-size:13px;font-weight:700;color:#111827;">Total Outstanding</td>
               <td style="padding:12px;font-size:15px;font-weight:700;color:#111827;text-align:right;">${money(opts.total, totalCurrency)}</td>
+              ${anyPay ? `<td style="padding:12px;"></td>` : ""}
             </tr>
           </tfoot>
         </table>
