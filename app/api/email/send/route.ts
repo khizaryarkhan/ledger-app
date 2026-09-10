@@ -15,7 +15,7 @@ import { invoices, communications } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
-import { getOrgQboToken } from "@/lib/qbo-token";
+import { getOrgQboToken, stampQboPayButton } from "@/lib/qbo-token";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -136,7 +136,10 @@ export async function POST(req: Request) {
           }
           const buf = Buffer.from(await pdfRes.arrayBuffer());
           if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-          return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" };
+          // Same "Review and pay online" button the org's accountant's QBO
+          // invoices carry — no-op when QBO issues no link for this invoice.
+          const stamped = await stampQboPayButton(targetOrg, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber }, buf);
+          return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: stamped, contentType: "application/pdf" };
         })
       );
 

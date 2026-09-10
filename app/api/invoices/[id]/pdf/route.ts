@@ -3,7 +3,7 @@ import { invoices } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
 import { isInvoiceInScope } from "@/lib/receivables/rep-scope";
-import { getOrgQboToken } from "@/lib/qbo-token";
+import { getOrgQboToken, stampQboPayButton } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
@@ -67,10 +67,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       return bad(`PDF unavailable (${provider} returned ${pdfRes.status})`, 502);
     }
 
-    const pdfBuffer = await pdfRes.arrayBuffer();
-    if (pdfBuffer.byteLength === 0) return bad(`${provider} returned an empty PDF`, 502);
+    const rawPdf = await pdfRes.arrayBuffer();
+    if (rawPdf.byteLength === 0) return bad(`${provider} returned an empty PDF`, 502);
 
-    return new Response(pdfBuffer, {
+    // Stamp QBO's own "Review and pay online" button on, so a PDF downloaded
+    // here matches what the org's accountant sends from QBO. No-op for Xero
+    // and for invoices QBO won't issue a payment link for.
+    const pdfBuffer = isQbo
+      ? await stampQboPayButton(orgId!, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber }, Buffer.from(rawPdf))
+      : Buffer.from(rawPdf);
+
+    return new Response(pdfBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

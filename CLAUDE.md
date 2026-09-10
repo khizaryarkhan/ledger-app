@@ -390,15 +390,48 @@ deliberately out of scope here):
   touched here because doing so needs a new API surface (the composer has
   no server-side QBO token access), not a one-line change like the four
   paths above.
-- **The downloaded/attached PDF itself can never carry this link** — QBO's
-  `/invoice/{id}/pdf` export endpoint doesn't render one into the document,
-  a limitation of that endpoint regardless of who calls it (true even if the
-  org's own accountant downloads the same PDF straight from QBO; the link
-  only ever exists on QBO's separate hosted page/email). So
-  `app/(app)/invoices/[id]/page.tsx`'s "Download PDF" button got a sibling
-  **"Pay online"** button (`GET /api/invoices/[id]/pay-link`, same
-  `fetchQboInvoiceLink`, fetched on demand rather than embedded in the PDF
-  bytes) — a separate action, not a fix to the PDF.
+- `app/(app)/invoices/[id]/page.tsx`'s "Download PDF" button has a sibling
+  **"Pay online"** button (`GET /api/invoices/[id]/pay-link`) that opens
+  QBO's hosted payment page directly.
+
+### The PDF itself — stamped, not left to QBO (2026-09-10)
+
+**A correction to an earlier claim in this file**: it previously said the
+downloaded PDF "can never carry this link". That was asserted without
+verification and it's wrong — a customer demonstrated that a PDF downloaded
+from QBO's own UI *does* show a payment link, while the same invoice
+downloaded from this app didn't. Don't re-derive the old conclusion.
+
+We don't control how QBO renders its `/invoice/{id}/pdf` export, so rather
+than depend on it, **we stamp the button on ourselves**:
+
+- **`lib/qbo-pay-button.ts`'s `stampPayButtonOnPdf(pdf, payUrl)`** — pure,
+  no network/db. Uses `pdf-lib` (already a dependency, already used by
+  `lib/statement-pdf.ts` / `lib/approval-pdf.ts`) to draw a green "Review
+  and pay online" button in page 1's **bottom margin** (the one area invoice
+  templates reliably leave clear, verified rendered) on an opaque white
+  backdrop, plus a real `/Link` annotation over it so it's clickable — the
+  drawn rectangle alone is just ink. **Idempotent**: re-stamping a PDF that
+  already carries the same URI is a no-op, because these buffers pass
+  through several layers (fetch → attach → send). Returns the PDF
+  *unchanged* on any error — a missing button is a disappointment, a
+  corrupted invoice PDF is an incident.
+- **`lib/qbo-token.ts`'s `stampQboPayButton(orgId, invoice, pdf)`** resolves
+  the link then stamps. `fetchQboInvoicePdf` now does this **by default**
+  (opt out with `{ payButton: false }`), which covers the chase crons,
+  Inngest chase, owner notifications and the bulk ZIP in one place. The
+  three routes that fetch QBO PDFs inline rather than via that helper —
+  `app/api/invoices/[id]/pdf/route.ts` (the detail-page download),
+  `app/api/email/send/route.ts` (composer attachments) and
+  `app/api/chat/route.ts` — call it explicitly.
+- **Why a link is missing is now reported, not shrugged at.** Intuit's docs
+  give three preconditions: the company must be payments-enabled
+  (`Preferences.SalesFormsPrefs.ETransactionPaymentEnabled`), the invoice's
+  `AllowOnlineCreditCardPayment`/`AllowOnlineACHPayment` must be set, and the
+  invoice needs a valid `BillEmail`. `fetchQboInvoicePayInfo` checks all
+  three and returns a `QboPayLinkReason`, which the invoice page turns into
+  an actionable message (`PAY_LINK_MESSAGES`) — each precondition has a
+  different fix, so "no link available" was a dead end.
 
 ## ⚠️ Gotchas that have bitten us
 

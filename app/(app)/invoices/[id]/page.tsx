@@ -11,6 +11,19 @@ import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink } from "lucide-react";
 
+// Each of these maps to one of QBO's three preconditions for issuing a payment
+// link (see QboPayLinkReason in lib/qbo-token.ts) — a different fix per case,
+// so the message names the actual blocker instead of shrugging.
+const PAY_LINK_MESSAGES: Record<string, string> = {
+  not_qbo:                  "Online payment links come from QuickBooks — this invoice isn't a QuickBooks invoice.",
+  qbo_not_connected:        "QuickBooks isn't connected for this organisation — reconnect it in Settings.",
+  company_payments_disabled:"QuickBooks Payments isn't switched on for this company, so QuickBooks won't issue payment links. Turn on online payments in QuickBooks (Settings → Payments), then try again.",
+  invoice_online_payment_off:"Online card and bank-transfer payments are both unticked on this invoice in QuickBooks. Tick at least one on the invoice, then try again.",
+  no_bill_email:            "QuickBooks needs a customer email address on this invoice before it will issue a payment link — add one in QuickBooks, then try again.",
+  no_link_returned:         "QuickBooks didn't return a payment link for this invoice, even though online payments look enabled. Check the invoice in QuickBooks.",
+  lookup_failed:            "Couldn't reach QuickBooks to fetch the payment link — try again in a moment.",
+};
+
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -64,7 +77,7 @@ export default function InvoiceDetailPage() {
       const res = await fetch(`/api/invoices/${inv.id}/pay-link`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { alert(data.error || "Failed to get payment link"); return; }
-      if (!data.payUrl) { alert("QuickBooks hasn't generated an online payment link for this invoice — this needs QuickBooks Payments / Online Invoicing enabled on the org, and a billing email on the invoice."); return; }
+      if (!data.payUrl) { alert(PAY_LINK_MESSAGES[data.reason as string] ?? PAY_LINK_MESSAGES.no_link_returned); return; }
       window.open(data.payUrl, "_blank", "noopener,noreferrer");
     } catch {
       alert("Failed to get payment link");

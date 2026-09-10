@@ -17,7 +17,7 @@ import { invoices } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { isInvoiceInScope } from "@/lib/receivables/rep-scope";
-import { fetchQboInvoiceLink } from "@/lib/qbo-token";
+import { fetchQboInvoicePayInfo } from "@/lib/qbo-token";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId, session } = await requireOrg();
@@ -32,9 +32,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!inv) return bad("Invoice not found", 404);
 
   if (!inv.qboId || inv.qboId.startsWith("CM-") || (inv.xeroId && !inv.xeroId.startsWith("CN-"))) {
-    return ok({ payUrl: null });
+    return ok({ payUrl: null, reason: "not_qbo" });
   }
 
-  const payUrl = await fetchQboInvoiceLink(orgId!, inv).catch(() => null);
-  return ok({ payUrl });
+  // Reports WHICH precondition failed when there's no link, so the UI can say
+  // something the admin can act on (see QboPayLinkReason in lib/qbo-token.ts).
+  const info = await fetchQboInvoicePayInfo(orgId!, inv).catch(() => null);
+  if (!info) return ok({ payUrl: null, reason: "lookup_failed" });
+  return ok(info);
 }

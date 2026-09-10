@@ -85,10 +85,17 @@ const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
  * Fetch an invoice PDF from QBO as a Buffer.
  * Returns null if the invoice has no qboId, QBO is not connected,
  * or the fetch fails — so the caller can still send the email without an attachment.
+ *
+ * By default the PDF comes back with QBO's "Review and pay online" button
+ * stamped on it (see stampQboPayButton) — QBO's PDF export doesn't reliably
+ * carry one, and customers compare our invoices against the ones their
+ * accountant sends from QBO. Pass `{ payButton: false }` for internal copies
+ * that shouldn't invite payment.
  */
 export async function fetchQboInvoicePdf(
   orgId: string,
-  invoice: { qboId?: string | null; invoiceNumber: string }
+  invoice: { qboId?: string | null; invoiceNumber: string },
+  opts: { payButton?: boolean } = {}
 ): Promise<Buffer | null> {
   if (!invoice.qboId || invoice.qboId.startsWith("CM-")) return null;
 
@@ -120,7 +127,9 @@ export async function fetchQboInvoicePdf(
     }
 
     const buf = await res.arrayBuffer();
-    return buf.byteLength > 0 ? Buffer.from(buf) : null;
+    if (buf.byteLength === 0) return null;
+    const pdf = Buffer.from(buf);
+    return opts.payButton === false ? pdf : await stampQboPayButton(orgId, invoice, pdf);
   } catch (e: any) {
     console.warn(`fetchQboInvoicePdf: failed for ${invoice.invoiceNumber}:`, e?.message);
     return null;
@@ -128,26 +137,70 @@ export async function fetchQboInvoicePdf(
 }
 
 /**
- * Fetch QBO's own online-invoice payment link ("Review and pay") for an
- * invoice — this is what QBO embeds when the customer's own accountant sends
- * the invoice directly from QBO, and what our own emails were missing.
+ * Why an invoice has no QBO payment link. Per Intuit's Invoice API reference,
+ * `InvoiceLink` is "generated only for invoices with online payment enabled
+ * and having a valid customer email address" — and the invoice-level
+ * `AllowOnlineCreditCardPayment`/`AllowOnlineACHPayment` flags are themselves
+ * only "active when the company is payments-enabled, i.e.
+ * Preferences.SalesFormsPrefs.ETransactionPaymentEnabled is set to true".
  *
- * QBO only returns `InvoiceLink` when explicitly asked via `include=invoiceLink`
- * on the single-invoice read endpoint (it's never present on a bulk `/query`
- * response) — so this is one extra per-invoice GET, done only when an invoice
- * is actually being emailed, not during routine sync. QBO only generates the
- * link when Online Invoicing/QuickBooks Payments is enabled for the org AND
- * the invoice has a billing email — returns null otherwise (silently; the
- * email still sends, just without a "Pay online" button, exactly as today).
+ * Three preconditions, three different fixes — so we report WHICH one failed
+ * rather than a dead-end "no link available".
  */
-export async function fetchQboInvoiceLink(
+export type QboPayLinkReason =
+  | "ok"
+  | "not_qbo"               // Xero / native / credit memo — nothing to ask QBO for
+  | "qbo_not_connected"
+  | "company_payments_disabled"   // org must switch on QuickBooks Payments e-invoicing
+  | "invoice_online_payment_off"  // per-invoice card/ACH checkboxes are unticked
+  | "no_bill_email"               // QBO needs a customer email on the invoice
+  | "no_link_returned"            // preconditions look met but QBO still gave nothing
+  | "lookup_failed";
+
+export interface QboPayInfo {
+  payUrl: string | null;
+  reason: QboPayLinkReason;
+  companyPaymentsEnabled: boolean | null;
+  allowCard: boolean | null;
+  allowAch: boolean | null;
+  billEmail: string | null;
+}
+
+/** Is the company itself payments-enabled? (Preferences.SalesFormsPrefs) */
+async function qboCompanyPaymentsEnabled(token: OrgQboToken): Promise<boolean | null> {
+  try {
+    const res = await fetch(
+      `${QBO_API}/${token.realmId}/query?query=${encodeURIComponent("select * from Preferences")}&minorversion=65`,
+      { headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const prefs = data?.QueryResponse?.Preferences?.[0];
+    const v = prefs?.SalesFormsPrefs?.ETransactionPaymentEnabled;
+    return typeof v === "boolean" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * QBO's own online-invoice payment link ("Review and pay") plus the
+ * preconditions behind it — this is what QBO embeds when the org's accountant
+ * sends the invoice from QBO directly, and what our emails/PDFs were missing.
+ *
+ * `include=invoiceLink` is required — QBO omits the field otherwise. Fetched
+ * on demand (at send/download time), never persisted, so the link can't go
+ * stale.
+ */
+export async function fetchQboInvoicePayInfo(
   orgId: string,
   invoice: { qboId?: string | null; invoiceNumber: string }
-): Promise<string | null> {
-  if (!invoice.qboId || invoice.qboId.startsWith("CM-")) return null;
+): Promise<QboPayInfo> {
+  const blank: QboPayInfo = { payUrl: null, reason: "not_qbo", companyPaymentsEnabled: null, allowCard: null, allowAch: null, billEmail: null };
+  if (!invoice.qboId || invoice.qboId.startsWith("CM-")) return blank;
 
   const token = await getOrgQboToken(orgId).catch(() => null);
-  if (!token) return null;
+  if (!token) return { ...blank, reason: "qbo_not_connected" };
 
   try {
     const controller = new AbortController();
@@ -161,14 +214,61 @@ export async function fetchQboInvoiceLink(
     clearTimeout(timer);
 
     if (!res.ok) {
-      console.warn(`fetchQboInvoiceLink: QBO returned ${res.status} for invoice ${invoice.invoiceNumber}`);
-      return null;
+      console.warn(`fetchQboInvoicePayInfo: QBO returned ${res.status} for invoice ${invoice.invoiceNumber}`);
+      return { ...blank, reason: "lookup_failed" };
     }
 
-    const data = await res.json();
-    return data?.Invoice?.InvoiceLink ?? null;
+    const inv = (await res.json())?.Invoice ?? {};
+    const payUrl: string | null = inv.InvoiceLink ?? null;
+    const allowCard: boolean | null = typeof inv.AllowOnlineCreditCardPayment === "boolean" ? inv.AllowOnlineCreditCardPayment : null;
+    const allowAch: boolean | null = typeof inv.AllowOnlineACHPayment === "boolean" ? inv.AllowOnlineACHPayment : null;
+    const billEmail: string | null = inv.BillEmail?.Address ?? null;
+
+    if (payUrl) {
+      return { payUrl, reason: "ok", companyPaymentsEnabled: true, allowCard, allowAch, billEmail };
+    }
+
+    // No link — work out which precondition is the blocker so the UI can say
+    // something actionable instead of shrugging.
+    const companyPaymentsEnabled = await qboCompanyPaymentsEnabled(token);
+    let reason: QboPayLinkReason = "no_link_returned";
+    if (companyPaymentsEnabled === false) reason = "company_payments_disabled";
+    else if (allowCard === false && allowAch === false) reason = "invoice_online_payment_off";
+    else if (!billEmail) reason = "no_bill_email";
+
+    return { payUrl: null, reason, companyPaymentsEnabled, allowCard, allowAch, billEmail };
   } catch (e: any) {
-    console.warn(`fetchQboInvoiceLink: failed for ${invoice.invoiceNumber}:`, e?.message);
-    return null;
+    console.warn(`fetchQboInvoicePayInfo: failed for ${invoice.invoiceNumber}:`, e?.message);
+    return { ...blank, reason: "lookup_failed" };
+  }
+}
+
+/** Just the link — for callers that only need the URL (email templates, etc.). */
+export async function fetchQboInvoiceLink(
+  orgId: string,
+  invoice: { qboId?: string | null; invoiceNumber: string }
+): Promise<string | null> {
+  return (await fetchQboInvoicePayInfo(orgId, invoice)).payUrl;
+}
+
+/**
+ * Overlay QBO's "Review and pay online" button onto an invoice PDF we're about
+ * to hand to a customer. Returns the PDF unchanged when there's no link to
+ * point at (Xero/native invoices, or QBO declining to generate one) or if
+ * stamping fails — never fails the download/send over a missing button.
+ */
+export async function stampQboPayButton(
+  orgId: string,
+  invoice: { qboId?: string | null; invoiceNumber: string },
+  pdf: Buffer,
+): Promise<Buffer> {
+  const payUrl = await fetchQboInvoiceLink(orgId, invoice).catch(() => null);
+  if (!payUrl) return pdf;
+  try {
+    const { stampPayButtonOnPdf } = await import("@/lib/qbo-pay-button");
+    return await stampPayButtonOnPdf(pdf, payUrl);
+  } catch (e: any) {
+    console.warn(`stampQboPayButton: failed for ${invoice.invoiceNumber}:`, e?.message);
+    return pdf;
   }
 }

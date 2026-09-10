@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { invoices, customers, projects, users, reps as repsTable, communications, contacts } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
-import { getOrgQboToken, fetchQboInvoiceLink } from "@/lib/qbo-token";
+import { getOrgQboToken, fetchQboInvoiceLink, stampQboPayButton } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
@@ -677,6 +677,9 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
           if (xeroToken) buf = await fetchXeroPdf(xeroToken, xeroId);
         } else if (qboToken && r.qboId && !r.qboId.startsWith("CM-")) {
           buf = await fetchQboPdf(qboToken, r.qboId);
+          // Stamp QBO's "Review and pay online" button on, matching what the
+          // org's accountant sends from QBO (no-op if QBO issues no link).
+          if (buf) buf = await stampQboPayButton(orgId, { qboId: r.qboId, invoiceNumber: r.invoiceNumber }, buf);
         }
         if (!buf) return null;
         return { filename: `Invoice-${r.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" } as MailAttachment;
