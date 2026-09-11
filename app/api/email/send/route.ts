@@ -194,7 +194,12 @@ export async function POST(req: Request) {
       const payable = inv?.qboId && !inv.qboId.startsWith("CM-") && !(inv.xeroId && !inv.xeroId.startsWith("CN-"));
       if (payable) {
         const payUrl = await fetchQboInvoiceLink(targetOrg, inv).catch(() => null);
-        if (payUrl && !finalBody.includes(payUrl)) {
+        // Compare against an UNESCAPED copy of the body: the branded senders
+        // write the href through an HTML-attribute escape (& → &amp;), so a
+        // raw-string match silently missed them and every invoice emailed that
+        // way went out with two pay buttons — reported by a customer.
+        const bodyUrls = finalBody.replace(/&amp;/g, "&");
+        if (payUrl && !bodyUrls.includes(payUrl)) {
           finalBody += `
             <div style="margin:24px 0 8px;">
               <a href="${payUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:13px;font-weight:700;line-height:1;padding:11px 18px;border-radius:6px;mso-padding-alt:0;">

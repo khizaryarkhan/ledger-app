@@ -7,6 +7,12 @@ import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { fetchQboInvoiceLink } from "@/lib/qbo-token";
 
+/** Give the whole pay-link lookup this long, then render without buttons. */
+const PAY_LINK_BUDGET_MS = 4000;
+
+// Headroom so a slow QuickBooks can't take the page down with it.
+export const maxDuration = 30;
+
 /**
  * GET /api/portal/[token]
  * Public, token-authenticated. Returns org branding, customer name, open invoices
@@ -77,12 +83,19 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     // Capped because this is a public endpoint: a token covering a huge set
     // of invoices shouldn't fan out into unbounded QBO calls.
     const payables = open.filter(i => i.qboId && !i.qboId.startsWith("CM-") && !(i.xeroId && !i.xeroId.startsWith("CN-"))).slice(0, 20);
-    const payUrls = new Map<string, string | null>(
-      await Promise.all(payables.map(async i => [
+    // Hard overall budget. This is a PUBLIC page a customer's own customers
+    // land on from an email, and it must never fail because a third party is
+    // slow: each lookup can take seconds, and enough of them together can blow
+    // the function's own time limit — which surfaces as "Something went wrong"
+    // with no way for them to respond at all. Losing the Pay buttons is a
+    // disappointment; losing the page is an outage.
+    const payUrls = await Promise.race([
+      Promise.all(payables.map(async i => [
         i.id,
         await fetchQboInvoiceLink(row.orgId, { qboId: i.qboId, invoiceNumber: i.invoiceNumber }).catch(() => null),
-      ] as const)),
-    );
+      ] as const)).then(pairs => new Map<string, string | null>(pairs)),
+      new Promise<Map<string, string | null>>(resolve => setTimeout(() => resolve(new Map()), PAY_LINK_BUDGET_MS)),
+    ]).catch(() => new Map<string, string | null>());
 
     invList = open
       .map(i => ({

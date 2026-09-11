@@ -117,6 +117,8 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
   // Send one email covering `rowsList` to `toStr`, tagged with `ref`.
   async function sendEmail(rowsList: SendRow[], toStr: string, ref: string): Promise<{ ok: boolean; error?: string }> {
     const ids = rowsList.map(r => r.inv.id);
+    const filledSubject = fillTemplate(subject, rowsList, ref);
+    const filledBody = fillTemplate(body, rowsList, ref);
     const total = rowsList.reduce((s, r) => s + r.bal, 0);
     const emailCurrency = rowsList[0]?.inv?.currency || ccy;
     let portalUrl: string | null = null;
@@ -144,7 +146,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
 
     const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const html = renderInvoiceEmail({
-      subject, dateStr, total, currency: emailCurrency, portalUrl, intro: body,
+      subject: filledSubject, dateStr, total, currency: emailCurrency, portalUrl, intro: filledBody,
       rows: rowsList.map(r => ({
         invoiceNumber: r.inv.invoiceNumber, customerName: r.custName, projectName: r.projName,
         invoiceDate: r.inv.invoiceDate, dueDate: r.inv.dueDate, balance: r.bal, currency: r.inv.currency, daysOverdue: r.days,
@@ -170,7 +172,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
     try {
       const res = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: toStr, cc: cc || undefined, subject, body: html, invoiceId: rowsList[0]?.inv.id, attachInvoiceIds: attachPdf ? ids : undefined, extraAttachments }),
+        body: JSON.stringify({ to: toStr, cc: cc || undefined, subject: filledSubject, body: html, invoiceId: rowsList[0]?.inv.id, attachInvoiceIds: attachPdf ? ids : undefined, extraAttachments }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); return { ok: false, error: d.error || "Send failed" }; }
       const sentMessageId = (await res.json()).messageId ?? null;
@@ -178,7 +180,7 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: r.custId, invoiceId: r.inv.id, projectId: r.inv.projectId ?? null,
-          direction: "Outbound", channel: "Email", subject, recipients: toStr, body,
+          direction: "Outbound", channel: "Email", subject: filledSubject, recipients: toStr, body: filledBody,
           matchedBy: "Manual", isDraft: false, refNumber: ref, messageId: sentMessageId,
         }),
       }).catch(() => {})));
@@ -224,6 +226,25 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
     setSubject(tpl.subject);
     setBody(tpl.body);
   };
+
+  /**
+   * Fill the template placeholders. This modal used to drop the raw template
+   * straight into the fields and send it as-is, so students received emails
+   * reading "Hi{name}" / "New Payment Request From {ref}" — reported by a
+   * customer. Substituted at SEND time (not on template selection) because one
+   * modal can fan out to several recipients, each with its own name and ref.
+   *
+   * Same vocabulary and semantics as the chase paths' fillTemplate: {name},
+   * {ref}, {invoicelines} — case-insensitive. {invoicelines} resolves to an
+   * empty string here for the same reason it does there: the branded table
+   * below the intro already lists every invoice, so filling it would print the
+   * list twice.
+   */
+  const fillTemplate = (text: string, rowsList: SendRow[], ref: string) =>
+    text
+      .replace(/\{name\}/gi, rowsList[0]?.custName?.split(" ")[0] ?? "there")
+      .replace(/\{invoice ?lines\}/gi, "")
+      .replace(/\{ref\}/gi, ref);
 
   const inputCls = "w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
 
