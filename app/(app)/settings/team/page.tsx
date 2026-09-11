@@ -7,7 +7,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
 import {
   ChevronLeft, Users, Plus, Trash2, Shield, UserPlus,
-  ChevronDown, Briefcase, X, MapPin, KeyRound,
+  ChevronDown, Briefcase, X, MapPin, Globe, KeyRound,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function PopoverMenu({ trigger, children }: { trigger: React.ReactNode; children
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function TeamSettingsPage() {
   const { data: session } = useSession();
-  const { regions, addRegion, deleteRegion, updateRepManager, refresh } = useData();
+  const { regions, addRegion, deleteRegion, countries, addCountry, deleteCountry, updateRepManager, refresh } = useData();
 
   const currentUserId = (session?.user as any)?.id;
   const sessionRole   = (session?.user as any)?.role;
@@ -208,6 +208,8 @@ export default function TeamSettingsPage() {
   // ── Regions ───────────────────────────────────────────────────────────────────
   const [newRegion,    setNewRegion]    = useState("");
   const [addingRegion, setAddingRegion] = useState(false);
+  const [newCountry,    setNewCountry]    = useState("");
+  const [addingCountry, setAddingCountry] = useState(false);
 
   const handleAddRegion = async () => {
     if (!newRegion.trim()) return;
@@ -216,6 +218,16 @@ export default function TeamSettingsPage() {
       await addRegion({ name: newRegion.trim() });
       setNewRegion("");
     } finally { setAddingRegion(false); }
+  };
+
+  // ── Countries ─────────────────────────────────────────────────────────────
+  const handleAddCountry = async () => {
+    if (!newCountry.trim()) return;
+    setAddingCountry(true);
+    try {
+      await addCountry({ name: newCountry.trim() });
+      setNewCountry("");
+    } finally { setAddingCountry(false); }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -232,7 +244,7 @@ export default function TeamSettingsPage() {
           <ChevronLeft size={14} /> Settings
         </Link>
         <h1 className="text-2xl font-semibold text-white tracking-tight">Team</h1>
-        <p className="text-sm text-stone-400 mt-1">Manage users, access levels and regions.</p>
+        <p className="text-sm text-stone-400 mt-1">Manage users, access levels, regions and countries.</p>
       </div>
 
       {/* ── Role overview ──────────────────────────────────────────────────────── */}
@@ -519,6 +531,50 @@ export default function TeamSettingsPage() {
               className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             <Button size="sm" icon={Plus} disabled={addingRegion || !newRegion.trim()} onClick={handleAddRegion}>
               {addingRegion ? "Adding…" : "Add"}
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Countries ──────────────────────────────────────────────────────────── */}
+      <Card>
+        <div className="flex items-center gap-2 mb-1">
+          <Globe size={15} className="text-stone-400" />
+          <h3 className="text-sm font-semibold text-white">Countries</h3>
+          <span className="ml-auto text-[11px] text-stone-400">{(countries ?? []).length}</span>
+        </div>
+        <p className="text-[12px] text-stone-500 mb-4">
+          Countries for grouping customers and projects. Assign them on a record, or reclassify in bulk from the Customers and Projects lists.
+        </p>
+
+        <div className="space-y-1.5 mb-4">
+          {(countries ?? []).length === 0 && (
+            <div className="text-sm text-stone-400 py-1">No countries defined yet.</div>
+          )}
+          {(countries ?? []).map((c: any) => (
+            <div key={c.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-stone-800/40 ring-1 ring-stone-700">
+              <div className="flex items-center gap-2">
+                <Globe size={12} className="text-stone-400" />
+                <span className="text-sm text-stone-200">{c.name}</span>
+              </div>
+              {isAdmin && (
+                <button onClick={() => deleteCountry(c.id)}
+                  className="p-1 text-stone-400 hover:text-rose-600 rounded transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {isAdmin && (
+          <div className="flex gap-2 pt-3 border-t border-stone-800">
+            <input value={newCountry} onChange={e => setNewCountry(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAddCountry()}
+              placeholder="Country name"
+              className="flex-1 h-8 px-2.5 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+            <Button size="sm" icon={Plus} disabled={addingCountry || !newCountry.trim()} onClick={handleAddCountry}>
+              {addingCountry ? "Adding…" : "Add"}
             </Button>
           </div>
         )}

@@ -9,7 +9,7 @@ import { today, daysFromNow } from "@/lib/format";
 // CREATE / EDIT CUSTOMER
 // =====================
 const EMPTY_CUSTOMER = {
-  name: "", code: "", companyName: "", country: "", currency: "",
+  name: "", code: "", companyName: "", countryId: "", currency: "",
   paymentTerms: 30, taxNumber: "", riskRating: "Low", status: "Active",
   creditLimit: "", phone: "", email: "",
   addressStreet: "", addressCity: "", addressPostcode: "",
@@ -19,17 +19,17 @@ const EMPTY_CUSTOMER = {
 };
 
 export function CustomerModal({ customer, onClose }: { customer?: any; onClose: () => void }) {
-  const { addCustomer, updateCustomer, orgSettings } = useData() as any;
+  const { addCustomer, updateCustomer, orgSettings, countries } = useData() as any;
   const isEdit = !!customer;
-  // Default currency AND country to the org's own — never a hardcoded
-  // literal, so a customer created with no explicit choice matches the books
-  // it's posted into (create-time-only defaults; edits keep existing values).
-  // Country used to be hardcoded "Ireland", which every non-Irish tenant had
-  // to correct on every customer — reported by a US customer.
+  // Default currency to the org's home currency — never a hardcoded literal,
+  // so a customer created with no explicit choice matches the books it's
+  // posted into (a create-time-only default; edits keep the existing value).
+  // Country is NOT defaulted: it's an org-managed list (Settings → Team), and
+  // guessing it is what produced "Ireland" on every customer of a US tenant.
   const [form, setForm] = useState(customer ? {
     ...EMPTY_CUSTOMER, ...customer,
     creditLimit: customer.creditLimit ?? "",
-  } : { ...EMPTY_CUSTOMER, currency: orgSettings?.currency || "EUR", country: orgSettings?.company?.addressCountry || "" });
+  } : { ...EMPTY_CUSTOMER, currency: orgSettings?.currency || "EUR" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -81,8 +81,9 @@ export function CustomerModal({ customer, onClose }: { customer?: any; onClose: 
             <div><label className="text-xs font-medium text-stone-700 block mb-1">City</label><Input value={form.addressCity} onChange={(e: any) => set("addressCity", e.target.value)} placeholder="Dublin" /></div>
             <div><label className="text-xs font-medium text-stone-700 block mb-1">Postcode</label><Input value={form.addressPostcode} onChange={(e: any) => set("addressPostcode", e.target.value)} placeholder="D01 AB12" /></div>
             <div><label className="text-xs font-medium text-stone-700 block mb-1">Country</label>
-              <Select value={form.country} onChange={(e: any) => set("country", e.target.value)} className="w-full"
-                options={["Ireland", "United Kingdom", "Germany", "France", "United States", "Other"]} />
+              <Select value={form.countryId} onChange={(e: any) => set("countryId", e.target.value)} className="w-full"
+                placeholder={(countries ?? []).length ? "Select a country…" : "Add countries in Settings → Team"}
+                options={(countries ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
             </div>
           </div>
         </div>

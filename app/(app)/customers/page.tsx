@@ -13,9 +13,10 @@ import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
 
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { regions, reclassifyCustomers } = useData() as any;
+  const { regions, countries, reclassifyCustomers } = useData() as any;
   const [repId, setRepId] = useState("");
   const [regionId, setRegionId] = useState("");
+  const [countryId, setCountryId] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Always fetch fresh reps when the modal opens so newly-created users appear immediately
@@ -25,12 +26,13 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
   }, []);
 
   const handleApply = async () => {
-    if (!repId && !regionId) return;
+    if (!repId && !regionId && !countryId) return;
     setSaving(true);
     try {
       const repVal = repId === "null" ? null : repId || undefined;
       const regVal = regionId === "null" ? null : regionId || undefined;
-      await reclassifyCustomers(ids, repVal, regVal);
+      const ctyVal = countryId === "null" ? null : countryId || undefined;
+      await reclassifyCustomers(ids, repVal, regVal, ctyVal);
       onClose();
     } finally { setSaving(false); }
   };
@@ -60,11 +62,20 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
               {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Country to</label>
+            <select value={countryId} onChange={e => setCountryId(e.target.value)}
+              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
+              <option value="">— No change —</option>
+              <option value="null">Unassign country</option>
+              {(countries ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving || (!repId && !regionId)}>
+          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
             {saving ? "Applying…" : "Apply"}
           </Button>
         </div>
@@ -89,7 +100,7 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle, repGr
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-white truncate">{c.name}</div>
               <div className="text-[11px] text-stone-500 mt-0.5">
-                {c.code && !c.code.startsWith("QBO-") ? `${c.code} · ` : ""}{c.country || "—"}
+                {c.code && !c.code.startsWith("QBO-") ? `${c.code} · ` : ""}{c.countryName || "—"}
               </div>
               <div className="flex items-center gap-1.5 mt-1 flex-wrap"
                 onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
@@ -126,7 +137,7 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle, repGr
 });
 
 export default function CustomersPage() {
-  const { customers, invoices, reps, regions, bulkDeleteCustomers, reclassifyCustomers } = useData() as any;
+  const { customers, invoices, reps, regions, countries, bulkDeleteCustomers, reclassifyCustomers } = useData() as any;
 
   // Assignable people for inline Rep editing (reps/EDs + admins, incl. multi-org).
   const [assignableReps, setAssignableReps] = useState<{ id: string; name: string; tier: string }[]>([]);
@@ -183,11 +194,12 @@ export default function CustomersPage() {
       const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
       const region = regions.find((r: any) => r.id === c.regionId);
+      const country = (countries ?? []).find((x: any) => x.id === c.countryId);
       // Compute status from outstanding — always real-time, no sync delay needed.
       // "On Hold" is a manual override and is preserved regardless of AR balance.
       const effectiveStatus = c.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
       const invoiceCurrency = open[0]?.currency ?? "?";
-      return { ...c, outstanding, overdue, openCount: open.length, repName: c.repId ? repNameById.get(c.repId) : undefined, regionName: region?.name, effectiveStatus, invoiceCurrency };
+      return { ...c, outstanding, overdue, openCount: open.length, repName: c.repId ? repNameById.get(c.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus, invoiceCurrency };
     });
   }, [customers, invoices, regions, repNameById]);
 
@@ -235,7 +247,7 @@ export default function CustomersPage() {
   const CUST_COLS: ColDef[] = [
     { key: "name",        label: "Customer",    sortValue: (r) => r.name,        filterLabel: (r) => r.name },
     { key: "code",        label: "Code",         sortValue: (r) => r.code,        filterLabel: (r) => r.code },
-    { key: "country",     label: "Country",      sortValue: (r) => r.country ?? "", filterLabel: (r) => r.country ?? "(None)" },
+    { key: "country",     label: "Country",      sortValue: (r) => r.countryName ?? "", filterLabel: (r) => r.countryName ?? "(None)" },
     { key: "repName",     label: "Rep",          sortValue: (r) => r.repName ?? "", filterLabel: (r) => r.repName ?? "(Unassigned)" },
     { key: "regionName",  label: "Region",       sortValue: (r) => r.regionName ?? "", filterLabel: (r) => r.regionName ?? "(Unassigned)" },
     { key: "riskRating",  label: "Risk",         sortValue: (r) => r.riskRating ?? "", filterLabel: (r) => r.riskRating ?? "" },
@@ -345,7 +357,7 @@ export default function CustomersPage() {
                     <td className="px-3 py-2.5 text-stone-400 font-mono text-[12px]">
                       {c.code?.startsWith("QBO-") ? "—" : c.code}
                     </td>
-                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.country || "—"}</td>
+                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.countryName || "—"}</td>
                     <td className="px-3 py-2.5">
                       <InlineAssign value={c.repId ?? null} tone="blue" title="Assign rep / ED-RM" busy={assigningId === c.id}
                         groups={repGroups} onChange={v => onAssign(c.id, "rep", v)} />

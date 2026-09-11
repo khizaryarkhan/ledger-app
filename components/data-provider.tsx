@@ -12,6 +12,7 @@ type DataContextType = {
   tasks: any[];
   reps: any[];
   regions: any[];
+  countries: any[];
   orgSettings: {
     classificationLevel: "customer" | "project";
     dateFormat: string;
@@ -50,14 +51,16 @@ type DataContextType = {
   bulkDeleteInvoices: (ids: string[]) => Promise<any>;
   bulkDeleteCustomers: (ids: string[]) => Promise<any>;
   bulkDeleteProjects: (ids: string[]) => Promise<any>;
-  reclassifyCustomers: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
-  reclassifyProjects: (ids: string[], repId?: string | null, regionId?: string | null) => Promise<any>;
+  reclassifyCustomers: (ids: string[], repId?: string | null, regionId?: string | null, countryId?: string | null) => Promise<any>;
+  reclassifyProjects: (ids: string[], repId?: string | null, regionId?: string | null, countryId?: string | null) => Promise<any>;
   addRep: (data: { name: string; email?: string; tier?: string }) => Promise<any>;
   updateRepTier: (id: string, tier: string) => Promise<any>;
   updateRepManager: (id: string, managerId: string | null) => Promise<any>;
   deleteRep: (id: string) => Promise<void>;
   addRegion: (data: { name: string }) => Promise<any>;
+  addCountry: (data: { name: string }) => Promise<any>;
   deleteRegion: (id: string) => Promise<void>;
+  deleteCountry: (id: string) => Promise<void>;
   updateOrgSettings: (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; payLinksEnabled: boolean; reportingEnabled: boolean; company: Record<string, string | null> }>) => Promise<void>;
 };
 
@@ -85,13 +88,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [regions, setRegions] = useState<any[]>([]);
+  const [countries, setCountries] = useState<any[]>([]);
   const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[]; lastCronRun: string | null; lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null; showPaymentHistory: boolean; payLinksEnabled: boolean; reportingEnabled: boolean; multicurrencyEnabled: boolean; fiscalYearStartMonth: number; enabledModules: string[]; company?: Record<string, string | null> }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [], lastCronRun: null, lastCronStats: null, showPaymentHistory: false, payLinksEnabled: true, reportingEnabled: false, multicurrencyEnabled: false, fiscalYearStartMonth: 1, enabledModules: ["receivables", "payables", "studio", "accounting"] });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {
     try {
       // Use allSettled so one failing endpoint never blanks the whole app.
-      const [c, ct, p, i, comm, t, r, reg, settings] = await Promise.allSettled([
+      const [c, ct, p, i, comm, t, r, reg, cty, settings] = await Promise.allSettled([
         fetchJSON("/api/customers"),
         fetchJSON("/api/contacts"),
         fetchJSON("/api/projects"),
@@ -100,6 +104,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         fetchJSON("/api/tasks"),
         fetchJSON("/api/reps"),
         fetchJSON("/api/regions"),
+        fetchJSON("/api/countries"),
         fetchJSON("/api/org/settings"),
       ]);
 
@@ -116,6 +121,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const tasks_        = unwrap(t,    "tasks");
       const reps_         = unwrap(r,    "reps");
       const regions_      = unwrap(reg,  "regions");
+      const countries_    = unwrap(cty,  "countries");
       const settings_     = unwrap(settings, "org/settings");
 
       if (customers_)  setCustomers(customers_);
@@ -126,6 +132,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (tasks_)      setTasks(tasks_);
       if (reps_)       setReps(reps_);
       if (regions_)    setRegions(regions_);
+      if (countries_)  setCountries(countries_);
       if (settings_)   setOrgSettings(settings_);
     } catch (e: any) {
       console.error("Refresh failed:", e);
@@ -257,15 +264,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast(`${ids.length} project${ids.length > 1 ? "s" : ""} deleted`);
   };
 
-  const reclassifyCustomers = async (ids: string[], repId?: string | null, regionId?: string | null) => {
-    await postJSON("/api/customers/reclassify", { ids, repId, regionId });
-    setCustomers(prev => prev.map(c => ids.includes(c.id) ? { ...c, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}) } : c));
+  const reclassifyCustomers = async (ids: string[], repId?: string | null, regionId?: string | null, countryId?: string | null) => {
+    await postJSON("/api/customers/reclassify", { ids, repId, regionId, countryId });
+    setCustomers(prev => prev.map(c => ids.includes(c.id) ? { ...c, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}), ...(countryId !== undefined ? { countryId } : {}) } : c));
     toast(`${ids.length} customer${ids.length > 1 ? "s" : ""} reclassified`);
   };
 
-  const reclassifyProjects = async (ids: string[], repId?: string | null, regionId?: string | null) => {
-    await postJSON("/api/projects/reclassify", { ids, repId, regionId });
-    setProjects(prev => prev.map(p => ids.includes(p.id) ? { ...p, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}) } : p));
+  const reclassifyProjects = async (ids: string[], repId?: string | null, regionId?: string | null, countryId?: string | null) => {
+    await postJSON("/api/projects/reclassify", { ids, repId, regionId, countryId });
+    setProjects(prev => prev.map(p => ids.includes(p.id) ? { ...p, ...(repId !== undefined ? { repId } : {}), ...(regionId !== undefined ? { regionId } : {}), ...(countryId !== undefined ? { countryId } : {}) } : p));
     toast(`${ids.length} project${ids.length > 1 ? "s" : ""} reclassified`);
   };
 
@@ -308,6 +315,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast("Region removed");
   };
 
+  const addCountry = async (data: { name: string }) => {
+    const country = await postJSON("/api/countries", data);
+    setCountries(prev => [...prev, country]);
+    toast("Country added");
+    return country;
+  };
+
+  const deleteCountry = async (id: string) => {
+    await fetchJSON("/api/countries", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setCountries(prev => prev.filter(c => c.id !== id));
+    toast("Country removed");
+  };
+
   const updateOrgSettings = async (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; payLinksEnabled: boolean; company: Record<string, string | null> }>) => {
     const updated = await fetchJSON("/api/org/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
     setOrgSettings(prev => ({ ...prev, ...updated }));
@@ -316,11 +336,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      loaded, customers, contacts, projects, invoices, communications, tasks, reps, regions, orgSettings,
+      loaded, customers, contacts, projects, invoices, communications, tasks, reps, regions, countries, orgSettings,
       refresh, toast, toastState, clearToast,
       updateInvoice, recordPayment, addContact, addNote, sendEmail, addTask, toggleTask,
       addCustomer, updateCustomer, addProject, updateProject, addInvoice, bulkDeleteInvoices, bulkDeleteCustomers, bulkDeleteProjects,
-      reclassifyCustomers, reclassifyProjects, addRep, updateRepTier, updateRepManager, deleteRep, addRegion, deleteRegion, updateOrgSettings,
+      reclassifyCustomers, reclassifyProjects, addRep, updateRepTier, updateRepManager, deleteRep, addRegion, deleteRegion, addCountry, deleteCountry, updateOrgSettings,
     }}>
       {children}
     </DataContext.Provider>

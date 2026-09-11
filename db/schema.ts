@@ -124,6 +124,17 @@ export const regions = pgTable("regions", {
   name: varchar("name", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// Org-managed country list — same shape and lifecycle as regions: created by
+// the org in Settings → Team, assigned to customers/projects, bulk
+// reclassifiable. Replaces the old free-text country field.
+export const countries = pgTable("countries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orgId: uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ orgIdx: index("countries_org_idx").on(t.orgId) }));
+export type Country = typeof countries.$inferSelect;
 export type Region = typeof regions.$inferSelect;
 
 // =========================================================================
@@ -718,6 +729,7 @@ export const customers = pgTable("customers", {
   collectionOwnerId: uuid("collection_owner_id").references(() => users.id),
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
+  countryId: uuid("country_id").references(() => countries.id, { onDelete: "set null" }),
   notes: text("notes"),
   paymentMethod: varchar("payment_method", { length: 64 }),
   phone: varchar("phone", { length: 64 }),
@@ -771,6 +783,7 @@ export const parties = pgTable("parties", {
   collectionOwnerId: uuid("collection_owner_id").references(() => users.id),
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
+  countryId: uuid("country_id").references(() => countries.id, { onDelete: "set null" }),
   notes: text("notes"),
   paymentMethod: varchar("payment_method", { length: 64 }),
   phone: varchar("phone", { length: 64 }),
@@ -836,6 +849,7 @@ export const projects = pgTable("projects", {
   ownerId: uuid("owner_id").references(() => users.id),
   repId: uuid("rep_id").references(() => reps.id, { onDelete: "set null" }),
   regionId: uuid("region_id").references(() => regions.id, { onDelete: "set null" }),
+  countryId: uuid("country_id").references(() => countries.id, { onDelete: "set null" }),
   status: varchar("status", { length: 32 }).notNull().default("Active"),
   qboId: varchar("qbo_id", { length: 64 }), // QBO sub-customer Id
   xeroId: varchar("xero_id", { length: 64 }), // Xero tracking category / job Id (future)
@@ -1673,6 +1687,7 @@ export const customersRelations = relations(customers, ({ many, one }) => ({
   collectionOwner: one(users, { fields: [customers.collectionOwnerId], references: [users.id], relationName: "collectionOwner" }),
   rep: one(reps, { fields: [customers.repId], references: [reps.id] }),
   region: one(regions, { fields: [customers.regionId], references: [regions.id] }),
+  country: one(countries, { fields: [customers.countryId], references: [countries.id] }),
 }));
 
 export const contactsRelations = relations(contacts, ({ one }) => ({
@@ -1685,6 +1700,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   invoices: many(invoices),
   rep: one(reps, { fields: [projects.repId], references: [reps.id] }),
   region: one(regions, { fields: [projects.regionId], references: [regions.id] }),
+  country: one(countries, { fields: [projects.countryId], references: [countries.id] }),
 }));
 
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({

@@ -11,9 +11,10 @@ import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/compon
 import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { regions, reclassifyProjects } = useData() as any;
+  const { regions, countries, reclassifyProjects } = useData() as any;
   const [repId, setRepId] = useState("");
   const [regionId, setRegionId] = useState("");
+  const [countryId, setCountryId] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Always fetch fresh reps when the modal opens so newly-created users appear immediately
@@ -23,12 +24,13 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
   }, []);
 
   const handleApply = async () => {
-    if (!repId && !regionId) return;
+    if (!repId && !regionId && !countryId) return;
     setSaving(true);
     try {
       const repVal = repId === "null" ? null : repId || undefined;
       const regVal = regionId === "null" ? null : regionId || undefined;
-      await reclassifyProjects(ids, repVal, regVal);
+      const ctyVal = countryId === "null" ? null : countryId || undefined;
+      await reclassifyProjects(ids, repVal, regVal, ctyVal);
       onClose();
     } finally { setSaving(false); }
   };
@@ -65,11 +67,20 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
               {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Country to</label>
+            <select value={countryId} onChange={e => setCountryId(e.target.value)}
+              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
+              <option value="">— No change —</option>
+              <option value="null">Unassign country</option>
+              {(countries ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving || (!repId && !regionId)}>
+          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
             {saving ? "Applying…" : "Apply"}
           </Button>
         </div>
@@ -110,7 +121,7 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
 });
 
 export default function ProjectsPage() {
-  const { projects, customers, invoices, reps, regions, bulkDeleteProjects, reclassifyProjects } = useData() as any;
+  const { projects, customers, invoices, reps, regions, countries, bulkDeleteProjects, reclassifyProjects } = useData() as any;
 
   // Assignable people for inline Rep editing (reps/EDs + admins, incl. multi-org).
   const [assignableReps, setAssignableReps] = useState<{ id: string; name: string; tier: string }[]>([]);
@@ -155,10 +166,11 @@ export default function ProjectsPage() {
     const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
     const region = regions.find((r: any) => r.id === p.regionId);
+    const country = (countries ?? []).find((x: any) => x.id === p.countryId);
     // Compute status from outstanding — real-time, same logic as customers.
     const effectiveStatus = p.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
-    return { ...p, customer, openCount: open.length, outstanding, overdue, repName: p.repId ? repNameById.get(p.repId) : undefined, regionName: region?.name, effectiveStatus };
-  }), [projects, customers, invoices, regions, repNameById]);
+    return { ...p, customer, openCount: open.length, outstanding, overdue, repName: p.repId ? repNameById.get(p.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus };
+  }), [projects, customers, invoices, regions, countries, repNameById]);
 
   const filtered = useMemo(() => {
     let res = enriched;
@@ -181,6 +193,7 @@ export default function ProjectsPage() {
     { key: "customer", label: "Customer", sortValue: (r: any) => r.customer?.name ?? "", filterLabel: (r: any) => r.customer?.name ?? "(None)" },
     { key: "repName", label: "Rep", sortValue: (r: any) => r.repName ?? "", filterLabel: (r: any) => r.repName ?? "(Unassigned)" },
     { key: "regionName", label: "Region", sortValue: (r: any) => r.regionName ?? "", filterLabel: (r: any) => r.regionName ?? "(Unassigned)" },
+    { key: "countryName", label: "Country", sortValue: (r: any) => r.countryName ?? "", filterLabel: (r: any) => r.countryName ?? "(Unassigned)" },
     { key: "status", label: "Status", sortValue: (r: any) => r.status ?? "", filterLabel: (r: any) => r.status ?? "" },
     { key: "openCount", label: "Open Inv.", sortValue: (r: any) => r.openCount ?? 0, align: "right" as const, noFilter: true },
     { key: "outstanding", label: "Outstanding", sortValue: (r: any) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
