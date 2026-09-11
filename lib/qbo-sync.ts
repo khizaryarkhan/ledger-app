@@ -719,6 +719,36 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     }
   }
 
+  // ── Reconcile deletions (FULL sync only) ────────────────────────────────
+  // QBO's change feed only reports recent deletions, so anything deleted before
+  // we started tracking it stays behind forever — which is how a customer ended
+  // up with hundreds of dead invoices cluttering their list. On a full sync
+  // `allInvoicesForClose` IS every invoice in QBO, so anything we hold with a
+  // qboId that isn't in it no longer exists there.
+  //
+  // This infers deletion from ABSENCE, so it is guarded hard: never on an
+  // incremental sync (that fetch is date-filtered), never on an empty fetch (a
+  // failed call would otherwise wipe the lot), and never when the result looks
+  // implausible — a partial fetch should abort the sweep, not delete half the
+  // ledger. Soft delete keeps even a bad call recoverable.
+  if (!isIncremental && allInvoicesForClose.length > 0) {
+    const liveQboIds = new Set(allInvoicesForClose.map((qi: any) => String(qi.Id)));
+    const vanished = allLedgerInvoices.filter(i =>
+      i.qboId && !i.qboId.startsWith("CM-") && !i.deletedAt && !liveQboIds.has(i.qboId)
+    );
+    const held = allLedgerInvoices.filter(i => i.qboId && !i.qboId.startsWith("CM-") && !i.deletedAt).length;
+    if (vanished.length > 0 && vanished.length <= Math.max(25, held * 0.5)) {
+      for (let i = 0; i < vanished.length; i += 50) {
+        await db.update(invoices)
+          .set({ deletedAt: new Date(), collectionStage: "Closed", updatedAt: new Date() })
+          .where(and(eq(invoices.orgId, orgId), inArray(invoices.id, vanished.slice(i, i + 50).map(v => v.id))));
+      }
+      console.log(`[qbo-sync] soft-deleted ${vanished.length} invoice(s) no longer present in QuickBooks`);
+    } else if (vanished.length > 0) {
+      console.warn(`[qbo-sync] skipped deletion sweep: ${vanished.length} of ${held} invoices missing from QBO looks like a partial fetch, not real deletions`);
+    }
+  }
+
   if (invsToInsert.length > 0) {
     for (let i = 0; i < invsToInsert.length; i += 50)
       await db.insert(invoices).values(invsToInsert.slice(i, i + 50));
@@ -2128,13 +2158,19 @@ export async function syncTargetedEntities(
     ...deletedInvoiceQboIds,
     ...deletedCreditQboIds,
   ];
+  // Deleted in QBO → soft-delete, so it disappears from every list rather than
+  // sitting there as "Written Off". That status is a real AR concept (debt
+  // pursued and given up on); a deleted invoice never existed, and labelling
+  // deletions that way both cluttered the list and polluted the status — a
+  // customer reported exactly this ("invoices show written off which are
+  // deleted from quickbooks... we don't need them to show up").
   for (const qboId of allDeletedQboIds) {
     const existing = ledgerInvByQboId.get(qboId);
     if (!existing) continue;
     updatePromises.push(
       db
         .update(invoices)
-        .set({ paymentStatus: "Written Off", collectionStage: "Closed", updatedAt: new Date() })
+        .set({ deletedAt: new Date(), collectionStage: "Closed", updatedAt: new Date() })
         .where(eq(invoices.id, existing.id))
     );
   }

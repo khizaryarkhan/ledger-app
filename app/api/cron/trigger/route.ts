@@ -20,7 +20,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 
@@ -108,7 +108,8 @@ export async function POST(req: Request) {
   }
 
   // 4. Load all open invoices for this org
-  const orgInvoices = await db.select().from(invoices).where(eq(invoices.orgId, orgId!));
+  // Never chase invoices deleted in QuickBooks (soft-deleted, see qbo-sync).
+  const orgInvoices = await db.select().from(invoices).where(and(eq(invoices.orgId, orgId!), isNull(invoices.deletedAt)));
 
   // 5. Process each contact
   type Detail = {

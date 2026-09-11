@@ -57,7 +57,8 @@ export async function GET(req: Request) {
   let errors: string[] = [];
 
   // ── Load all invoices (needed for contact filtering) ─────────────────────
-  const allInvoices = await db.select().from(invoices);
+  // Never chase invoices deleted in QuickBooks (soft-deleted, see qbo-sync).
+  const allInvoices = await db.select().from(invoices).where(isNull(invoices.deletedAt));
 
   // ── Send emails ───────────────────────────────────────────────────────────
   const allOrgs = [...new Set(allInvoices.map((inv) => inv.orgId))];

@@ -881,6 +881,13 @@ export const invoices = pgTable("invoices", {
   qboBalance: real("qbo_balance"),
   qboCustomerId: varchar("qbo_customer_id", { length: 64 }),
   qboSyncedAt: timestamp("qbo_synced_at"),
+  // Soft delete. Set when QuickBooks reports the invoice deleted (or it has
+  // vanished from a full QBO fetch). Deleted invoices are hidden everywhere
+  // rather than removed: if deletion detection ever misfires mid-sync, nothing
+  // real is destroyed. NOT the same as paymentStatus "Written Off", which is a
+  // genuine AR concept (debt pursued and given up on) — deletions used to be
+  // mislabelled that way, which is what surfaced this.
+  deletedAt: timestamp("deleted_at"),
   xeroId: varchar("xero_id", { length: 64 }), // Xero InvoiceID / CreditNoteID
   xeroBalance: real("xero_balance"),            // AmountDue from Xero
   xeroCustomerId: varchar("xero_customer_id", { length: 64 }), // Xero ContactID

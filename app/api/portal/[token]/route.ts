@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { organisations, customers, invoices } from "@/db/schema";
 import { validatePortalToken } from "@/lib/portal";
 import { customerPortalTokens } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { fetchQboInvoiceLink } from "@/lib/qbo-token";
@@ -67,6 +67,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         promiseDate: invoices.promiseDate,
         qboId: invoices.qboId,
         xeroId: invoices.xeroId,
+        deletedAt: invoices.deletedAt,
       })
       .from(invoices)
       .where(and(
@@ -75,7 +76,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         inArray(invoices.id, ids),
       ));
 
-    const open = rows.filter(i => i.paymentStatus !== "Paid");
+    // Deleted in QuickBooks → never show it to the customer, and never let
+    // them promise or dispute against an invoice that no longer exists.
+    const open = rows.filter(i => i.paymentStatus !== "Paid" && !i.deletedAt);
 
     // QBO's own "Review and pay" link per invoice, so the customer can pay
     // right here instead of only being able to promise a date. Resolved in
@@ -131,6 +134,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         eq(invoices.orgId, row.orgId),
         eq(invoices.customerId, row.customerId),
         eq(invoices.paymentStatus, "Paid"),
+        isNull(invoices.deletedAt),
       ));
 
     paymentHistory = paidRows.map(i => ({

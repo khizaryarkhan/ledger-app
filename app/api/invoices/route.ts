@@ -3,7 +3,7 @@ import { invoices, customers, projects } from "@/db/schema";
 import { requireOrg, requireReadScope, ok, bad, ownsInOrg } from "@/lib/api";
 import { getRepScope } from "@/lib/rep-scope";
 import { z } from "zod";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, isNull } from "drizzle-orm";
 
 const Schema = z.object({
   invoiceNumber: z.string().min(1).max(64),
@@ -28,7 +28,12 @@ export async function GET() {
   const { error, orgId, orgIds, role, repId } = await requireReadScope();
   if (error) return error;
 
-  const rows = await db.select().from(invoices).where(inArray(invoices.orgId, orgIds)).orderBy(desc(invoices.dueDate));
+  // Soft-deleted invoices (deleted in QuickBooks) are hidden everywhere. This
+  // endpoint backs the invoice list, Collections Board and dashboard via
+  // data-provider, so excluding here covers all of them at once.
+  const rows = await db.select().from(invoices)
+    .where(and(inArray(invoices.orgId, orgIds), isNull(invoices.deletedAt)))
+    .orderBy(desc(invoices.dueDate));
 
   // Reps only see invoices in their book of business; admins/accountants see all.
   const scope = await getRepScope(orgId!, role, repId);

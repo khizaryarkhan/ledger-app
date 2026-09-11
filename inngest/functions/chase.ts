@@ -101,7 +101,11 @@ export const runOrgChase = inngest.createFunction(
 
     // Scoped to this org only — no longer loads all orgs' invoices
     const orgInvoices = await step.run("load-invoices", () =>
-      db.select().from(invoices).where(eq(invoices.orgId, orgId)),
+      // isNull(deletedAt): never chase an invoice that was deleted in QBO.
+      // These used to be marked "Written Off", which the filter below excluded;
+      // now they're soft-deleted, so the guard has to be explicit or students
+      // would get reminders for invoices that no longer exist.
+      db.select().from(invoices).where(and(eq(invoices.orgId, orgId), isNull(invoices.deletedAt))),
     );
 
     const dueContacts = await step.run("load-due-contacts", () =>
