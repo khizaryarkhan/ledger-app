@@ -55,6 +55,10 @@ export default function IntegrationsSettingsPage() {
   // ── Unified sync ──────────────────────────────────────────────────────────
   const [syncing, setSyncing] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
+  // Which slice of a Full Sync is running. A full sync of a few thousand
+  // invoices sits on one request for minutes, and a bare spinner gives no clue
+  // whether it's working or hung — a customer asked for exactly this.
+  const [syncStep, setSyncStep] = useState<{ done: number; total: number; label: string } | null>(null);
   const [syncResult, setSyncResult] = useState<any>(null);
 
   const loadXeroWebhookHealth = () => {
@@ -97,8 +101,14 @@ export default function IntegrationsSettingsPage() {
 
         const merged: any = {};
         let firstErr: string | null = null;
+        const steps = providers.flatMap(p => (["ar", "ap"] as const).map(sc => ({ p, sc })));
+        const labelFor = (p: string, sc: string) =>
+          `${p === "qbo" ? "QuickBooks" : p === "xero" ? "Xero" : "Sage"} — ${sc === "ar" ? "Receivables" : "Payables"}`;
+        let stepIdx = 0;
         for (const p of providers) {
           for (const sc of ["ar", "ap"] as const) {
+            setSyncStep({ done: stepIdx, total: steps.length, label: labelFor(p, sc) });
+            stepIdx++;
             const { res, data } = await postSync({ full: true, provider: p, scope: sc });
             if (!res.ok) {
               const msg = (res.status === 504 || res.status === 502)
@@ -117,6 +127,7 @@ export default function IntegrationsSettingsPage() {
             setSyncResult({ ...merged }); // progressive update so the user sees it fill in
           }
         }
+        setSyncStep({ done: steps.length, total: steps.length, label: "Finishing up" });
         if (firstErr) toast(`Full sync issue: ${firstErr}`, "error");
         else toast("Full sync complete ✓");
         await refresh();
@@ -149,6 +160,7 @@ export default function IntegrationsSettingsPage() {
       toast(`Sync failed: ${e?.message || "network error"}`, "error");
     } finally {
       if (full) setFullSyncing(false); else setSyncing(false);
+      setSyncStep(null);
     }
   };
 
@@ -395,8 +407,12 @@ export default function IntegrationsSettingsPage() {
             <div className="flex items-center gap-2">
               <Button variant="secondary" onClick={() => handleSync(true)} disabled={syncing || fullSyncing} title="Re-pulls ALL invoices, payments and credits from scratch (ignores the incremental boundary). Use after connecting or when reconciling.">
                 {fullSyncing ? (
-                  <span className="flex items-center gap-2">
-                    <Loader size={14} className="animate-spin" />Full sync…
+                  <span className="flex flex-col items-center leading-tight">
+                    <span className="flex items-center gap-2">
+                      <Loader size={14} className="animate-spin" />
+                      {syncStep ? `${Math.min(syncStep.done + 1, syncStep.total)} of ${syncStep.total}` : "Full sync…"}
+                    </span>
+                    {syncStep && <span className="text-[10px] font-normal text-stone-400">{syncStep.label}</span>}
                   </span>
                 ) : (
                   <span className="flex flex-col items-center leading-tight">

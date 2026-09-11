@@ -147,6 +147,23 @@ async function qboFetchAllSafe(
   return all;
 }
 
+/**
+ * Run DB writes in bounded batches.
+ *
+ * neon-http issues ONE HTTP request per query, so `Promise.all` over a few
+ * thousand updates opens a few thousand simultaneous connections at once and
+ * the whole sync dies with "Error connecting to database: fetch failed" — the
+ * error a 4,000-invoice org hit on every Full Sync. The retry wrapper in
+ * db/index.ts can't save it either, because under that pressure the retries
+ * fail for the same reason. Inserts here were already chunked at 50; the
+ * updates were simply missed.
+ */
+async function runBatched<T>(items: T[], run: (item: T) => Promise<any>, size = 25): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(run));
+  }
+}
+
 function topLevelId(custId: string, map: Map<string, any>): string {
   const c = map.get(custId);
   if (!c || !c.ParentRef?.value) return custId;
@@ -406,11 +423,8 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     for (let i = 0; i < custsToInsert.length; i += 100)
       await db.insert(customers).values(custsToInsert.slice(i, i + 100));
   }
-  await Promise.all(
-    custsToUpdate.map(({ id, data }) =>
-      db.update(customers).set({ ...data, updatedAt: new Date() }).where(eq(customers.id, id))
-    )
-  );
+  await runBatched(custsToUpdate, ({ id, data }) =>
+    db.update(customers).set({ ...data, updatedAt: new Date() }).where(eq(customers.id, id)));
 
   // Reload customers — scoped to THIS org (pre-existing data-isolation fix)
   const freshCustomers = await db.select().from(customers).where(eq(customers.orgId, orgId));
@@ -753,11 +767,8 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
     for (let i = 0; i < invsToInsert.length; i += 50)
       await db.insert(invoices).values(invsToInsert.slice(i, i + 50));
   }
-  await Promise.all(
-    invsToUpdate.map(({ id, data }) =>
-      db.update(invoices).set(data).where(eq(invoices.id, id))
-    )
-  );
+  await runBatched(invsToUpdate, ({ id, data }) =>
+    db.update(invoices).set(data).where(eq(invoices.id, id)));
 
   // STEP 7: Credit memos (all — applied and unapplied)
   // Data model (mirrors invoice logic but with negative values):
@@ -874,12 +885,10 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       }
     }
     if (cmPaidAtUpdates.length > 0) {
-      await Promise.all(
-        cmPaidAtUpdates.map(({ id, paidAt }) =>
+      await runBatched(cmPaidAtUpdates, ({ id, paidAt }) =>
           db.update(invoices)
             .set({ paidAt, updatedAt: new Date() })
             .where(and(eq(invoices.id, id), eq(invoices.orgId, orgId)))
-        )
       );
       console.log(`QBO sync: backfilled paidAt on ${cmPaidAtUpdates.length} CM-applied invoice(s) for org ${orgId}`);
     }
@@ -977,11 +986,8 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
       await db.insert(invoices).values(paidToInsert.slice(i, i + 50));
   }
   if (paidToUpdate.length > 0) {
-    await Promise.all(
-      paidToUpdate.map(({ id, data }) =>
-        db.update(invoices).set(data).where(eq(invoices.id, id))
-      )
-    );
+    await runBatched(paidToUpdate, ({ id, data }) =>
+      db.update(invoices).set(data).where(eq(invoices.id, id)));
   }
 
   // STEP 7.6: Persist Payments + Applications + Refund Receipts
@@ -1525,11 +1531,10 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
           }
         }
       }
-      await Promise.all(purToUpdate.map(({ id, data }) =>
+      await runBatched(purToUpdate, ({ id, data }) =>
         db.update(deposits).set(data).where(eq(deposits.id, id))
           .then(() => { purchasesUpdated++; })
-          .catch(() => { purchasesSkipped++; })
-      ));
+          .catch(() => { purchasesSkipped++; }));
     }
     (results as any).purchasesCreated = purchasesCreated;
     (results as any).purchasesUpdated = purchasesUpdated;
@@ -1586,21 +1591,18 @@ export async function runQboSync(orgId: string, userId: string, opts: { fullSync
   );
 
   if (toClose.length > 0) {
-    await Promise.all(
-      toClose.map((inv) =>
-        db
-          .update(invoices)
-          .set({
-            paymentStatus: "Paid",
-            collectionStage: "Closed",
-            paid: inv.total,
-            qboBalance: 0,
-            qboSyncedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(invoices.id, inv.id))
-      )
-    );
+    await runBatched(toClose, (inv) =>
+      db
+        .update(invoices)
+        .set({
+          paymentStatus: "Paid",
+          collectionStage: "Closed",
+          paid: inv.total,
+          qboBalance: 0,
+          qboSyncedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(invoices.id, inv.id)));
     results.invoicesClosed = toClose.length;
   }
 
@@ -2353,5 +2355,9 @@ export async function syncTargetedEntities(
 
   // --- Execute ---
   if (invsToInsert.length > 0) await db.insert(invoices).values(invsToInsert);
-  if (updatePromises.length > 0) await Promise.all(updatePromises);
+  // Batched for the same reason as runBatched above — drizzle query builders
+  // are lazy, so slicing bounds how many fire at once.
+  for (let i = 0; i < updatePromises.length; i += 25) {
+    await Promise.all(updatePromises.slice(i, i + 25));
+  }
 }
