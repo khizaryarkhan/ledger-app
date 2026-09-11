@@ -6,7 +6,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
 import { InvoiceModal } from "@/components/forms";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
-import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
+import { fmt, formatDate, daysOverdue, getDueStatus, matchesDueFilter, DUE_FILTERS, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { Search, Plus, FileText, Trash2, X, Download, Send, CalendarDays, Sheet } from "lucide-react";
 
 // ── Date period helpers ────────────────────────────────────────────────────────
@@ -174,7 +174,9 @@ export default function InvoicesPage() {
         (i.resolvedEmail || "").toLowerCase().includes(s)
       );
     }
-    if (statusFilter) res = res.filter((i: any) => i.dueStatus === statusFilter);
+    // matchesDueFilter, not an equality check on dueStatus: the calendar
+    // windows ("Due This Week"/"Due This Month") overlap the single buckets.
+    if (statusFilter) res = res.filter((i: any) => matchesDueFilter(i, statusFilter));
     if (stageFilter) {
       // Keep legacy aliases so old data with alternate stage names still matches
       const STAGE_ALIASES: Record<string, string[]> = {
@@ -369,7 +371,7 @@ export default function InvoicesPage() {
         {/* ── Search + column filters ── */}
         <div className="p-3 border-b border-stone-800 flex items-center gap-2 flex-wrap">
           <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, email, PO..." icon={Search} className="w-72" />
-          <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Not Due", "Due Soon", "Due Today", "Overdue", "Paid", "Written Off"]} />
+          <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={DUE_FILTERS} />
           <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages"
             options={(orgSettings?.stages ?? ["New","In Progress","Promised","Disputed","Escalated","Closed"]).map((s: any) =>
               typeof s === "string" ? s : { value: s.key, label: s.label }

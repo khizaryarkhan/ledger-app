@@ -88,6 +88,46 @@ export const getDueStatus = (inv: any) => {
   return "Not Due";
 };
 
+/** Local YYYY-MM-DD (never toISOString — that shifts the day across timezones). */
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Last day of the current week (Sunday) and of the current month, inclusive. */
+const endOfWeekYmd = () => { const d = new Date(); d.setDate(d.getDate() + ((7 - d.getDay()) % 7)); return ymd(d); };
+const endOfMonthYmd = () => { const d = new Date(); return ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+
+/**
+ * Due-date filter options. "Due This Week"/"Due This Month" are CALENDAR
+ * windows (through Sunday / through month end), deliberately not rolling ones:
+ * "Due Soon" already means "within 7 days", so a rolling week would just
+ * duplicate it.
+ *
+ * The board variant drops Paid/Written Off — it only ever shows open AR, so
+ * offering them there would be two filters that always return nothing.
+ */
+export const DUE_FILTERS = ["Not Due", "Due Soon", "Due Today", "Due This Week", "Due This Month", "Overdue", "Paid", "Written Off"];
+export const DUE_FILTERS_OPEN = ["Not Due", "Due Soon", "Due Today", "Due This Week", "Due This Month", "Overdue"];
+
+/**
+ * Unlike getDueStatus, which puts an invoice in exactly one bucket, the two
+ * calendar windows OVERLAP the others (something due Thursday is both "Due
+ * Soon" and "Due This Week"), so this is a predicate rather than an equality
+ * check.
+ */
+export const matchesDueFilter = (inv: any, filter: string): boolean => {
+  if (!filter) return true;
+  if (filter === "Due This Week" || filter === "Due This Month") {
+    if (inv.paymentStatus === "Paid" || inv.paymentStatus === "Written Off") return false;
+    if (!inv.dueDate) return false;
+    const due = String(inv.dueDate).slice(0, 10);
+    // ymd(new Date()), not today(): today() is UTC-based, and mixing it with
+    // these local dates flips the comparison by a day near midnight.
+    if (due < ymd(new Date())) return false; // already overdue — Overdue covers those
+    return due <= (filter === "Due This Week" ? endOfWeekYmd() : endOfMonthYmd());
+  }
+  return getDueStatus(inv) === filter;
+};
+
 export const getAgingBucket = (inv: any) => {
   const d = daysOverdue(inv.dueDate);
   if (d <= 0) return "Current";

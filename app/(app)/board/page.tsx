@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
-import { fmt, daysOverdue } from "@/lib/format";
+import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN } from "@/lib/format";
 import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
@@ -205,6 +205,7 @@ export default function BoardPage() {
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [regionFilter, setRegionFilter] = useState("");
   const [repFilter, setRepFilter] = useState("");
+  const [dueFilter, setDueFilter] = useState("");
   const [search, setSearch] = useState("");
 
   const repName = (id: string | null | undefined) => (reps ?? []).find((r: any) => r.id === id)?.name ?? null;
@@ -226,6 +227,12 @@ export default function BoardPage() {
         groupBy === "customer" ? i.customerId === e.id : i.projectId === e.id
       );
       if (entityInvoices.length === 0) return;
+
+      // Due-status filter — scope to invoices matching the selected window
+      if (dueFilter) {
+        entityInvoices = entityInvoices.filter((i: any) => matchesDueFilter(i, dueFilter));
+        if (entityInvoices.length === 0) return;
+      }
 
       // Region filter — scope invoices to only those in the selected region
       if (regionFilter) {
@@ -259,7 +266,7 @@ export default function BoardPage() {
     });
 
     return map;
-  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, search, stages, closedLabel]);
+  }, [invoices, customers, projects, groupBy, regionFilter, repFilter, dueFilter, search, stages, closedLabel]);
 
   const byStage = useMemo(() => {
     const result: Record<string, typeof grouped[string][]> = {};
@@ -332,6 +339,7 @@ export default function BoardPage() {
       if (repFilter && (proj?.repId ?? cust?.repId) !== repFilter) return;
       if (regionFilter && !(cust?.regionId === regionFilter || proj?.regionId === regionFilter)) return;
       if (stageFilter && stageLabel !== stageFilter) return;
+      if (dueFilter && !matchesDueFilter(i, dueFilter)) return;
       const q = search.trim().toLowerCase();
       if (q && !(`${cust?.name ?? ""} ${proj?.name ?? ""} ${i.invoiceNumber ?? ""} ${i.billingEmail ?? cust?.email ?? ""}`.toLowerCase().includes(q))) return;
       const regionId = cust?.regionId ?? proj?.regionId;
@@ -357,7 +365,7 @@ export default function BoardPage() {
       return d !== 0 ? d : b.bal - a.bal;
     });
     return rows;
-  }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, search, lastSentByInv]);
+  }, [invoices, customers, projects, regions, stages, closedLabel, repFilter, regionFilter, stageFilter, dueFilter, search, lastSentByInv]);
 
   return (
     // h-screen would overshoot by the 44px app top bar and force a useless
@@ -382,6 +390,16 @@ export default function BoardPage() {
               className="h-8 w-48 pl-7 pr-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 placeholder-stone-500 focus:border-emerald-500 focus:outline-none"
             />
           </div>
+          {/* Status filter — first, ahead of rep/region/stage. Paid and Written
+              Off are deliberately absent: the board only ever lists open AR, so
+              they would always come back empty. */}
+          <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)}
+            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
+            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+            <option value="">All statuses</option>
+            {DUE_FILTERS_OPEN.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
           {/* Rep filter */}
           {(reps ?? []).length > 0 && (
             <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
