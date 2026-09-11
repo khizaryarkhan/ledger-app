@@ -81,6 +81,7 @@ export default function CompanySettingsPage() {
 
   // Portal settings
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
+  const [payLinksEnabled, setPayLinksEnabled] = useState(true);
   const [savingPortal, setSavingPortal] = useState(false);
 
   // Currency picker
@@ -139,6 +140,7 @@ export default function CompanySettingsPage() {
       ));
       setDateFormat(orgSettings.dateFormat || "DD MMM YYYY");
       setShowPaymentHistory(orgSettings.showPaymentHistory ?? false);
+      setPayLinksEnabled(orgSettings.payLinksEnabled ?? true);
     }
   }, [orgSettings]);
 
@@ -480,13 +482,33 @@ export default function CompanySettingsPage() {
                 <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${showPaymentHistory ? "translate-x-4" : ""}`} />
               </button>
             </div>
+
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-white">Show online payment links</div>
+                <p className="text-[12px] text-stone-400 mt-0.5">
+                  Adds a "Pay now" button to reminder emails, the invoice PDF and the customer portal,
+                  pointing at QuickBooks' own payment page. Only ever appears when QuickBooks Payments is
+                  switched on for your company — turn this off if you'd rather customers didn't pay online.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={payLinksEnabled}
+                onClick={() => setPayLinksEnabled(v => !v)}
+                className={`relative shrink-0 mt-0.5 w-10 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-stone-900 ${payLinksEnabled ? "bg-emerald-600" : "bg-stone-700"}`}
+              >
+                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${payLinksEnabled ? "translate-x-4" : ""}`} />
+              </button>
+            </div>
+
             <Button
               size="sm"
               disabled={savingPortal}
               onClick={async () => {
                 setSavingPortal(true);
                 try {
-                  await updateOrgSettings({ showPaymentHistory });
+                  await updateOrgSettings({ showPaymentHistory, payLinksEnabled });
                 } finally {
                   setSavingPortal(false);
                 }

@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/db";
-import { qboTokens } from "@/db/schema";
+import { qboTokens, organisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
@@ -151,6 +151,7 @@ export type QboPayLinkReason =
   | "ok"
   | "not_qbo"               // Xero / native / credit memo — nothing to ask QBO for
   | "qbo_not_connected"
+  | "disabled_for_org"            // we were told to stop surfacing links (org opt-out)
   | "company_payments_disabled"   // org must switch on QuickBooks Payments e-invoicing
   | "invoice_online_payment_off"  // per-invoice card/ACH checkboxes are unticked
   | "no_bill_email"               // QBO needs a customer email on the invoice
@@ -164,6 +165,49 @@ export interface QboPayInfo {
   allowCard: boolean | null;
   allowAch: boolean | null;
   billEmail: string | null;
+}
+
+/**
+ * Whether this org wants us surfacing pay links at all (organisations
+ * .pay_links_enabled). Opt-OUT: absent/true means yes.
+ */
+const ORG_FLAG_TTL_MS = 60 * 1000;
+const orgFlagCache = new Map<string, { value: boolean; expires: number }>();
+
+async function orgPayLinksEnabled(orgId: string): Promise<boolean> {
+  const hit = orgFlagCache.get(orgId);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  try {
+    const [org] = await db.select({ enabled: organisations.payLinksEnabled })
+      .from(organisations).where(eq(organisations.id, orgId)).limit(1);
+    const value = org?.enabled !== false;
+    // Short TTL: toggling the setting should take effect promptly, but a
+    // 20-invoice portal load shouldn't re-read it 20 times.
+    orgFlagCache.set(orgId, { value, expires: Date.now() + ORG_FLAG_TTL_MS });
+    return value;
+  } catch {
+    return true; // never let a settings read break invoice delivery
+  }
+}
+
+/**
+ * Company-level payments flag, cached in-process.
+ *
+ * Multi-tenant cost control: without this we asked QBO for a link once PER
+ * INVOICE even for orgs that can never have one (a chase run = one wasted call
+ * per invoice, a portal page load = up to 20), all counting against that
+ * company's QBO rate limit. One cached preference read now short-circuits the
+ * lot. TTL is short so enabling payments in QBO shows up quickly.
+ */
+const PAYMENTS_PREF_TTL_MS = 10 * 60 * 1000;
+const paymentsPrefCache = new Map<string, { value: boolean | null; expires: number }>();
+
+async function companyPaymentsEnabledCached(orgId: string, token: OrgQboToken): Promise<boolean | null> {
+  const hit = paymentsPrefCache.get(orgId);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const value = await qboCompanyPaymentsEnabled(token);
+  paymentsPrefCache.set(orgId, { value, expires: Date.now() + PAYMENTS_PREF_TTL_MS });
+  return value;
 }
 
 /** Is the company itself payments-enabled? (Preferences.SalesFormsPrefs) */
@@ -199,8 +243,17 @@ export async function fetchQboInvoicePayInfo(
   const blank: QboPayInfo = { payUrl: null, reason: "not_qbo", companyPaymentsEnabled: null, allowCard: null, allowAch: null, billEmail: null };
   if (!invoice.qboId || invoice.qboId.startsWith("CM-")) return blank;
 
+  // Org opted out of pay links entirely — don't ask QBO, don't render anything.
+  if (!(await orgPayLinksEnabled(orgId))) return { ...blank, reason: "disabled_for_org" };
+
   const token = await getOrgQboToken(orgId).catch(() => null);
   if (!token) return { ...blank, reason: "qbo_not_connected" };
+
+  // Company can't take online payments → QBO will never mint a link for ANY of
+  // its invoices, so stop here instead of asking once per invoice.
+  if ((await companyPaymentsEnabledCached(orgId, token)) === false) {
+    return { ...blank, reason: "company_payments_disabled", companyPaymentsEnabled: false };
+  }
 
   try {
     const controller = new AbortController();
@@ -230,7 +283,7 @@ export async function fetchQboInvoicePayInfo(
 
     // No link — work out which precondition is the blocker so the UI can say
     // something actionable instead of shrugging.
-    const companyPaymentsEnabled = await qboCompanyPaymentsEnabled(token);
+    const companyPaymentsEnabled = await companyPaymentsEnabledCached(orgId, token);
     let reason: QboPayLinkReason = "no_link_returned";
     if (companyPaymentsEnabled === false) reason = "company_payments_disabled";
     else if (allowCard === false && allowAch === false) reason = "invoice_online_payment_off";

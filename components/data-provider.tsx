@@ -24,6 +24,7 @@ type DataContextType = {
     lastCronRun: string | null;
     lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null;
     showPaymentHistory: boolean;
+    payLinksEnabled: boolean;
     reportingEnabled: boolean;
     multicurrencyEnabled: boolean;
     fiscalYearStartMonth: number;
@@ -57,7 +58,7 @@ type DataContextType = {
   deleteRep: (id: string) => Promise<void>;
   addRegion: (data: { name: string }) => Promise<any>;
   deleteRegion: (id: string) => Promise<void>;
-  updateOrgSettings: (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; reportingEnabled: boolean; company: Record<string, string | null> }>) => Promise<void>;
+  updateOrgSettings: (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; payLinksEnabled: boolean; reportingEnabled: boolean; company: Record<string, string | null> }>) => Promise<void>;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -84,7 +85,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [regions, setRegions] = useState<any[]>([]);
-  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[]; lastCronRun: string | null; lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null; showPaymentHistory: boolean; reportingEnabled: boolean; multicurrencyEnabled: boolean; fiscalYearStartMonth: number; enabledModules: string[]; company?: Record<string, string | null> }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [], lastCronRun: null, lastCronStats: null, showPaymentHistory: false, reportingEnabled: false, multicurrencyEnabled: false, fiscalYearStartMonth: 1, enabledModules: ["receivables", "payables", "studio", "accounting"] });
+  const [orgSettings, setOrgSettings] = useState<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; name: string; stages: import("@/lib/stages").Stage[]; disabledRules: string[]; lastCronRun: string | null; lastCronStats: { emailsSent: number; skipped: number; errors: string[] } | null; showPaymentHistory: boolean; payLinksEnabled: boolean; reportingEnabled: boolean; multicurrencyEnabled: boolean; fiscalYearStartMonth: number; enabledModules: string[]; company?: Record<string, string | null> }>({ classificationLevel: "customer", dateFormat: "DD MMM YYYY", currency: "EUR", logoUrl: null, displayName: null, name: "", stages: [], disabledRules: [], lastCronRun: null, lastCronStats: null, showPaymentHistory: false, payLinksEnabled: true, reportingEnabled: false, multicurrencyEnabled: false, fiscalYearStartMonth: 1, enabledModules: ["receivables", "payables", "studio", "accounting"] });
   const [toastState, setToastState] = useState<any>(null);
 
   const refresh = useCallback(async () => {
@@ -307,7 +308,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     toast("Region removed");
   };
 
-  const updateOrgSettings = async (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; company: Record<string, string | null> }>) => {
+  const updateOrgSettings = async (s: Partial<{ classificationLevel: "customer" | "project"; dateFormat: string; currency: string; logoUrl: string | null; displayName: string | null; showPaymentHistory: boolean; payLinksEnabled: boolean; company: Record<string, string | null> }>) => {
     const updated = await fetchJSON("/api/org/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) });
     setOrgSettings(prev => ({ ...prev, ...updated }));
     toast("Settings saved");

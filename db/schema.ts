@@ -48,6 +48,12 @@ export const organisations = pgTable("organisations", {
   stages: jsonb("stages"), // customisable collection stages array
   disabledRules: jsonb("disabled_rules").notNull().default([]), // automation rule IDs that are paused
   showPaymentHistory: boolean("show_payment_history").notNull().default(false), // show payment history tab on customer portal
+  // Opt-OUT for QBO "Pay now" links in emails/PDFs/the customer portal.
+  // Default true because the links are already self-gating: QBO only mints one
+  // when the company has online payments enabled, so an org that can't take
+  // online payments shows nothing regardless. This exists for the org that CAN
+  // but would rather customers didn't self-pay.
+  payLinksEnabled: boolean("pay_links_enabled").notNull().default(true),
   reportingEnabled: boolean("reporting_enabled").notNull().default(false), // enables the Reporting module in the sidebar
   // Which product modules this org has access to — see lib/modules.ts. Default
   // covers every pre-existing org (core AR/AP/Studio/Accounting); vertical

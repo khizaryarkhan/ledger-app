@@ -401,6 +401,40 @@ deliberately out of scope here):
   `invoiceId` — and skips it when the body already contains that URL, so
   the branded senders (which draw their own per-row buttons) don't end up
   with two. That makes it the safety net for any future caller too.
+### Multi-tenant: orgs that can't (or won't) take online payments
+
+Two real clients, opposite needs: one has QuickBooks Payments on and wants
+"Pay now" everywhere; the other doesn't, and a pay button would mislead
+their customers. Handled on two levels:
+
+- **Self-gating by default — no config.** QBO only mints an `InvoiceLink`
+  when the company has online payments enabled, so a non-payments org gets
+  `null` everywhere. Every surface hides the *whole* affordance rather than
+  rendering a dead one: `anyPay` drops the email column
+  (`lib/ar-email.ts`), `anyPayable` drops the portal column
+  (`app/portal/[token]/page.tsx`), `stampQboPayButton` returns the PDF
+  untouched, and `/api/email/send` appends nothing. Enable payments in QBO
+  and buttons appear on their own; disable and they vanish.
+- **`organisations.pay_links_enabled`** (migration `0082`, default **true**)
+  is an opt-OUT for the org that *can* take online payments but would rather
+  customers didn't self-pay. Deliberately not opt-in: an opt-in toggle
+  invites "I switched it on and still see nothing" tickets, because QBO
+  won't issue links regardless unless payments are enabled there.
+- **Enforce it at the choke point, not per surface.** Every path
+  (emails, PDFs, portal, pay-links endpoints) resolves links through
+  `fetchQboInvoicePayInfo`, so the org opt-out and the company-payments
+  check live there and cover all seven send paths at once. Don't re-check
+  in individual surfaces.
+- **Cost control matters here.** Before this, we asked QBO for a link once
+  *per invoice* even for orgs that can never have one — a chase run burned
+  one call per invoice and a portal load up to 20, against that company's
+  QBO rate limit, for nothing. Both the org flag and the company
+  `ETransactionPaymentEnabled` preference are now cached in-process (60s /
+  10min) and short-circuit before any per-invoice call.
+- The internal "Pay online" button on the invoice detail page is hidden when
+  the org opts out; the QBO-disabled case still shows it but explains itself
+  via `PAY_LINK_MESSAGES`.
+
 - **The customer-facing portal** (`app/portal/[token]/`) had no way to pay
   at all — it only ever offered "promise a date" or "raise a query", which
   is what the portal button in the email leads to. `GET
@@ -459,8 +493,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0081` at `when`
-  `1788900000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0082` at `when`
+  `1789000000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
 - **Tailwind `content` globs must include `lib/**`** — classes defined in shared
   lib files were silently unstyled until it was added.

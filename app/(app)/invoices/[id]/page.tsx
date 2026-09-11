@@ -16,6 +16,7 @@ import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, 
 // so the message names the actual blocker instead of shrugging.
 const PAY_LINK_MESSAGES: Record<string, string> = {
   not_qbo:                  "Online payment links come from QuickBooks — this invoice isn't a QuickBooks invoice.",
+  disabled_for_org:         "Online payment links are switched off for this organisation — turn them back on in Settings → Company → Customer portal.",
   qbo_not_connected:        "QuickBooks isn't connected for this organisation — reconnect it in Settings.",
   company_payments_disabled:"QuickBooks Payments isn't switched on for this company, so QuickBooks won't issue payment links. Turn on online payments in QuickBooks (Settings → Payments), then try again.",
   invoice_online_payment_off:"Online card and bank-transfer payments are both unticked on this invoice in QuickBooks. Tick at least one on the invoice, then try again.",
@@ -63,12 +64,12 @@ export default function InvoiceDetailPage() {
     (inv.qboId && !inv.qboId.startsWith("CM-")) ||
     (inv.xeroId && !inv.xeroId.startsWith("CN-"));
 
-  // QBO's own hosted "Review and pay" link — QBO-only (see CLAUDE.md "AR
-  // invoice emails — QBO 'Pay online' link"). This can NEVER be embedded in
-  // the downloaded PDF itself (QBO's PDF-export doesn't render it, even when
-  // downloaded straight from QBO) — it's a separate hosted page, so it's a
-  // separate action here too, fetched on demand rather than on every page load.
-  const canPayOnline = !!(inv.qboId && !inv.qboId.startsWith("CM-") && !(inv.xeroId && !inv.xeroId.startsWith("CN-")));
+  // Opens QBO's own hosted "Review and pay" page — QBO-only (see CLAUDE.md "AR
+  // invoice emails — QBO 'Pay online' link"). Fetched on demand rather than on
+  // every page load. Hidden when the org has opted out, so a client that can't
+  // take online payments never sees a button that can only explain itself.
+  const canPayOnline = !!(inv.qboId && !inv.qboId.startsWith("CM-") && !(inv.xeroId && !inv.xeroId.startsWith("CN-")))
+    && (orgSettings?.payLinksEnabled ?? true);
 
   const handlePayOnline = async () => {
     if (!canPayOnline) return;

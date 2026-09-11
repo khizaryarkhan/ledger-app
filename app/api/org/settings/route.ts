@@ -55,6 +55,7 @@ export async function GET() {
         lastCronRun: organisations.lastCronRun,
         lastCronStats: organisations.lastCronStats,
         showPaymentHistory: organisations.showPaymentHistory,
+        payLinksEnabled: organisations.payLinksEnabled,
         reportingEnabled: organisations.reportingEnabled,
         multicurrencyEnabled: organisations.multicurrencyEnabled,
         fiscalYearStartMonth: organisations.fiscalYearStartMonth,
@@ -66,7 +67,7 @@ export async function GET() {
     org = row;
     lastCronRun = row?.lastCronRun?.toISOString() ?? null;
     lastCronStats = row?.lastCronStats ?? null;
-    org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false, reportingEnabled: (row as any).reportingEnabled ?? false };
+    org = { ...row, showPaymentHistory: (row as any).showPaymentHistory ?? false, payLinksEnabled: (row as any).payLinksEnabled ?? true, reportingEnabled: (row as any).reportingEnabled ?? false };
   } catch {
     // Columns likely missing — run the 0003 migration. Degrade gracefully.
     const [row] = await db
@@ -109,6 +110,7 @@ export async function GET() {
     lastCronRun,
     lastCronStats,
     showPaymentHistory: org?.showPaymentHistory ?? false,
+    payLinksEnabled: org?.payLinksEnabled ?? true,
     reportingEnabled: org?.reportingEnabled ?? false,
     multicurrencyEnabled: org?.multicurrencyEnabled ?? false,
     fiscalYearStartMonth: org?.fiscalYearStartMonth ?? 1,
@@ -201,6 +203,9 @@ export async function PATCH(req: Request) {
   if (body.showPaymentHistory !== undefined) {
     updates.showPaymentHistory = Boolean(body.showPaymentHistory);
   }
+  if (body.payLinksEnabled !== undefined) {
+    updates.payLinksEnabled = Boolean(body.payLinksEnabled);
+  }
   if (body.reportingEnabled !== undefined) {
     updates.reportingEnabled = Boolean(body.reportingEnabled);
   }
@@ -255,6 +260,7 @@ export async function PATCH(req: Request) {
       stages: organisations.stages,
       disabledRules: organisations.disabledRules,
       showPaymentHistory: organisations.showPaymentHistory,
+      payLinksEnabled: organisations.payLinksEnabled,
       reportingEnabled: organisations.reportingEnabled,
       multicurrencyEnabled: organisations.multicurrencyEnabled,
     })
@@ -282,6 +288,7 @@ export async function PATCH(req: Request) {
     stages: getStages(updated),
     disabledRules: (updated.disabledRules as string[]) ?? [],
     showPaymentHistory: updated.showPaymentHistory ?? false,
+    payLinksEnabled: updated.payLinksEnabled ?? true,
     reportingEnabled: updated.reportingEnabled ?? false,
   });
 }
