@@ -39,7 +39,11 @@ const nextConfig = {
     },
     // Next 14 key (was incorrectly set as top-level `serverExternalPackages`,
     // which Next 14 ignores). Keep heavy server-only deps out of the bundle.
-    serverComponentsExternalPackages: ["openai", "imapflow", "mailparser", "nodemailer"],
+    // unpdf ships a pdfjs build that uses `import.meta` directly — webpack
+    // warns "Critical dependency" and bundling it risks breaking that at
+    // runtime. Keep it a real Node import instead (it's server-only: PDF text
+    // extraction for lib/qbo-pay-button.ts's pay-button anchoring).
+    serverComponentsExternalPackages: ["openai", "imapflow", "mailparser", "nodemailer", "unpdf"],
   },
   async headers() {
     return [

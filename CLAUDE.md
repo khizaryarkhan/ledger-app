@@ -457,17 +457,31 @@ downloaded from this app didn't. Don't re-derive the old conclusion.
 We don't control how QBO renders its `/invoice/{id}/pdf` export, so rather
 than depend on it, **we stamp the button on ourselves**:
 
-- **`lib/qbo-pay-button.ts`'s `stampPayButtonOnPdf(pdf, payUrl)`** — pure,
-  no network/db. Uses `pdf-lib` (already a dependency, already used by
-  `lib/statement-pdf.ts` / `lib/approval-pdf.ts`) to draw a green "Review
-  and pay online" button in page 1's **bottom margin** (the one area invoice
-  templates reliably leave clear, verified rendered) on an opaque white
+- **`lib/qbo-pay-button.ts`'s `stampPayButtonOnPdf(pdf, payUrl)`** — draws a
+  green "Review and pay online" button with `pdf-lib` (already used by
+  `lib/statement-pdf.ts` / `lib/approval-pdf.ts`) on an opaque white
   backdrop, plus a real `/Link` annotation over it so it's clickable — the
   drawn rectangle alone is just ink. **Idempotent**: re-stamping a PDF that
   already carries the same URI is a no-op, because these buffers pass
   through several layers (fetch → attach → send). Returns the PDF
   *unchanged* on any error — a missing button is a disappointment, a
   corrupted invoice PDF is an incident.
+- **Placement is found, not assumed.** It sits immediately left of the
+  "Balance due" figure (a button in the footer read as an afterthought), and
+  that block moves down the page as line items are added — so there is no
+  safe fixed coordinate. `pdf-lib` can only write, not read, so **`unpdf`**
+  (serverless-friendly pdfjs build) extracts page text to locate the label;
+  it matches `balance due`/`amount due`/`total due`, handles the label being
+  split across runs ("BALANCE" + "DUE"), and searches every page since
+  totals land on the last one. Text-item coordinates come back in the *same*
+  space pdf-lib draws in (bottom-left origin, y = baseline) — verified
+  empirically with a probe, no viewport transform. If the label isn't found,
+  or extraction throws, it falls back to the old bottom-margin position, so
+  a button always appears.
+- **`unpdf` is in `serverComponentsExternalPackages`** (`next.config.js`).
+  Its bundled pdfjs uses `import.meta` directly, which webpack flags as a
+  "Critical dependency" warning and risks breaking at runtime if bundled —
+  keep it a real Node import.
 - **`lib/qbo-token.ts`'s `stampQboPayButton(orgId, invoice, pdf)`** resolves
   the link then stamps. `fetchQboInvoicePdf` now does this **by default**
   (opt out with `{ payButton: false }`), which covers the chase crons,
