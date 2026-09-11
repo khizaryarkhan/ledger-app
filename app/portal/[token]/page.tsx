@@ -92,6 +92,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [loading, setLoading]   = useState(true);
   const [tab, setTab]           = useState<"open" | "history">("open");
   const [submitting, setSubmitting] = useState(false);
+  // Submit failures are shown INLINE, not as the full-page "Link unavailable"
+  // screen. That screen is for a dead token; using it for a failed submit told
+  // customers their link was broken and threw away everything they'd typed.
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone]         = useState(false);
   const [summary, setSummary]   = useState<SubmittedSummary>({ commitments: [], disputes: [], notes: [] });
 
@@ -188,6 +192,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     });
 
     if (responses.length === 0) { setSubmitting(false); return; }
+    setSubmitError(null);
 
     try {
       const res = await fetch(`/api/portal/${params.token}/submit`, {
@@ -195,8 +200,16 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         body: JSON.stringify({ responses }),
       });
       if (res.ok) { setSummary({ commitments: committed, disputes: disputed, notes: noted }); setDone(true); }
-      else { const d = await res.json().catch(() => ({})); setErrorMsg(d.error || "error"); }
-    } catch { setErrorMsg("error"); }
+      else if (res.status === 410) {
+        // The token really is spent/expired — that IS the full-page case.
+        const d = await res.json().catch(() => ({}));
+        setErrorMsg(d.error || "error");
+      } else {
+        setSubmitError("We couldn't record your response just then. Please try again — your answers are still here.");
+      }
+    } catch {
+      setSubmitError("We couldn't reach the server. Please check your connection and try again — your answers are still here.");
+    }
     finally  { setSubmitting(false); }
   }
 
@@ -559,6 +572,14 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Submit failed — inline and retryable, so the customer keeps
+                      what they typed instead of losing the page. */}
+                  {submitError && (
+                    <div style={{ padding:"10px 16px", borderTop:"1px solid #FECACA", background:"#FEF2F2", color:"#B91C1C", fontSize:13 }}>
+                      {submitError}
+                    </div>
+                  )}
 
                   {/* Submit footer */}
                   <div style={{ padding:"12px 16px", borderTop:"1px solid #E5E7EB", background:"#F9FAFB", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>

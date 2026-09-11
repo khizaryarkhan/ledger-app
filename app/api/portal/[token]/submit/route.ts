@@ -89,10 +89,22 @@ export async function POST(req: Request, { params }: { params: { token: string }
       summary.push(`#${inv.invoiceNumber}: DISPUTED (${category})${r.dispute.reason ? ` — ${r.dispute.reason}` : ""}`);
     }
 
+    // --- Note only ---
+    // The portal lets a customer respond with JUST a comment ("Set a pay-by
+    // date, query, or note on each invoice to respond"), and its Submit button
+    // enables on a bare comment. The server used to ignore r.note entirely and
+    // then reject the whole request as "Nothing to submit" — so the most
+    // natural response, typing a message, returned 400 and the page replaced
+    // itself with "Link unavailable". A note isn't a promise or a dispute; it's
+    // an inbound message, recorded as a communication.
+    const note = typeof r.note === "string" ? r.note.trim().slice(0, 2000) : "";
+    if (note) summary.push(`#${inv.invoiceNumber}: ${note}`);
+
     // Inbound communication record so staff see the response in the timeline
     const parts: string[] = [];
     if (r.promise?.date) parts.push(`Committed to pay ${r.promise.amount != null ? r.promise.amount : "full balance"} by ${r.promise.date}${r.promise.note ? ` (${r.promise.note})` : ""}`);
     if (r.dispute?.category) parts.push(`Dispute: ${r.dispute.category}${r.dispute.reason ? ` — ${r.dispute.reason}` : ""}`);
+    if (note) parts.push(note);
     if (parts.length > 0) {
       commRows.push({
         orgId, customerId, invoiceId: inv.id,
@@ -104,7 +116,9 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }
   }
 
-  if (promiseRows.length === 0 && disputeRows.length === 0) {
+  // commRows covers note-only responses, which produce neither a promise nor
+  // a dispute but are still a real answer from the customer.
+  if (promiseRows.length === 0 && disputeRows.length === 0 && commRows.length === 0) {
     return NextResponse.json({ error: "Nothing to submit" }, { status: 400 });
   }
 
@@ -125,15 +139,32 @@ export async function POST(req: Request, { params }: { params: { token: string }
   // Persist events
   if (promiseRows.length > 0) await db.insert(invoicePromises).values(promiseRows);
   if (disputeRows.length > 0) await db.insert(invoiceDisputes).values(disputeRows);
-  if (commRows.length > 0) await db.insert(communications).values(commRows).catch(() => {});
+  // NOT a silent catch. This swallow is why "the customer responded but it
+  // didn't log" went unnoticed: the insert was failing and throwing the error
+  // away. Logging it is non-fatal (the promise/dispute rows are the record of
+  // truth) but it must be visible.
+  if (commRows.length > 0) {
+    await db.insert(communications).values(commRows)
+      .catch(err => console.error("portal: failed to log customer response to communications:", err?.message));
+  }
 
-  // Recompute derived state per affected invoice
-  await Promise.all([...new Set(ids)].map(id => recomputeInvoiceState(orgId, id)));
+  // Everything past this point is bookkeeping: the customer's answer is
+  // already persisted, so a failure here must NOT surface as an error. The
+  // page turns any non-ok response into a full-screen "Link unavailable",
+  // which would tell a customer their response failed when it actually saved
+  // — and invite a retry that duplicates it.
 
-  // Single-use: mark token Completed so the link dies until a new request is sent
+  // Single-use: mark the token Completed FIRST, so even if the steps below
+  // blow up, a retry can't insert the same response twice.
   await db.update(customerPortalTokens)
     .set({ status: "Completed", completedAt: new Date() })
-    .where(eq(customerPortalTokens.id, row.id));
+    .where(eq(customerPortalTokens.id, row.id))
+    .catch(err => console.error("portal: failed to close token:", err?.message));
+
+  // Recompute derived state per affected invoice
+  await Promise.all([...new Set(ids)].map(id =>
+    recomputeInvoiceState(orgId, id).catch(err =>
+      console.error(`portal: recompute failed for invoice ${id}:`, err?.message))));
 
   // Notify staff (collection owners of affected invoices + org admins)
   notifyStaff(orgId, customerId, summary, disputeRows.length > 0).catch(err =>
