@@ -223,13 +223,10 @@ export async function recomputeInvoiceState(orgId: string, invoiceId: string) {
   }).where(and(eq(invoices.id, invoiceId), eq(invoices.orgId, orgId)));
 }
 
-export const DISPUTE_CATEGORIES = [
-  "Wrong Amount",
-  "Already Paid",
-  "Goods/Service",
-  "Duplicate",
-  "Other",
-] as const;
+// Defined in lib/portal-response.ts (pure, db-free so it can be unit-tested)
+// and re-exported here so every existing `from "@/lib/portal"` import is
+// unaffected.
+export { DISPUTE_CATEGORIES } from "@/lib/portal-response";
 
 // Structured resolution outcomes. "Rejected" maps to status Rejected; the
 // rest map to status Resolved.

@@ -1,0 +1,42 @@
+# Typecheck + unit tests on every push and pull request.
+#
+# Deliberately does NOT run `next build`: several API routes need real Stripe /
+# Intuit keys and fail at page-data collection without them, so a build here
+# would go red for an env gap rather than a code defect (see CLAUDE.md). The
+# two checks below are the ones that are honest without secrets.
+#
+# The database-backed foundation check lives in scripts/reconcile-foundation.ts
+# and is run from /admin/reconcile against production — not here, because CI
+# has no database and a fabricated one would prove nothing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20          # matches the @types/node major this repo pins
+          cache: npm
+
+      # The mobile/ app is a separate npm project with its own lockfile and is
+      # not part of this build — don't install or check it here.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test

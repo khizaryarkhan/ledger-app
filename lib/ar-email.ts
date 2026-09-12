@@ -123,3 +123,29 @@ export function renderInvoiceEmail(opts: {
       </div>
     </div>`;
 }
+
+/**
+ * Append a pay button to a free-text email body — unless the link is already
+ * there.
+ *
+ * Only the composer needs this: the branded senders above draw their own
+ * per-row buttons. The guard compares against an UNESCAPED copy of the body
+ * because those senders write the href through an HTML-attribute escape
+ * (& → &amp;); a raw-string match silently missed them and every invoice sent
+ * that way went out with TWO pay buttons — reported by a customer.
+ *
+ * Pure and I/O-free so the dedup rule is unit-tested (tests/ar-email.test.ts).
+ */
+export function appendPayButton(body: string, payUrl: string | null | undefined, invoiceNumber: string): string {
+  if (!payUrl) return body;
+  if (body.replace(/&amp;/g, "&").includes(payUrl)) return body;
+  return body + `
+            <div style="margin:24px 0 8px;">
+              <a href="${escapeAttr(payUrl)}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-size:13px;font-weight:700;line-height:1;padding:11px 18px;border-radius:6px;mso-padding-alt:0;">
+                <!--[if mso]><i style="letter-spacing:18px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+                <span style="mso-text-raise:7px;">Pay invoice ${invoiceNumber} online</span>
+                <!--[if mso]><i style="letter-spacing:18px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+              </a>
+              <p style="font-size:11px;color:#9ca3af;margin:8px 0 0;">Secure payment page hosted by QuickBooks.</p>
+            </div>`;
+}

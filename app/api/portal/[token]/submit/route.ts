@@ -3,7 +3,8 @@ import {
   customerPortalTokens, invoicePromises, invoiceDisputes, invoices,
   communications, customers, users, userOrganisations,
 } from "@/db/schema";
-import { validatePortalToken, recomputeInvoiceState, DISPUTE_CATEGORIES } from "@/lib/portal";
+import { validatePortalToken, recomputeInvoiceState } from "@/lib/portal";
+import { buildPortalSubmission, promisedWithoutNewDispute } from "@/lib/portal-response";
 import { sendEmail } from "@/lib/mailer";
 import { rateLimit } from "@/lib/rate-limit";
 import { and, eq, inArray } from "drizzle-orm";
@@ -47,85 +48,19 @@ export async function POST(req: Request, { params }: { params: { token: string }
     .where(and(eq(invoices.orgId, orgId), eq(invoices.customerId, customerId), inArray(invoices.id, ids)));
   const invById = new Map(invRows.map(i => [i.id, i as { id: string; invoiceNumber: string; collectionOwnerId: string | null }]));
 
-  const promiseRows: any[] = [];
-  const disputeRows: any[] = [];
-  const commRows: any[] = [];
-  const summary: string[] = [];
+  // The row-building is a pure function (lib/portal-response.ts) so it can be
+  // unit-tested without a database — see tests/portal-submit.test.ts. A
+  // note-only response is a real answer and must not be rejected.
+  const { promiseRows, disputeRows, commRows, summary, hasContent } =
+    buildPortalSubmission(responses, invById, { orgId, customerId, tokenId: row.id });
 
-  for (const r of responses) {
-    const inv = invById.get(r.invoiceId);
-    if (!inv) continue;
-
-    // --- Promise ---
-    if (r.promise?.date) {
-      const amount = r.promise.amount != null && !isNaN(Number(r.promise.amount))
-        ? Number(r.promise.amount) : null;
-      promiseRows.push({
-        orgId, invoiceId: inv.id, customerId,
-        promiseDate: String(r.promise.date).slice(0, 16),
-        amount,
-        source: "Customer Portal",
-        enteredBy: null,
-        note: r.promise.note ? String(r.promise.note).slice(0, 1000) : null,
-        status: "Active",
-        tokenId: row.id,
-      });
-      summary.push(`#${inv.invoiceNumber}: committed to pay ${amount != null ? amount : "full balance"} by ${r.promise.date}`);
-    }
-
-    // --- Dispute ---
-    if (r.dispute?.category) {
-      const category = DISPUTE_CATEGORIES.includes(r.dispute.category) ? r.dispute.category : "Other";
-      disputeRows.push({
-        orgId, invoiceId: inv.id, customerId,
-        category,
-        reason: r.dispute.reason ? String(r.dispute.reason).slice(0, 2000) : null,
-        source: "Customer Portal",
-        raisedBy: null,
-        assignedTo: inv.collectionOwnerId ?? null, // auto-assign to the invoice owner
-        status: "Open",
-        tokenId: row.id,
-      });
-      summary.push(`#${inv.invoiceNumber}: DISPUTED (${category})${r.dispute.reason ? ` — ${r.dispute.reason}` : ""}`);
-    }
-
-    // --- Note only ---
-    // The portal lets a customer respond with JUST a comment ("Set a pay-by
-    // date, query, or note on each invoice to respond"), and its Submit button
-    // enables on a bare comment. The server used to ignore r.note entirely and
-    // then reject the whole request as "Nothing to submit" — so the most
-    // natural response, typing a message, returned 400 and the page replaced
-    // itself with "Link unavailable". A note isn't a promise or a dispute; it's
-    // an inbound message, recorded as a communication.
-    const note = typeof r.note === "string" ? r.note.trim().slice(0, 2000) : "";
-    if (note) summary.push(`#${inv.invoiceNumber}: ${note}`);
-
-    // Inbound communication record so staff see the response in the timeline
-    const parts: string[] = [];
-    if (r.promise?.date) parts.push(`Committed to pay ${r.promise.amount != null ? r.promise.amount : "full balance"} by ${r.promise.date}${r.promise.note ? ` (${r.promise.note})` : ""}`);
-    if (r.dispute?.category) parts.push(`Dispute: ${r.dispute.category}${r.dispute.reason ? ` — ${r.dispute.reason}` : ""}`);
-    if (note) parts.push(note);
-    if (parts.length > 0) {
-      commRows.push({
-        orgId, customerId, invoiceId: inv.id,
-        direction: "Inbound", channel: "Portal",
-        subject: `Customer response — #${inv.invoiceNumber}`,
-        body: parts.join("\n"),
-        matchedBy: "Portal", isDraft: false, authorId: null,
-      });
-    }
-  }
-
-  // commRows covers note-only responses, which produce neither a promise nor
-  // a dispute but are still a real answer from the customer.
-  if (promiseRows.length === 0 && disputeRows.length === 0 && commRows.length === 0) {
+  if (!hasContent) {
     return NextResponse.json({ error: "Nothing to submit" }, { status: 400 });
   }
 
   // Switching dispute → promise: if the customer set a promise on an invoice
   // (and did NOT also raise a new dispute on it), resolve any open dispute there.
-  const disputedNow = new Set(disputeRows.map(d => d.invoiceId));
-  const promisedSwitchIds = [...new Set(promiseRows.map(p => p.invoiceId))].filter(id => !disputedNow.has(id));
+  const promisedSwitchIds = promisedWithoutNewDispute(promiseRows, disputeRows);
   if (promisedSwitchIds.length > 0) {
     await db.update(invoiceDisputes)
       .set({ status: "Resolved", outcome: "Customer agreed to pay", resolvedAt: new Date() })

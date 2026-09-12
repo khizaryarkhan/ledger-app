@@ -13,7 +13,10 @@
     "db:seed-mobile-demo": "tsx scripts/seed-mobile-demo.ts",
     "db:introspect": "drizzle-kit introspect",
     "db:push": "drizzle-kit push",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.4",
@@ -57,7 +60,8 @@
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
     "tsx": "^4.16.2",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=20"
