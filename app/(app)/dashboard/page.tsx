@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
-import { fmt, daysOverdue, getAgingBucket, daysFromNow, today } from "@/lib/format";
+import { fmt, daysOverdue, getAgingBucket, daysFromNow, today, localToday, isWithinAsAt } from "@/lib/format";
 import { ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, Circle, AlertTriangle, Mail, X, Printer } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
@@ -758,6 +758,19 @@ export default function DashboardPage() {
   const [snapshotInvoices, setSnapshotInvoices] = useState<any[] | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
+  // ── "As at" report date ───────────────────────────────────────────────────
+  // Receivables are reported as at a date: only invoices dated on or before it
+  // count, because an invoice dated later hasn't been issued yet. Orgs that
+  // raise invoices ahead of time to track a collection schedule would otherwise
+  // see their whole future order book reported as receivable today.
+  //
+  // Moving this date FORWARD is how you look at future-dated invoices — which
+  // is why the input carries no `max`, unlike the one on /reports. Backwards it
+  // reconstructs a historical position, exactly as the reports pages do.
+  const todayIso = localToday();
+  const [asAt, setAsAt] = useState(todayIso);
+  const isAsAtToday = asAt === todayIso;
+
   // ── Drill-down panel — shows the exact invoices behind a Promised bucket ──
   const [drillDown, setDrillDown] = useState<{
     title: string;
@@ -767,9 +780,12 @@ export default function DashboardPage() {
   } | null>(null);
 
   const fetchSnapshot = () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
     setSnapshotLoading(true);
-    fetch(`/api/reports/ar-snapshot?asOf=${todayStr}`)
+    // live=1 tells the server this IS our now, so it uses live provider
+    // balances rather than reconstructing a historical position. Without it the
+    // server compares our LOCAL date against a UTC one and, west of Greenwich,
+    // treats an ordinary evening as "historical".
+    fetch(`/api/reports/ar-snapshot?asOf=${asAt}${isAsAtToday ? "&live=1" : ""}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         setSnapshotInvoices(Array.isArray(data) ? data : null);
@@ -783,10 +799,13 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchSnapshot();
     // Auto-refresh every 5 minutes so payments that come in while the page
-    // is open are reflected without requiring a manual page reload.
+    // is open are reflected without requiring a manual page reload. Depends on
+    // asAt so the refresh re-runs for the date currently on screen — with an
+    // empty dep array the interval closed over the original date and quietly
+    // overwrote the user's chosen one five minutes later.
     const interval = setInterval(fetchSnapshot, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [asAt]);
 
   // Merge snapshot (authoritative open balances) with local invoice metadata
   // (collectionStage, promiseDate, lastFollowupDate, paymentStatus) so that
@@ -907,6 +926,20 @@ export default function DashboardPage() {
 
     return list;
   }, [effectiveInvoices, contacts]);
+
+  // How much open AR sits BEYOND the as-at date. Counted from the local invoice
+  // list (the snapshot deliberately omits these), purely to explain where the
+  // money went — a client whose total drops from $2.6m to $700 needs to see
+  // that it was excluded on purpose, and how to look at it.
+  const beyondAsAt = useMemo(() => {
+    const rows = (invoices as any[]).filter((i: any) =>
+      i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+      i.txnType !== "CreditMemo" && !isWithinAsAt(i.invoiceDate, asAt)
+    );
+    const byCcy: Record<string, number> = {};
+    rows.forEach((i: any) => { const c = i.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + openBal(i); });
+    return { count: rows.length, byCcy };
+  }, [invoices, asAt]);
 
   const stats = useMemo(() => {
     const regionInvoices = effectiveInvoices;
@@ -1091,6 +1124,24 @@ export default function DashboardPage() {
             {snapshotLoading && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
             Last updated {fmt.date(new Date())}
           </div>
+          {/* As-at report date. No `max`: moving the date forward is how you
+              bring future-dated invoices into view, so a cap would remove the
+              only affordance for seeing them. */}
+          <div className="flex items-center gap-1.5 h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-xs">
+            <span className="text-stone-400 font-medium whitespace-nowrap">As at</span>
+            <input
+              type="date"
+              value={asAt}
+              onChange={e => setAsAt(e.target.value || todayIso)}
+              className="text-stone-300 text-xs border-none outline-none bg-transparent cursor-pointer"
+              title="Only invoices dated on or before this date are receivable. Move it forward to include future-dated invoices."
+            />
+            {!isAsAtToday && (
+              <button onClick={() => setAsAt(todayIso)} className="text-[10px] text-stone-400 hover:text-stone-200 ml-1 font-medium">
+                Today
+              </button>
+            )}
+          </div>
           <Link
             href="/ar-report"
             target="_blank"
@@ -1155,16 +1206,22 @@ export default function DashboardPage() {
           <>
             <div className="grid grid-cols-4 gap-3 mb-3">
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"
-                onClick={() => !snapshotLoading && setDrillDown({ title: "Total Receivable", subtitle: "All open invoices as at today", color: "white", items: stats.openItems })}>
+                onClick={() => !snapshotLoading && setDrillDown({ title: "Total Receivable", subtitle: `All open invoices as at ${fmt.date(new Date(asAt + "T12:00:00"))}`, color: "white", items: stats.openItems })}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
-                  <div className="text-[10px] text-stone-400">As at {new Date().toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
+                  <div className="text-[10px] text-stone-400">As at {new Date(asAt + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-white tracking-tight">
                     <CurrencyPills breakdown={stats.totalByCurrency} stacked />
                   </div>
                   <div className="mt-2 text-[11px] text-stone-500">{stats.openCount} open invoices</div>
+                  {beyondAsAt.count > 0 && (
+                    <div className="mt-1.5 text-[10px] text-stone-500 leading-relaxed">
+                      <CurrencyPills breakdown={beyondAsAt.byCcy} /> across {beyondAsAt.count} invoice{beyondAsAt.count === 1 ? "" : "s"} dated
+                      after this date — not receivable yet. Move <span className="text-stone-400">As at</span> forward to include them.
+                    </div>
+                  )}
                 </>}
               </Card>
               <Card padding="md" className="cursor-pointer hover:ring-1 hover:ring-stone-600 transition-all"

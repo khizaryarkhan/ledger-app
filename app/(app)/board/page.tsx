@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
-import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN } from "@/lib/format";
+import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN, localToday, isWithinAsAt } from "@/lib/format";
 import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
@@ -157,7 +157,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 }
 
 export default function BoardPage() {
-  const { invoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast, communications } = useData() as any;
+  const { invoices: allInvoices, customers, projects, regions, reps, updateInvoice, orgSettings, refresh, toast, communications } = useData() as any;
 
   // Consolidated (group) context — when a Head-Office group is active, rows span
   // multiple branches; fetch their names so the board can tag each customer.
@@ -203,6 +203,27 @@ export default function BoardPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingOverStage, setDraggingOverStage] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
+  // Future-dated invoices are hidden by default: an invoice dated next month
+  // isn't collectable today, so it has no place in a working chase queue. Orgs
+  // that raise invoices ahead of time to track a collection schedule were
+  // seeing thousands of them here. This is the board's equivalent of the
+  // Dashboard's "As at" date — a toggle rather than a date picker, because the
+  // board MUTATES state (drag a card to change stage, log a call) and acting on
+  // it while viewing a historical position would write today's changes against
+  // a past view.
+  const [showFuture, setShowFuture] = useState(false);
+
+  // Every consumer below reads `invoices` through this one derivation, so the
+  // cutoff can't be applied to the card view and forgotten on the list view.
+  const boardToday = localToday();
+  const futureCount = useMemo(() => (allInvoices as any[]).filter((i: any) =>
+    i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+    i.txnType !== "CreditMemo" && !isWithinAsAt(i.invoiceDate, boardToday)
+  ).length, [allInvoices, boardToday]);
+  const invoices = useMemo(
+    () => showFuture ? allInvoices : (allInvoices as any[]).filter((i: any) => isWithinAsAt(i.invoiceDate, boardToday)),
+    [allInvoices, showFuture, boardToday],
+  );
   const [regionFilter, setRegionFilter] = useState("");
   const [repFilter, setRepFilter] = useState("");
   const [dueFilter, setDueFilter] = useState("");
@@ -423,6 +444,23 @@ export default function BoardPage() {
             <option value="">All stages</option>
             {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
           </select>
+
+          {/* Future-dated invoices — only offered when the org actually has
+              some, so the control doesn't take up space it can't earn. */}
+          {futureCount > 0 && (
+            <label
+              className={`h-8 flex items-center gap-1.5 px-2.5 text-xs rounded-md ring-1 cursor-pointer transition-colors ${showFuture ? "ring-stone-600 bg-stone-700 text-stone-100" : "ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"}`}
+              title={`${futureCount} open invoice${futureCount === 1 ? " is" : "s are"} dated after today. They aren't collectable yet, so they're hidden from the board by default.`}
+            >
+              <input
+                type="checkbox"
+                checked={showFuture}
+                onChange={e => setShowFuture(e.target.checked)}
+                className="w-3 h-3 accent-stone-400 cursor-pointer"
+              />
+              Show future-dated ({futureCount})
+            </label>
+          )}
 
           {/* Group by toggle — only meaningful in card view */}
           {viewMode === "cards" && (

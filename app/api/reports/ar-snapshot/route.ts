@@ -40,6 +40,7 @@ import { eq } from "drizzle-orm";
 import { computeArAging } from "@/lib/ar-aging";
 import type { DetailRow } from "@/lib/ar-aging";
 import { fetchQboAging } from "@/lib/qbo-aging-report";
+import { isWithinAsAt } from "@/lib/format";
 
 /** Provider-agnostic open balance for a synced invoice/credit row.
  *  Prefers the connected provider's authoritative balance; falls back to
@@ -98,8 +99,13 @@ export async function GET(req: Request) {
     return bad("asOf=YYYY-MM-DD required");
   }
 
+  // `live=1` says "this IS the caller's now" — set by clients that compute asOf
+  // from the user's LOCAL date. Without it we'd compare a local date against a
+  // UTC one: west of Greenwich the user's today reads as yesterday for much of
+  // the evening, which would send every dashboard load down the historical
+  // (QBO API) path. Callers that omit it behave exactly as before.
   const todayStr = new Date().toISOString().slice(0, 10);
-  const isToday = asOf >= todayStr;
+  const isToday = url.searchParams.get("live") === "1" || asOf >= todayStr;
 
   // Compute per org and concatenate. Rows already carry customer/project ids;
   // in consolidated mode this yields every branch's open items in one array.
@@ -159,13 +165,25 @@ async function orgHasQbo(orgId: string): Promise<boolean> {
  * synced invoices table. Each row's open amount is the provider's authoritative
  * balance; rows are bucketed downstream by their (provider) dueDate.
  */
-async function openInvoicesFromSyncedData(orgId: string, _asOf: string) {
-  // NOTE: this is the AS-OF-TODAY path only (the caller gates on isToday). Every
-  // invoice with a live open balance is receivable right now regardless of its
-  // invoice date, so we must NOT filter by invoiceDate here — a post-dated open
-  // invoice (or one whose date sits a day ahead of the UTC `asOf` boundary) is
-  // still owed and QBO's current A/R counts it. Filtering it out silently
-  // under-counted Total Open AR. Historical as-of dates use a different path.
+async function openInvoicesFromSyncedData(orgId: string, asOf: string) {
+  // This is the live-balance path (the caller gates on isToday). It still has
+  // to respect the as-at date: a receivable exists from the day it is invoiced,
+  // so an invoice dated AFTER asOf has not been issued yet as at that date.
+  //
+  // This used to deliberately skip the invoiceDate filter, which left the two
+  // paths contradicting each other — computeArAging has always filtered
+  // `invoiceDate <= asOf` for historical dates, so as-at-yesterday excluded a
+  // post-dated invoice while as-at-today counted it. A client that raises
+  // invoices ahead of time to track a collection schedule saw its whole future
+  // order book reported as receivable: ~$2.6m of not-yet-issued invoices on top
+  // of the ~$700 actually owed.
+  //
+  // The original reason for skipping it was real but was the wrong fix: `asOf`
+  // was computed in UTC, so near midnight it could sit a day behind the user's
+  // local date and drop genuinely-issued invoices. Callers now send their LOCAL
+  // date (lib/format.ts's localToday) plus `live=1`, so the cutoff is the
+  // user's own today and that boundary case is gone. Rows with no invoice date
+  // are always kept — see isWithinAsAt.
   const rows = await db.select({
     id:               invoices.id,
     customerId:       invoices.customerId,
@@ -196,6 +214,8 @@ async function openInvoicesFromSyncedData(orgId: string, _asOf: string) {
   for (const inv of rows) {
     // Written-off debt is not receivable.
     if (inv.paymentStatus === "Written Off") continue;
+    // Not issued yet as at the report date — see the note above.
+    if (!isWithinAsAt(inv.invoiceDate, asOf)) continue;
 
     const openBalance = openBalanceOf(inv);
     // Keep only rows with a live open balance: positive for invoices, negative

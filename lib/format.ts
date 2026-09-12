@@ -89,7 +89,7 @@ export const getDueStatus = (inv: any) => {
 };
 
 /** Local YYYY-MM-DD (never toISOString — that shifts the day across timezones). */
-const ymd = (d: Date) =>
+export const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /** Last day of the current week (Sunday) and of the current month, inclusive. */
@@ -138,6 +138,37 @@ export const getAgingBucket = (inv: any) => {
 };
 
 export const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The user's LOCAL today, as YYYY-MM-DD.
+ *
+ * Use this — not today() — for anything compared against an invoice/due date.
+ * today() is UTC-based, so west of Greenwich it reads a day behind for most of
+ * the evening and east of it a day ahead near midnight; comparing that to a
+ * plain date string silently shifts results by a day.
+ */
+export const localToday = () => ymd(new Date());
+
+/**
+ * Is this document within scope of an "as at" report date?
+ *
+ * A receivable exists from the day it is invoiced. An invoice dated after the
+ * report date has not been issued yet as at that date, so it is not receivable
+ * then — which is exactly what an A/R aging report as at a date means, and what
+ * lib/ar-aging.ts has always done for historical dates (`invoiceDate <= asOf`).
+ *
+ * This matters commercially: a client that raises invoices ahead of time to
+ * track a collection schedule saw its entire future order book counted as
+ * receivable today, burying the ~$700 actually owed under ~$2.6m that wasn't.
+ *
+ * A row with NO invoice date is always in scope — absence of a date is not
+ * evidence the document is post-dated, and dropping it would under-count real
+ * debt. Comparison is on the date portion only, so a timestamp is safe.
+ */
+export const isWithinAsAt = (invoiceDate: string | null | undefined, asAt: string): boolean => {
+  if (!invoiceDate) return true;
+  return String(invoiceDate).slice(0, 10) <= asAt;
+};
 export const daysFromNow = (n: number) => {
   const d = new Date();
   d.setDate(d.getDate() + n);

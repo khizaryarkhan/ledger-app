@@ -1577,10 +1577,14 @@ export default function ReportsPage() {
             {isArReport && (
               <div className="flex items-center gap-1.5 h-8 px-3 rounded-md ring-1 ring-stone-700 bg-stone-800 text-xs report-no-print">
                 <span className="text-stone-400 font-medium whitespace-nowrap">As at</span>
+                {/* No `max`: the live snapshot path now reports only invoices
+                    dated on or before the as-at date, so moving this forward is
+                    the only way to see future-dated invoices. Capping it at
+                    today would take that view away from orgs that raise
+                    invoices ahead of time. */}
                 <input
                   type="date"
                   value={asAtDate}
-                  max={todayIso}
                   onChange={e => setAsAtDate(e.target.value || todayIso)}
                   className="text-stone-300 text-xs border-none outline-none bg-transparent cursor-pointer"
                 />
