@@ -33,6 +33,32 @@ page-data collection for those routes even when the code is fine (e.g. an
 accounting route needing an Intuit key) — that's an env gap, not a type error.
 Verify changes with `npx tsc --noEmit`, which should be clean.
 
+## Tests & CI (2026-09-12)
+
+`npm test` (vitest) and `npm run typecheck` run on every push to `main` and
+every PR via `.github/workflows/ci.yml`. Before this the repo had **zero**
+automated tests; the suite is deliberately built around the bugs that actually
+reached the paying client, not around coverage.
+
+- **Unit tests only — no database, no network.** Every bug that shipped in the
+  worst week lived in a pure function. Anything needing a real database belongs
+  in `scripts/reconcile-foundation.ts` / `/admin/reconcile`, which run against
+  production; CI has no database and a fabricated one proves nothing.
+- **CI does NOT run `next build`** — several routes need real Stripe/Intuit
+  keys and fail at page-data collection without them (see "Run it"), so a
+  build here would go red for an env gap rather than a defect.
+- **vitest is pinned to `^2`**: v5's peer range wants `@types/node >=22` and
+  this repo pins 20. **`vite-tsconfig-paths` cannot be used** — it's ESM-only
+  and can't be `require`d here, so `vitest.config.ts` declares the `@/` alias
+  directly. Keep it in step with `tsconfig.json`'s `paths`.
+- **To test route logic, extract it — don't import the route.** Route handlers
+  pull in `db` and `next/headers`. Two extractions exist as the pattern to
+  follow: `lib/portal-response.ts` (`buildPortalSubmission`, and
+  `DISPUTE_CATEGORIES` moved here and re-exported from `lib/portal.ts` so
+  existing imports are untouched) and `lib/ar-email.ts`'s `appendPayButton`
+  (which owns the double-pay-button dedup rule). Both were behaviour-identical
+  moves.
+
 ## Architecture & conventions
 
 - **Multi-tenant:** every query is org-scoped. Helpers in `lib/api.ts` /
