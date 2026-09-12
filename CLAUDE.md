@@ -622,6 +622,48 @@ create-only `Balance`) — those belong quarantined in the sync/batch adapters.
   check-then-insert; if you add a new sync/importer, insert into `customers`/
   `ap_suppliers` the same plain way, not with `onConflictDoUpdate/DoNothing`.
 
+## Receivables are reported AS AT a date (2026-09-12)
+
+**A receivable exists from the day it is invoiced.** An invoice dated after the
+report date has not been issued yet, so it is not receivable then. Every AR
+surface obeys this; `lib/format.ts`'s **`isWithinAsAt(invoiceDate, asAt)`** is
+the single rule and the only place to change it.
+
+- **Don't "fix" the filter back out.** `ar-snapshot`'s live path used to skip it
+  on the argument that "a post-dated invoice is still owed" — while
+  `computeArAging` filtered `invoiceDate <= asOf` for historical dates. Same
+  report, two answers depending on the date picked. A client that raises
+  invoices ahead of time to track a collection schedule saw $2.6m of
+  not-yet-issued invoices reported as receivable, burying the $700 actually
+  owed (Receivable Composition read 100% "not yet due"). The two paths now
+  agree.
+- **The real bug behind that old comment was timezone, not date logic.** `asOf`
+  was UTC (`toISOString().slice(0,10)`), so near midnight it could sit a day
+  behind the user's local date and drop genuinely-issued invoices. Use
+  **`localToday()`**, never `today()`, for anything compared against an
+  invoice/due date — `today()` is UTC and shifts the day either side of
+  Greenwich. `matchesDueFilter` already carried this warning; it generalises.
+- **`live=1` on `/api/reports/ar-snapshot`** means "this IS the caller's now" →
+  use live provider balances instead of reconstructing a historical position.
+  It exists because the client now sends a LOCAL date: comparing that to the
+  server's UTC today would send every dashboard load west of Greenwich down the
+  historical (QBO API) path. Callers omitting it behave as before.
+- **A row with no invoice date is always in scope.** Absence of a date is not
+  evidence a document is post-dated; excluding those under-counts real debt.
+- **No "show future invoices" control on report surfaces — moving the As at
+  date forward IS the affordance.** So the Dashboard's date input deliberately
+  has **no `max`**, and `max={todayIso}` was removed from `/reports`' picker;
+  re-adding it would leave an org that post-dates invoices no way to see them.
+- **The Collections Board is the exception: a toggle, not a date picker.** It
+  hides future-dated rows by default with "Show future-dated (N)". The board
+  MUTATES state (drag to change stage, log a call), so acting on it while
+  viewing a historical position would write today's changes against a past
+  view. The cutoff is applied in ONE derived list that both the card and list
+  views read — apply it in both places and they will drift.
+- Fixing this at `ar-snapshot` fixes every Dashboard widget at once: they all
+  read `effectiveInvoices` from that one snapshot, which is also what keeps the
+  Dashboard reconciling with the Reports pages.
+
 ## Key domain concepts
 
 - **Collections Board** (`app/(app)/board/`, `components/board-list.tsx`): the
