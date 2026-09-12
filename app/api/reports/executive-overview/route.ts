@@ -16,6 +16,7 @@ import { requireOrg, ok } from "@/lib/api";
 import { eq, and, inArray } from "drizzle-orm";
 import { profitAndLoss, trialBalance, balanceSheet } from "@/lib/accounting/financials";
 import { kindOf } from "@/lib/inventory/item-kinds";
+import { isWithinAsAt } from "@/lib/format";
 
 const num = (v: any) => Number(v ?? 0);
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -54,11 +55,17 @@ export async function GET() {
   // ── Operational AR (synced invoices — matches the Collections dashboard) ──
   const invRows = await db.select({
     total: invoices.total, paid: invoices.paid, dueDate: invoices.dueDate, paymentStatus: invoices.paymentStatus,
+    invoiceDate: invoices.invoiceDate,
     qboBalance: invoices.qboBalance, xeroBalance: invoices.xeroBalance, sageIntacctBalance: invoices.sageIntacctBalance,
   }).from(invoices).where(eq(invoices.orgId, orgId!));
   let arTotal = 0, arOverdue = 0, arOpenCount = 0;
   for (const inv of invRows) {
     if (inv.paymentStatus === "Written Off") continue;
+    // Same as-at rule the Collections dashboard applies (see CLAUDE.md): an
+    // invoice dated after today has not been issued yet, so it is not
+    // receivable. Without this the comment above — "matches the Collections
+    // dashboard" — stops being true the moment an org post-dates an invoice.
+    if (!isWithinAsAt(inv.invoiceDate, today)) continue;
     const bal = openInvoiceBalance(inv);
     if (Math.abs(bal) < 0.005) continue;
     arOpenCount++;

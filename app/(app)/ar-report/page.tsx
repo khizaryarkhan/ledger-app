@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
-import { daysOverdue } from "@/lib/format";
+import { daysOverdue, localToday } from "@/lib/format";
 import { Printer, ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -38,23 +38,54 @@ const TD = ({ children, right, bold, color, light, w }: { children?: React.React
 export default function ArReportPage() {
   const { invoices, customers, communications, orgSettings, loaded } = useData();
   const { data: session } = useSession();
-  const [snapshot, setSnapshot]   = useState<any[]>([]);
+  const [snapshot, setSnapshot]   = useState<any[] | null>(null);
   const [snapReady, setSnapReady] = useState(false);
+  // The Dashboard's "As at" date rides along on the URL so the printed report
+  // reports the same position as the screen it was launched from. Read from
+  // window rather than useSearchParams: this page is a client component and
+  // useSearchParams would force it behind a Suspense boundary to prerender.
+  const [asAt, setAsAt] = useState(localToday());
 
   useEffect(() => {
-    const asOf = new Date().toISOString().split("T")[0];
-    fetch(`/api/reports/ar-snapshot?asOf=${asOf}`)
-      .then(r => r.ok ? r.json() : { data: [] })
-      .then(d => { setSnapshot(d.data ?? d ?? []); setSnapReady(true); })
-      .catch(() => setSnapReady(true));
+    const qs = new URLSearchParams(window.location.search).get("asOf");
+    const asOf = qs && /^\d{4}-\d{2}-\d{2}$/.test(qs) ? qs : localToday();
+    setAsAt(asOf);
+    fetch(`/api/reports/ar-snapshot?asOf=${asOf}${asOf === localToday() ? "&live=1" : ""}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { const rows = Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : null); setSnapshot(rows); setSnapReady(true); })
+      .catch(() => { setSnapshot(null); setSnapReady(true); });
   }, []);
 
+  /**
+   * Snapshot-DRIVEN, not snapshot-enriched.
+   *
+   * This used to map over the local invoice list and merely copy a balance onto
+   * any row the snapshot also had — so every row the snapshot deliberately
+   * OMITTED (future-dated invoices, now excluded as at the report date) stayed
+   * in the printed report at its local balance. The printed figures therefore
+   * disagreed with the Dashboard that launched them.
+   *
+   * Iterating the snapshot instead makes it the authority on WHICH invoices are
+   * receivable, exactly as the Dashboard's effectiveInvoices does; local rows
+   * only supply collection metadata the snapshot doesn't carry. Keep the two in
+   * step — they are the same report on two surfaces.
+   */
   const effective = useMemo(() => {
-    if (!snapshot.length) return invoices;
-    const map = new Map(snapshot.map((s: any) => [s.invoiceId ?? s.id, s]));
-    return invoices.map((inv: any) => {
-      const s = map.get(inv.id) ?? map.get(inv.qboId) ?? map.get(inv.xeroId);
-      return s ? { ...inv, qboBalance: s.balance ?? s.qboBalance ?? inv.qboBalance } : inv;
+    if (!snapshot) return invoices;
+    const localMap = new Map((invoices as any[]).map((i: any) => [i.id, i]));
+    return snapshot.map((snap: any) => {
+      const local = localMap.get(snap.invoiceId ?? snap.id);
+      if (!local) return snap;
+      return {
+        ...snap,
+        qboBalance:       snap.balance ?? snap.qboBalance ?? local.qboBalance,
+        collectionStage:  local.collectionStage,
+        promiseDate:      local.promiseDate,
+        lastFollowupDate: local.lastFollowupDate,
+        currency:         local.currency ?? snap.currency,
+        escalationType:   local.escalationType ?? null,
+        hasOpenDispute:   local.hasOpenDispute ?? false,
+      };
     });
   }, [invoices, snapshot]);
 
@@ -149,7 +180,9 @@ export default function ArReportPage() {
   const orgName  = orgSettings.displayName || orgSettings.name || "Organisation";
   const logoUrl  = orgSettings.logoUrl;
   const userName = (session?.user as any)?.name ?? "";
-  const today    = fmtDate(new Date());
+  // The report's date IS the as-at date — printing "today" on a report built as
+  // at another date mislabels every figure on it.
+  const today    = fmtDate(new Date(asAt + "T12:00:00"));
   const maxBucket = Math.max(...m.buckets.map(b => b.amount), 1);
 
   return (

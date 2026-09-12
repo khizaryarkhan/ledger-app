@@ -1142,8 +1142,10 @@ export default function DashboardPage() {
               </button>
             )}
           </div>
+          {/* Carry the as-at date across: the printed report must state the
+              same position as the screen it was launched from. */}
           <Link
-            href="/ar-report"
+            href={`/ar-report${isAsAtToday ? "" : `?asOf=${asAt}`}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white text-xs font-medium transition-colors border border-stone-700"
