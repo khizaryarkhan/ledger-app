@@ -16,6 +16,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { waitUntil } from "@vercel/functions";
 import { db } from "@/db";
+import { partitionWebhookEntities } from "@/lib/qbo-webhook-entities";
 import { qboTokens, qboWebhookEvents } from "@/db/schema";
 import { eq, and, gt } from "drizzle-orm";
 import { syncTargetedEntities, type QboEntityChange } from "@/lib/qbo-sync";
@@ -25,11 +26,10 @@ import { syncQboApBills, type QboBillChange } from "@/lib/qbo-ap-sync";
 // Vercel Hobby: 60s max. Pro: 300s max. Set to 60 as a safe default.
 export const maxDuration = 60;
 
-// AR entities handled by the receivables sync.
-const RELEVANT_ENTITIES = new Set(["Invoice", "Payment", "CreditMemo", "Customer", "RefundReceipt"]);
-// AP entities handled by the payables sync (real-time bill pull). A QBO Payment
-// against a bill also updates the Bill, so the "Bill" event covers paid/closed.
-const AP_ENTITIES = new Set(["Bill"]);
+// The entity split, the AR/AP sets and the full list of entities we want QBO to
+// send all live in lib/qbo-webhook-entities.ts — a Next route module may only
+// export route handlers and route config, so they cannot live here, and keeping
+// them in one place is what lets them be unit-tested.
 
 export async function POST(req: Request) {
   // 1. Read raw body BEFORE any parsing (signature is over raw bytes)
@@ -85,32 +85,19 @@ export async function POST(req: Request) {
 
   // 4. Build per-realmId work items (AR entities + AP bill changes)
   const eventNotifications: any[] = payload.eventNotifications ?? [];
-  const workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[] }> = [];
+  const workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[]; otherChanges: QboEntityChange[] }> = [];
 
   for (const notification of eventNotifications) {
     const realmId: string = notification.realmId;
     const entities: any[] = notification.dataChangeEvent?.entities ?? [];
     if (!realmId || entities.length === 0) continue;
 
-    const relevant = entities
-      .filter((e: any) => RELEVANT_ENTITIES.has(e.name))
-      .map((e: any) => ({
-        name: e.name,
-        id: e.id,
-        operation: e.operation,
-        ...(e.deletedId ? { deletedId: e.deletedId } : {}),
-      }));
+    // One shared split (lib/qbo-webhook-entities.ts) rather than three inline
+    // filters, so the buckets cannot drift from what the tests assert.
+    const { ar: relevant, ap: apChanges, other: otherChanges } = partitionWebhookEntities(entities);
 
-    const apChanges = entities
-      .filter((e: any) => AP_ENTITIES.has(e.name))
-      .map((e: any) => ({
-        id: e.id,
-        operation: e.operation,
-        ...(e.deletedId ? { deletedId: e.deletedId } : {}),
-      }));
-
-    if (relevant.length > 0 || apChanges.length > 0) {
-      workItems.push({ realmId, changes: relevant, apChanges });
+    if (relevant.length > 0 || apChanges.length > 0 || otherChanges.length > 0) {
+      workItems.push({ realmId, changes: relevant, apChanges, otherChanges });
     }
   }
 
@@ -164,11 +151,11 @@ async function deduplicateQboEntities(
 }
 
 async function processWebhookEvents(
-  workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[] }>
+  workItems: Array<{ realmId: string; changes: QboEntityChange[]; apChanges: QboBillChange[]; otherChanges: QboEntityChange[] }>
 ) {
-  for (const { realmId, changes, apChanges } of workItems) {
+  for (const { realmId, changes, apChanges, otherChanges } of workItems) {
     const startedAt = Date.now();
-    const totalCount = changes.length + apChanges.length;
+    const totalCount = changes.length + apChanges.length + otherChanges.length;
 
     // Find the org that owns this QBO realm
     const [token] = await db
@@ -181,11 +168,27 @@ async function processWebhookEvents(
       console.warn(`QBO webhook: no org found for realmId ${realmId}`);
       await db.insert(qboWebhookEvents).values({
         realmId, status: "unknown_realm",
-        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
+        entityCount: totalCount, entities: [...changes, ...apChanges, ...otherChanges] as any,
         errorMessage: `No org connected to realmId ${realmId}`,
       }).catch(() => {});
       continue;
     }
+
+    // Record the entities we have no handler for BEFORE anything that can
+    // `continue` or throw, so a capture is never lost to a dispatch problem.
+    //
+    // Written under status "captured", NOT "received". deduplicateQboEntities
+    // only ever reads "received" rows, so these cannot make a later, genuine
+    // change look like a duplicate and get skipped — which is exactly what
+    // would happen if they shared a status.
+    if (otherChanges.length > 0) {
+      await db.insert(qboWebhookEvents).values({
+        realmId, orgId: token.orgId, status: "captured",
+        entityCount: otherChanges.length, entities: otherChanges as any,
+      }).catch(e => console.error("QBO webhook: failed to capture unhandled entities:", e?.message));
+    }
+
+    if (changes.length === 0 && apChanges.length === 0) continue;
 
     try {
       // GAP-4: Idempotency — filter out entity changes already processed
@@ -219,7 +222,9 @@ async function processWebhookEvents(
       console.error(`QBO webhook sync failed for org ${token.orgId}:`, err.message);
       await db.insert(qboWebhookEvents).values({
         realmId, orgId: token.orgId, status: "error",
-        entityCount: totalCount, entities: [...changes, ...apChanges] as any,
+        // Count the dispatched entities only — the captured ones are already
+        // recorded in their own row, so counting them here would double them.
+        entityCount: changes.length + apChanges.length, entities: [...changes, ...apChanges] as any,
         errorMessage: err?.message || String(err), processingMs: ms,
       }).catch(() => {});
       // Don't throw — log and continue with other orgs
