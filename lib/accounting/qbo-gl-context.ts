@@ -9,7 +9,7 @@
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { and, eq, isNotNull } from "drizzle-orm";
-import { ensureSystemAccounts, systemAccountId, SUSPENSE_SUBTYPE } from "./system-accounts";
+import { ensureSystemAccounts, systemAccountId, ensureSuspenseAccount } from "./system-accounts";
 import type { GlMapContext } from "./qbo-gl";
 
 export class GlContextError extends Error {}
@@ -20,7 +20,6 @@ const REQUIRED = {
   ap: "AccountsPayable",
   tax: "SalesTaxPayable",
   undeposited: "UndepositedFunds",
-  suspense: SUSPENSE_SUBTYPE,
 } as const;
 
 /**
@@ -40,12 +39,15 @@ const REQUIRED = {
 export async function buildGlMapContext(orgId: string): Promise<GlMapContext> {
   await ensureSystemAccounts(orgId);
 
+  // Suspense is created on demand rather than seeded for every org — see
+  // ensureSuspenseAccount. Only an org whose transactions we actually ingest
+  // gets one, so this work stays invisible to everyone else.
   const [ar, ap, tax, undeposited, suspense] = await Promise.all([
     systemAccountId(orgId, REQUIRED.ar),
     systemAccountId(orgId, REQUIRED.ap),
     systemAccountId(orgId, REQUIRED.tax),
     systemAccountId(orgId, REQUIRED.undeposited),
-    systemAccountId(orgId, REQUIRED.suspense),
+    ensureSuspenseAccount(orgId),
   ]);
 
   const missing = Object.entries({ ar, ap, tax, undeposited, suspense })

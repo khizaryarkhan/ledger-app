@@ -256,9 +256,38 @@ export async function qboQueryAll(
   where = ""
 ): Promise<any[]> {
   const all: any[] = [];
-  let start = 1;
-  const size = 500;
-  while (true) {
+  let start: number | null = 1;
+  while (start !== null) {
+    const page = await qboQueryPage(token, readName, where, start, 500);
+    all.push(...page.records);
+    start = page.nextStart;
+    if (start !== null) await sleep(200);
+  }
+  return all;
+}
+
+/**
+ * ONE page of a query, with the cursor to continue from.
+ *
+ * qboQueryAll accumulates every record in memory, which is fine for the
+ * reference lists it was written for but not for ingesting a company's whole
+ * transaction history — that has to be processed and checkpointed page by page
+ * so an interrupted run resumes instead of restarting. Both share this one
+ * implementation deliberately: the retry/rate-limit handling below is subtle
+ * enough that a second copy would drift (see CLAUDE.md on commit-runner).
+ *
+ * `nextStart` is null when the page came back short, meaning no more records.
+ */
+export async function qboQueryPage(
+  token: OrgQboToken,
+  readName: string,
+  where = "",
+  startPosition = 1,
+  pageSize = 500,
+): Promise<{ records: any[]; nextStart: number | null }> {
+  {
+    const start = startPosition;
+    const size = pageSize;
     const whereClause = where ? ` where ${where}` : "";
     const sql = `select * from ${readName}${whereClause} STARTPOSITION ${start} MAXRESULTS ${size}`;
 
@@ -305,12 +334,8 @@ export async function qboQueryAll(
     if (queryFailed) throw queryFailed;
 
     const records = json.QueryResponse?.[readName] || [];
-    all.push(...records);
-    if (records.length < size) break;
-    start += size;
-    await sleep(200);
+    return { records, nextStart: records.length < size ? null : start + size };
   }
-  return all;
 }
 
 /**
