@@ -41,7 +41,26 @@ export const SYSTEM_ACCOUNTS: CoaSeed[] = [
   // receiving the transformed good back credits this to clear it. Never a
   // payable — it's a reclassification between two of our own asset accounts.
   { name: "Materials with Job Worker", code: "1250", classification: "Asset", type: "Other Current Asset", subtype: "JobWorkMaterials" },
+  // Mirrored-ledger suspense. When a provider transaction is posted into our GL
+  // and one of its lines references an account we cannot resolve (deleted or
+  // merged in QBO after the fact, or a COA sync that has not caught up), the
+  // line lands HERE rather than being dropped.
+  //
+  // Dropping it is the dangerous option: every provider transaction is
+  // internally balanced, so removing one line unbalances the entry — and
+  // postJournalEntry would reject the whole transaction, silently leaving a gap
+  // in the ledger. Routing to suspense keeps the entry balanced and makes the
+  // problem VISIBLE as a non-zero suspense balance somebody has to clear.
+  //
+  // Deliberately a balance-sheet account, not Uncategorised Income/Expense: an
+  // unmappable line must never quietly become revenue or cost and distort the
+  // P&L. A suspense balance is an obvious "unfinished" signal; a slightly wrong
+  // profit figure is not.
+  { name: "Suspense (Unmapped)",       code: "1999", classification: "Asset",     type: "Other Current Asset",      subtype: "Suspense" },
 ];
+
+/** Canonical subtype for the mirrored-ledger suspense account. */
+export const SUSPENSE_SUBTYPE = "Suspense";
 
 /** Look up a system account for an org by its canonical subtype (case-insensitive). */
 export async function systemAccountId(orgId: string, subtype: string): Promise<string | null> {
