@@ -597,11 +597,22 @@ create-only `Balance`) — those belong quarantined in the sync/batch adapters.
   `/admin/reconcile` (runs server-side against production) and as
   `scripts/reconcile-foundation.ts` for CI (exit 1 on failure). Run it after
   any change to posting, bridging or settlement.
-- **Known remaining divergence (not yet fixed):** two settlement graphs —
-  `transaction_links` (native, `numeric`) and `payment_applications`
-  (QBO-mirror, `real`, raw-QBO-id keyed, written only by `lib/qbo-sync.ts`;
-  Xero writes neither). `lib/ar-aging.ts` reads only the latter, so native
-  partial payments age wrongly for any historical `asOf`. Open balance also
+- **Two settlement graphs — but ALREADY BRIDGED on the read side (corrected
+  2026-09-13; the old note here said otherwise and cost a session a wrongly
+  planned migration).** `transaction_links` (native, `numeric`) and
+  `payment_applications` (QBO-mirror, `real`, raw-QBO-id keyed, written only by
+  `lib/qbo-sync.ts`; Xero writes neither). `lib/ar-aging.ts` reads **both**: a
+  raw-SQL query over `transaction_links` for native invoices, keyed on
+  `journal_entry_id` and date-filtered on the settling entry's `entry_date`,
+  and `payment_applications` for provider-mirrored ones, discriminated by
+  `isNative`. **A grep for the Drizzle symbol `transactionLinks` in
+  `ar-aging.ts` returns nothing — the query is raw SQL. Don't conclude from
+  that grep that the native path is missing.** `linksForAny` bridges the same
+  split for the Linked Transactions panel.
+  **The two graphs key on DIFFERENT ids for the same invoice** — this is the
+  real obstacle, not the table count: `payment_applications.invoice_id` is an
+  `invoices.id`, while `transaction_links.to_id` is a **`journal_entries.id`**.
+  Join them through `invoices.journal_entry_id`. Open balance also
   has two answers: GL truth (`lib/accounting/payments.ts`) vs
   `invoices.qboBalance ?? total − paid`. Collapsing these onto
   `transaction_links` with `payment_applications` as a compatibility view is
