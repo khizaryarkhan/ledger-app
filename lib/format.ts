@@ -73,10 +73,32 @@ export const fmt = {
   },
 };
 
+/**
+ * Whole CALENDAR days a date is in the past. Positive = overdue, 0 = today.
+ *
+ * This used to be `Math.floor((Date.now() - new Date(dueDate)) / 86400000)`,
+ * which mixed two different clocks: `new Date("2026-09-14")` parses as UTC
+ * midnight, while `Date.now()` is the current instant. The answer therefore
+ * depended on the TIME OF DAY as well as the date, so east of Greenwich every
+ * invoice was misclassified for the first hour after local midnight — "Due
+ * Today" reading as "Due Soon", and genuinely overdue invoices reading as due
+ * today. On a collections board that is the difference between chasing and not.
+ *
+ * Both sides are now reduced to a calendar date first and differenced as whole
+ * days, so the result changes only when the date changes. Comparing the two as
+ * UTC midnights makes the subtraction exact and immune to DST, while the dates
+ * themselves come from the viewer's local calendar via localToday().
+ */
 export const daysOverdue = (dueDate: string | null | undefined) => {
   if (!dueDate) return 0;
-  return Math.floor((Date.now() - new Date(dueDate).getTime()) / 86400000);
+  const due = String(dueDate).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return 0;
+  return Math.round((ymdToUtcMs(localToday()) - ymdToUtcMs(due)) / 86400000);
 };
+
+/** A YYYY-MM-DD as UTC midnight — a stable anchor for whole-day arithmetic. */
+const ymdToUtcMs = (s: string) =>
+  Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
 
 export const getDueStatus = (inv: any) => {
   if (inv.paymentStatus === "Paid") return "Paid";

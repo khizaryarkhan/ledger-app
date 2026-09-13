@@ -39,6 +39,8 @@ export type GlMapContext = {
   /** Control/system accounts, resolved by the caller from SYSTEM_ACCOUNTS. */
   arAccountId: string;
   taxPayableAccountId: string;
+  apAccountId: string;
+  undepositedFundsAccountId: string;
 };
 
 export type GlLine = {
@@ -204,4 +206,309 @@ export function ingestDecision(
   const incoming = txn?.SyncToken != null ? String(txn.SyncToken) : null;
   if (existing.externalSyncToken == null || incoming == null) return "replace";
   return existing.externalSyncToken === incoming ? "skip" : "replace";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared line handling
+//
+// QBO puts "which account does this line hit" in a different place per
+// DetailType. These helpers centralise that, so every mapper below routes an
+// unknown account to suspense identically — the alternative is a dozen
+// slightly different fallbacks, most of them wrong.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Money-carrying lines on a purchase-side document (Bill, Purchase, VendorCredit). */
+function expenseLinesOf(txn: any, ctx: GlMapContext, unmapped: string[], side: "debit" | "credit", name: Partial<GlLine>): GlLine[] {
+  const out: GlLine[] = [];
+  for (const l of (Array.isArray(txn?.Line) ? txn.Line : [])) {
+    const dt = l?.DetailType;
+    if (dt === "SubTotalLineDetail" || dt === "DescriptionOnly") continue;
+    const amt = round2(num(l?.Amount));
+    if (amt === 0) continue;
+    // AccountBasedExpenseLineDetail names the account directly. An item-based
+    // line names an Item, whose expense account is only visible when QBO
+    // includes the ref — otherwise it falls to suspense like any other miss.
+    const ref = l?.AccountBasedExpenseLineDetail?.AccountRef?.value
+             ?? l?.ItemBasedExpenseLineDetail?.ItemAccountRef?.value;
+    out.push({ accountId: resolveAccount(ref, ctx, unmapped), [side]: amt, description: l?.Description ?? null, ...name } as GlLine);
+  }
+  return out;
+}
+
+/** Money-carrying lines on a sales-side document. */
+function salesLinesOf(txn: any, ctx: GlMapContext, unmapped: string[], side: "debit" | "credit", name: Partial<GlLine>): GlLine[] {
+  const out: GlLine[] = [];
+  for (const l of (Array.isArray(txn?.Line) ? txn.Line : [])) {
+    const dt = l?.DetailType;
+    if (dt === "SubTotalLineDetail" || dt === "DescriptionOnly") continue;
+    const amt = round2(num(l?.Amount));
+    if (amt === 0) continue;
+    // A discount always sits on the OPPOSITE side to the revenue it reduces.
+    if (dt === "DiscountLineDetail") {
+      const acc = resolveAccount(l?.DiscountLineDetail?.DiscountAccountRef?.value, ctx, unmapped);
+      out.push({ accountId: acc, [side === "credit" ? "debit" : "credit"]: amt, description: l?.Description ?? "Discount", ...name } as GlLine);
+      continue;
+    }
+    const acc = resolveAccount(l?.SalesItemLineDetail?.ItemAccountRef?.value, ctx, unmapped);
+    out.push({ accountId: acc, [side]: amt, description: l?.Description ?? null, ...name } as GlLine);
+  }
+  return out;
+}
+
+/** The account a receipt settles through; Undeposited Funds when QBO omits it. */
+function depositAccount(ref: string | null | undefined, ctx: GlMapContext, unmapped: string[]): string {
+  if (ref == null || ref === "") return ctx.undepositedFundsAccountId;
+  return resolveAccount(ref, ctx, unmapped);
+}
+
+function baseEntry(txn: any, sourceType: string, lines: GlLine[], unmapped: string[], ctx: GlMapContext): MappedEntry {
+  return {
+    externalId: String(txn.Id),
+    externalSource: "qbo",
+    externalSyncToken: txn.SyncToken != null ? String(txn.SyncToken) : null,
+    entryDate: reqDate(txn.TxnDate, "TxnDate"),
+    dueDate: typeof txn.DueDate === "string" ? txn.DueDate.slice(0, 10) : null,
+    docNumber: txn.DocNumber != null ? String(txn.DocNumber) : null,
+    reference: txn.PONumber != null ? String(txn.PONumber) : null,
+    sourceType,
+    memo: txn.PrivateNote ?? null,
+    lines: balanceTo(lines, ctx.suspenseAccountId),
+    unmapped,
+  };
+}
+
+function requireId(txn: any, what: string) {
+  if (!txn?.Id) throw new QboMapError(`${what} has no Id`);
+}
+
+function requireTotal(txn: any, what: string): number {
+  const total = round2(num(txn.TotalAmt));
+  if (total === 0) throw new QboMapError(`${what} ${txn.Id} has a zero total — refusing to post an empty entry`);
+  return total;
+}
+
+function partyName(txn: any, kind: "Customer" | "Vendor"): Partial<GlLine> {
+  const ref = kind === "Customer" ? txn?.CustomerRef : txn?.VendorRef;
+  return { nameType: kind, nameId: null, nameLabel: ref?.name ?? null };
+}
+
+/** Customer payment: Dr bank (or Undeposited Funds) / Cr A/R. */
+export function mapQboPayment(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "payment");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Customer");
+  const total = requireTotal(txn, "payment");
+  // The FULL amount hits A/R even when part is unapplied: QBO carries an
+  // unapplied payment as a credit balance on the customer's A/R, it does not
+  // park it elsewhere. Splitting it out here would misstate the control account.
+  const lines: GlLine[] = [
+    { accountId: depositAccount(txn.DepositToAccountRef?.value, ctx, unmapped), debit: total, description: "Customer payment", ...name },
+    { accountId: ctx.arAccountId, credit: total, description: "Customer payment", ...name },
+  ];
+  return baseEntry(txn, "Payment", lines, unmapped, ctx);
+}
+
+/** Credit memo: the mirror image of an invoice. Dr revenue + tax / Cr A/R. */
+export function mapQboCreditMemo(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "credit memo");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Customer");
+  const total = requireTotal(txn, "credit memo");
+  const lines: GlLine[] = [...salesLinesOf(txn, ctx, unmapped, "debit", name)];
+  const tax = round2(num(txn.TxnTaxDetail?.TotalTax));
+  if (tax !== 0) lines.push({ accountId: ctx.taxPayableAccountId, debit: tax, description: "Sales tax", ...name });
+  lines.push({ accountId: ctx.arAccountId, credit: total, description: `Credit memo ${txn.DocNumber ?? txn.Id}`, ...name });
+  if (lines.length < 2) throw new QboMapError(`credit memo ${txn.Id} produced no lines`);
+  return baseEntry(txn, "CreditNote", lines, unmapped, ctx);
+}
+
+/** Sales receipt: paid at the point of sale, so it never touches A/R. */
+export function mapQboSalesReceipt(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "sales receipt");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Customer");
+  const total = requireTotal(txn, "sales receipt");
+  const lines: GlLine[] = [
+    { accountId: depositAccount(txn.DepositToAccountRef?.value, ctx, unmapped), debit: total, description: "Sales receipt", ...name },
+    ...salesLinesOf(txn, ctx, unmapped, "credit", name),
+  ];
+  const tax = round2(num(txn.TxnTaxDetail?.TotalTax));
+  if (tax !== 0) lines.push({ accountId: ctx.taxPayableAccountId, credit: tax, description: "Sales tax", ...name });
+  if (lines.length < 2) throw new QboMapError(`sales receipt ${txn.Id} produced no income lines`);
+  return baseEntry(txn, "SalesReceipt", lines, unmapped, ctx);
+}
+
+/** Refund receipt: money back out of the bank. */
+export function mapQboRefundReceipt(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "refund receipt");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Customer");
+  const total = requireTotal(txn, "refund receipt");
+  const lines: GlLine[] = [...salesLinesOf(txn, ctx, unmapped, "debit", name)];
+  const tax = round2(num(txn.TxnTaxDetail?.TotalTax));
+  if (tax !== 0) lines.push({ accountId: ctx.taxPayableAccountId, debit: tax, description: "Sales tax", ...name });
+  lines.push({ accountId: depositAccount(txn.DepositToAccountRef?.value, ctx, unmapped), credit: total, description: "Refund", ...name });
+  if (lines.length < 2) throw new QboMapError(`refund receipt ${txn.Id} produced no lines`);
+  return baseEntry(txn, "RefundReceipt", lines, unmapped, ctx);
+}
+
+/** Bill: Dr expense/inventory / Cr A/P. */
+export function mapQboBill(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "bill");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Vendor");
+  const total = requireTotal(txn, "bill");
+  const lines: GlLine[] = [...expenseLinesOf(txn, ctx, unmapped, "debit", name)];
+  const tax = round2(num(txn.TxnTaxDetail?.TotalTax));
+  if (tax !== 0) lines.push({ accountId: ctx.taxPayableAccountId, debit: tax, description: "Purchase tax", ...name });
+  lines.push({ accountId: ctx.apAccountId, credit: total, description: `Bill ${txn.DocNumber ?? txn.Id}`, ...name });
+  if (lines.length < 2) throw new QboMapError(`bill ${txn.Id} produced no expense lines`);
+  return baseEntry(txn, "Bill", lines, unmapped, ctx);
+}
+
+/** Bill payment: Dr A/P / Cr bank or credit card, per PayType. */
+export function mapQboBillPayment(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "bill payment");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Vendor");
+  const total = requireTotal(txn, "bill payment");
+  // PayType decides which sub-object carries the funding account. An unknown
+  // PayType must NOT silently pick one — it goes to suspense like any other
+  // unresolvable reference, so the ambiguity is visible rather than guessed.
+  const fundingRef = txn.PayType === "Check" ? txn.CheckPayment?.BankAccountRef?.value
+                   : txn.PayType === "CreditCard" ? txn.CreditCardPayment?.CCAccountRef?.value
+                   : undefined;
+  const lines: GlLine[] = [
+    { accountId: ctx.apAccountId, debit: total, description: "Bill payment", ...name },
+    { accountId: resolveAccount(fundingRef, ctx, unmapped), credit: total, description: "Bill payment", ...name },
+  ];
+  return baseEntry(txn, "BillPayment", lines, unmapped, ctx);
+}
+
+/** Vendor credit: Dr A/P / Cr expense — the mirror image of a bill. */
+export function mapQboVendorCredit(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "vendor credit");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Vendor");
+  const total = requireTotal(txn, "vendor credit");
+  const lines: GlLine[] = [
+    { accountId: ctx.apAccountId, debit: total, description: "Vendor credit", ...name },
+    ...expenseLinesOf(txn, ctx, unmapped, "credit", name),
+  ];
+  if (lines.length < 2) throw new QboMapError(`vendor credit ${txn.Id} produced no expense lines`);
+  return baseEntry(txn, "VendorCredit", lines, unmapped, ctx);
+}
+
+/**
+ * Purchase (cheque, cash or credit card): Dr expense / Cr the funding account.
+ *
+ * `Credit: true` marks a credit-card REFUND, which reverses both sides.
+ * Getting this backwards posts a refund as a spend and overstates expenses.
+ */
+export function mapQboPurchase(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "purchase");
+  const unmapped: string[] = [];
+  const name = partyName(txn, "Vendor");
+  const total = requireTotal(txn, "purchase");
+  const isRefund = txn.Credit === true;
+  const expenseSide: "debit" | "credit" = isRefund ? "credit" : "debit";
+  const fundingSide: "debit" | "credit" = isRefund ? "debit" : "credit";
+  const lines: GlLine[] = [...expenseLinesOf(txn, ctx, unmapped, expenseSide, name)];
+  const tax = round2(num(txn.TxnTaxDetail?.TotalTax));
+  if (tax !== 0) lines.push({ accountId: ctx.taxPayableAccountId, [expenseSide]: tax, description: "Purchase tax", ...name } as GlLine);
+  lines.push({ accountId: resolveAccount(txn.AccountRef?.value, ctx, unmapped), [fundingSide]: total, description: isRefund ? "Refund" : "Purchase", ...name } as GlLine);
+  if (lines.length < 2) throw new QboMapError(`purchase ${txn.Id} produced no expense lines`);
+  return baseEntry(txn, "Purchase", lines, unmapped, ctx);
+}
+
+/** Bank deposit: Dr the bank / Cr each source line. */
+export function mapQboDeposit(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "deposit");
+  const unmapped: string[] = [];
+  const total = requireTotal(txn, "deposit");
+  const lines: GlLine[] = [
+    { accountId: resolveAccount(txn.DepositToAccountRef?.value, ctx, unmapped), debit: total, description: "Deposit" },
+  ];
+  for (const l of (Array.isArray(txn.Line) ? txn.Line : [])) {
+    const amt = round2(num(l?.Amount));
+    if (amt === 0) continue;
+    // A line with a LinkedTxn and no AccountRef is a payment already sitting in
+    // Undeposited Funds being swept into the bank; one with an AccountRef is
+    // direct income. Treating the first as income would double-count revenue.
+    const ref = l?.DepositLineDetail?.AccountRef?.value;
+    const acc = (!ref && Array.isArray(l?.LinkedTxn) && l.LinkedTxn.length > 0)
+      ? ctx.undepositedFundsAccountId
+      : resolveAccount(ref, ctx, unmapped);
+    lines.push({ accountId: acc, credit: amt, description: l?.Description ?? null });
+  }
+  if (lines.length < 2) throw new QboMapError(`deposit ${txn.Id} produced no source lines`);
+  return baseEntry(txn, "Deposit", lines, unmapped, ctx);
+}
+
+/** Transfer between two of the org's own accounts. */
+export function mapQboTransfer(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "transfer");
+  const unmapped: string[] = [];
+  const amt = round2(num(txn.Amount));
+  if (amt === 0) throw new QboMapError(`transfer ${txn.Id} has a zero amount`);
+  const lines: GlLine[] = [
+    { accountId: resolveAccount(txn.ToAccountRef?.value, ctx, unmapped), debit: amt, description: "Transfer in" },
+    { accountId: resolveAccount(txn.FromAccountRef?.value, ctx, unmapped), credit: amt, description: "Transfer out" },
+  ];
+  return baseEntry(txn, "Transfer", lines, unmapped, ctx);
+}
+
+/** Journal entry: QBO already states debits and credits, so take them as given. */
+export function mapQboJournalEntry(txn: any, ctx: GlMapContext): MappedEntry {
+  requireId(txn, "journal entry");
+  const unmapped: string[] = [];
+  const lines: GlLine[] = [];
+  for (const l of (Array.isArray(txn.Line) ? txn.Line : [])) {
+    const d = l?.JournalEntryLineDetail;
+    if (!d) continue;
+    const amt = round2(num(l?.Amount));
+    if (amt === 0) continue;
+    const acc = resolveAccount(d?.AccountRef?.value, ctx, unmapped);
+    const entity = d?.Entity?.EntityRef;
+    const name: Partial<GlLine> = entity
+      ? { nameType: d?.Entity?.Type ?? null, nameId: null, nameLabel: entity?.name ?? null }
+      : {};
+    // PostingType is authoritative and must never be defaulted — guessing it
+    // silently flips the sign of a line and still balances if you guess twice.
+    if (d.PostingType === "Debit")       lines.push({ accountId: acc, debit: amt, description: l?.Description ?? null, ...name });
+    else if (d.PostingType === "Credit") lines.push({ accountId: acc, credit: amt, description: l?.Description ?? null, ...name });
+    else throw new QboMapError(`journal entry ${txn.Id} has a line with no PostingType`);
+  }
+  if (lines.length < 2) throw new QboMapError(`journal entry ${txn.Id} produced fewer than two lines`);
+  return baseEntry(txn, "Manual", lines, unmapped, ctx);
+}
+
+/** QBO entity name → mapper. */
+export const QBO_MAPPERS: Record<string, (txn: any, ctx: GlMapContext) => MappedEntry> = {
+  Invoice:       mapQboInvoice,
+  Payment:       mapQboPayment,
+  CreditMemo:    mapQboCreditMemo,
+  SalesReceipt:  mapQboSalesReceipt,
+  RefundReceipt: mapQboRefundReceipt,
+  Bill:          mapQboBill,
+  BillPayment:   mapQboBillPayment,
+  VendorCredit:  mapQboVendorCredit,
+  Purchase:      mapQboPurchase,
+  Deposit:       mapQboDeposit,
+  Transfer:      mapQboTransfer,
+  JournalEntry:  mapQboJournalEntry,
+};
+
+/**
+ * Entities that legitimately never reach the ledger. Listed explicitly so the
+ * ingestion job can distinguish "we decided to skip this" from "we forgot
+ * this" — which is the difference between a complete ledger and a quietly
+ * incomplete one.
+ */
+export const QBO_NON_POSTING = ["Estimate", "PurchaseOrder", "TimeActivity"] as const;
+
+export function mapQboTransaction(entity: string, txn: any, ctx: GlMapContext): MappedEntry {
+  const fn = QBO_MAPPERS[entity];
+  if (!fn) throw new QboMapError(`no GL mapping for QBO entity "${entity}"`);
+  return fn(txn, ctx);
 }

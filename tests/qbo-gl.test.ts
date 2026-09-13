@@ -9,14 +9,20 @@
 import { describe, it, expect } from "vitest";
 import { mapQboInvoice, balanceTo, imbalanceOf, ingestDecision, QboMapError, type GlMapContext } from "@/lib/accounting/qbo-gl";
 
-const AR = "acc-ar", TAX = "acc-tax", SUSPENSE = "acc-suspense";
+const AR = "acc-ar", TAX = "acc-tax", SUSPENSE = "acc-suspense", AP = "acc-ap", UF = "acc-undeposited";
 const INCOME = "acc-income", OTHER_INCOME = "acc-other-income", DISCOUNT = "acc-discount";
+const BANK = "acc-bank", BANK2 = "acc-bank2", CARD = "acc-card", EXPENSE = "acc-expense";
 
 const ctx = (): GlMapContext => ({
-  accountByQboId: new Map([["79", INCOME], ["82", OTHER_INCOME], ["86", DISCOUNT]]),
+  accountByQboId: new Map([
+    ["79", INCOME], ["82", OTHER_INCOME], ["86", DISCOUNT],
+    ["35", BANK], ["36", BANK2], ["41", CARD], ["60", EXPENSE],
+  ]),
   suspenseAccountId: SUSPENSE,
   arAccountId: AR,
   taxPayableAccountId: TAX,
+  apAccountId: AP,
+  undepositedFundsAccountId: UF,
 });
 
 const salesLine = (amount: number, acct = "79", description?: string) => ({
