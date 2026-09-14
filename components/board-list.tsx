@@ -287,7 +287,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           <button
             onClick={() => { setNoteHub(open ? null : key); setHubText(""); setHubActivityType("Note"); }}
             title={`${o.kind === "cust" ? "Customer" : "Project"} activity log — calls, emails, meetings, notes`}
-            className={`inline-flex items-center gap-1 text-[10px] rounded-full px-1.5 py-0.5 border transition-colors ${o.notes.length ? pillOn : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
+            className={`inline-flex items-center gap-1 text-[11px] rounded-full px-1.5 py-0.5 border transition-colors ${o.notes.length ? pillOn : "border-stone-700 text-stone-500 hover:text-stone-300"}`}>
             {o.notes.length ? activityIcon(latestChase?.subject ?? "Note") : <MessageSquare size={10} />}
             <span>{o.notes.length || "Activity"}</span>
           </button>
@@ -307,7 +307,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               </div>
               <button onClick={() => setNoteHub(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
             </div>
-            <div className="px-4 py-1.5 text-[10px] text-stone-500 border-b border-stone-800/60">
+            <div className="px-4 py-1.5 text-[11px] text-stone-500 border-b border-stone-800/60">
               Entity-level — visible across all {o.scopeCount} invoice{o.scopeCount !== 1 ? "s" : ""} for this {o.kind === "cust" ? "customer" : "project"}.
             </div>
             {/* Thread */}
@@ -330,10 +330,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     <div className="flex items-center justify-between gap-2 mb-0.5">
                       <div className="flex items-center gap-1.5">
                         {activityIcon(entryType)}
-                        <span className="text-[10px] font-semibold text-stone-300">{entryType}</span>
-                        <span className="text-[10px] text-stone-600">· {n.sender || "Staff"}</span>
+                        <span className="text-[11px] font-semibold text-stone-300">{entryType}</span>
+                        <span className="text-[11px] text-stone-600">· {n.sender || "Staff"}</span>
                       </div>
-                      <span className="text-[10px] text-stone-600 tabular-nums shrink-0">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+                      <span className="text-[11px] text-stone-600 tabular-nums shrink-0">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
                     </div>
                     <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
                   </div>
@@ -347,7 +347,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 {ACTIVITY_TYPES.map(({ key: aKey, Icon: AIcon, label: aLabel, color: aColor }) => (
                   <button key={aKey} onClick={() => setHubActivityType(aKey)}
                     title={aLabel}
-                    className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors ${
+                    className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border transition-colors ${
                       hubActivityType === aKey
                         ? aKey === "Call" ? "border-emerald-700 bg-emerald-500/15 text-emerald-300"
                         : aKey === "Email" ? "border-blue-700 bg-blue-500/15 text-blue-300"
@@ -627,7 +627,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // first client render matches the server render — avoids hydration errors.
   const [cf, setCf] = useState<Record<string, string>>({});
   const [groupByCustomer, setGroupByCustomer] = useState(true);
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["region", "rep"]));
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(["region", "rep", "email"]));
   const [viewHydrated, setViewHydrated] = useState(false);
   useEffect(() => {
     try {
@@ -1143,6 +1143,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   });
   const selectedCustomers = useMemo(() => new Set(selectedRows.map(r => r.custId)), [selectedRows]);
 
+  // Columns to the LEFT of Outstanding, counted the same way the header builds
+  // them. The totals row used to hardcode colSpan={12} and then add two more
+  // cells — 14 in a table that renders at most 13 and nine by default — so the
+  // grand total has never sat under the column it totals, in any configuration.
+  const leadingCols = 1 /* checkbox */ + 1 /* Invoice */
+    + (showCustomer ? 1 : 0) + (showProject ? 1 : 0)
+    + (showRegion ? 1 : 0) + (showRep ? 1 : 0)
+    + 1 /* Stage */ + (showEmail ? 1 : 0)
+    + 1 /* Last Email Ref */ + 1 /* Next action */ + 1 /* Due */;
+
   async function save(id: string, patch: any) {
     setBusyId(id);
     // No full refresh() here — updateInvoice patches the invoices state in the
@@ -1273,7 +1283,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 </>
               )}
               {batchStageVal === "Escalated" && batchEscType && (
-                <span className="basis-full text-[10px] text-stone-500 leading-snug">
+                <span className="basis-full text-[11px] text-stone-500 leading-snug">
                   {escalationTypeByLabel(batchEscType)?.description}
                 </span>
               )}
@@ -1376,7 +1386,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   {overdueOnly && <Check size={13} className="text-emerald-400" />}
                 </button>
                 <div className="my-1 border-t border-stone-800" />
-                <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold text-stone-600 uppercase tracking-wider">Columns</div>
+                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Columns</div>
                 {([
                   { key: "region", label: "Region" },
                   { key: "rep",    label: "Rep" },
@@ -1426,7 +1436,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
                     Chase Report{selected.size ? ` (${selected.size} selected)` : ""}
-                    <div className="text-[10px] text-stone-600">Management report — detail + summary by owner</div>
+                    <div className="text-[11px] text-stone-600">Management report — detail + summary by owner</div>
                   </div>
                 </button>
                 <button
@@ -1448,7 +1458,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
                     A/R Ageing &amp; Chase{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[10px] text-stone-600">Customer → project ageing, status, last ref &amp; chase count</div>
+                    <div className="text-[11px] text-stone-600">Customer → project ageing, status, last ref &amp; chase count</div>
                   </div>
                 </button>
                 <button
@@ -1464,7 +1474,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
                     Statement of Open Invoices — PDF{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[10px] text-stone-600">Printable, grouped by customer then project</div>
+                    <div className="text-[11px] text-stone-600">Printable, grouped by customer then project</div>
                   </div>
                 </button>
                 <button
@@ -1479,7 +1489,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <Download size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
                     Statement of Open Invoices — Excel{selected.size ? ` (${selected.size})` : ""}
-                    <div className="text-[10px] text-stone-600">Same statement as a spreadsheet</div>
+                    <div className="text-[11px] text-stone-600">Same statement as a spreadsheet</div>
                   </div>
                 </button>
                 <button onClick={() => { downloadPdfs(); setToolbarMenu(null); }} disabled={selected.size === 0 || downloadingPdf}
@@ -1487,7 +1497,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <FileText size={13} className="text-stone-500" />
                   <div className="flex-1 text-left">
                     {downloadingPdf ? "Downloading PDFs…" : `Invoice PDFs (ZIP)${selected.size ? ` (${selected.size})` : ""}`}
-                    {selected.size === 0 && <div className="text-[10px] text-stone-600">Select invoices first</div>}
+                    {selected.size === 0 && <div className="text-[11px] text-stone-600">Select invoices first</div>}
                   </div>
                 </button>
 
@@ -1503,7 +1513,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <Download size={13} className="text-violet-400" />
                   <div className="flex-1 text-left">
                     Comment template
-                    <div className="text-[10px] text-stone-600">Pre-filled with open customers &amp; projects — type comments, then import</div>
+                    <div className="text-[11px] text-stone-600">Pre-filled with open customers &amp; projects — type comments, then import</div>
                   </div>
                 </button>
                 <button
@@ -1513,7 +1523,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   <ArrowDownRight size={13} className="text-violet-400" />
                   <div className="flex-1 text-left">
                     {importingComments ? "Importing comments…" : "Import comments"}
-                    <div className="text-[10px] text-stone-600">Upload the filled-in template — logs at customer / project level</div>
+                    <div className="text-[11px] text-stone-600">Upload the filled-in template — logs at customer / project level</div>
                   </div>
                 </button>
               </div>
@@ -1542,7 +1552,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 shrink-0">
           <button onClick={() => setCompositionOpen(v => !v)} className="w-full flex items-center gap-2 mb-1.5">
             <ChevronDown size={11} className={`text-stone-600 transition-transform ${compositionOpen ? "" : "-rotate-90"}`} />
-            <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Composition</span>
+            <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Composition</span>
             <span className="text-[11px] text-stone-600">click a segment to filter</span>
             <div className="flex-1" />
             <span className="text-[11px] text-stone-400 tabular-nums">{fmt.money(composition.total, compositionCcy)}</span>
@@ -1744,7 +1754,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     filter === "email"    ? !!(cf.email || cf.emailText) :
                     !!cf[filter];
                   return (
-                    <th key={label} className={`${thCls} relative`}>
+                    <th key={label} className={`${thCls} relative group/th`}>
                       <span className="inline-flex items-center gap-0.5">
                         {sort ? (
                           <button onClick={() => handleSort(sort)} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
@@ -1755,7 +1765,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           </button>
                         ) : label}
                         <button onClick={() => setFilterOpen(p => p === filter ? null : filter)}
-                          className={`p-0.5 rounded hover:bg-stone-800 ${active ? "text-emerald-400" : "text-stone-700 hover:text-stone-400"}`}>
+                          className={`p-0.5 rounded hover:bg-stone-800 transition-opacity ${active ? "text-emerald-400" : "text-stone-600 opacity-0 group-hover/th:opacity-100 focus-visible:opacity-100 hover:text-stone-300"}`}>
                           <Filter size={11} fill={active ? "currentColor" : "none"} />
                         </button>
                       </span>
@@ -1795,7 +1805,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               </div>
                               {ownerOpts.length > 0 && (
                                 <>
-                                  <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalated to</div>
+                                  <div className="text-[11px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalated to</div>
                                   <div className="max-h-32 overflow-y-auto space-y-1">
                                     {ownerOpts.map(o => (
                                       <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
@@ -1808,7 +1818,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               )}
                               {escTypeOpts.length > 0 && (
                                 <>
-                                  <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalation type</div>
+                                  <div className="text-[11px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Escalation type</div>
                                   <div className="max-h-32 overflow-y-auto space-y-1">
                                     {escTypeOpts.map(o => (
                                       <label key={o} title={escalationTypeByLabel(o)?.description} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
@@ -1820,7 +1830,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                 </>
                               )}
                               {/* Commitment / dispute — response state now lives on the Stage column */}
-                              <div className="text-[10px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Commitment</div>
+                              <div className="text-[11px] font-semibold text-stone-600 uppercase tracking-wider pt-1 border-t border-stone-800">Commitment</div>
                               <div className="space-y-1">
                                 {[["", "Any"], ["broken", "Broken commitments"], ["upcoming", "Upcoming commitments"], ["disputed", "Disputed"]].map(([v, l]) => (
                                   <label key={v} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
@@ -1905,7 +1915,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     </th>
                   );
                 })}
-                <th className={`${thCls} text-right relative`}>
+                <th className={`${thCls} text-right relative border-l border-stone-800 group/th`}>
                   <span className="inline-flex items-center gap-0.5">
                     <button onClick={() => handleSort("outstanding")} className="inline-flex items-center gap-1 hover:text-stone-200 transition-colors group">
                       Outstanding
@@ -1914,7 +1924,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
                     </button>
                     <button onClick={() => setFilterOpen(p => p === "amount" ? null : "amount")}
-                      className={`p-0.5 rounded hover:bg-stone-800 ${(cf.minAmount || cf.maxAmount) ? "text-emerald-400" : "text-stone-700 hover:text-stone-400"}`}>
+                      className={`p-0.5 rounded hover:bg-stone-800 transition-opacity ${(cf.minAmount || cf.maxAmount) ? "text-emerald-400" : "text-stone-600 opacity-0 group-hover/th:opacity-100 focus-visible:opacity-100 hover:text-stone-300"}`}>
                       <Filter size={11} fill={(cf.minAmount || cf.maxAmount) ? "currentColor" : "none"} />
                     </button>
                   </span>
@@ -1958,7 +1968,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   const bandKey = `cust-${item.custId}`;
                   return (
                     <tr key={`band-${item.custId}`}
-                      className="bg-stone-800 border-t-2 border-t-stone-700 border-b border-b-stone-700 select-none cursor-pointer hover:bg-stone-750"
+                      className="h-[48px] bg-stone-800 border-t-2 border-t-stone-700 border-b border-b-stone-700 select-none cursor-pointer hover:bg-stone-700/40"
                       onClick={() => setCollapsedCust(p => { const n = new Set(p); n.has(item.custId) ? n.delete(item.custId) : n.add(item.custId); return n; })}>
                       {/* Checkbox */}
                       <td className="px-2 py-2.5 border-l-[3px] border-l-emerald-500" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
@@ -1967,7 +1977,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         <span className="inline-block w-4 text-stone-400">{item.collapsed ? "▸" : "▾"}</span>
                         {item.custName}
                         {isGroup && item.orgId && orgNames[item.orgId] && (
-                          <span className="ml-2 align-middle text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-300 border border-emerald-800/50" title="Branch this customer belongs to">
+                          <span className="ml-2 align-middle text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-300 border border-emerald-800/50" title="Branch this customer belongs to">
                             {orgNames[item.orgId]}
                           </span>
                         )}
@@ -1978,19 +1988,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-700 text-stone-600 hover:text-blue-400 transition-colors align-middle">
                           <Phone size={12} />
                           {custContactCount > 0 && (
-                            <span className="absolute -top-1 -right-1 text-white text-[9px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-600">
+                            <span className="absolute -top-1 -right-1 text-white text-[11px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-600">
                               {custContactCount > 9 ? "9+" : custContactCount}
                             </span>
                           )}
                         </button>
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
-                          <span className="text-[10px] text-emerald-400 font-medium ml-2">{selCount(item.ids)} selected</span>
+                          <span className="text-[11px] text-emerald-400 font-medium ml-2">{selCount(item.ids)} selected</span>
                         )}
                         {(() => {
                           const notes = customerNotesById[item.custId] ?? [];
                           const note = (notes as any[]).find((n: any) => n.channel === "Chase") ?? notes[0];
                           return note ? (
-                            <span className="text-[11px] text-stone-500 italic ml-2 max-w-[280px] truncate inline-block align-middle" title={note.body}>
+                            <span className="text-[11px] text-stone-500 ml-2 max-w-[340px] truncate inline-block align-middle" title={note.body}>
                               {note.channel === "Chase" ? `[${note.subject}] ` : ""}{note.body}
                             </span>
                           ) : null;
@@ -2037,7 +2047,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <span>{item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d`}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-rose-400/70" title="No contact logged">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400/70" title="No contact logged">
                             <AlertTriangle size={9} />
                             <span>no contact</span>
                           </span>
@@ -2046,7 +2056,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Next action → NBA */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-2 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-2 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={9} className="shrink-0" />
                             {item.bandNBA.label}
                             {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
@@ -2056,14 +2066,19 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Due → oldest overdue */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.maxDays > 0 && (
-                          <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
+                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
                             +{item.maxDays}d
                           </span>
                         )}
                       </td>
-                      {/* Outstanding */}
-                      <td className="px-2 py-2 text-right font-bold text-white tabular-nums whitespace-nowrap">
-                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                      {/* Outstanding — the ledger column: its own rule, the
+                          strongest ink on the row, one currency per line so
+                          decimals align (they were joined with " · " before,
+                          which destroyed alignment the moment an org had two). */}
+                      <td className="px-2 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap border-l border-stone-800 text-[14px]">
+                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
+                          <div key={c}>{fmt.money(v, c)}</div>
+                        ))}
                       </td>
                       {/* Activity — comment hub */}
                       <td className="px-3 py-2 text-center relative" onClick={e => e.stopPropagation()}>
@@ -2082,7 +2097,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   const projBandKey = `proj-${item.key}`;
                   return (
                     <tr key={`proj-${item.key}`}
-                      className="bg-stone-900 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-800/60"
+                      className="h-[34px] bg-stone-900 border-b border-stone-800 select-none cursor-pointer hover:bg-stone-800/60"
                       onClick={() => setExpandedProj(p => { const n = new Set(p); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                       {/* Checkbox */}
                       <td className="px-2 py-2 pl-6 border-l-[3px] border-l-stone-500" onClick={e => e.stopPropagation()}>{bandCheckbox(item.ids)}</td>
@@ -2090,7 +2105,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <td className="px-2 py-2 pl-6 text-[12px] font-medium text-stone-300 relative">
                         <span className="inline-block w-4 text-stone-600">{item.collapsed ? "▸" : "▾"}</span>
                         {item.projName}
-                        <span className="text-[10px] text-stone-600 ml-2">{item.count} inv</span>
+                        <span className="text-[11px] text-stone-600 ml-2">{item.count} inv</span>
                         {projContactKey && (
                           <button
                             onClick={e => { e.stopPropagation(); setContactsOpenId(contactsOpenId === projContactKey ? null : projContactKey); }}
@@ -2098,21 +2113,21 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-800 text-stone-700 hover:text-blue-400 transition-colors align-middle">
                             <Phone size={11} />
                             {projContactCount > 0 && (
-                              <span className="absolute -top-1 -right-1 text-white text-[9px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-700">
+                              <span className="absolute -top-1 -right-1 text-white text-[11px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-700">
                                 {projContactCount > 9 ? "9+" : projContactCount}
                               </span>
                             )}
                           </button>
                         )}
                         {selCount(item.ids) > 0 && selCount(item.ids) < item.ids.length && (
-                          <span className="text-[10px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
+                          <span className="text-[11px] text-emerald-500 font-medium ml-2">{selCount(item.ids)} selected</span>
                         )}
                         {(() => {
                           if (!pid) return null;
                           const notes = projectNotesById[pid] ?? [];
                           const note = (notes as any[]).find((n: any) => n.channel === "Chase") ?? notes[0];
                           return note ? (
-                            <span className="text-[11px] text-stone-500 italic ml-2 max-w-[280px] truncate inline-block align-middle" title={note.body}>
+                            <span className="text-[11px] text-stone-500 ml-2 max-w-[340px] truncate inline-block align-middle" title={note.body}>
                               {note.channel === "Chase" ? `[${note.subject}] ` : ""}{note.body}
                             </span>
                           ) : null;
@@ -2137,12 +2152,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Stage — batch-change dropdown */}
                       <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                         {item.dominantStage && (
-                          <span className={`relative inline-flex items-center gap-0.5 text-[10px] font-medium rounded-full px-1.5 py-0.5 border cursor-pointer ${stageColor(item.dominantStage)}`}
+                          <span className={`relative inline-flex items-center gap-0.5 text-[11px] font-medium rounded-full px-1.5 py-0.5 border cursor-pointer ${stageColor(item.dominantStage)}`}
                             title="Change stage for all invoices in this project">
                             {item.dominantStage}
                             <ChevronDown size={8} className="opacity-60 shrink-0" />
                             <select disabled={bandStageBusy} value="" onChange={e => { if (e.target.value) changeBandStage(projBandKey, item.ids, e.target.value); }}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[10px]">
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]">
                               <option value="" disabled>Change all to…</option>
                               {stageLabels.filter(s => s !== "Escalated" && s !== "Committed" && s !== "Disputed").map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
@@ -2159,7 +2174,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <span>{item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d`}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-rose-400/60" title="No contact logged">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400/60" title="No contact logged">
                             <AlertTriangle size={8} />
                             <span>no contact</span>
                           </span>
@@ -2168,7 +2183,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Next action → NBA */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className="inline-flex items-center gap-1 text-[9px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-1.5 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-1.5 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={8} className="shrink-0" />
                             {item.bandNBA.label}
                             {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
@@ -2178,14 +2193,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Due → oldest overdue in this project */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.maxDays > 0 && (
-                          <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
+                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
                             +{item.maxDays}d
                           </span>
                         )}
                       </td>
                       {/* Outstanding */}
-                      <td className="px-2 py-1.5 text-right text-[12px] font-semibold text-stone-300 tabular-nums whitespace-nowrap">
-                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ")}
+                      <td className="px-2 py-1.5 text-right text-[13px] font-medium text-stone-300 tabular-nums whitespace-nowrap border-l border-stone-800">
+                        {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
+                          <div key={c}>{fmt.money(v, c)}</div>
+                        ))}
                       </td>
                       {/* Activity — comment hub */}
                       <td className="px-3 py-1.5 text-center relative" onClick={e => e.stopPropagation()}>
@@ -2198,7 +2215,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 const { inv, custId, custName, projName, regionName, repName, stageLabel, bal, days, email, lastSent, lastRef } = item.r;
                 const isSel = selected.has(inv.id);
                 return (
-                  <tr key={inv.id} className={`border-b border-stone-800 transition-colors ${isSel ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "hover:bg-stone-800/50"}`}>
+                  <tr key={inv.id} className={`h-[40px] border-b border-stone-800 transition-colors ${isSel ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "hover:bg-stone-800/50"}`}>
                     <td className="px-2 py-2.5 pl-4"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-300 cursor-pointer" /></td>
                     <td className="px-2 py-2.5"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-400 hover:text-white hover:underline">#{inv.invoiceNumber}</Link></td>
                     {showCustomer && <td className="px-2 py-2.5 text-stone-200 text-[13px] max-w-[160px] truncate" title={custName}>{custName}</td>}
@@ -2323,7 +2340,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               ))}
                             </select>
                             {selectedEscType && (
-                              <p className="text-[10px] text-stone-500 leading-snug px-0.5">
+                              <p className="text-[11px] text-stone-500 leading-snug px-0.5">
                                 {escalationTypeByLabel(selectedEscType)?.description}
                               </p>
                             )}
@@ -2456,14 +2473,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       )}
                     </td>}
 
-                    <td className="px-2 py-2 whitespace-nowrap text-[12px]">
-                      {lastRef
-                        ? <span className="font-mono text-stone-300">{lastRef}</span>
-                        : <span className="text-stone-600">—</span>}
+                    {/* Last contact — recency leads, reference follows. It read
+                        "PA-8801 · 14d" before: nobody scans reference numbers,
+                        they scan how long it has been. */}
+                    <td className="px-2 py-2 whitespace-nowrap">
                       {lastSent ? (() => {
                         const n = daysAgo(lastSent);
-                        return <span className={`ml-1.5 font-medium ${agoCls(n)}`} title={fmtSent(lastSent) ?? undefined}>· {n === 0 ? "today" : `${n}d`}</span>;
-                      })() : (!lastRef && <span className="text-stone-600"> never</span>)}
+                        return <span className={`block text-[12px] font-medium tabular-nums ${agoCls(n)}`} title={fmtSent(lastSent) ?? undefined}>
+                          {n === 0 ? "today" : `${n}d ago`}
+                        </span>;
+                      })() : <span className="block text-[12px] text-stone-600">never</span>}
+                      {lastRef && <span className="block font-mono text-[11px] text-stone-500">{lastRef}</span>}
                     </td>
                     {/* Next action — the forward-looking queue date, editable inline */}
                     {/* Next best action — computed, one-click, filterable by type */}
@@ -2506,16 +2526,26 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         );
                       })()}
                     </td>
-                    <td className="px-2 py-2 whitespace-nowrap text-stone-400 text-[12px]">{inv.dueDate}{days > 0 && <span className="ml-1 text-rose-400 font-medium">+{days}d</span>}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">
-                      <span className="font-semibold text-white">{fmt.money(bal, inv.currency)}</span>
+                    {/* Due — one format, via the same helper every other date
+                        on this screen uses. It printed the raw ISO string
+                        ("2026-06-30") while Last Email Ref right beside it
+                        printed "30 Jun 26". Days-overdue drops to a second
+                        line so the date reads first, matching the bands. */}
+                    <td className="px-2 py-2 whitespace-nowrap text-right tabular-nums">
+                      <span className="text-stone-400 text-[12px]">{fmtSent(inv.dueDate) ?? inv.dueDate}</span>
+                      <span className={`block text-[11px] font-medium ${days > 0 ? "text-rose-400" : "text-stone-600"}`}>
+                        {days > 0 ? `${days}d over` : "not due"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums border-l border-stone-800">
+                      <span className="font-medium text-stone-300 text-[13px]">{fmt.money(bal, inv.currency)}</span>
                       {(() => {
                         const total = Number(inv.total || 0);
                         if (total <= 0 || bal <= 0) return null;
                         const pct = Math.round((bal / total) * 100);
                         if (pct >= 100) return null;
                         const cls = pct >= 75 ? "text-rose-400" : pct >= 40 ? "text-amber-400" : "text-emerald-400";
-                        return <span className={`ml-1.5 text-[10px] font-medium ${cls}`}>{pct}%</span>;
+                        return <span className={`ml-1.5 text-[11px] font-medium ${cls}`}>{pct}%</span>;
                       })()}
                     </td>
 
@@ -2532,7 +2562,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         className="relative inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200" title="Activity">
                         <MessageSquare size={15} />
                         {feedForInv(inv).length > 0 && (
-                          <span className={`absolute -top-1 -right-1 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{feedForInv(inv).length}</span>
+                          <span className={`absolute -top-1 -right-1 text-white text-[11px] rounded-full w-4 h-4 flex items-center justify-center font-semibold ${hasUnreadReply(inv.id) ? "bg-rose-500 animate-pulse" : "bg-blue-600"}`}>{feedForInv(inv).length}</span>
                         )}
                       </button>
                       {notesOpenId === inv.id && (
@@ -2543,7 +2573,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               <MessageSquare size={13} className="text-stone-400" />
                               <span className="text-[12px] font-semibold text-stone-200">Activity · #{inv.invoiceNumber}</span>
                               {feedForInv(inv).length > 0 && (
-                                <span className="text-[10px] text-stone-500">{feedForInv(inv).length} event{feedForInv(inv).length !== 1 ? "s" : ""}</span>
+                                <span className="text-[11px] text-stone-500">{feedForInv(inv).length} event{feedForInv(inv).length !== 1 ? "s" : ""}</span>
                               )}
                             </div>
                             <button onClick={() => setNotesOpenId(null)} className="text-stone-500 hover:text-stone-200"><X size={14} /></button>
@@ -2607,11 +2637,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               return (
                                 <div key={n.id} className={`rounded-lg px-3 py-2 ${cfg.border} ${cfg.bg}`}>
                                   <div className="flex items-center justify-between gap-2 mb-1">
-                                    <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${cfg.labelCls}`}>
+                                    <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${cfg.labelCls}`}>
                                       {cfg.icon}
                                       <span>{cfg.label}</span>
                                     </div>
-                                    <span className="text-[10px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
+                                    <span className="text-[11px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
                                   </div>
                                   {n.channel === "StageChange" ? (() => {
                                     const [fromStage, toRaw] = (n.subject ?? "").split(" → ");
@@ -2624,13 +2654,13 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     return (
                                       <div className="mt-1 space-y-1.5">
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="text-[10px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
-                                          <span className="text-[10px] text-stone-500 font-bold">→</span>
-                                          <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>{toStage}</span>
+                                          <span className="text-[11px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
+                                          <span className="text-[11px] text-stone-500 font-bold">→</span>
+                                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>{toStage}</span>
                                           {escType && (
                                             <span
                                               title={escalationTypeByLabel(escType)?.description}
-                                              className="text-[10px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5">
+                                              className="text-[11px] font-medium bg-rose-900/30 text-rose-300 border border-rose-800 rounded-full px-2 py-0.5">
                                               {escType}
                                             </span>
                                           )}
@@ -2641,7 +2671,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                             <span className="font-medium">Assigned to</span>
                                             <span>{assigneeLine.split(" · ")[0]}</span>
                                             {assigneeLine.includes(" · ") && (
-                                              <span className="text-stone-500 text-[10px]">· {assigneeLine.split(" · ")[1]}</span>
+                                              <span className="text-stone-500 text-[11px]">· {assigneeLine.split(" · ")[1]}</span>
                                             )}
                                           </div>
                                         )}
@@ -2669,7 +2699,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                         customerId: n.customerId,
                                         projectId:  n.projectId,
                                       })}
-                                      className="mt-1.5 flex items-center gap-1 text-[10px] text-stone-500 hover:text-blue-400 transition-colors"
+                                      className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-500 hover:text-blue-400 transition-colors"
                                     >
                                       <CornerUpLeft size={10} />
                                       Reply
@@ -2682,7 +2712,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                           {/* Add note input */}
                           <div className="p-2.5 border-t border-stone-800 flex-shrink-0 space-y-2">
-                            <div className="text-[10px] text-stone-600 font-medium px-1">Internal note</div>
+                            <div className="text-[11px] text-stone-600 font-medium px-1">Internal note</div>
                             <div className="flex items-center gap-1.5">
                               <input value={noteText} onChange={e => setNoteText(e.target.value)}
                                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const r = sortedRows.find(x => x.inv.id === inv.id); if (r) addNote(r); } }}
@@ -2704,7 +2734,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               ) : (
                                 <div className="space-y-1.5">
                                   <div className="flex items-center justify-between px-1">
-                                    <span className="text-[10px] font-semibold text-amber-500 flex items-center gap-1"><ArrowUpRight size={11} />Log chase</span>
+                                    <span className="text-[11px] font-semibold text-amber-500 flex items-center gap-1"><ArrowUpRight size={11} />Log chase</span>
                                     <button onClick={() => setChaseOpenId(null)} className="text-stone-600 hover:text-stone-400"><X size={12} /></button>
                                   </div>
                                   <div className="flex gap-1.5">
@@ -2735,10 +2765,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
-                <td colSpan={12} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
+                <td colSpan={leadingCols} className="px-3 py-2.5 text-[12px] text-stone-400 text-right">
                   {sortedRows.length} invoice{sortedRows.length !== 1 ? "s" : ""}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums border-l border-stone-800">
                   {(() => {
                     const byCcy: Record<string, number> = {};
                     sortedRows.forEach(r => {
@@ -2749,7 +2779,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       .filter(([, v]) => v > 0)
                       .sort((a, b) => b[1] - a[1])
                       .map(([c, v]) => (
-                        <div key={c} className="text-white">{fmt.money(v, c)}</div>
+                        <div key={c} className="text-white text-[14px] font-semibold">{fmt.money(v, c)}</div>
                       ));
                   })()}
                 </td>
