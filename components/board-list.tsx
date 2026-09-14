@@ -880,11 +880,22 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }
 
   // ── Column sort ────────────────────────────────────────────────────────────
-  const [sortCol, setSortCol] = useState<string>("customer");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  // Default to the Next-action rank (lib/next-action.ts scores every invoice
+  // 0–100) rather than customer name. The board's question is "what do I work
+  // first", and the engine already answers it; alphabetical order answers
+  // nothing. Any column header still overrides this for the session.
+  const [sortCol, setSortCol] = useState<string>("action");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  // Columns where the interesting end is the TOP — urgency, money, age. Landing
+  // on ascending for these means the first click shows the least urgent, the
+  // smallest balance or the least overdue, which is never what was wanted.
+  const DESC_FIRST = new Set(["action", "outstanding", "days"]);
 
   const handleSort = (col: string) => {
-    setSortDir(prev => sortCol === col ? (prev === "asc" ? "desc" : "asc") : "asc");
+    setSortDir(prev => sortCol === col
+      ? (prev === "asc" ? "desc" : "asc")
+      : (DESC_FIRST.has(col) ? "desc" : "asc"));
     setSortCol(col);
   };
 
@@ -926,8 +937,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   type DisplayItem =
     | { type: "row"; r: BoardRow }
-    | { type: "band"; custId: string; custName: string; orgId: string | null; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null } | null; lastChaseInfo: { days: number; activityType: string } | null }
-    | { type: "projBand"; key: string; custId: string; projectId: string | null; projName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null } | null; lastChaseInfo: { days: number; activityType: string } | null };
+    | { type: "band"; custId: string; custName: string; orgId: string | null; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string } | null }
+    | { type: "projBand"; key: string; custId: string; projectId: string | null; projName: string; count: number; total: Record<string, number>; ids: string[]; maxDays: number; collapsed: boolean; dominantStage: string; bandNBA: { label: string; detail: string | null; rank: number } | null; lastChaseInfo: { days: number; activityType: string } | null };
 
   const displayRows = useMemo((): DisplayItem[] => {
     if (!groupByCustomer) return sortedRows.map(r => ({ type: "row" as const, r }));
@@ -971,7 +982,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         const na = nextActionByInv[r.inv.id];
         if (na && (!best || na.rank > best.rank)) best = { label: na.label, detail: (na as any).detail ?? null, rank: na.rank };
       });
-      return best ? { label: (best as any).label, detail: (best as any).detail } : null;
+      // Keep the rank — the band ordering below sorts on it. It used to be
+      // computed here and dropped, which is why "sort by Next action" could
+      // never reorder the bands the user actually sees first.
+      return best ? { label: (best as any).label, detail: (best as any).detail, rank: (best as any).rank } : null;
     };
     const computeLastChaseInfo = (bandRows: BoardRow[], custId: string, projId?: string | null) => {
       // Entity-level activity hub entries (Notes + Chase logs on the band itself).
@@ -988,26 +1002,46 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       return latestMs > 0 ? { days: Math.floor((Date.now() - latestMs) / 86400000), activityType: entityMs >= invChaseMs ? entityType : "Chase" } : null;
     };
 
+    // Band ordering. Sorting by "Next action" has to reorder the BANDS, not
+    // just the invoice rows inside them: in grouped mode (the default) the
+    // rows a user sees first are band headers, so a rank sort applied only to
+    // `sortedRows` reorders invoices nobody has expanded yet and looks like a
+    // no-op. Every other sort column keeps the original subtotal-desc order —
+    // biggest debt first — because that's what those columns are asked for.
+    const dirMul = sortDir === "asc" ? -1 : 1;
+    const byRank = (aRank: number, bRank: number, aTotal: number, bTotal: number) =>
+      ((bRank - aRank) * dirMul) || (bTotal - aTotal);   // ties break on amount
+
     const out: DisplayItem[] = [];
-    for (const [custId, g] of [...groups.entries()].sort((a, b) => b[1].sortTotal - a[1].sortTotal)) {
-      const allIds = [...g.projects.values()].flatMap(p => p.rows.map(r => r.inv.id));
+    const custEntries = [...groups.entries()].map(([custId, g]) => {
       const allRows = [...g.projects.values()].flatMap(p => p.rows);
+      return { custId, g, allRows, nba: computeBandNBA(allRows) };
+    });
+    custEntries.sort((a, b) => sortCol === "action"
+      ? byRank(a.nba?.rank ?? 0, b.nba?.rank ?? 0, a.g.sortTotal, b.g.sortTotal)
+      : b.g.sortTotal - a.g.sortTotal);
+
+    for (const { custId, g, allRows, nba } of custEntries) {
+      const allIds = allRows.map(r => r.inv.id);
       const custCollapsed = collapsedCust.has(custId);
       out.push({ type: "band", custId, custName: g.custName, orgId: allRows[0]?.inv?.orgId ?? null, count: g.count, total: g.total, ids: allIds, maxDays: g.maxDays, collapsed: custCollapsed,
         dominantStage: computeDominantStage(allRows),
-        bandNBA: computeBandNBA(allRows),
+        bandNBA: nba,
         lastChaseInfo: computeLastChaseInfo(allRows, custId, null),
       });
       if (custCollapsed) continue;
-      const projGroups = [...g.projects.values()].sort((a, b) => b.sortTotal - a.sortTotal);
-      const showProjBands = projGroups.length > 1 || projGroups[0]?.projName !== "No project";
-      for (const p of projGroups) {
+      const projEntries = [...g.projects.values()].map(p => ({ p, nba: computeBandNBA(p.rows) }));
+      projEntries.sort((a, b) => sortCol === "action"
+        ? byRank(a.nba?.rank ?? 0, b.nba?.rank ?? 0, a.p.sortTotal, b.p.sortTotal)
+        : b.p.sortTotal - a.p.sortTotal);
+      const showProjBands = projEntries.length > 1 || projEntries[0]?.p.projName !== "No project";
+      for (const { p, nba: projNba } of projEntries) {
         const projKey = `${custId}|${p.projName}`;
         const projCollapsed = !expandedProj.has(projKey);
         if (showProjBands) {
           out.push({ type: "projBand", key: projKey, custId, projectId: p.rows[0]?.inv.projectId ?? null, projName: p.projName, count: p.rows.length, total: p.total, ids: p.rows.map(r => r.inv.id), maxDays: p.maxDays, collapsed: projCollapsed,
             dominantStage: computeDominantStage(p.rows),
-            bandNBA: computeBandNBA(p.rows),
+            bandNBA: projNba,
             lastChaseInfo: computeLastChaseInfo(p.rows, custId, p.rows[0]?.inv.projectId),
           });
           if (projCollapsed) continue;
@@ -1016,7 +1050,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       }
     }
     return out;
-  }, [sortedRows, groupByCustomer, collapsedCust, expandedProj, nextActionByInv, customerNotesById, projectNotesById, lastChaseByInv]);
+  }, [sortedRows, groupByCustomer, collapsedCust, expandedProj, nextActionByInv, customerNotesById, projectNotesById, lastChaseByInv, sortCol, sortDir]);
 
   const allCustIds = useMemo(() => [...new Set(sortedRows.map(r => r.custId))], [sortedRows]);
   const allProjKeys = useMemo(() => {
@@ -2015,6 +2049,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           <span className="inline-flex items-center gap-1 text-[10px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-2 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={9} className="shrink-0" />
                             {item.bandNBA.label}
+                            {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
                           </span>
                         )}
                       </td>
@@ -2136,6 +2171,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           <span className="inline-flex items-center gap-1 text-[9px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-1.5 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
                             <Zap size={8} className="shrink-0" />
                             {item.bandNBA.label}
+                            {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
                           </span>
                         )}
                       </td>
