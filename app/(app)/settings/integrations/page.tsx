@@ -8,7 +8,7 @@ import { useData } from "@/components/data-provider";
 import { Card, Button, Badge } from "@/components/ui";
 import {
   ChevronLeft, Link2, Unlink, RefreshCw, Check, AlertTriangle, Loader,
-  CheckCircle, XCircle, Clock, Database,
+  CheckCircle, XCircle, Clock, Database, Archive,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -918,8 +918,14 @@ export default function IntegrationsSettingsPage() {
                   <div className="mt-2 space-y-1">
                     {webhookHealth.recentEvents.slice(0, 5).map((ev: any) => (
                       <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-800/50">
+                        {/* "captured" is NOT a problem: QBO sent us an entity we
+                            record for the ledger but have no live sync handler
+                            for yet. It fell through to the amber warning icon
+                            when first added, which made a healthy feed look
+                            broken. Neutral icon, and the row says why below. */}
                         {ev.status === "received" ? <CheckCircle size={11} className="text-emerald-500" /> :
                          ev.status === "error" ? <XCircle size={11} className="text-rose-500" /> :
+                         ev.status === "captured" ? <Archive size={11} className="text-stone-500" /> :
                          <AlertTriangle size={11} className="text-amber-500" />}
                         <span className="text-stone-500 w-28">
                           {new Date(ev.receivedAt).toLocaleString("en-IE", {
@@ -930,6 +936,11 @@ export default function IntegrationsSettingsPage() {
                         <span className="text-stone-400 truncate">
                           {ev.entities?.map((e: any) => `${e.name}#${e.id}(${e.operation})`).join(", ")}
                         </span>
+                        {ev.status === "captured" && (
+                          <span className="ml-auto shrink-0 text-stone-500" title="Received and stored. No live sync handles this entity yet — it is kept so the accounting ledger can replay it.">
+                            recorded
+                          </span>
+                        )}
                         {ev.errorMessage && <span className="ml-auto text-rose-400">{ev.errorMessage}</span>}
                         {ev.processingMs && !ev.errorMessage && (
                           <span className="ml-auto text-stone-400">{ev.processingMs}ms</span>
@@ -1133,8 +1144,14 @@ export default function IntegrationsSettingsPage() {
                   <div className="mt-2 space-y-1">
                     {xeroWebhookHealth.recentEvents.slice(0, 5).map((ev: any) => (
                       <div key={ev.id} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded hover:bg-stone-800/50">
+                        {/* "captured" is NOT a problem: QBO sent us an entity we
+                            record for the ledger but have no live sync handler
+                            for yet. It fell through to the amber warning icon
+                            when first added, which made a healthy feed look
+                            broken. Neutral icon, and the row says why below. */}
                         {ev.status === "received" ? <CheckCircle size={11} className="text-emerald-500" /> :
                          ev.status === "error" ? <XCircle size={11} className="text-rose-500" /> :
+                         ev.status === "captured" ? <Archive size={11} className="text-stone-500" /> :
                          <AlertTriangle size={11} className="text-amber-500" />}
                         <span className="text-stone-500 w-28">
                           {new Date(ev.receivedAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
