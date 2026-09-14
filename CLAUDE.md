@@ -675,6 +675,67 @@ the single rule and the only place to change it.
   read `effectiveInvoices` from that one snapshot, which is also what keeps the
   Dashboard reconciling with the Reports pages.
 
+## Provider transactions into our own GL (in progress, 2026-09-13/14)
+
+Goal, from the product owner: **no duplication — everything QBO has should live
+in our model.** Master registers already do (`accounts`, `ap_items`,
+`ap_tax_rates`, `ap_dimensions`, `employees` all carry `external_id`);
+transactions were the one thing that got a parallel mirror instead. This closes
+that.
+
+**Status: SHADOW ONLY. Nothing is wired up.** `ingestOrgTransactions` is called
+from `scripts/qbo-gl-ingest.ts` and nowhere else — not the sync, not a cron, not
+the webhook handler. It writes `journal_entries`/`journal_lines` and no mirror
+table, so a paying client is unaffected whether it runs or not. **A full sync
+today still puts nothing in the GL, and the native Trial Balance is still empty
+for a QBO org.**
+
+- `lib/accounting/qbo-gl.ts` — PURE mapping, 12 posting entities, no db/network,
+  so money-path logic is provable in tests. Two rules it enforces: never drop a
+  line (every QBO txn is internally balanced, so a dropped line unbalances the
+  entry, `postJournalEntry` rejects it, and the ledger silently gains a hole —
+  unresolvable accounts go to Suspense instead); and refuse to plug an imbalance
+  over 5c, because absorbing a real gap makes the books balance *and be wrong*.
+- `QBO_NON_POSTING` names Estimate/PurchaseOrder/TimeActivity explicitly, and
+  `mapQboTransaction` THROWS on an unknown entity. "Decided to skip" must stay
+  distinguishable from "forgot" — that is the difference between a complete
+  ledger and a quietly incomplete one.
+- **Mirrored entries are REPLACED, not reversed.** The GL is immutable and
+  reversal-only for entries *we* author; for a mirrored one QBO is the book of
+  record. Five edits in QBO must not become eleven entries here. Guarded by the
+  partial unique index on `(org_id, external_source, external_id)` (migration
+  `0086`) — without it a webhook replay is not a duplicate row, it is a wrong
+  trial balance.
+- **Suspense (`1999`) is created ON DEMAND**, not seeded in `SYSTEM_ACCOUNTS`.
+  `ensureSystemAccounts` is called from many paths, so listing it there made a
+  new account appear in every org's Chart of Accounts — including a paying
+  client's — from work meant to be invisible. Caught by verifying against a real
+  database, not by reading the code.
+- **The QBO mirror is HEADER-ONLY** — `invoices` has no line detail and no raw
+  payload. A GL cannot be built by transforming what we already hold; every
+  transaction must be re-read from QBO in full. That is the real scope here.
+
+### Trial Balance: ours, never QuickBooks' (settled 2026-09-14)
+
+**A Trial Balance (or P&L, or Balance Sheet) we show anyone comes from our own
+`journal_lines`.** `lib/accounting/financials.ts` must stay computable with no
+network at all — that is what makes it ours rather than a proxy.
+
+- `lib/accounting/qbo-gl-verify.ts` calls QBO's `TrialBalance` report, and that
+  is the ONLY sanctioned use: proving our ingested ledger matches their books,
+  account by account, before anything reads from it. It is a test fixture
+  reached from the CLI (`--verify`), never from the app.
+- **`tests/architecture.test.ts` enforces this**, and the guard has been proven
+  to fail on a real violation, not just to pass. It also pins the ingestion to
+  the CLI. **When the ingestion is finally wired into the sync, that test is the
+  thing to update — deliberately, in the same commit.**
+- `/reporting/trial-balance` is a QBO passthrough and is currently the only TB a
+  QBO org can see. Leave it until the native one reconciles, then retire it.
+  Removing it first takes away a working report and gives nothing back.
+- **Open decision: history cutoff.** Ingesting from a cutoff date needs an
+  opening-balance journal at that date or the TB will not tie; that is not
+  built. Ingesting all history avoids it. Recommendation on record: all history.
+
 ## Key domain concepts
 
 - **Collections Board** (`app/(app)/board/`, `components/board-list.tsx`): the
