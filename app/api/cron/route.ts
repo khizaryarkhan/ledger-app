@@ -250,6 +250,67 @@ export async function GET(req: Request) {
       .catch(() => {}); // never let stat-writing crash the response
   }
 
+  // ── Kept-promise sweep — close Active promises whose invoice is now paid ──
+  // "Met" was a declared status on invoice_promises that NO code path had ever
+  // written: promises only ever went Active → Broken (below) or Superseded.
+  // A kept promise simply stayed Active forever, so the promise ledger could
+  // only ever accumulate evidence AGAINST customers — every reliability
+  // measure built on it (kept-rate, a customer's promise history, forecasting
+  // from commitments) would have been wrong in the same direction. Runs BEFORE
+  // the broken sweep so an invoice paid on or after its promise date is
+  // recorded as kept, never broken.
+  let promisesMet = 0;
+  try {
+    const kept = await db
+      .select({
+        id: invoicePromises.id,
+        invoiceId: invoicePromises.invoiceId,
+        customerId: invoicePromises.customerId,
+        promiseDate: invoicePromises.promiseDate,
+        orgId: invoicePromises.orgId,
+        projectId: invoices.projectId,
+        paidAt: invoices.paidAt,
+      })
+      .from(invoicePromises)
+      .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
+      .where(and(eq(invoicePromises.status, "Active"), eq(invoices.paymentStatus, "Paid")));
+    const keptIds = kept.map(k => k.id);
+    for (let i = 0; i < keptIds.length; i += 100) {
+      await db.update(invoicePromises).set({ status: "Met" }).where(inArray(invoicePromises.id, keptIds.slice(i, i + 100)));
+      promisesMet += Math.min(100, keptIds.length - i);
+    }
+    // Same chatbox trail the broken sweep writes, so the board's activity
+    // popover shows a commitment closing, not just a commitment failing.
+    if (kept.length > 0) {
+      await db.insert(communications).values(
+        kept.map(p => {
+          // Settled ON TIME = paid on or before the promised date. paidAt is
+          // the settling document's own date (never "today"), so this stays
+          // correct for back-dated settlements — see CLAUDE.md on paidAt. It
+          // is already a YYYY-MM-DD varchar, so slice it rather than round-
+          // tripping through Date(), which would re-introduce a timezone shift.
+          const paidOn = p.paidAt ? String(p.paidAt).slice(0, 10) : null;
+          const onTime = !!paidOn && !!p.promiseDate && paidOn <= p.promiseDate;
+          return {
+            orgId: p.orgId,
+            customerId: p.customerId!,
+            invoiceId: p.invoiceId ?? undefined,
+            projectId: p.projectId ?? undefined,
+            direction: "Inbound" as const,
+            channel: "Promise",
+            subject: "Promise kept",
+            body: `Promised ${p.promiseDate}${paidOn ? ` — paid ${paidOn}` : ""}. Marked kept${paidOn && p.promiseDate ? (onTime ? " (on time)." : " (late).") : "."}`,
+            sender: "System",
+            matchedBy: "System",
+            isDraft: false,
+          };
+        })
+      ).catch(() => {});
+    }
+  } catch (e: any) {
+    console.warn("cron: kept-promise sweep failed:", e?.message);
+  }
+
   // ── Broken-promise sweep — flip passed, unpaid Active promises to "Broken" ──
   let promisesBroken = 0;
   try {
@@ -294,5 +355,5 @@ export async function GET(req: Request) {
     console.warn("cron: broken-promise sweep failed:", e?.message);
   }
 
-  return NextResponse.json({ ran: today, emailsSent, skipped, promisesBroken, errors: errors.length > 0 ? errors : undefined });
+  return NextResponse.json({ ran: today, emailsSent, skipped, promisesMet, promisesBroken, errors: errors.length > 0 ? errors : undefined });
 }
