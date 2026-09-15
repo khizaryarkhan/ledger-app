@@ -106,3 +106,55 @@ export function resolveStageLabel(value: string | null | undefined, stages: Stag
   }
   return value;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage severity — which stages earn colour
+// ─────────────────────────────────────────────────────────────────────────────
+// A collections board is a triage instrument. If every stage renders as a
+// filled chip, fourteen pills carry equal weight and none of them signal
+// anything — "Reminder Sent" shouts as loudly as "Disputed". QBO and Xero
+// both reserve fill for exception; everything else is quiet text with a hue
+// dot. Encode that here rather than at each of the four call sites on the
+// board, so the rule can't drift between them.
+//
+// Exceptions are the stages where the normal chase loop has STOPPED working
+// and a human has to intervene. Keyed on the immutable `key`, never the
+// label, because an org can rename any stage.
+const EXCEPTION_STAGE_KEYS = new Set(["Disputed", "Escalated", "On Hold"]);
+
+/** True when this stage means "the chase loop has stalled, a human is needed". */
+export function isExceptionStage(label: string, stages: Stage[]): boolean {
+  const s = stages.find(st => st.label === label) ?? stages.find(st => st.key === label);
+  return EXCEPTION_STAGE_KEYS.has(s?.key ?? label);
+}
+
+/** Hue dot for a stage — theme-aware (the 400/500 steps resolve through the
+ *  CSS variables, unlike the 100/700 `badge` pair, which is light-mode-only
+ *  and rendered as a near-white pill on the dark board). */
+export function stageDotClass(label: string, stages: Stage[]): string {
+  const color = stages.find(s => s.label === label)?.color ?? "stone";
+  return STAGE_COLOR_CLASSES[color]?.dot ?? "bg-stone-400";
+}
+
+/** Tint for an exception stage's filled chip. Only the three exception hues
+ *  are reachable, but the map is exhaustive so a renamed/recoloured exception
+ *  stage still gets a chip rather than falling through to neutral. */
+export const STAGE_CHIP_CLASSES: Record<string, string> = {
+  rose:    "bg-rose-500/15 text-rose-400 border border-rose-800/60 hover:bg-rose-500/25",
+  orange:  "bg-orange-500/15 text-orange-400 border border-orange-800/60 hover:bg-orange-500/25",
+  amber:   "bg-amber-500/15 text-amber-400 border border-amber-800/60 hover:bg-amber-500/25",
+  blue:    "bg-blue-500/15 text-blue-400 border border-blue-800/50 hover:bg-blue-500/25",
+  violet:  "bg-violet-500/15 text-violet-400 border border-violet-800/60 hover:bg-violet-500/25",
+  cyan:    "bg-cyan-500/15 text-cyan-400 border border-cyan-800/60 hover:bg-cyan-500/25",
+  emerald: "bg-emerald-500/15 text-emerald-400 border border-emerald-800/60 hover:bg-emerald-500/25",
+  teal:    "bg-teal-500/15 text-teal-400 border border-teal-800/60 hover:bg-teal-500/25",
+  indigo:  "bg-indigo-500/15 text-indigo-400 border border-indigo-800/60 hover:bg-indigo-500/25",
+  purple:  "bg-violet-500/15 text-violet-400 border border-violet-800/60 hover:bg-violet-500/25",
+  pink:    "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-800/60 hover:bg-fuchsia-500/25",
+  stone:   "bg-stone-700/60 text-stone-300 border border-stone-600 hover:bg-stone-700",
+};
+
+export function stageChipClass(label: string, stages: Stage[]): string {
+  const color = stages.find(s => s.label === label)?.color ?? "stone";
+  return STAGE_CHIP_CLASSES[color] ?? STAGE_CHIP_CLASSES.stone;
+}
