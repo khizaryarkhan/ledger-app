@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
-import { STAGE_COLOR_CLASSES, Stage } from "@/lib/stages";
+import { Stage, isExceptionStage, stageDotClass, stageChipClass } from "@/lib/stages";
 import { fmt } from "@/lib/format";
 import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal, Phone, Voicemail, Zap, TrendingUp, Eye, EyeOff } from "lucide-react";
 import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/lib/next-action";
@@ -15,6 +15,7 @@ import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types"
 import { classifyComposition } from "@/lib/receivable-composition";
 import { useData } from "@/components/data-provider";
 import { ContactsPanel } from "@/components/contacts-panel";
+import { CellSelect, SelectField, control, controlInset } from "@/components/form-kit";
 
 export type BoardRow = {
   inv: any;
@@ -1060,7 +1061,20 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }, [sortedRows]);
 
   const stageLabels = stages.filter(s => s.visible).map(s => s.label);
-  const stageColor = (label: string) => STAGE_COLOR_CLASSES[stages.find(s => s.label === label)?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
+  // ── Stage severity ──────────────────────────────────────────────────────
+  // Colour is reserved for exception (Disputed / Escalated / On Hold, plus the
+  // two derived exception states below). Everything else is quiet text with a
+  // hue dot, so a screen of eighty rows shows the handful that need a human
+  // rather than eighty equally-loud chips. Rule lives in lib/stages.ts.
+  const isException = (label: string) => isExceptionStage(label, stages);
+  const stageDot    = (label: string) => stageDotClass(label, stages);
+  const stageChip   = (label: string) => stageChipClass(label, stages);
+  /** Shell for a stage control: filled chip when it's an exception, otherwise
+   *  a quiet hover-target that still reads as clickable. */
+  const stageShell = (label: string) =>
+    isException(label)
+      ? `rounded-full px-2 py-0.5 ${stageChip(label)}`
+      : "rounded px-1.5 py-0.5 text-stone-300 border border-transparent hover:border-stone-700 hover:bg-stone-800/60";
   const fmtSent = (d: string | null) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : null;
   // Relative "Nd ago" — the actionable number for chasing; exact date on hover.
   const daysAgo = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
@@ -1249,36 +1263,39 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           {batchPanel === "stage" && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-800/60 border-t border-stone-700 flex-wrap">
               <span className="text-[12px] text-stone-400">Move {selected.size} invoice{selected.size !== 1 ? "s" : ""} to:</span>
-              <select
+              <SelectField
                 value={batchStageVal}
+                aria-label="Stage to move the selected invoices to"
                 onChange={e => { setBatchStageVal(e.target.value); if (e.target.value === "Escalated" && !escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
-                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                className="w-auto min-w-[150px] h-8 text-[12px]">
                 <option value="">Pick a stage…</option>
                 {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              </SelectField>
               {batchStageVal === "Escalated" && (
                 <>
-                  <select
+                  <SelectField
                     value={batchEscTarget}
+                    aria-label="Assign the escalation to"
                     onChange={e => setBatchEscTarget(e.target.value)}
-                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                    className="w-auto min-w-[170px] h-8 text-[12px]">
                     <option value="">Assign to…</option>
                     {escalateTargets.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
-                  </select>
-                  <select
+                  </SelectField>
+                  <SelectField
                     value={batchEscType}
+                    aria-label="Escalation type"
                     onChange={e => setBatchEscType(e.target.value)}
                     title={escalationTypeByLabel(batchEscType)?.description}
-                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500">
+                    className="w-auto min-w-[170px] h-8 text-[12px]">
                     <option value="">Escalation type…</option>
                     {ESCALATION_TYPES.map(t => <option key={t.key} value={t.label} title={t.description}>{t.label}</option>)}
-                  </select>
+                  </SelectField>
                   <input
                     value={batchEscNote}
                     onChange={e => setBatchEscNote(e.target.value)}
                     placeholder="Note for the assignee (optional)…"
                     maxLength={2000}
-                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500 flex-1 min-w-[160px] placeholder:text-stone-600"
+                    className={`${control} h-8 text-[12px] flex-1 min-w-[160px]`}
                   />
                 </>
               )}
@@ -1294,7 +1311,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     type="date"
                     value={batchCommitDate}
                     onChange={e => setBatchCommitDate(e.target.value)}
-                    className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                    className={`${control} h-8 w-auto text-[12px]`}
                   />
                 </>
               )}
@@ -1313,11 +1330,11 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-800/60 border-t border-stone-700 flex-wrap">
               <span className="text-[12px] text-stone-400">Log chase on {selected.size} invoice{selected.size !== 1 ? "s" : ""}:</span>
               <input type="date" value={batchChaseDate} max={todayStr()} onChange={e => setBatchChaseDate(e.target.value)}
-                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 w-36" />
+                className={`${control} h-8 w-36 text-[12px]`} />
               <input placeholder="Ref (optional)" value={batchChaseRef} onChange={e => setBatchChaseRef(e.target.value)}
-                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 w-32" />
+                className={`${control} h-8 w-32 text-[12px]`} />
               <input placeholder="Memo (optional)" value={batchChaseMemo} onChange={e => setBatchChaseMemo(e.target.value)}
-                className="text-[12px] border border-stone-600 rounded px-2 py-1 bg-stone-900 text-stone-200 outline-none focus:ring-1 focus:ring-amber-500 flex-1 min-w-[160px]" />
+                className={`${control} h-8 flex-1 min-w-[160px] text-[12px]`} />
               <button
                 disabled={batchBusy}
                 onClick={runBatchChase}
@@ -1638,7 +1655,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       <input type="checkbox" checked={allChecked}
                         ref={el => { if (el) el.indeterminate = checkedCount > 0 && !allChecked; }}
                         onChange={toggleOwner} onClick={e => e.stopPropagation()}
-                        className="rounded border-stone-500" />
+                        className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                       <div className="flex-1 min-w-0">
                         <div className="text-[13px] font-medium text-stone-200">{g.name}</div>
                         <div className="text-[11px] text-stone-500 truncate">{g.email}</div>
@@ -1663,7 +1680,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           <label key={r.inv.id} className="flex items-center gap-2.5 pl-9 pr-3 py-1.5 cursor-pointer hover:bg-stone-800/60">
                             <input type="checkbox" checked={notifyInvChecked.has(r.inv.id)}
                               onChange={() => setNotifyInvChecked(p => { const n = new Set(p); n.has(r.inv.id) ? n.delete(r.inv.id) : n.add(r.inv.id); return n; })}
-                              className="rounded border-stone-500" />
+                              className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                             <span className="font-mono text-[11px] text-stone-400">#{r.inv.invoiceNumber}</span>
                             <span className="text-[12px] text-stone-300 flex-1 truncate">{r.custName}{r.projName ? <span className="text-stone-500"> · {r.projName}</span> : null}</span>
                             <span className="text-[12px] font-medium text-stone-200 tabular-nums shrink-0">{fmt.money(r.bal, r.inv.currency)}</span>
@@ -1732,7 +1749,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-stone-900 z-20">
               <tr className="border-b border-stone-800 text-left">
-                <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" /></th>
+                <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" /></th>
                 {([
                   { label: "Invoice",        sort: "invoice",  filter: "invoice",   show: true },
                   { label: "Customer",       sort: "customer", filter: "customer",  show: showCustomer },
@@ -1782,7 +1799,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="max-h-52 overflow-y-auto space-y-1">
                               {(filter === "region" ? regionOpts : repOpts).map(o => (
                                 <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="checkbox" checked={multiVals(filter).has(o)} onChange={() => toggleMulti(filter, o)} className="rounded border-stone-600" />
+                                  <input type="checkbox" checked={multiVals(filter).has(o)} onChange={() => toggleMulti(filter, o)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                   {o}
                                 </label>
                               ))}
@@ -1798,7 +1815,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               <div className="max-h-44 overflow-y-auto space-y-1">
                                 {stageOpts.map(o => (
                                   <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                    <input type="checkbox" checked={multiVals("stage").has(o)} onChange={() => toggleMulti("stage", o)} className="rounded border-stone-600" />
+                                    <input type="checkbox" checked={multiVals("stage").has(o)} onChange={() => toggleMulti("stage", o)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                     {o}
                                   </label>
                                 ))}
@@ -1809,7 +1826,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   <div className="max-h-32 overflow-y-auto space-y-1">
                                     {ownerOpts.map(o => (
                                       <label key={o} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                        <input type="checkbox" checked={multiVals("owner").has(o)} onChange={() => toggleMulti("owner", o)} className="rounded border-stone-600" />
+                                        <input type="checkbox" checked={multiVals("owner").has(o)} onChange={() => toggleMulti("owner", o)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                         {o}
                                       </label>
                                     ))}
@@ -1822,7 +1839,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                   <div className="max-h-32 overflow-y-auto space-y-1">
                                     {escTypeOpts.map(o => (
                                       <label key={o} title={escalationTypeByLabel(o)?.description} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                        <input type="checkbox" checked={multiVals("escType").has(o)} onChange={() => toggleMulti("escType", o)} className="rounded border-stone-600" />
+                                        <input type="checkbox" checked={multiVals("escType").has(o)} onChange={() => toggleMulti("escType", o)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                         {o}
                                       </label>
                                     ))}
@@ -1889,7 +1906,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="space-y-1">
                               {NEXT_ACTION_FILTERS.map(o => (
                                 <label key={o.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="checkbox" checked={multiVals("action").has(o.key)} onChange={() => toggleMulti("action", o.key)} className="rounded border-stone-600" />
+                                  <input type="checkbox" checked={multiVals("action").has(o.key)} onChange={() => toggleMulti("action", o.key)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                   {o.label}
                                 </label>
                               ))}
@@ -1899,7 +1916,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             <div className="space-y-1">
                               {BUCKETS.map(b => (
                                 <label key={b.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
-                                  <input type="checkbox" checked={multiVals("bucket").has(b.key)} onChange={() => toggleMulti("bucket", b.key)} className="rounded border-stone-600" />
+                                  <input type="checkbox" checked={multiVals("bucket").has(b.key)} onChange={() => toggleMulti("bucket", b.key)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                   {b.label}
                                 </label>
                               ))}
@@ -1957,7 +1974,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         ids.forEach(id => all ? n.delete(id) : n.add(id));
                         return n;
                       })}
-                      className="rounded border-stone-300 cursor-pointer" />
+                      className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                   );
                 };
                 const selCount = (ids: string[]) => ids.filter(id => selected.has(id)).length;
@@ -2025,10 +2042,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Stage — batch-change dropdown */}
                       <td className="px-2 py-2.5" onClick={e => e.stopPropagation()}>
                         {item.dominantStage && (
-                          <span className={`relative inline-flex items-center gap-0.5 text-[11px] font-medium rounded-full px-1.5 py-0.5 border transition-colors cursor-pointer ${stageColor(item.dominantStage)}`}
-                            title="Change stage for all invoices in this account">
+                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                            isException(item.dominantStage)
+                              ? `rounded-full px-2 py-0.5 ${stageChip(item.dominantStage)}`
+                              : "rounded px-1.5 py-0.5 text-stone-400 border border-transparent hover:border-stone-700 hover:bg-stone-800/60"}`}
+                            title={`Most invoices in this account are at "${item.dominantStage}" — click to change the stage of all of them`}>
+                            {!isException(item.dominantStage) && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDot(item.dominantStage)}`} />}
                             {item.dominantStage}
-                            <ChevronDown size={9} className="opacity-60 shrink-0" />
+                            <ChevronDown size={9} className="shrink-0 opacity-30 group-hover/band:opacity-80 transition-opacity" />
                             <select disabled={bandStageBusy} value="" onChange={e => { if (e.target.value) changeBandStage(bandKey, item.ids, e.target.value); }}
                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]">
                               <option value="" disabled>Change all to…</option>
@@ -2152,10 +2173,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Stage — batch-change dropdown */}
                       <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
                         {item.dominantStage && (
-                          <span className={`relative inline-flex items-center gap-0.5 text-[11px] font-medium rounded-full px-1.5 py-0.5 border cursor-pointer ${stageColor(item.dominantStage)}`}
-                            title="Change stage for all invoices in this project">
+                          <span className={`group/band relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                            isException(item.dominantStage)
+                              ? `rounded-full px-2 py-0.5 ${stageChip(item.dominantStage)}`
+                              : "rounded px-1.5 py-0.5 text-stone-400 border border-transparent hover:border-stone-700 hover:bg-stone-800/60"}`}
+                            title={`Most invoices in this project are at "${item.dominantStage}" — click to change the stage of all of them`}>
+                            {!isException(item.dominantStage) && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDot(item.dominantStage)}`} />}
                             {item.dominantStage}
-                            <ChevronDown size={8} className="opacity-60 shrink-0" />
+                            <ChevronDown size={8} className="shrink-0 opacity-30 group-hover/band:opacity-80 transition-opacity" />
                             <select disabled={bandStageBusy} value="" onChange={e => { if (e.target.value) changeBandStage(projBandKey, item.ids, e.target.value); }}
                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]">
                               <option value="" disabled>Change all to…</option>
@@ -2216,7 +2241,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                 const isSel = selected.has(inv.id);
                 return (
                   <tr key={inv.id} className={`h-[40px] border-b border-stone-800 transition-colors ${isSel ? "bg-emerald-500/10 hover:bg-emerald-500/15" : "hover:bg-stone-800/50"}`}>
-                    <td className="px-2 py-2.5 pl-4"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-300 cursor-pointer" /></td>
+                    <td className="px-2 py-2.5 pl-4"><input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" /></td>
                     <td className="px-2 py-2.5"><Link href={`/invoices/${inv.id}`} className="font-mono text-[12px] text-stone-400 hover:text-white hover:underline">#{inv.invoiceNumber}</Link></td>
                     {showCustomer && <td className="px-2 py-2.5 text-stone-200 text-[13px] max-w-[160px] truncate" title={custName}>{custName}</td>}
                     {showProject  && <td className="px-2 py-2.5 text-stone-500 text-[12px] max-w-[140px] truncate" title={projName ?? ""}>{projName ?? "—"}</td>}
@@ -2260,85 +2285,119 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               await save(inv.id, patch);
                             };
 
-                            const plainCls = `text-[11px] font-medium rounded-full px-1.5 py-0.5 border cursor-pointer focus:ring-2 focus:ring-stone-300 ${stageColor(displayStage)}`;
-                            const stageSelect = (extraCls: string) => (
-                              <select value={displayStage} disabled={busyId === inv.id}
-                                onChange={e => changeStage(e.target.value)} className={extraCls}>
+                            const options = (
+                              <>
                                 {!stageLabels.includes(stageLabel) && <option value={stageLabel}>{stageLabel}</option>}
                                 {stageLabels.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              </>
                             );
 
-                            // While a picker is open, show the plain dropdown (value = pending choice).
-                            if (picking) return stageSelect(plainCls);
+                            // While a picker is open the control becomes a real, visible
+                            // select — form-kit's CellSelect, the app's single source of
+                            // truth for in-table select styling (its own chevron; never
+                            // the native OS arrow). This cell used to hand-roll that
+                            // class string, which is exactly the drift CLAUDE.md warns
+                            // about.
+                            if (picking) return (
+                              <CellSelect value={displayStage} disabled={busyId === inv.id}
+                                onChange={e => changeStage(e.target.value)}
+                                aria-label="Stage" className="text-[11px] py-0.5">
+                                {options}
+                              </CellSelect>
+                            );
 
-                            // Dynamic pill = visible label + invisible overlay <select> (click → dropdown).
-                            const pill = (cls: string, title: string, content: any) => (
-                              <div className={`relative inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-1.5 py-0.5 transition-colors ${cls}`} title={title}>
+                            // One control shape for EVERY stage: content + chevron +
+                            // invisible overlay <select>. Only the shell class differs,
+                            // and that difference IS the severity signal — so a stage
+                            // can never accidentally gain or lose colour by being
+                            // rendered through a different branch.
+                            const control = (cls: string, title: string, content: any) => (
+                              <div className={`group/stage relative inline-flex items-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${cls}`} title={title}>
                                 {content}
-                                <ChevronDown size={10} className="opacity-60" />
-                                {stageSelect("absolute inset-0 w-full h-full opacity-0 cursor-pointer")}
+                                <ChevronDown size={10} className="shrink-0 opacity-30 group-hover/stage:opacity-80 transition-opacity" />
+                                <select value={displayStage} disabled={busyId === inv.id}
+                                  onChange={e => changeStage(e.target.value)} aria-label="Stage"
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                                  {options}
+                                </select>
                               </div>
                             );
+                            const chip = (label: string) => `rounded-full px-2 py-0.5 ${stageChip(label)}`;
+                            const dot  = (label: string) => <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDot(label)}`} />;
 
                             // Priority: Escalated → Disputed → Broken commitment → Committed → plain.
                             if (stageLabel === "Escalated" && inv.escalatedToName) {
-                              return pill(
-                                "bg-rose-900/30 text-rose-300 border border-rose-800 hover:bg-rose-900/50",
+                              return control(
+                                chip("Escalated"),
                                 [ `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
                                   inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
                                   inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
                                   "Click to change stage or reassign" ].filter(Boolean).join("\n"),
-                                <>→ {inv.escalatedToName}{inv.escalationType && <span className="text-rose-400/70">· {inv.escalationType}</span>}</>
+                                <>
+                                  <ArrowUpRight size={10} className="shrink-0" />
+                                  <span className="truncate max-w-[120px]">{inv.escalatedToName}</span>
+                                  {inv.escalationType && <span className="text-rose-300/70 truncate max-w-[100px]">· {inv.escalationType}</span>}
+                                </>
                               );
                             }
                             if (effDispute) {
-                              return pill(
-                                "bg-rose-500/15 text-rose-400 border border-rose-800/60 hover:bg-rose-500/25",
+                              return control(
+                                chip("Disputed"),
                                 `Disputed${effReason ? " — " + effReason : ""}\nClick to change stage or resolve`,
-                                <><AlertOctagon size={10} /> Disputed{effReason && <span className="text-rose-300/70 max-w-[110px] truncate">· {effReason}</span>}</>
+                                <><AlertOctagon size={10} className="shrink-0" /> Disputed{effReason && <span className="text-rose-300/70 max-w-[110px] truncate">· {effReason}</span>}</>
                               );
                             }
                             if (broken) {
-                              return pill(
-                                "bg-rose-600/25 text-rose-200 border border-rose-700 hover:bg-rose-600/35",
+                              // Deliberately hotter than Disputed: the customer named a
+                              // date and missed it. This is the single loudest state on
+                              // the board and the one a collector acts on first.
+                              return control(
+                                "rounded-full px-2 py-0.5 bg-rose-600/25 text-rose-200 border border-rose-700 hover:bg-rose-600/35",
                                 `Broken commitment — was promised ${effPromise}\nClick to re-negotiate a date or change stage`,
-                                <><AlertTriangle size={10} /> Broken commitment <span className="text-rose-300/70">· was {fmt.shortDate(effPromise!)}</span></>
+                                <><AlertTriangle size={10} className="shrink-0" /> Broken <span className="text-rose-300/80 tabular-nums">· was {fmt.shortDate(effPromise!)}</span></>
                               );
                             }
                             if (effPromise) {
-                              return pill(
-                                "bg-blue-500/15 text-blue-400 border border-blue-800/50 hover:bg-blue-500/25",
+                              // A live commitment is good news, not an exception — it
+                              // reads quiet, with the date doing the work.
+                              return control(
+                                stageShell("Committed"),
                                 `Committed to pay ${effPromise}\nClick to change stage`,
-                                <><CalendarClock size={10} /> Committed <span className="text-blue-300/70">· {fmt.shortDate(effPromise)}</span></>
+                                <><CalendarClock size={10} className="shrink-0 text-stone-500" /> Committed <span className="text-stone-500 tabular-nums">· {fmt.shortDate(effPromise)}</span></>
                               );
                             }
-                            return stageSelect(plainCls);
+                            return control(
+                              stageShell(displayStage),
+                              `${displayStage} — click to change stage`,
+                              <>{!isException(displayStage) && dot(displayStage)} {displayStage}</>
+                            );
                           })()}
                         </div>
                         {pendingEscalation?.invoiceId === inv.id && (
                           <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-2 min-w-[260px]">
-                            <select
+                            <SelectField inset
                               value={selectedTarget}
+                              aria-label="Assign the escalation to"
                               onChange={e => setSelectedTarget(e.target.value)}
-                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="h-8 text-[12px]"
                             >
                               <option value="">Assign to…</option>
                               {escalateTargets.map(t => (
                                 <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
                               ))}
-                            </select>
-                            <select
+                            </SelectField>
+                            <SelectField inset
                               value={selectedEscType}
+                              aria-label="Escalation type"
                               onChange={e => setSelectedEscType(e.target.value)}
                               title={escalationTypeByLabel(selectedEscType)?.description}
-                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="h-8 text-[12px]"
                             >
                               <option value="">Escalation type…</option>
                               {ESCALATION_TYPES.map(t => (
                                 <option key={t.key} value={t.label} title={t.description}>{t.label}</option>
                               ))}
-                            </select>
+                            </SelectField>
                             {selectedEscType && (
                               <p className="text-[11px] text-stone-500 leading-snug px-0.5">
                                 {escalationTypeByLabel(selectedEscType)?.description}
@@ -2417,19 +2476,20 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         )}
                         {pendingDispute?.invoiceId === inv.id && (
                           <div className="flex flex-col gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-2 py-2 min-w-[240px]">
-                            <select
+                            <SelectField inset
                               value={disputeCat}
+                              aria-label="Dispute category"
                               onChange={e => setDisputeCat(e.target.value)}
-                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-rose-500"
+                              className="h-8 text-[12px]"
                             >
                               {DISPUTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
+                            </SelectField>
                             <input
                               value={disputeReasonVal}
                               onChange={e => setDisputeReasonVal(e.target.value)}
                               placeholder="Reason / detail (optional)…"
                               maxLength={500}
-                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-rose-500 placeholder:text-stone-600"
+                              className={`${controlInset} h-8 text-[12px]`}
                             />
                             <div className="flex items-center gap-1.5 justify-end">
                               <button
@@ -2647,7 +2707,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                     const [fromStage, toRaw] = (n.subject ?? "").split(" → ");
                                     // Subject may carry an escalation type suffix: "Escalated · Handed Over"
                                     const [toStage, escType] = (toRaw ?? "").split(" · ");
-                                    const toColor = stageColor(toStage ?? "");
+                                    // Same severity rule as the board itself: the "to"
+                                    // stage only earns colour when it's an exception,
+                                    // so a routine "New → Reminder Sent" reads neutral
+                                    // on both sides of the arrow.
+                                    const toExc = isException(toStage ?? "");
+                                    const toColor = toExc
+                                      ? stageChip(toStage ?? "")
+                                      : "bg-stone-700/80 text-stone-300 border border-stone-600";
                                     // Body: line 1 = "Name · email", line 2 (optional) = "note"
                                     const [assigneeLine, ...noteLines] = (n.body ?? "").split("\n");
                                     const noteText = noteLines.join("\n").trim();
@@ -2656,7 +2723,10 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                         <div className="flex items-center gap-1.5 flex-wrap">
                                           <span className="text-[11px] font-medium bg-stone-700/80 text-stone-300 rounded-full px-2 py-0.5 border border-stone-600">{fromStage}</span>
                                           <span className="text-[11px] text-stone-500 font-bold">→</span>
-                                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>{toStage}</span>
+                                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2 py-0.5 ${toColor}`}>
+                                            {!toExc && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDot(toStage ?? "")}`} />}
+                                            {toStage}
+                                          </span>
                                           {escType && (
                                             <span
                                               title={escalationTypeByLabel(escType)?.description}
