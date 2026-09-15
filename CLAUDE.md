@@ -746,8 +746,36 @@ network at all — that is what makes it ours rather than a proxy.
   Committed (`· date`), or a plain stage. Escalation/Committed/Disputed each open
   an inline picker. Stage & customer response are unified: `recomputeInvoiceState`
   in `lib/portal.ts` syncs promise→Committed / dispute→Disputed and reverts.
+- **Colour on the board means EXCEPTION, nothing else.** `lib/stages.ts` owns
+  the rule: `isExceptionStage()` (Disputed / Escalated / On Hold — keyed on the
+  immutable `key`, never the renameable label) earns a filled chip via
+  `stageChipClass()`; every other stage is quiet text plus a `stageDotClass()`
+  hue dot. Four places render a stage (invoice row, customer band, project
+  band, the activity popover's stage-change event) and all four go through
+  these helpers, so a stage can't gain or lose colour depending on which branch
+  drew it. Derived states rank above plain ones: **Broken commitment is
+  deliberately hotter than Disputed** (the customer named a date and missed
+  it); a live Committed reads quiet, because a commitment is good news.
+  ⚠️ **Never use `STAGE_COLOR_CLASSES[...].badge` on a dark surface** — the
+  `bg-stone-100 text-stone-700` pair is LIGHT-mode steps, and under the default
+  dark `:root` `--st-100` is rgb(245 245 244), so it renders as a near-WHITE
+  pill on the near-black board. Worse for accents: `accentSteps` only routes
+  200–500 through CSS variables, so `bg-blue-100` falls through to a literal
+  Tailwind pastel that ignores the theme entirely. Only the 200–500 steps
+  (`.dot`) are theme-aware.
 - **Escalation types** (`lib/escalation-types.ts`): stage stays "Escalated"; the
   *type* (Handed Over, Final Account, Retention, Legal, etc.) is the "why".
+- **Promise lifecycle** (`invoice_promises.status`): `Active` on creation →
+  `Superseded` when a newer promise replaces it (response route) → `Broken` or
+  `Met`, both written by the daily cron sweeps in `app/api/cron/route.ts`. The
+  kept sweep runs BEFORE the broken one so an invoice paid *on* its promise
+  date counts as kept. `Met` had no writer at all until 2026-09-15 — kept
+  promises just stayed `Active` forever, which made the ledger one-sided
+  (only evidence against customers) and would have skewed any kept-rate or
+  reliability metric built on it. On-time vs late comes from `invoices.paidAt`
+  (the settling document's own date), sliced as a string — it's a YYYY-MM-DD
+  varchar, and round-tripping it through `Date()` re-introduces the timezone
+  shift that column exists to avoid.
 - **Linked transactions** (`transaction_links` table, `lib/accounting/links.ts`):
   a bidirectional, amount-tracking relationship graph — the native equivalent
   of QBO's `LinkedTxn`. Used for Estimate/PO→Invoice/Bill conversion,
