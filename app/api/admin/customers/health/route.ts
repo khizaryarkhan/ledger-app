@@ -54,7 +54,14 @@ export async function GET(req: Request) {
       total:   sql<number>`cast(count(*) as integer)`,
       overdue: sql<number>`cast(sum(case when ${invoices.paymentStatus} = 'Overdue' then 1 else 0 end) as integer)`,
       paid:    sql<number>`cast(sum(case when ${invoices.paymentStatus} = 'Paid' then 1 else 0 end) as integer)`,
-      arValue: sql<number>`sum(case when ${invoices.paymentStatus} not in ('Paid','Cancelled') then coalesce(${invoices.total},0) - coalesce(${invoices.paid},0) else 0 end)`,
+      // Cast to numeric BEFORE summing. invoices.total/paid are `real`, and
+      // pg_typeof(sum(real)) is `real` — so the accumulator is single-precision
+      // too, and at a few million the ULP is ~0.25, making every addition round.
+      // Measured on two real orgs: −€0.20 and −€0.10 against exact, roughly 10×
+      // the error of the JS float64 sum the customer-facing pages use.
+      // Casting costs nothing and removes the accumulation error entirely; the
+      // per-value storage error remains and needs the real→numeric migration.
+      arValue: sql<number>`sum(case when ${invoices.paymentStatus} not in ('Paid','Cancelled') then coalesce(${invoices.total}::numeric,0) - coalesce(${invoices.paid}::numeric,0) else 0 end)`,
     })
     .from(invoices)
     .where(inArray(invoices.orgId, orgIds))

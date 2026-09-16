@@ -113,52 +113,92 @@ Gaps found — no unique index on the provider id:
 
 ## Findings
 
-### 🔴 BLOCKER — money is stored as single-precision float in 51 columns
+### 🔴 BLOCKER for native go-live — 🟢 LOW for ACC today — money stored as float
 
-`real` is a 4-byte IEEE-754 float with roughly 7 significant decimal digits.
-Demonstrated against a live Postgres, not argued from theory:
+51 columns hold money as `real` (4-byte IEEE-754, ~7 significant digits).
 
-| Expression | Result |
-|---|---|
-| `2967704.55::real` | **`2.9677045e+06`** — the 55 cents is gone |
-| `99999999.99::real` | **`1e+08`** — a cent short of €100m becomes exactly €100m |
-| `sum` of 10,000 × `0.07::real` | **`700.0593`**, not `700.00` — drift **`0.059`** |
+**Correction to the first version of this document.** It demonstrated the problem
+with the literal `2967704.55` and implied the paying client's AR total was being
+mangled. That was over-stated: no single stored value is that large, and the
+totals are not summed the way that demo implied. Measured properly below. The
+finding is real; the severity for the live client is not what I first wrote.
 
-The first row is not hypothetical: **€2,967,704.55 is the order of magnitude of
-the paying client's own AR total.** It cannot be stored exactly in the column
-that holds it.
+#### What is actually stored
 
-This fails the brief's Step 3.9 assertion outright — cumulative rounding drift
-is **not** zero, and it grows with row count.
+Individual values are stored to roughly 7 significant digits, so a float4 holding
+`1000.01` is really `1000.01000977`. Across real synced data about half of all
+money values are not exact cent figures:
 
-**Where it bites, and where it does not.** The native GL is correct:
-`journal_lines` uses `numeric(14,2)`. It is the **provider mirror** that is
-float — `invoices.total`, `invoices.paid`, `invoices.qbo_balance`,
-`ap_bills.balance`, `payments.total_amount`, and critically
-`payment_applications.amount_applied`, which feeds `lib/ar-aging.ts`. So every
-AR/AP figure a connected customer sees today is computed from floats.
+| column | rows | not clean cents | max |
+|---|---|---|---|
+| `invoices.total` | 10,490 | 5,414 | 2.5e+06 |
+| `invoices.paid` | 10,490 | 4,883 | 2.5e+06 |
+| `invoices.qbo_balance` | 10,490 | 216 | 132,187 |
+| `ap_bills.total` | 17,384 | 7,233 | 933,302 |
+| `payments.total_amount` | 7,835 | 3,542 | 1.2e+06 |
 
-**Severity: Blocker for native go-live and arguably already a live defect.**
+At display precision each one still *renders* correctly. The error only shows up
+in aggregate.
 
-**Proposed remediation — needs approval before I touch it.** Convert the money
-columns from `real` to `numeric(14,2)`.
+#### What the live client actually sees
 
-- Postgres can do this in place: `ALTER TABLE … ALTER COLUMN … TYPE numeric(14,2)`.
-- It **rewrites the table** and takes an ACCESS EXCLUSIVE lock. On `invoices`
-  and `ap_bills` at this client's row counts that is seconds, not minutes — but
-  it is **not zero-downtime** and must be scheduled.
-- It is **not a clean round-trip**: values already corrupted by float storage
-  (the lost 55 cents) cannot be recovered by the migration. They have to be
-  re-synced from QBO afterwards, which for a read-only mirror is safe and is
-  the natural repair.
-- Drizzle's `schema.ts` types change with it (`real()` → `numeric()`), and
-  Drizzle returns `numeric` as a **string** — so every read site needs a
-  `Number()` or a decimal type. That is the largest part of the work and the
-  part most likely to introduce a regression.
+Receivables totals are summed in **JavaScript** (`reduce`), which is float64, not
+in SQL. Measured on two real orgs:
 
-**Recommended sequencing:** convert `payment_applications.amount_applied`,
-`invoices.*` and `ap_bills.*` first (they drive every reported figure), on a
-Neon branch, with the reconcile suite green before and after.
+| org | rows | shown to user | exact | error |
+|---|---|---|---|---|
+| efab2493 | 6,776 | 2,696,073.69 | 2,696,073.704763 | **−€0.0148** |
+| 11280fac | 3,700 | 1,459,798.70 | 1,459,798.698280 | **+€0.0017** |
+
+**About 1.5 cents on €2.7m.** `fmt.money()` rounds to whole numbers for display,
+so it is invisible in the product. **ACC is not exposed to a blocker here.**
+
+The one place that *is* meaningfully worse is SQL aggregation, because
+`sum(real)` accumulates in float4 (confirmed: `pg_typeof(sum(real)) = real`):
+−€0.20 and −€0.10 on the same two orgs, roughly 10× the JS error. **The only such
+aggregate over customer money is the platform-admin health page**
+(`app/api/admin/customers/health/route.ts`), which no customer sees. Fixed in this
+pass by casting to `numeric` before summing — no migration, no risk.
+
+#### Why it is still a Blocker for native go-live
+
+A general ledger has to tie exactly. "Off by two cents" fails the Step 4
+zero-variance acceptance gate by definition, and the error is not stable — it
+moves as rows are added, so a reconciliation that passes today can fail
+tomorrow for no reason anyone can trace. The native GL itself is already correct
+(`journal_lines` is `numeric(14,2)`); it is the provider mirror that is not.
+
+#### Best practice, and the target
+
+- **Never store money in a binary float.** `real`/`double precision` cannot
+  represent most decimal fractions, and `sum()` compounds it.
+- Two accepted designs: **`numeric`/`decimal`** (PostgreSQL's own recommendation,
+  exact decimal arithmetic) or **integer minor units** (cents in a `bigint` —
+  what most payment processors do; JS `Number` is exact for integers to 2^53, so
+  no decimal library is needed).
+- **Avoid PostgreSQL's `money` type** — locale-dependent and fixed-precision,
+  which breaks multi-currency.
+- Drivers return `numeric` as a **string** on purpose, because converting to a JS
+  `Number` would reintroduce float64. Keep it a string or convert deliberately.
+- Never aggregate in float, even over exact columns — cast first.
+
+**Target for this codebase: `numeric(14,2)`**, not integer cents — `journal_lines`
+already uses it, and a mixed model would be worse than either single choice.
+
+#### Migration — still needs approval, but NOT urgent
+
+Nothing here justifies rushing a table rewrite on a live client. Proposed order,
+on a Neon branch first, with the reconcile suite green either side:
+`payment_applications.amount_applied` → `invoices.*` → `ap_bills.*` → the rest.
+
+- `ALTER TABLE … TYPE numeric(14,2)` rewrites the table under an ACCESS EXCLUSIVE
+  lock. Seconds at this row count, but not zero-downtime.
+- It cannot recover already-lost precision. **Because the mirror is read-only by
+  decision, a re-sync from QBO afterwards restores exact values** — that is the
+  safety net, and it is only available because of the Step 0 decision.
+- The real regression risk is not the migration: Drizzle returns `numeric` as a
+  string, so every read site needs deliberate conversion. That is the bulk of
+  the work.
 
 ### 🟠 HIGH — Studio cannot serve native orgs at all
 

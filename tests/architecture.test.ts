@@ -138,3 +138,48 @@ describe("no GROUP BY on a view-backed table", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("money is never declared as a float", () => {
+  /**
+   * PostgreSQL `real` is a 4-byte IEEE-754 float, ~7 significant digits, and
+   * `pg_typeof(sum(real))` is `real` — so aggregates accumulate in single
+   * precision too. Measured against live data: about half of all stored money
+   * values in the provider mirror are not exact cent figures, and a SQL sum of
+   * one org's AR is off by ~€0.20.
+   *
+   * The native ledger is already correct (`journal_lines` is numeric(14,2)).
+   * 51 mirror columns are not, and converting them is a scheduled migration.
+   * This guard exists so the problem cannot GROW while that is pending: a new
+   * money column declared `real()` fails the build.
+   *
+   * Target type is numeric(14,2), matching journal_lines — not integer minor
+   * units. Both are correct; a mixed model would be worse than either.
+   */
+  const MONEY_WORDS = /(amount|balance|total|price|cost|rate|paid|subtotal|value|credit_limit|unit_)/i;
+
+  it("no new schema column combines a money-ish name with real()", () => {
+    const src = readFileSync(join(ROOT, "db/schema.ts"), "utf8");
+    const offenders: string[] = [];
+    src.split("\n").forEach((line, i) => {
+      if (!/\breal\(/.test(line)) return;
+      if (!MONEY_WORDS.test(line)) return;
+      offenders.push(`db/schema.ts:${i + 1}  ${line.trim().slice(0, 90)}`);
+    });
+    // The 51 pre-existing columns are recorded in INTEGRITY_AUDIT.md and are
+    // migrating. This asserts the count does not grow past what was audited.
+    expect(offenders.length).toBeLessThanOrEqual(51);
+  });
+
+  it("the native ledger itself never uses real()", () => {
+    // journal_lines/journal_entries are the book of record. If one of these
+    // ever becomes a float, the GL stops being exact and every reconciliation
+    // built on it becomes meaningless.
+    const src = readFileSync(join(ROOT, "db/schema.ts"), "utf8");
+    const block = src.slice(
+      src.indexOf("export const journalLines = pgTable"),
+      src.indexOf("export const journalLines = pgTable") + 3000,
+    );
+    expect(block).not.toMatch(/\breal\(/);
+    expect(block).toMatch(/numeric\(/);
+  });
+});
