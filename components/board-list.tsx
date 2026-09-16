@@ -2042,9 +2042,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           const notes = customerNotesById[item.custId] ?? [];
                           const note = (notes as any[]).find((n: any) => n.channel === "Chase") ?? notes[0];
                           return note ? (
-                            <span className="text-[11px] text-stone-500 ml-2 max-w-[340px] truncate inline-block align-middle" title={note.body}>
-                              {note.channel === "Chase" ? `[${note.subject}] ` : ""}{note.body}
-                            </span>
+                            // Below the name, not beside it: run inline and the
+                            // note pushes the invoice count, contacts button and
+                            // selection count off to arbitrary x-positions, so
+                            // nothing in this column lines up row to row. Its own
+                            // line keeps the identity row scannable and gives the
+                            // note real width instead of a 340px stub.
+                            <div className="pl-4 mt-0.5 text-[11px] text-stone-500 font-normal truncate max-w-[560px]" title={note.body}>
+                              {note.channel === "Chase" && <span className="text-stone-600">[{note.subject}] </span>}
+                              {note.body}
+                            </div>
                           ) : null;
                         })()}
                         {contactsOpenId === custContactKey && (
@@ -2169,9 +2176,16 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           const notes = projectNotesById[pid] ?? [];
                           const note = (notes as any[]).find((n: any) => n.channel === "Chase") ?? notes[0];
                           return note ? (
-                            <span className="text-[11px] text-stone-500 ml-2 max-w-[340px] truncate inline-block align-middle" title={note.body}>
-                              {note.channel === "Chase" ? `[${note.subject}] ` : ""}{note.body}
-                            </span>
+                            // Below the name, not beside it: run inline and the
+                            // note pushes the invoice count, contacts button and
+                            // selection count off to arbitrary x-positions, so
+                            // nothing in this column lines up row to row. Its own
+                            // line keeps the identity row scannable and gives the
+                            // note real width instead of a 340px stub.
+                            <div className="pl-4 mt-0.5 text-[11px] text-stone-500 font-normal truncate max-w-[560px]" title={note.body}>
+                              {note.channel === "Chase" && <span className="text-stone-600">[{note.subject}] </span>}
+                              {note.body}
+                            </div>
                           ) : null;
                         })()}
                         {projContactKey && contactsOpenId === projContactKey && (
@@ -2344,16 +2358,31 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
                             // Priority: Escalated → Disputed → Broken commitment → Committed → plain.
                             if (stageLabel === "Escalated" && inv.escalatedToName) {
-                              return control(
-                                chip("Escalated"),
-                                [ `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
-                                  inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
-                                  inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
-                                  "Click to change stage or reassign" ].filter(Boolean).join("\n"),
+                              const escTitle = [
+                                `Escalated → ${inv.escalatedToName}${inv.escalatedToEmail ? ` · ${inv.escalatedToEmail}` : ""}`,
+                                inv.escalationType ? `${inv.escalationType} — ${escalationTypeByLabel(inv.escalationType)?.description ?? ""}` : null,
+                                inv.escalationNote ? `Note: ${inv.escalationNote}` : null,
+                                "Click to change stage or reassign" ].filter(Boolean).join("\n");
+                              // The chip states the STAGE; the owner goes on its
+                              // own line beneath it. Packed into one pill, the
+                              // name and the escalation type both had to truncate
+                              // to ~110px — so the two things a collector needs
+                              // ("who has this" and "why") were the two things
+                              // that got cut. basis-full breaks the line inside
+                              // the wrapping flex row.
+                              return (
                                 <>
-                                  <ArrowUpRight size={10} className="shrink-0" />
-                                  <span className="truncate max-w-[120px]">{inv.escalatedToName}</span>
-                                  {inv.escalationType && <span className="text-rose-300/70 truncate max-w-[100px]">· {inv.escalationType}</span>}
+                                  {control(
+                                    chip("Escalated"), escTitle,
+                                    <>
+                                      <ArrowUpRight size={10} className="shrink-0" /> Escalated
+                                      {inv.escalationType && <span className="text-rose-300/70 truncate max-w-[130px]">· {inv.escalationType}</span>}
+                                    </>
+                                  )}
+                                  <span className="basis-full flex items-center gap-1 text-[11px] text-stone-400 pl-0.5 min-w-0" title={escTitle}>
+                                    <UserCheck size={10} className="shrink-0 text-stone-600" />
+                                    <span className="truncate">{inv.escalatedToName}</span>
+                                  </span>
                                 </>
                               );
                             }
@@ -2425,7 +2454,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               onChange={e => setEscNoteVal(e.target.value)}
                               placeholder="Note for the assignee (optional)…"
                               maxLength={2000}
-                              className="text-[11px] w-full border border-stone-700 rounded px-1.5 py-1 bg-stone-900 text-stone-300 outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-600"
+                              className={`${controlInset} h-8 text-[12px]`}
                             />
                             <div className="flex items-center gap-1.5 justify-end">
                               <button
