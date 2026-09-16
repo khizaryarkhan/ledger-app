@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Send, X, AlertTriangle, FileText } from "lucide-react";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { buildStatementPdf } from "@/lib/statement-pdf";
+import {
+  groupByCustomer, mergeCandidates, applyMerges, splitEmails, uniqEmails,
+  type SendGroup,
+} from "@/lib/send-grouping";
 
 // Uint8Array → base64 (chunked to avoid call-stack limits on large PDFs).
 function bytesToBase64(bytes: Uint8Array): string {
@@ -26,64 +30,35 @@ export type SendRow = {
   email: string | null;
 };
 
-const splitEmails = (s: string | null) =>
-  (s || "").split(/[,;]/).map(e => e.trim().toLowerCase()).filter(e => e.includes("@"));
-const uniqEmails = (vals: (string | null)[]) => {
-  const set = new Set<string>();
-  vals.forEach(v => splitEmails(v).forEach(e => set.add(e)));
-  return [...set];
-};
-const domainOf = (email: string) => (email.split("@")[1] || "").trim().toLowerCase();
-const NO_EMAIL = "(no email on file)";
-const rowDomain = (r: SendRow) => {
-  const first = splitEmails(r.email)[0];
-  return first ? domainOf(first) : NO_EMAIL;
-};
-
-type DomainGroup = { domain: string; emails: string[]; rows: SendRow[]; total: number };
-
 /**
  * Shared "send invoices" composer — Collections Board (bulk) + invoice detail.
  *
- * Domain-aware: invoices are grouped by the DOMAIN of their billing email. When
- * a selection spans more than one domain (e.g. a novated project) the default
- * is to SPLIT — one email per domain, each carrying only its own invoices and
- * getting its OWN reference number, so no party sees another's and each thread
- * tracks separately. But because a shared auditor / bank / negotiator across
- * domains is a legitimate case, the user can tick "send as one combined email"
- * to override the split — with a clear caution that everyone then sees
- * everything.
+ * Grouped by CUSTOMER. One email per customer, carrying only that customer's
+ * invoices and its own reference number. An email never spans two customers
+ * unless a human explicitly ticks a merge.
+ *
+ * It used to group by email DOMAIN, on the reasoning that a shared domain means
+ * a shared organisation. See lib/send-grouping.ts for why that is unsafe and
+ * what it did on a real board. The merge case it was built for (a novated
+ * project, a shared auditor) survives as an explicit, named opt-in.
  */
-export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, logoUrl, onClose, onSent, toast }: {
+export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent, toast }: {
   rows: SendRow[];
   ccy: string;
-  multiCustomer?: boolean;
   orgName?: string;
   logoUrl?: string | null;
   onClose: () => void;
   onSent: () => void;
   toast?: (m: string, t?: string) => void;
 }) {
-  const groups: DomainGroup[] = (() => {
-    const m = new Map<string, DomainGroup>();
-    for (const r of rows) {
-      const d = rowDomain(r);
-      if (!m.has(d)) m.set(d, { domain: d, emails: [], rows: [], total: 0 });
-      const g = m.get(d)!;
-      g.rows.push(r);
-      g.total += r.bal;
-    }
-    for (const g of m.values()) g.emails = uniqEmails(g.rows.map(r => r.email));
-    return [...m.values()].sort((a, b) =>
-      (a.domain === NO_EMAIL ? 1 : 0) - (b.domain === NO_EMAIL ? 1 : 0) || b.total - a.total);
-  })();
+  const { groups: perCustomer, noEmail } = useMemo(() => groupByCustomer(rows), [rows]);
+  const candidates = useMemo(() => mergeCandidates(perCustomer), [perCustomer]);
+  const [mergedDomains, setMergedDomains] = useState<Set<string>>(new Set());
+  const sendable: SendGroup<SendRow>[] = useMemo(
+    () => applyMerges(perCustomer, mergedDomains, candidates),
+    [perCustomer, mergedDomains, candidates]);
 
-  const sendable = groups.filter(g => g.domain !== NO_EMAIL);
-  const noEmailGroup = groups.find(g => g.domain === NO_EMAIL) ?? null;
-  const multiDomain = sendable.length > 1;
-
-  const [combine, setCombine] = useState(false);           // send all domains in one email (opt-in)
-  const [ack, setAck] = useState(false);                    // confirm the combined (everyone-sees-all) send
+  const multiGroup = sendable.length > 1;
   const [baseRef] = useState(genEmailRef);
 
   // Email templates
@@ -98,10 +73,10 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
       })
       .catch(() => {});
   }, []);                  // ref for the single-email cases
-  const [tos, setTos] = useState<Record<string, string>>(
-    Object.fromEntries(sendable.map(g => [g.domain, g.emails.join(", ")])),
-  );
-  const [combinedTo, setCombinedTo] = useState(uniqEmails(rows.map(r => r.email)).join(", "));
+  // Per-group recipient overrides. Keyed by group key; a group with no entry
+  // uses its customer's own addresses, which is the correct default.
+  const [tos, setTos] = useState<Record<string, string>>({});
+  const toFor = (g: SendGroup<SendRow>) => (tos[g.key] ?? g.emails.join(", ")).trim();
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(`Open Invoices — Ref ${baseRef}`);
   const [body, setBody] = useState(
@@ -111,8 +86,9 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
   const [attachStatement, setAttachStatement] = useState(true);
   const [includePortal, setIncludePortal] = useState(true);
   const [sending, setSending] = useState(false);
+  const [sentCount, setSentCount] = useState(0);   // progress across a bulk run
 
-  const willSplit = multiDomain && !combine; // one email per domain, distinct refs
+  const willSplit = multiGroup; // one email per group, distinct refs
 
   // Send one email covering `rowsList` to `toStr`, tagged with `ref`.
   async function sendEmail(rowsList: SendRow[], toStr: string, ref: string): Promise<{ ok: boolean; error?: string }> {
@@ -192,29 +168,26 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
 
   async function send() {
     if (sendable.length === 0) { toast?.("None of these invoices have an email on file", "error"); return; }
-    if (multiDomain && combine && !ack) { toast?.("Please confirm the combined send", "error"); return; }
     setSending(true);
     let ok = 0; let failed = 0;
     try {
-      if (willSplit) {
-        // One email per domain — each gets its OWN reference number.
-        for (const g of sendable) {
-          const toStr = (tos[g.domain] ?? "").trim();
-          if (!toStr) { failed++; toast?.(`@${g.domain}: add a recipient`, "error"); continue; }
-          const r = await sendEmail(g.rows, toStr, genEmailRef());
-          if (r.ok) ok++; else { failed++; toast?.(`@${g.domain}: ${r.error}`, "error"); }
+      // One email per group — each gets its OWN reference number. A group is a
+      // customer, or a merge the user explicitly ticked.
+      for (const g of sendable) {
+        const toStr = toFor(g);
+        if (!toStr) { failed++; toast?.(`${g.label}: add a recipient`, "error"); continue; }
+        // Belt and braces: nothing should ever reach here carrying two
+        // customers unless a merge was ticked for it.
+        if (g.custIds.length > 1 && !g.key.startsWith("merge:")) {
+          failed++; toast?.(`${g.label}: refused — would mix customers`, "error"); continue;
         }
-      } else {
-        // One combined email (single domain, or user opted to combine).
-        const allRows = sendable.flatMap(g => g.rows);
-        const toStr = (multiDomain ? combinedTo : tos[sendable[0].domain] ?? "").trim();
-        if (!toStr) { toast?.("Add at least one recipient", "error"); setSending(false); return; }
-        const r = await sendEmail(allRows, toStr, baseRef);
-        if (r.ok) ok++; else { failed++; toast?.(r.error ?? "Send failed", "error"); }
+        setSentCount(c => c + 1);
+        const r = await sendEmail(g.rows, toStr, sendable.length === 1 ? baseRef : genEmailRef());
+        if (r.ok) ok++; else { failed++; toast?.(`${g.label}: ${r.error}`, "error"); }
       }
-    } finally { setSending(false); }
+    } finally { setSending(false); setSentCount(0); }
     if (ok > 0) {
-      const skipped = noEmailGroup ? ` · ${noEmailGroup.rows.length} skipped (no email)` : "";
+      const skipped = noEmail.length ? ` · ${noEmail.length} skipped (no email)` : "";
       toast?.(`Sent ${ok} email${ok !== 1 ? "s" : ""}${failed ? ` · ${failed} failed` : ""}${skipped}`);
       onSent();
     }
@@ -267,58 +240,88 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
         </div>
 
         <div className="p-5 space-y-3">
-          {/* Multi-domain control */}
-          {multiDomain && (
-            <div className={`rounded-lg border px-3 py-2.5 text-[12px] space-y-2 ${combine ? "bg-amber-500/10 border-amber-500/40 text-amber-100" : "bg-stone-800/60 border-stone-700 text-stone-300"}`}>
-              <div className="flex items-start gap-2">
-                <AlertTriangle size={14} className={`mt-0.5 shrink-0 ${combine ? "text-amber-400" : "text-stone-500"}`} />
-                <div>
-                  These invoices span <strong>{sendable.length} domains</strong> (e.g. a novated project, or a shared auditor/bank).
-                  {combine
-                    ? " They'll go out as ONE email — every recipient will see all invoices."
-                    : " By default they're sent as separate emails, each with only its own invoices and its own reference number."}
-                </div>
-              </div>
-              <label className="flex items-center gap-2 pl-6 cursor-pointer">
-                <input type="checkbox" checked={combine} onChange={e => { setCombine(e.target.checked); setAck(false); }} className="rounded border-stone-500" />
-                Send as one combined email to all domains
-              </label>
-              {combine && (
-                <label className="flex items-center gap-2 pl-6 cursor-pointer text-amber-100">
-                  <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} className="rounded border-amber-400" />
-                  I understand every recipient will see all {rows.length} invoices.
-                </label>
-              )}
-            </div>
-          )}
-          {noEmailGroup && (
-            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[12px] text-amber-200">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
-              {noEmailGroup.rows.length} invoice{noEmailGroup.rows.length !== 1 ? "s have" : " has"} no email on file and will be skipped.
+          {/* What is about to happen — stated plainly, because the count can
+              be large and the old wording ("separate emails per domain") was
+              describing something that was not safe. */}
+          {multiGroup && (
+            <div className="rounded-lg border border-stone-700 bg-stone-800/60 px-3 py-2.5 text-[12px] text-stone-300">
+              <strong className="text-stone-100">{sendable.length} separate emails</strong> — one per customer,
+              each containing only that customer's invoices and its own reference number.
+              No recipient can see another customer's invoices or email address.
             </div>
           )}
 
-          {/* Recipients */}
-          {willSplit ? (
+          {/* Genuine shared-organisation merges: a CORPORATE domain used by more
+              than one customer (a novated project, a shared auditor). Named,
+              opt-in, one at a time. Consumer mailbox domains are never offered
+              here — see lib/send-grouping.ts. */}
+          {candidates.length > 0 && (
+            <div className="rounded-lg border border-stone-700 bg-stone-800/40 px-3 py-2.5 text-[12px] space-y-2">
+              <div className="text-stone-400">
+                Some customers share a company domain. Combine them into one email only if the same
+                person handles them:
+              </div>
+              {candidates.map(c => (
+                <label key={c.domain} className="flex items-start gap-2 cursor-pointer text-stone-300 hover:text-white">
+                  <input
+                    type="checkbox"
+                    checked={mergedDomains.has(c.domain)}
+                    onChange={e => setMergedDomains(p => {
+                      const n = new Set(p);
+                      e.target.checked ? n.add(c.domain) : n.delete(c.domain);
+                      return n;
+                    })}
+                    className="mt-0.5 rounded border-stone-600 accent-emerald-600 cursor-pointer" />
+                  <span>
+                    <span className="font-medium text-stone-200">@{c.domain}</span>
+                    <span className="text-stone-500"> — {c.custIds.length} customers: </span>
+                    <span className="text-stone-400">{c.custNames.slice(0, 4).join(", ")}{c.custNames.length > 4 ? `, +${c.custNames.length - 4} more` : ""}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {noEmail.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[12px] text-amber-200">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
+              {noEmail.length} invoice{noEmail.length !== 1 ? "s have" : " has"} no email on file and will be skipped.
+            </div>
+          )}
+
+          {/* Recipients. Addresses come from each customer's own contact record,
+              so at bulk scale there is nothing to fill in — rendering 224
+              editable To: fields would be unusable, and the reason the old
+              screen felt manageable was that it only ever showed one card per
+              DOMAIN, which is precisely what made it wrong. Small sends stay
+              editable; large ones become a reviewable list. */}
+          {sendable.length <= 8 ? (
             sendable.map(g => (
-              <div key={g.domain} className="rounded-lg border border-stone-800 bg-stone-800/40 p-3 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-stone-200">@{g.domain}</span>
-                  <span className="text-[11px] text-stone-500">{g.rows.length} inv · {g.rows.map(r => `#${r.inv.invoiceNumber}`).slice(0, 4).join(", ")}{g.rows.length > 4 ? "…" : ""}</span>
+              <div key={g.key} className="rounded-lg border border-stone-800 bg-stone-800/40 p-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[12px] font-semibold text-stone-200 truncate">{g.label}</span>
+                  <span className="text-[11px] text-stone-500 shrink-0">{g.rows.length} inv · {g.rows.map(r => `#${r.inv.invoiceNumber}`).slice(0, 4).join(", ")}{g.rows.length > 4 ? "…" : ""}</span>
                 </div>
-                <label className="text-[11px] font-medium text-stone-400">To (this domain)</label>
-                <input value={tos[g.domain] ?? ""} onChange={e => setTos(p => ({ ...p, [g.domain]: e.target.value }))} placeholder="email@example.com" className={inputCls} />
+                <label className="text-[11px] font-medium text-stone-400">To</label>
+                <input value={tos[g.key] ?? g.emails.join(", ")}
+                  onChange={e => setTos(p => ({ ...p, [g.key]: e.target.value }))}
+                  placeholder="email@example.com" className={inputCls} />
               </div>
             ))
           ) : (
-            <div>
-              <label className="text-[11px] font-medium text-stone-400">To</label>
-              <input
-                value={multiDomain ? combinedTo : (tos[sendable[0]?.domain] ?? "")}
-                onChange={e => multiDomain ? setCombinedTo(e.target.value) : setTos({ [sendable[0]?.domain]: e.target.value })}
-                placeholder="email@example.com, another@example.com"
-                className={inputCls}
-              />
+            <div className="rounded-lg border border-stone-800 bg-stone-800/40">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-stone-800 text-[11px] text-stone-500">
+                <span>Recipients — from each customer's contact record</span>
+                <span className="tabular-nums">{sendable.length} emails</span>
+              </div>
+              <div className="max-h-52 overflow-auto divide-y divide-stone-800/70">
+                {sendable.map(g => (
+                  <div key={g.key} className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-[11px]">
+                    <span className="text-stone-300 truncate min-w-0">{g.label}</span>
+                    <span className="text-stone-500 truncate min-w-0 flex-1 text-right">{g.emails.join(", ")}</span>
+                    <span className="text-stone-600 tabular-nums shrink-0">{g.rows.length} inv</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -383,10 +386,15 @@ export function SendInvoicesModal({ rows, ccy, multiCustomer = false, orgName, l
 
         <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
-          <button onClick={send} disabled={sending || sendable.length === 0 || (multiDomain && combine && !ack)}
+          <button onClick={send} disabled={sending || sendable.length === 0}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
             {sending && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-            <Send size={14} /> {sending ? "Sending…" : willSplit ? `Send ${sendable.length} emails` : "Send email"}
+            <Send size={14} />
+            {sending
+              // A 224-email run takes minutes; a bare "Sending…" leaves no way
+              // to tell progress from a hang.
+              ? (multiGroup ? `Sending ${sentCount} of ${sendable.length}…` : "Sending…")
+              : multiGroup ? `Send ${sendable.length} emails` : "Send email"}
           </button>
         </div>
       </div>

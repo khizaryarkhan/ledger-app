@@ -2928,7 +2928,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       </div>
 
       {showSend && (
-        <SendInvoicesModal rows={selectedRows} ccy={selectedRows[0]?.inv.currency ?? "USD"} multiCustomer={selectedCustomers.size > 1}
+        <SendInvoicesModal rows={selectedRows} ccy={selectedRows[0]?.inv.currency ?? "USD"}
           orgName={orgName} logoUrl={orgLogoUrl}
           onClose={() => {
             setShowSend(false);
