@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
+import { formatDateShort } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function money(n: number | null | undefined, ccy: string) {
 
 function fmtDate(d?: string | null) {
   if (!d) return "—";
-  return new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" });
+  return formatDateShort(d);
 }
 
 function fmtRelative(d: string) {

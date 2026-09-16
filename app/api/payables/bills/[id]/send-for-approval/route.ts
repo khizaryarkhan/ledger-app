@@ -5,6 +5,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { sendEmail } from "@/lib/mailer";
 import { getAppUrl } from "@/lib/portal";
 import { randomBytes } from "crypto";
+import { formatDateShort } from "@/lib/format";
 
 // POST /api/payables/bills/[id]/send-for-approval
 // Body may include billIds[] for multi-bill batch; [id] is always included.
@@ -85,7 +86,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sym = ccy === "GBP" ? "£" : ccy === "EUR" ? "€" : "$";
   const fmtAmt = (n: number) => `${sym}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtDate = (d?: string | null) => d
-    ? new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    ? formatDateShort(d)
     : "—";
 
   const totalAmt = bills.reduce((s, b) => s + (b.balance ?? b.total ?? 0), 0);

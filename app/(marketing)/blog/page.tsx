@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { POSTS, SITE_URL } from "@/lib/blog-data";
 import { MarketingCTA } from "@/components/marketing";
+import { formatDateUS } from "@/lib/format";
 
 export const metadata: Metadata = {
   title: "Blog — Accounts Receivable & Collections Insights",
@@ -11,11 +12,7 @@ export const metadata: Metadata = {
 };
 
 function fmtDate(iso: string) {
-  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateUS(iso);
 }
 
 export default function BlogIndex() {

@@ -15,6 +15,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { Badge, Button, Card, Input, EmptyState, Modal } from "@/components/ui";
+import { formatDateShort } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -690,13 +691,7 @@ function BillsTable({
                 {bill.billNumber}
               </td>
               <td className="px-4 py-3 text-stone-400 text-[13px] whitespace-nowrap">
-                {bill.dueDate
-                  ? new Date(bill.dueDate).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })
-                  : "—"}
+                {formatDateShort(bill.dueDate)}
               </td>
               <td className="px-4 py-3 text-right font-semibold text-white tabular-nums text-[13px]">
                 {new Intl.NumberFormat("en-US", {

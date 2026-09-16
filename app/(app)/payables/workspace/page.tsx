@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import { formatDateShort } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,9 +116,7 @@ function daysOverdue(dueDate?: string): number {
 
 function fmtDate(d?: string) {
   if (!d) return "—";
-  return new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
-  });
+  return formatDateShort(d);
 }
 
 function fmtRelative(d: string) {

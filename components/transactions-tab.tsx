@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Badge } from "@/components/ui";
-import { fmt } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send, ClipboardList } from "lucide-react";
 
 type Txn = {
@@ -279,7 +279,7 @@ export function TransactionsTab({
                     </td>
                   )}
                   <td className="px-4 py-3 text-stone-300 tabular-nums text-[12px]">
-                    {new Date(r.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" })}
+                    {formatDateShort(r.txnDate)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">

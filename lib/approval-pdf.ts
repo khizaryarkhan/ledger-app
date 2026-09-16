@@ -5,6 +5,7 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFImage } from "pdf-lib";
+import { formatDateLong } from "./format";
 
 export interface ApprovalPdfOpts {
   billNumber?:   string | null;
@@ -40,9 +41,10 @@ const C = {
 
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
-  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", {
-    day: "numeric", month: "long", year: "numeric",
-  });
+  // Never `new Date(iso)`: a bill's due date is a calendar date, and parsing
+  // it as UTC midnight then rendering locally shows the previous day off UTC.
+  // This is a document an approver signs off on.
+  return formatDateLong(iso);
 }
 
 function fmtMoney(total?: number | null, currency?: string | null) {

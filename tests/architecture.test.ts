@@ -183,3 +183,44 @@ describe("money is never declared as a float", () => {
     expect(block).toMatch(/numeric\(/);
   });
 });
+
+describe("a calendar date is never rendered through a timezone", () => {
+  /**
+   * `new Date("2026-09-15")` is UTC midnight, so rendering it with local
+   * getters shows the 14th anywhere west of Greenwich. That is the bug a
+   * client reported against a QBO invoice: QuickBooks said 15 Sep, we said
+   * 14 Sep, and the stored varchar said "2026-09-15" all along.
+   *
+   * `+ "T00:00:00Z"` is the tempting non-fix — it names the same instant and
+   * still renders locally. Three components carried it and were wrong in
+   * exactly the same way, which is why it is worth a guard of its own: it
+   * looks like the fix.
+   *
+   * Use fmt.date / formatDateShort / formatDate, which never build a Date for
+   * a date-only string.
+   */
+  it("nothing pins a date string to UTC midnight and then formats it locally", () => {
+    const offenders: string[] = [];
+    for (const dir of ["app", "components", "lib"]) {
+      for (const f of sourceFiles(dir)) {
+        const flat = readFileSync(f, "utf8").replace(/\s+/g, "");
+        if (flat.includes('+"T00:00:00Z").toLocale') || flat.includes('+"T00:00:00").toLocale')) {
+          offenders.push(relative(ROOT, f));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the shared formatters do not parse a date-only string into a Date", () => {
+    // If dateParts ever loses its string branch, every surface silently goes
+    // back to being a day early for anyone west of Greenwich.
+    const src = readFileSync(join(ROOT, "lib/format.ts"), "utf8");
+    expect(src).toMatch(/const DATE_ONLY =/);
+    expect(src).toMatch(/function dateParts/);
+    // formatDate must go through dateParts, not straight to new Date().
+    const body = src.slice(src.indexOf("export function formatDate"), src.indexOf("export function formatDateShort"));
+    expect(body).toMatch(/dateParts\(/);
+    expect(body).not.toMatch(/new Date\(/);
+  });
+});

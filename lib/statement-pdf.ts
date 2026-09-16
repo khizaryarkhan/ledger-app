@@ -13,6 +13,7 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from "pdf-lib";
+import { formatDateShort } from "./format";
 
 export type StatementRow = {
   inv: any;
@@ -58,12 +59,18 @@ function fmtCcyMap(map: Record<string, number>): string {
   return parts.map(([c, v]) => `${c} ${num2(v)}`).join("   ·   ");
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return String(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
+/**
+ * Invoice and due dates on a customer statement.
+ *
+ * This is a document a debtor receives, so a date that is off by a day is the
+ * most damaging version of that bug — it is evidence in a payment dispute.
+ * It used to `new Date(iso)` a plain "2026-09-15", which is UTC midnight, and
+ * render it in the process timezone. That happens to be right only because
+ * Vercel runs in UTC; one region setting away and every statement we post is
+ * a day early. formatDateShort never builds a Date for a date-only string, so
+ * the correctness no longer depends on where this runs.
+ */
+const fmtDate = (iso: string | null | undefined) => formatDateShort(iso);
 
 function monogram(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);

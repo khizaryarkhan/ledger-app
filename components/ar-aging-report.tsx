@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Button, Badge } from "@/components/ui";
-import { fmt } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 import { Calendar, FileText, RefreshCw, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { CurrencyPills } from "@/components/currency-pills";
@@ -368,7 +368,7 @@ export function ArAgingReport() {
                           <Link href={`/invoices/${d.txnId}`} className="hover:text-brand-orange">
                             <span className="font-mono">{d.txnNumber}</span>
                             <span className="text-stone-400 ml-2">{d.txnType}</span>
-                            {d.dueDate && <span className="text-stone-400 ml-2">due {new Date(d.dueDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short" })}</span>}
+                            {d.dueDate && <span className="text-stone-400 ml-2">due {formatDateShort(d.dueDate, { year: false })}</span>}
                           </Link>
                         </td>
                         {BUCKETS.map(b => (
@@ -449,10 +449,10 @@ export function ArAgingReport() {
                         <Link href={`/invoices/${d.txnId}`} className="hover:text-brand-orange">{d.txnNumber}</Link>
                       </td>
                       <td className="px-3 py-2 text-stone-600 tabular-nums">
-                        {new Date(d.txnDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "2-digit" })}
+                        {formatDateShort(d.txnDate)}
                       </td>
                       <td className="px-3 py-2 text-stone-600 tabular-nums">
-                        {new Date(d.dueDate + "T00:00:00Z").toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "2-digit" })}
+                        {formatDateShort(d.dueDate)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-stone-600">{fmt.money(d.originalAmount, d.currency)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-stone-600">

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui";
 import { MessageSquare, AlertOctagon, CalendarClock, ArrowUpRight, X, Calendar, CheckCircle2, FileWarning } from "lucide-react";
-import { fmt } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 
 interface PromiseItem {
   id: string;
@@ -265,7 +265,7 @@ function PromiseRow({ p, onClose, broken }: { p: PromiseItem; onClose: () => voi
         <div className="flex items-center gap-2 mt-1">
           <Calendar size={10} className="text-stone-600 flex-shrink-0" />
           <span className={`text-[11px] font-medium ${urgencyColor}`}>{dueLine}</span>
-          <span className="text-[11px] text-stone-600">{new Date(p.promiseDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+          <span className="text-[11px] text-stone-600">{formatDateShort(p.promiseDate)}</span>
         </div>
         {p.note && <div className="text-[11px] text-stone-500 mt-1 italic truncate">"{p.note}"</div>}
       </div>

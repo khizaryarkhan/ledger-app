@@ -11,6 +11,7 @@ import { Card, Badge, Toast } from "@/components/ui";
 import { LeadsCommandCenter } from "./command-center";
 import { LeadsBoard } from "./board";
 import { LayoutGrid, List as ListIcon } from "lucide-react";
+import { formatDateShort } from "@/lib/format";
 
 const STATUS_OPTIONS = ["new", "contacted", "qualified", "proposal", "negotiation", "converted", "rejected", "archived"] as const;
 type LeadStatus = typeof STATUS_OPTIONS[number];
@@ -1148,7 +1149,7 @@ function LeadTasks({ leadId }: { leadId: string }) {
                 {t.dueDate && (
                   <p className={`text-[10px] mt-0.5 ${overdue ? "text-rose-400" : "text-stone-500"}`}>
                     {overdue ? "Overdue · " : "Due "}
-                    {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    {formatDateShort(t.dueDate, { year: false })}
                   </p>
                 )}
               </div>

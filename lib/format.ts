@@ -1,6 +1,58 @@
 const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /**
+ * A date-only value is a CALENDAR DATE, not an instant — so it must never be
+ * parsed with `new Date()`.
+ *
+ * This is the bug a client reported: QuickBooks showed an invoice due
+ * 15 Sep 2026 and we showed 14 Sep 2026. Nothing was wrong with the data.
+ * `invoices.due_date` is a `varchar` holding the literal "2026-09-15", copied
+ * verbatim from QBO's `DueDate` — but every display path did
+ * `new Date("2026-09-15")`, which ECMAScript parses as **UTC midnight**, and
+ * then rendered it with local getters. Anywhere west of Greenwich that is the
+ * previous day. The client is in the US, so every date-only field in the app
+ * read one day early for them.
+ *
+ * Appending "T00:00:00Z" does NOT fix it — that is the same instant, still
+ * rendered locally. (Several components did exactly that.) The only correct
+ * handling is to never build a Date at all: read the YYYY-MM-DD components
+ * literally, because a due date has no time and no timezone.
+ *
+ * Real timestamps (`created_at`, `sent_at`, a Date object) DO name an instant
+ * and must still be shown in the viewer's timezone — so those keep the old
+ * behaviour. The discriminator is the shape of the value, which is exactly
+ * what distinguishes the two kinds in this schema.
+ */
+/*
+ * Deliberately NARROW: a bare YYYY-MM-DD, or one with an explicit MIDNIGHT
+ * time. Both carry no time-of-day information — a `date` column serialises
+ * through JSON as "2026-09-15T00:00:00.000Z", so that form is a calendar date
+ * too, and treating it as an instant is the same bug one layer along.
+ *
+ * It must NOT match a timestamp with a real time. "2026-09-16T02:00:00Z" IS an
+ * instant: in New York that is the evening of the 15th, and showing it as the
+ * 16th would be a new off-by-one in the opposite direction, introduced by the
+ * fix for this one. Anything with a non-midnight time falls through to Date.
+ */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ]00:00(?::00(?:\.0+)?)?Z?$)/;
+
+type Parts = { day: number; month: number; year: number } | null;
+
+function dateParts(d: string | Date | null | undefined): Parts {
+  if (!d) return null;
+  if (typeof d === "string") {
+    const m = DATE_ONLY.exec(d.trim());
+    // "2026-09-15" and "2026-09-15T00:00:00" alike: the date portion is taken
+    // literally. A date-only string with a midnight time carries no more
+    // information than the date, and treating it as an instant is what broke.
+    if (m) return { year: +m[1], month: +m[2] - 1, day: +m[3] };
+  }
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return null;
+  return { day: dt.getDate(), month: dt.getMonth(), year: dt.getFullYear() };
+}
+
+/**
  * Format a date according to an org's chosen date format.
  * Supported formats:
  *   DD MMM YYYY  → 07 May 2026  (default)
@@ -10,12 +62,11 @@ const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
  *   MMM DD, YYYY → May 07, 2026
  */
 export function formatDate(d: string | Date | null | undefined, format = "DD MMM YYYY"): string {
-  if (!d) return "—";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  const day = date.getDate().toString().padStart(2, "0");
-  const month = date.getMonth();
-  const year = date.getFullYear();
+  const p = dateParts(d);
+  if (!p) return "—";
+  const day = p.day.toString().padStart(2, "0");
+  const month = p.month;
+  const year = p.year;
   const mm = (month + 1).toString().padStart(2, "0");
   switch (format) {
     case "DD MMM YYYY":  return `${day} ${MONTH_SHORT[month]} ${year}`;
@@ -25,6 +76,46 @@ export function formatDate(d: string | Date | null | undefined, format = "DD MMM
     case "MMM DD, YYYY": return `${MONTH_SHORT[month]} ${day}, ${year}`;
     default:             return `${day} ${MONTH_SHORT[month]} ${year}`;
   }
+}
+
+/**
+ * The shared short renderer: "15 Sep 2026". Timezone-safe for date-only
+ * strings by construction, because it never builds a Date for them.
+ *
+ * Use this (or fmt.date) rather than hand-rolling `.toLocaleDateString()` on a
+ * due/invoice/txn date — that is what drifted into nine components and
+ * reproduced the off-by-one in each of them.
+ */
+export function formatDateShort(d: string | Date | null | undefined, opts?: { year?: boolean }): string {
+  const p = dateParts(d);
+  if (!p) return "—";
+  const day = p.day.toString().padStart(2, "0");
+  return opts?.year === false
+    ? `${day} ${MONTH_SHORT[p.month]}`
+    : `${day} ${MONTH_SHORT[p.month]} ${p.year}`;
+}
+
+const MONTH_LONG = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/** "15 September 2026" — the long form used on approval PDFs. */
+export function formatDateLong(d: string | Date | null | undefined): string {
+  const p = dateParts(d);
+  if (!p) return "—";
+  return `${p.day} ${MONTH_LONG[p.month]} ${p.year}`;
+}
+
+/** "Sep 5, 2026" — US order, unpadded day. Used on the marketing blog. */
+export function formatDateUS(d: string | Date | null | undefined): string {
+  const p = dateParts(d);
+  if (!p) return "—";
+  return `${MONTH_SHORT[p.month]} ${p.day}, ${p.year}`;
+}
+
+/** "September 15, 2026" — US long form. Used on blog posts. */
+export function formatDateUSLong(d: string | Date | null | undefined): string {
+  const p = dateParts(d);
+  if (!p) return "—";
+  return `${MONTH_LONG[p.month]} ${p.day}, ${p.year}`;
 }
 
 /** Pick a sensible English locale for a given ISO 4217 currency code. */
@@ -57,10 +148,12 @@ export const fmt = {
   // Quantity — up to 4 decimals, no trailing-zero padding.
   qty: (n: number | string | null | undefined) =>
     Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 }),
-  // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format
-  date: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+  // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format.
+  // Goes through formatDateShort, so a YYYY-MM-DD due date is rendered as the
+  // date it literally is, not as a UTC instant re-read in the viewer's zone.
+  date: (d: string | Date | null | undefined) => formatDateShort(d),
   // Short date — now includes year for clarity
-  shortDate: (d: string | Date | null | undefined) => d ? new Date(d).toLocaleDateString("en-IE", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+  shortDate: (d: string | Date | null | undefined) => formatDateShort(d),
   relative: (d: string | Date | null | undefined) => {
     if (!d) return "—";
     const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);

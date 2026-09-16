@@ -644,6 +644,52 @@ create-only `Balance`) — those belong quarantined in the sync/batch adapters.
   check-then-insert; if you add a new sync/importer, insert into `customers`/
   `ap_suppliers` the same plain way, not with `onConflictDoUpdate/DoNothing`.
 
+## A date is a date — never `new Date()` on a date-only value (2026-09-17)
+
+Reported by ACC: QuickBooks showed an invoice due **15 Sep 2026**, our app
+showed **14 Sep 2026**. Their standard, and now ours: *"If it is because of the
+timezone difference — this should not happen. Date is the date."*
+
+The data was never wrong. `invoices.due_date` is a `varchar(16)` holding the
+literal `"2026-09-15"`, copied verbatim from QBO's `DueDate` by
+`lib/qbo-sync.ts` — no Date object touches the write path. The bug was entirely
+in rendering: **`new Date("2026-09-15")` is parsed by ECMAScript as UTC
+midnight**, and every formatter then read it back with LOCAL getters. Anywhere
+west of Greenwich that is the previous day, so for a US client *every* date-only
+field in the app read one day early. It never reproduced for us because Vercel
+and our own machines run east of or on UTC.
+
+- **`lib/format.ts` is the single rule.** `dateParts()` detects a date-only
+  shape and reads the YYYY-MM-DD components **literally, never building a
+  Date**. `formatDate` / `formatDateShort` / `formatDateLong` / `formatDateUS` /
+  `formatDateUSLong` / `fmt.date` / `fmt.shortDate` all go through it. Use them;
+  do not hand-roll `.toLocaleDateString()` on a due/invoice/txn/promise date —
+  that is exactly how it drifted into a dozen components.
+- **`+ "T00:00:00Z"` is NOT the fix, it is the same bug.** It names the identical
+  instant and still renders locally. Three components carried it and were wrong
+  in precisely the same way. (`+ "T00:00:00"`, no `Z`, *is* local midnight and
+  happens to be correct — but nobody should have to work out which of the two
+  they wrote, so both are gone.) `tests/architecture.test.ts` guards the `Z`
+  form, and that guard found six offenders the manual sweep had missed.
+- **The detector is deliberately NARROW**: a bare `YYYY-MM-DD`, or one with an
+  explicit **midnight** time (a `date` column serialises through JSON as
+  `"2026-09-15T00:00:00.000Z"`, which is still a calendar date). A timestamp
+  with a real time — `created_at`, `sent_at` — stays on the Date path, because
+  `2026-09-16T02:00:00Z` genuinely *is* the evening of the 15th in New York.
+  Widening it would introduce a new off-by-one in the opposite direction.
+- **Server-rendered surfaces were latent, not safe.** `lib/statement-pdf.ts` and
+  `lib/approval-pdf.ts` had the same pattern and only looked right because the
+  process runs in UTC. These are documents a debtor or approver receives — the
+  worst place for a date to be a day out — so they no longer depend on where
+  they run.
+- `mobile/src/format.ts` already had this right (it pins both parse and render
+  to UTC). The web app did not. If you add a date renderer anywhere, match the
+  mobile helper's intent or import the web one; don't invent a third rule.
+- `tests/date-display.test.ts` asserts every formatter across seven timezones
+  spanning UTC−8 to UTC+14 (including a half-hour offset and DST boundaries).
+  It was **proven to fail on the old implementation** with the exact reported
+  symptom, `expected '14 Sep 2026' to be '15 Sep 2026'` — not merely to pass.
+
 ## Receivables are reported AS AT a date (2026-09-12)
 
 **A receivable exists from the day it is invoiced.** An invoice dated after the

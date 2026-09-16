@@ -9,6 +9,7 @@ import {
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
   Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X, CalendarCheck,
 } from "lucide-react";
+import { formatDateShort } from "@/lib/format";
 
 const STATUS = [...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => s.key);
 const STATUS_LABEL = Object.fromEntries([...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => [s.key, s.label])) as Record<string, string>;
@@ -657,7 +658,7 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
                 <p className="text-[11px] text-stone-600">
                   {t.type && t.type !== "todo" ? `${TASK_TYPE_LABEL[t.type] ?? t.type}` : ""}
                   {t.type && t.type !== "todo" && t.dueDate ? " · " : ""}
-                  {t.dueDate ? `due ${new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}
+                  {t.dueDate ? `due ${formatDateShort(t.dueDate, { year: false })}` : ""}
                 </p>
               </div>
             </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { POSTS, getPost, buildPostMetadata, SITE_URL } from "@/lib/blog-data";
 import { MarketingCTA } from "@/components/marketing";
+import { formatDateUSLong } from "@/lib/format";
 
 export function generateStaticParams() {
   return POSTS.map((p) => ({ slug: p.slug }));
@@ -12,11 +13,7 @@ export function generateMetadata({ params }: { params: { slug: string } }) {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return formatDateUSLong(iso);
 }
 
 export default function BlogPost({ params }: { params: { slug: string } }) {
