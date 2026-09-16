@@ -105,3 +105,36 @@ describe("client bundles never reach server-only modules", () => {
     expect(importers("components", "modules-server")).toEqual([]);
   });
 });
+
+describe("no GROUP BY on a view-backed table", () => {
+  /**
+   * `customers` and `ap_suppliers` are VIEWS over `parties` (migration 0079).
+   * A view has no primary key, so Postgres cannot treat other selected columns
+   * as functionally dependent on a grouped one — `GROUP BY x.id` while
+   * selecting x.org_id, x.name, … fails outright with
+   *   column "x.org_id" must appear in the GROUP BY clause
+   * which surfaces as a 500 on the page, not a type error.
+   *
+   * That is exactly how the Payables → Suppliers list broke. Aggregate in a
+   * subquery and join it instead.
+   */
+  const VIEW_BACKED = ["apSuppliers", "customers"];
+
+  it("never groups directly by a view's column", () => {
+    const offenders: string[] = [];
+    for (const dir of ["app", "lib"]) {
+      for (const f of sourceFiles(dir)) {
+        // Strip whitespace rather than build a regex: the pattern is full of
+        // characters that need escaping, and an escaping slip makes the guard
+        // silently match nothing — which is worse than no guard at all.
+        const flat = readFileSync(f, "utf8").replace(/\s+/g, "");
+        for (const v of VIEW_BACKED) {
+          if (flat.includes(`.groupBy(${v}.`)) {
+            offenders.push(`${relative(ROOT, f).replace(/\\/g, "/")} groups by ${v}`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

@@ -617,6 +617,17 @@ create-only `Balance`) — those belong quarantined in the sync/batch adapters.
   `invoices.qboBalance ?? total − paid`. Collapsing these onto
   `transaction_links` with `payment_applications` as a compatibility view is
   the next planned step.
+- **A VIEW has no primary key — so `GROUP BY view.id` FAILS.** Postgres only
+  treats other selected columns as functionally dependent on a grouped column
+  when that column is a real primary key. On `customers`/`ap_suppliers` it
+  isn't, so `GROUP BY apSuppliers.id` while selecting org_id/name/email/… dies
+  with `column "s.org_id" must appear in the GROUP BY clause` — a **500 on the
+  page**, invisible to `tsc` and to every no-database unit test. This is exactly
+  how Payables → Suppliers broke. **Aggregate in a subquery and join it**, don't
+  list every column in the GROUP BY: the list version works until someone adds a
+  column to the select and forgets, and then it is a 500 again.
+  `tests/architecture.test.ts` guards the pattern (proven to fail on a real
+  violation, not merely to pass).
 - **`customers` and `ap_suppliers` are compatibility VIEWS, not real tables**
   (migration `0079_unify_parties.sql`, 2026-09-06): both party types now
   live in one physical `parties` table (`party_type` discriminator), because

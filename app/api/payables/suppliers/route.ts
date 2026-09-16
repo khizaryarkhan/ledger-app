@@ -54,6 +54,31 @@ export async function GET(req: Request) {
     );
   }
 
+  // Bill totals are aggregated in their OWN subquery, then joined — NOT with a
+  // GROUP BY over the supplier columns.
+  //
+  // `ap_suppliers` is a VIEW over `parties` (migration 0079), and a view has no
+  // primary key. Postgres can only treat other columns as functionally
+  // dependent on a grouped column when that column is a PK, so
+  // `GROUP BY apSuppliers.id` while selecting org_id/name/email/... fails
+  // outright: "column s.org_id must appear in the GROUP BY clause". That is a
+  // 500 on the Suppliers list, and it is what this replaces.
+  //
+  // Listing every column in the GROUP BY would also work, but it breaks again
+  // the next time somebody adds a column to the select and forgets. This shape
+  // cannot regress that way.
+  const billAgg = db
+    .select({
+      supplierId:       apBills.supplierId,
+      totalOutstanding: sql<number>`COALESCE(SUM(CASE WHEN ${apBills.balance} > 0 THEN ${apBills.balance} ELSE 0 END), 0)`.as("total_outstanding"),
+      openBillsCount:   sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 THEN 1 ELSE NULL END)::int`.as("open_bills_count"),
+      overdueCount:     sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 AND ${apBills.dueDate} IS NOT NULL AND ${apBills.dueDate} < to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN 1 ELSE NULL END)::int`.as("overdue_count"),
+    })
+    .from(apBills)
+    .where(eq(apBills.orgId, orgId!))
+    .groupBy(apBills.supplierId)
+    .as("bill_agg");
+
   const rows = await db
     .select({
       id:           apSuppliers.id,
@@ -78,14 +103,15 @@ export async function GET(req: Request) {
       createdAt:    apSuppliers.createdAt,
       updatedAt:    apSuppliers.updatedAt,
       lastSynced:   apSuppliers.lastSyncedAt,
-      totalOutstanding: sql<number>`COALESCE(SUM(CASE WHEN ${apBills.balance} > 0 THEN ${apBills.balance} ELSE 0 END), 0)`,
-      openBillsCount:   sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 THEN 1 ELSE NULL END)::int`,
-      overdueCount:     sql<number>`COUNT(CASE WHEN ${apBills.balance} > 0 AND ${apBills.dueDate} IS NOT NULL AND ${apBills.dueDate} < to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN 1 ELSE NULL END)::int`,
+      // A supplier with no bills has no row in the aggregate — coalesce so the
+      // UI always gets a number rather than null.
+      totalOutstanding: sql<number>`COALESCE(${billAgg.totalOutstanding}, 0)`,
+      openBillsCount:   sql<number>`COALESCE(${billAgg.openBillsCount}, 0)`,
+      overdueCount:     sql<number>`COALESCE(${billAgg.overdueCount}, 0)`,
     })
     .from(apSuppliers)
-    .leftJoin(apBills, and(eq(apBills.supplierId, apSuppliers.id), eq(apBills.orgId, apSuppliers.orgId)))
+    .leftJoin(billAgg, eq(billAgg.supplierId, apSuppliers.id))
     .where(and(...conditions))
-    .groupBy(apSuppliers.id)
     .orderBy(apSuppliers.name);
 
   return ok(rows);
