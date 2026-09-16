@@ -7,6 +7,7 @@ import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN, localToday, isWit
 import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
 import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
+import { SelectField, control } from "@/components/form-kit";
 
 // Renders a compact "PKR 1,499,999 · USD 25,000" breakdown — one pill per currency.
 function CurrencyPills({ breakdown, className }: { breakdown: Record<string, number>; className?: string }) {
@@ -408,42 +409,38 @@ export default function BoardPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`Search ${groupBy === "customer" ? "customer" : "project"}…`}
-              className="h-8 w-48 pl-7 pr-2 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 placeholder-stone-500 focus:border-emerald-500 focus:outline-none"
+              className={`${control} h-8 w-48 pl-7 pr-2 text-xs`}
             />
           </div>
           {/* Status filter — first, ahead of rep/region/stage. Paid and Written
               Off are deliberately absent: the board only ever lists open AR, so
               they would always come back empty. */}
-          <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)}
-            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+          <SelectField value={dueFilter} onChange={(e) => setDueFilter(e.target.value)}
+            aria-label="Filter by status" className="w-auto h-8 text-xs">
             <option value="">All statuses</option>
             {DUE_FILTERS_OPEN.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          </SelectField>
 
           {/* Rep filter */}
           {(reps ?? []).length > 0 && (
-            <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
-              className="h-8 px-2 pr-6 text-xs rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 appearance-none"
-              style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+            <SelectField value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
+              aria-label="Filter by rep" className="w-auto h-8 text-xs">
               <option value="">All reps</option>
               {(reps ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+            </SelectField>
           )}
           {/* Region filter */}
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
-            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+          <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
+            aria-label="Filter by region" className="w-auto h-8 text-xs">
             <option value="">All regions</option>
             {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          </SelectField>
           {/* Stage filter */}
-          <select value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}
-            className="h-8 px-2 pr-6 text-xs rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.35rem center",backgroundSize:"12px"}}>
+          <SelectField value={stageFilter || ""} onChange={(e) => setStageFilter(e.target.value || null)}
+            aria-label="Filter by stage" className="w-auto h-8 text-xs">
             <option value="">All stages</option>
             {visibleLabels.map(s => <option key={s} value={s}>{s} ({byStage[s]?.length || 0})</option>)}
-          </select>
+          </SelectField>
 
           {/* Future-dated invoices — only offered when the org actually has
               some, so the control doesn't take up space it can't earn. */}
@@ -456,7 +453,7 @@ export default function BoardPage() {
                 type="checkbox"
                 checked={showFuture}
                 onChange={e => setShowFuture(e.target.checked)}
-                className="w-3 h-3 accent-stone-400 cursor-pointer"
+                className="w-3 h-3 rounded border-stone-600 accent-emerald-600 cursor-pointer"
               />
               Show future-dated ({futureCount})
             </label>
@@ -476,7 +473,10 @@ export default function BoardPage() {
             </div>
           )}
 
-          {/* Cards / List view toggle */}
+          {/* Cards / List view toggle — separated, because everything to its
+              left decides WHICH ROWS you see and this decides how they are
+              drawn. Flush against the filters it read as a seventh filter. */}
+          <span className="w-px h-6 bg-stone-800 mx-1" />
           <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
             <button onClick={() => setViewMode("cards")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${viewMode === "cards" ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
