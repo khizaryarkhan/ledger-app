@@ -258,7 +258,10 @@ export async function GET(req: Request) {
   // measure built on it (kept-rate, a customer's promise history, forecasting
   // from commitments) would have been wrong in the same direction. Runs BEFORE
   // the broken sweep so an invoice paid on or after its promise date is
-  // recorded as kept, never broken.
+  // recorded as kept, never broken. Both sweeps skip soft-deleted invoices —
+  // deleted invoices are hidden everywhere (db/schema.ts), and flipping a
+  // promise to Broken on an invoice that was deleted in QuickBooks blames a
+  // customer for a document that no longer exists.
   let promisesMet = 0;
   try {
     const kept = await db
@@ -273,7 +276,11 @@ export async function GET(req: Request) {
       })
       .from(invoicePromises)
       .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
-      .where(and(eq(invoicePromises.status, "Active"), eq(invoices.paymentStatus, "Paid")));
+      .where(and(
+        eq(invoicePromises.status, "Active"),
+        eq(invoices.paymentStatus, "Paid"),
+        isNull(invoices.deletedAt),
+      ));
     const keptIds = kept.map(k => k.id);
     for (let i = 0; i < keptIds.length; i += 100) {
       await db.update(invoicePromises).set({ status: "Met" }).where(inArray(invoicePromises.id, keptIds.slice(i, i + 100)));
@@ -326,7 +333,11 @@ export async function GET(req: Request) {
       })
       .from(invoicePromises)
       .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
-      .where(and(eq(invoicePromises.status, "Active"), lt(invoicePromises.promiseDate, today)));
+      .where(and(
+        eq(invoicePromises.status, "Active"),
+        lt(invoicePromises.promiseDate, today),
+        isNull(invoices.deletedAt),
+      ));
     const toBreak = stale.filter((s) => s.paymentStatus !== "Paid");
     const toBreakIds = toBreak.map((s) => s.id);
     for (let i = 0; i < toBreakIds.length; i += 100) {

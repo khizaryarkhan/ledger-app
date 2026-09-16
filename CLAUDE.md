@@ -772,7 +772,10 @@ network at all — that is what makes it ours rather than a proxy.
   date counts as kept. `Met` had no writer at all until 2026-09-15 — kept
   promises just stayed `Active` forever, which made the ledger one-sided
   (only evidence against customers) and would have skewed any kept-rate or
-  reliability metric built on it. On-time vs late comes from `invoices.paidAt`
+  reliability metric built on it. Both sweeps skip soft-deleted invoices
+  (`invoices.deleted_at`) — flipping a promise to Broken on an invoice
+  QuickBooks has deleted blames a customer for a document that no longer
+  exists. On-time vs late comes from `invoices.paidAt`
   (the settling document's own date), sliced as a string — it's a YYYY-MM-DD
   varchar, and round-tripping it through `Date()` re-introduces the timezone
   shift that column exists to avoid.
