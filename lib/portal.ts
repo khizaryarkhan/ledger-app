@@ -22,18 +22,55 @@ const TOKEN_TTL_DAYS = 30;
  * domain the app is served on (e.g. primeaccountax.com) with zero config.
  * Order: request host → NEXT_PUBLIC_APP_URL → VERCEL_URL → localhost.
  */
+/**
+ * Is this request host safe to put in a link we send to a CUSTOMER?
+ *
+ * A `*.vercel.app` host is NOT. Deployment URLs sit behind Vercel Deployment
+ * Protection, so a customer opening one is redirected to `vercel.com/sso-api`
+ * — the Vercel login page — instead of their invoices. Verified live:
+ *   primeaccountax.com/portal/<token>        -> 200
+ *   ledger-<hash>.vercel.app/portal/<token>  -> redirect to vercel.com/sso-api
+ *
+ * The request host leaks in whenever the app generates a link while being
+ * served on a deployment URL: an admin working from a preview link, or a
+ * background function invoked at a deployment URL rather than the domain.
+ * Nothing about that is visible at send time — the email just goes out broken.
+ *
+ * Exported for tests; it is the whole rule.
+ */
+export function isPublicHost(host: string | null | undefined): boolean {
+  if (!host) return false;
+  const h = host.toLowerCase();
+  if (h.includes("localhost") || h.startsWith("127.") || h.startsWith("[::1]")) return false;
+  // Covers *.vercel.app and vercel.app itself.
+  if (h === "vercel.app" || h.endsWith(".vercel.app")) return false;
+  return true;
+}
+
 export function getAppUrl(): string {
-  // 1. Live request host (covers chat/board/trigger/cron — anything request-driven)
+  // 1. The live request host — but ONLY when it is a host a customer can
+  //    actually reach. See isPublicHost.
   try {
     const h = headers();
     const host = h.get("x-forwarded-host") || h.get("host");
-    if (host && !host.includes("localhost")) {
+    if (isPublicHost(host)) {
       const proto = h.get("x-forwarded-proto") || "https";
       return `${proto}://${host}`;
     }
   } catch { /* not in a request scope (e.g. build) — fall through */ }
-  // 2. Explicit override / fallbacks
+
+  // 2. The configured public URL. This is the one that must be right.
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+
+  // 3. Vercel's STABLE production domain, when the platform provides it. Unlike
+  //    VERCEL_URL this is the project's domain, not a per-deployment hostname,
+  //    so it is not behind deployment protection.
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+
+  // 4. Last resort. VERCEL_URL is always a per-deployment *.vercel.app host and
+  //    will be protected — it is here only so a link is not simply localhost,
+  //    and reaching it means NEXT_PUBLIC_APP_URL is missing, which is a
+  //    misconfiguration worth fixing rather than papering over.
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
 }
