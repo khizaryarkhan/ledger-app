@@ -46,16 +46,6 @@ const FEATURES = [
     desc: "Customers get a secure link to view invoices, set a payment promise date, pay, or raise a dispute — no login required.",
   },
   {
-    grad: "from-emerald-400/20 to-emerald-600/5",
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-      </svg>
-    ),
-    title: "AI Collections Assistant",
-    desc: "Ask what needs attention, who owes the most, or which invoices are overdue — then trigger the next action instantly, in plain language.",
-  },
-  {
     grad: "from-teal-400/20 to-teal-600/5",
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -184,7 +174,6 @@ const JSONLD = {
         "QuickBooks Online & Xero sync",
         "Automated payment reminders",
         "Customer self-service portal",
-        "AI collections assistant",
         "Team & rep management",
       ],
     },
@@ -749,7 +738,7 @@ export default function LandingPage() {
           <Reveal>
             <div className="inline-flex items-center gap-2 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3.5 py-1.5 mb-6 backdrop-blur">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              AI AR Management for Accounting Firms
+              AR Management for Accounting Firms
             </div>
           </Reveal>
 
