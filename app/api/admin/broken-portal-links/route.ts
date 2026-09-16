@@ -1,20 +1,43 @@
 /**
- * GET /api/admin/broken-portal-links[?orgId=]
- *
- * Which customers were emailed a portal link that lands on Vercel's login page?
+ * GET /api/admin/broken-portal-links[?orgId=&days=]
  *
  * Portal links built from a `*.vercel.app` deployment host are intercepted by
  * Vercel Deployment Protection — the customer is redirected to
  * `vercel.com/sso-api` instead of their invoices. Fixed going forward by
- * `isPublicHost` in lib/portal.ts, but emails already sent carry the bad host
- * and cannot be recalled.
+ * `isPublicHost` in lib/portal.ts. This is about the ones already sent.
  *
- * Runs INSIDE the deployed app, so it sees the real production database without
- * anyone copying credentials to a laptop — same reasoning as
- * /api/admin/reconcile. Platform-admin only.
+ * ── READ THIS BEFORE TRUSTING A NUMBER FROM HERE ────────────────────────────
  *
- * STRICTLY READ-ONLY: one SELECT, no writes, no QuickBooks call, and it can
- * never touch an OAuth token.
+ * **We cannot identify which links were poisoned.** The first version of this
+ * endpoint searched `communications.body` for a vercel.app host and returned a
+ * confident zero. That zero was meaningless:
+ *
+ *   - `communications.body` does NOT hold the sent HTML. The AR senders store
+ *     the plain intro text (see app/api/cron/route.ts — `body: introText`); the
+ *     portal button lives in the HTML that renderInvoiceEmail builds, and that
+ *     is never persisted.
+ *   - `customer_portal_tokens` stores the token and nothing about the URL — no
+ *     host, no link.
+ *
+ * So no table anywhere records the host a link was built with, and a definitive
+ * "these customers were affected" list is not derivable from our data. Saying
+ * so is more useful than a clean-looking zero somebody acts on.
+ *
+ * ── What this DOES give you ─────────────────────────────────────────────────
+ *
+ * The nearest real signal: portal tokens that were issued and NEVER OPENED
+ * (`last_viewed_at IS NULL`). A customer who clicked a poisoned link hit a
+ * Vercel login wall and never reached the portal, so their token stays
+ * unviewed. It is not proof — plenty of customers simply never click — but it
+ * is the actionable re-send list, and it is a real measurement rather than a
+ * fabricated one.
+ *
+ * The complete fix for links already in inboxes does not depend on identifying
+ * them at all: disabling Vercel Deployment Protection makes every one of them
+ * resolve, because the redirect happens at Vercel's edge before our code runs.
+ *
+ * Platform-admin only. STRICTLY READ-ONLY — one SELECT, no writes, no
+ * QuickBooks call, and it can never touch an OAuth token.
  */
 
 import { requirePlatformAdmin } from "@/lib/billing";
@@ -29,68 +52,68 @@ export async function GET(req: Request) {
   const { error } = await requirePlatformAdmin();
   if (error) return error;
 
-  const orgId = new URL(req.url).searchParams.get("orgId");
+  const url = new URL(req.url);
+  const orgId = url.searchParams.get("orgId");
+  const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? 30), 1), 365);
 
-  // Match on BOTH the host and a /portal/ path: an email merely mentioning
-  // vercel.app is not a broken portal link, and counting it would overstate the
-  // problem to someone deciding how many customers to apologise to.
   const res: any = await db.execute(sql`
-    select c.id,
-           c.org_id,
-           o.name            as org_name,
-           c.customer_id,
-           p.name            as customer_name,
-           p.email           as customer_email,
-           i.invoice_number  as invoice_number,
-           c.subject,
-           c.sent_at
-      from communications c
-      left join organisations o on o.id = c.org_id
-      left join customers     p on p.id = c.customer_id
-      left join invoices      i on i.id = c.invoice_id
-     where c.direction = 'Outbound'
-       and c.body is not null
-       and c.body like '%.vercel.app%'
-       and c.body like '%/portal/%'
-       ${orgId ? sql`and c.org_id = ${orgId}` : sql``}
-     order by c.sent_at desc
+    select t.id,
+           t.org_id,
+           o.name             as org_name,
+           t.customer_id,
+           p.name             as customer_name,
+           p.email            as customer_email,
+           t.status,
+           t.created_at,
+           t.expires_at,
+           t.created_by is null as from_automation,
+           jsonb_array_length(t.invoice_ids) as invoice_count
+      from customer_portal_tokens t
+      left join organisations o on o.id = t.org_id
+      left join customers     p on p.id = t.customer_id
+     where t.last_viewed_at is null
+       and t.created_at >= now() - (${days} || ' days')::interval
+       ${orgId ? sql`and t.org_id = ${orgId}` : sql``}
+     order by t.created_at desc
      limit 2000
   `);
   const rows: any[] = res?.rows ?? res ?? [];
 
-  // Group so the answer reads as "who do I need to re-send to", not a log dump.
-  const byOrg = new Map<string, { orgId: string; orgName: string; emails: number; customers: Map<string, any> }>();
+  const byOrg = new Map<string, any>();
   for (const r of rows) {
-    const key = String(r.org_id);
-    if (!byOrg.has(key)) byOrg.set(key, { orgId: key, orgName: r.org_name ?? key, emails: 0, customers: new Map() });
-    const g = byOrg.get(key)!;
-    g.emails++;
-    const ck = String(r.customer_id ?? r.customer_email ?? r.id);
+    const k = String(r.org_id);
+    if (!byOrg.has(k)) byOrg.set(k, { orgId: k, orgName: r.org_name ?? k, tokens: 0, customers: new Map() });
+    const g = byOrg.get(k);
+    g.tokens++;
+    const ck = String(r.customer_id);
     if (!g.customers.has(ck)) {
-      g.customers.set(ck, {
-        customerId: r.customer_id, name: r.customer_name, email: r.customer_email,
-        emails: 0, firstSentAt: r.sent_at, lastSentAt: r.sent_at, invoices: [] as string[],
-      });
+      g.customers.set(ck, { customerId: r.customer_id, name: r.customer_name, email: r.customer_email, tokens: 0, newest: r.created_at, oldest: r.created_at });
     }
-    const c = g.customers.get(ck)!;
-    c.emails++;
-    if (r.sent_at < c.firstSentAt) c.firstSentAt = r.sent_at;
-    if (r.sent_at > c.lastSentAt)  c.lastSentAt  = r.sent_at;
-    if (r.invoice_number && !c.invoices.includes(r.invoice_number)) c.invoices.push(r.invoice_number);
+    const c = g.customers.get(ck);
+    c.tokens++;
+    if (r.created_at < c.oldest) c.oldest = r.created_at;
+    if (r.created_at > c.newest) c.newest = r.created_at;
   }
 
   const organisations = [...byOrg.values()]
-    .map(g => ({ orgId: g.orgId, orgName: g.orgName, emails: g.emails, customerCount: g.customers.size, customers: [...g.customers.values()] }))
-    .sort((a, b) => b.emails - a.emails);
+    .map(g => ({ orgId: g.orgId, orgName: g.orgName, unopenedTokens: g.tokens, customerCount: g.customers.size, customers: [...g.customers.values()] }))
+    .sort((a, b) => b.unopenedTokens - a.unopenedTokens);
 
   return NextResponse.json({
-    totalEmails: rows.length,
-    totalCustomers: organisations.reduce((s, o) => s + o.customerCount, 0),
+    caveat:
+      "We CANNOT identify which portal links carried a vercel.app host. The email HTML is not " +
+      "stored (communications.body holds the intro text only) and customer_portal_tokens records " +
+      "no URL. Treat the list below as candidates, not as the affected set.",
+    whatThisIs: `Portal tokens issued in the last ${days} days that have NEVER been opened. A customer ` +
+      "who clicked a poisoned link hit a Vercel login wall and never reached the portal, so their " +
+      "token stays unviewed — but so does the token of anyone who simply did not click.",
+    completeFix:
+      "Disabling Vercel Deployment Protection makes every already-sent link resolve, whether or not " +
+      "we can identify it — the redirect happens at Vercel's edge before our code runs.",
+    days,
+    unopenedTokens: rows.length,
+    customersAffectedAtMost: organisations.reduce((s, o) => s + o.customerCount, 0),
     truncated: rows.length >= 2000,
-    note:
-      rows.length === 0
-        ? "No outbound email carries a vercel.app portal link. Nothing to re-send."
-        : "Re-send these from the app — the link is rebuilt on the production domain now. The portal TOKENS are unaffected; only the host in the URL was wrong.",
     organisations,
   });
 }
