@@ -6,6 +6,7 @@ import { runBatchCommitJob } from "@/lib/batch/commit-runner";
 import { runBatchUndoJob } from "@/lib/batch/undo-runner";
 import { runScheduledImport, findDueScheduleIds } from "@/lib/batch/scheduled-runner";
 import { processUploadChunk } from "@/lib/batch/chunk-runner";
+import { processSendChunk } from "@/lib/batch/send-chunk-runner";
 import { processDeleteChunk } from "@/lib/batch/delete-chunk-runner";
 import { processFieldEditChunk } from "@/lib/batch/fieldedit-chunk-runner";
 
@@ -84,6 +85,7 @@ export const runScheduledImportFn = inngest.createFunction(
  * operation labels/icons keep working without a schema change).
  */
 async function dispatchChunk(orgId: string, jobId: string, operation: string, input: any) {
+  if (operation === "send") return processSendChunk(orgId, jobId);
   if (operation === "delete") return processDeleteChunk(orgId, jobId);
   if (operation === "modify" && input?.fieldEdit) return processFieldEditChunk(orgId, jobId);
   return processUploadChunk(orgId, jobId); // upload, or a sheet-based modify

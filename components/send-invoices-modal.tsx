@@ -3,20 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { Send, X, AlertTriangle, FileText } from "lucide-react";
 import { genEmailRef } from "@/lib/email-ref";
-import { renderInvoiceEmail } from "@/lib/ar-email";
-import { buildStatementPdf } from "@/lib/statement-pdf";
 import {
   groupByCustomer, mergeCandidates, applyMerges, splitEmails, uniqEmails,
   type SendGroup,
 } from "@/lib/send-grouping";
-
-// Uint8Array → base64 (chunked to avoid call-stack limits on large PDFs).
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const CH = 0x8000;
-  for (let i = 0; i < bytes.length; i += CH) binary += String.fromCharCode(...bytes.subarray(i, i + CH));
-  return btoa(binary);
-}
 
 // Minimal row shape the send modal needs. BoardRow is a structural superset,
 // so the Collections Board can pass its rows directly.
@@ -86,111 +76,75 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
   const [attachStatement, setAttachStatement] = useState(true);
   const [includePortal, setIncludePortal] = useState(true);
   const [sending, setSending] = useState(false);
-  const [sentCount, setSentCount] = useState(0);   // progress across a bulk run
+  const [sentCount, setSentCount] = useState(0);    // progress across a bulk run
+  const [totalToSend, setTotalToSend] = useState(0); // as the SERVER grouped it
 
   const willSplit = multiGroup; // one email per group, distinct refs
 
-  // Send one email covering `rowsList` to `toStr`, tagged with `ref`.
-  async function sendEmail(rowsList: SendRow[], toStr: string, ref: string): Promise<{ ok: boolean; error?: string }> {
-    const ids = rowsList.map(r => r.inv.id);
-    const filledSubject = fillTemplate(subject, rowsList, ref);
-    const filledBody = fillTemplate(body, rowsList, ref);
-    const total = rowsList.reduce((s, r) => s + r.bal, 0);
-    const emailCurrency = rowsList[0]?.inv?.currency || ccy;
-    let portalUrl: string | null = null;
-    const custIds = new Set(rowsList.map(r => r.custId));
-    if (includePortal && custIds.size === 1) {
-      try {
-        const tk = await fetch("/api/portal/token", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customerId: rowsList[0].custId, invoiceIds: ids }),
-        });
-        if (tk.ok) portalUrl = (await tk.json()).url ?? null;
-      } catch {}
-    }
-    // QBO "Pay now" links — resolved server-side (no QBO token in the browser),
-    // same pre-render fetch as the portal token above. Failure just means no
-    // pay buttons; the email still goes.
-    let payLinks: Record<string, string | null> = {};
-    try {
-      const pl = await fetch("/api/invoices/pay-links", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceIds: ids }),
-      });
-      if (pl.ok) payLinks = (await pl.json())?.links ?? {};
-    } catch {}
-
-    const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-    const html = renderInvoiceEmail({
-      subject: filledSubject, dateStr, total, currency: emailCurrency, portalUrl, intro: filledBody,
-      rows: rowsList.map(r => ({
-        invoiceNumber: r.inv.invoiceNumber, customerName: r.custName, projectName: r.projName,
-        invoiceDate: r.inv.invoiceDate, dueDate: r.inv.dueDate, balance: r.bal, currency: r.inv.currency, daysOverdue: r.days,
-        payUrl: payLinks[r.inv.id] ?? null,
-      })),
-    });
-    // Build the Statement of Open Invoices PDF for THIS email's rows — the
-    // exact same document as the Export › Statement, so each recipient gets a
-    // statement of only the invoices they can see.
-    let extraAttachments: { filename: string; contentBase64: string; contentType: string }[] | undefined;
-    if (attachStatement) {
-      try {
-        const bytes = await buildStatementPdf({
-          orgName: orgName || "Statement of Open Invoices",
-          rows: rowsList.map(r => ({ inv: r.inv, custName: r.custName, projName: r.projName, bal: r.bal, days: r.days })),
-          logoUrl: logoUrl ?? null,
-        });
-        extraAttachments = [{ filename: "Statement-of-Open-Invoices.pdf", contentBase64: bytesToBase64(bytes), contentType: "application/pdf" }];
-      } catch (e: any) {
-        return { ok: false, error: `Couldn't build the statement PDF: ${e?.message || "unknown error"}` };
-      }
-    }
-    try {
-      const res = await fetch("/api/email/send", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: toStr, cc: cc || undefined, subject: filledSubject, body: html, invoiceId: rowsList[0]?.inv.id, attachInvoiceIds: attachPdf ? ids : undefined, extraAttachments }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); return { ok: false, error: d.error || "Send failed" }; }
-      const sentMessageId = (await res.json()).messageId ?? null;
-      await Promise.all(rowsList.map(r => fetch("/api/communications", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId: r.custId, invoiceId: r.inv.id, projectId: r.inv.projectId ?? null,
-          direction: "Outbound", channel: "Email", subject: filledSubject, recipients: toStr, body: filledBody,
-          matchedBy: "Manual", isDraft: false, refNumber: ref, messageId: sentMessageId,
-        }),
-      }).catch(() => {})));
-      return { ok: true };
-    } catch (e: any) {
-      return { ok: false, error: e?.message || "Send failed" };
-    }
-  }
-
+  // The browser no longer sends the emails. It hands the selection and the
+  // composed message to the server, which decides who gets which email and
+  // runs the job on the same durable chunk engine as every other bulk
+  // operation. Closing this tab no longer stops the run.
   async function send() {
     if (sendable.length === 0) { toast?.("None of these invoices have an email on file", "error"); return; }
     setSending(true);
-    let ok = 0; let failed = 0;
     try {
-      // One email per group — each gets its OWN reference number. A group is a
-      // customer, or a merge the user explicitly ticked.
-      for (const g of sendable) {
-        const toStr = toFor(g);
-        if (!toStr) { failed++; toast?.(`${g.label}: add a recipient`, "error"); continue; }
-        // Belt and braces: nothing should ever reach here carrying two
-        // customers unless a merge was ticked for it.
-        if (g.custIds.length > 1 && !g.key.startsWith("merge:")) {
-          failed++; toast?.(`${g.label}: refused — would mix customers`, "error"); continue;
+      const res = await fetch("/api/invoices/bulk-send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceIds: sendable.flatMap(g => g.rows.map(r => r.inv.id)),
+          subject, body, cc: cc || undefined,
+          attachPdf, attachStatement, includePortal,
+          mergeDomains: [...mergedDomains],
+          toOverrides: tos,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      // Don't close on failure — the composed subject and body would be lost.
+      if (!res.ok) { toast?.(d?.error || "Couldn't queue the send", "error"); setSending(false); return; }
+
+      const jobId = d.jobId as string;
+      setTotalToSend(d.emails ?? sendable.length);
+      // Best-effort nudge, matching every other chunked start route — the
+      // Inngest event is what actually drives the run.
+      fetch(`/api/batch/jobs/${jobId}/run-chunk-now`, { method: "POST" }).catch(() => {});
+
+      // Poll for progress. If this tab goes away the job carries on regardless;
+      // Job History and the watchdog both pick it up.
+      // Bounded: the job outlives this tab by design, so the poll's job is to
+      // report progress, not to babysit. If it is still going after ~30 minutes
+      // (or the browser cannot reach us), say where to look instead of spinning
+      // forever on a loop nobody can see.
+      const POLL_MS = 1500;
+      const MAX_POLLS = Math.round((30 * 60 * 1000) / POLL_MS);
+      let done = false;
+      for (let attempt = 0; !done; attempt++) {
+        if (attempt >= MAX_POLLS) {
+          toast?.("Still sending — it will finish in the background. Check Job History for the result.");
+          break;
         }
-        setSentCount(c => c + 1);
-        const r = await sendEmail(g.rows, toStr, sendable.length === 1 ? baseRef : genEmailRef());
-        if (r.ok) ok++; else { failed++; toast?.(`${g.label}: ${r.error}`, "error"); }
+        await new Promise(r => setTimeout(r, POLL_MS));
+        const p = await fetch(`/api/batch/jobs/${jobId}`).then(r => r.ok ? r.json() : null).catch(() => null);
+        if (!p?.status) continue;
+        setSentCount((p.successCount ?? 0) + (p.errorCount ?? 0));
+        if (p.status === "done" || p.status === "failed") {
+          done = true;
+          const okCount = p.successCount ?? 0;
+          const failed = p.errorCount ?? 0;
+          const skipped = d.skippedNoEmail ? ` · ${d.skippedNoEmail} skipped (no email)` : "";
+          if (okCount > 0) {
+            toast?.(`Sent ${okCount} email${okCount !== 1 ? "s" : ""}${failed ? ` · ${failed} failed` : ""}${skipped}`);
+            onSent();
+          } else {
+            toast?.(p.lastChunkError || `No emails sent${failed ? ` · ${failed} failed` : ""}`, "error");
+          }
+        }
       }
+      onClose();
+    } catch (e: any) {
+      // Leave the modal open so nothing the user typed is lost.
+      toast?.(e?.message || "Couldn't queue the send", "error");
     } finally { setSending(false); setSentCount(0); }
-    if (ok > 0) {
-      const skipped = noEmail.length ? ` · ${noEmail.length} skipped (no email)` : "";
-      toast?.(`Sent ${ok} email${ok !== 1 ? "s" : ""}${failed ? ` · ${failed} failed` : ""}${skipped}`);
-      onSent();
-    }
   }
 
   const applyTemplate = (id: string) => {
@@ -200,24 +154,6 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
     setBody(tpl.body);
   };
 
-  /**
-   * Fill the template placeholders. This modal used to drop the raw template
-   * straight into the fields and send it as-is, so students received emails
-   * reading "Hi{name}" / "New Payment Request From {ref}" — reported by a
-   * customer. Substituted at SEND time (not on template selection) because one
-   * modal can fan out to several recipients, each with its own name and ref.
-   *
-   * Same vocabulary and semantics as the chase paths' fillTemplate: {name},
-   * {ref}, {invoicelines} — case-insensitive. {invoicelines} resolves to an
-   * empty string here for the same reason it does there: the branded table
-   * below the intro already lists every invoice, so filling it would print the
-   * list twice.
-   */
-  const fillTemplate = (text: string, rowsList: SendRow[], ref: string) =>
-    text
-      .replace(/\{name\}/gi, rowsList[0]?.custName?.split(" ")[0] ?? "there")
-      .replace(/\{invoice ?lines\}/gi, "")
-      .replace(/\{ref\}/gi, ref);
 
   const inputCls = "w-full mt-1 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
 
@@ -393,7 +329,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
             {sending
               // A 224-email run takes minutes; a bare "Sending…" leaves no way
               // to tell progress from a hang.
-              ? (multiGroup ? `Sending ${sentCount} of ${sendable.length}…` : "Sending…")
+              ? (multiGroup ? `Sending ${sentCount} of ${totalToSend || sendable.length}…` : "Sending…")
               : multiGroup ? `Send ${sendable.length} emails` : "Send email"}
           </button>
         </div>

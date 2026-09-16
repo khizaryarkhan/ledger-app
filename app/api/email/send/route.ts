@@ -17,6 +17,7 @@ import { sendEmail } from "@/lib/mailer";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { getOrgQboToken, stampQboPayButton, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { appendPayButton } from "@/lib/ar-email";
+import { fetchInvoicePdfAttachments, MAX_ATTACHMENT_BYTES } from "@/lib/invoice-attachments";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -67,88 +68,9 @@ export async function POST(req: Request) {
     const allowed = new Set<string>([actingOrg!, ...orgIds]);
     if (!allowed.has(targetOrg)) return bad("You don't have access to that branch's mailbox", 403);
 
-    // Fetch PDFs for any requested invoice attachments — all in parallel
-    const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
-    const attachmentErrors: string[] = [];
-
-    if (data.attachInvoiceIds && data.attachInvoiceIds.length > 0) {
-      // 1. Fetch all invoice DB rows in parallel
-      const invRows = await Promise.all(
-        data.attachInvoiceIds.map(id =>
-          db.select().from(invoices)
-            .where(and(eq(invoices.id, id), eq(invoices.orgId, targetOrg)))
-            .limit(1)
-            .then(r => r[0] ?? null)
-        )
-      );
-
-      // 2. Determine which tokens are actually needed, then fetch them in parallel
-      const needsXero = invRows.some(inv => inv && inv.xeroId && !inv.xeroId.startsWith("CN-") && !["Paid", "Written Off"].includes(inv.paymentStatus ?? "") && inv.collectionStage !== "Closed");
-      const needsQbo  = invRows.some(inv => inv && inv.qboId && !inv.qboId.startsWith("CM-") && !inv.xeroId && !["Paid", "Written Off"].includes(inv.paymentStatus ?? "") && inv.collectionStage !== "Closed");
-
-      const [xeroToken, qboToken] = await Promise.all([
-        needsXero ? getOrgXeroToken(targetOrg).catch(() => null) : Promise.resolve(null),
-        needsQbo  ? getOrgQboToken(targetOrg).catch(() => null)  : Promise.resolve(null),
-      ]);
-
-      // 3. Fetch all PDFs in parallel
-      type PdfResult = { filename: string; content: Buffer; contentType: string } | null;
-
-      const pdfResults = await Promise.allSettled<PdfResult>(
-        invRows.map(async inv => {
-          if (!inv) return null;
-
-          const isClosedOrPaid =
-            ["Paid", "Written Off"].includes(inv.paymentStatus ?? "") ||
-            inv.collectionStage === "Closed";
-
-          // ── Xero ────────────────────────────────────────────────────
-          if (inv.xeroId && !inv.xeroId.startsWith("CN-")) {
-            if (isClosedOrPaid) return null;
-            if (!xeroToken) throw new Error("Xero not connected — could not fetch PDF");
-            const pdfRes = await fetch(`${XERO_API}/Invoices/${inv.xeroId}`, {
-              headers: {
-                Authorization:  `Bearer ${xeroToken.accessToken}`,
-                "Xero-Tenant-Id": xeroToken.tenantId,
-                Accept: "application/pdf",
-              },
-            });
-            if (!pdfRes.ok) {
-              const errText = await pdfRes.text();
-              console.error(`Xero PDF fetch failed for ${inv.invoiceNumber}: HTTP ${pdfRes.status} — ${errText}`);
-              throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (Xero error ${pdfRes.status})`);
-            }
-            const buf = Buffer.from(await pdfRes.arrayBuffer());
-            if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-            return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" };
-          }
-
-          // ── QuickBooks ───────────────────────────────────────────────
-          if (!inv.qboId || inv.qboId.startsWith("CM-") || isClosedOrPaid) return null;
-          if (!qboToken) throw new Error("QuickBooks not connected — could not fetch PDFs");
-          const pdfRes = await fetch(
-            `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
-            { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } },
-          );
-          if (!pdfRes.ok) {
-            const errText = await pdfRes.text();
-            console.error(`QBO PDF fetch failed for ${inv.invoiceNumber}: HTTP ${pdfRes.status} — ${errText}`);
-            throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${pdfRes.status})`);
-          }
-          const buf = Buffer.from(await pdfRes.arrayBuffer());
-          if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-          // Same "Review and pay online" button the org's accountant's QBO
-          // invoices carry — no-op when QBO issues no link for this invoice.
-          const stamped = await stampQboPayButton(targetOrg, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber }, buf);
-          return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: stamped, contentType: "application/pdf" };
-        })
-      );
-
-      for (const r of pdfResults) {
-        if (r.status === "fulfilled" && r.value) attachments.push(r.value);
-        else if (r.status === "rejected") attachmentErrors.push((r.reason as Error)?.message ?? "PDF fetch failed");
-      }
-    }
+    // Invoice PDFs — shared with the background bulk sender.
+    const { attachments, errors: attachmentErrors } =
+      await fetchInvoicePdfAttachments(targetOrg, data.attachInvoiceIds ?? []);
 
     // Client-provided attachments (statement PDF, etc.).
     if (data.extraAttachments?.length) {
@@ -160,7 +82,7 @@ export async function POST(req: Request) {
 
     // Guard total attachment size (most providers reject > ~25MB).
     const totalBytes = attachments.reduce((s, a) => s + a.content.byteLength, 0);
-    if (totalBytes > 24 * 1024 * 1024) return bad("Attachments exceed 24MB — reduce the selection or send without invoice PDFs");
+    if (totalBytes > MAX_ATTACHMENT_BYTES) return bad("Attachments exceed 24MB — reduce the selection or send without invoice PDFs");
 
     // Determine In-Reply-To: explicit override (user clicked Reply on a specific message)
     // takes precedence over the automatic last-outbound lookup.
