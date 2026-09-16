@@ -1388,19 +1388,26 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           {selected.size ? ` · ${selected.size} selected` : ""}
         </span>
         <div className="flex items-center gap-2">
-          {/* View menu — grouping, collapse, overdue */}
+          {/* Arrange menu — how the rows are SHOWN. Named "View" before, while
+              holding four unrelated jobs: a grouping setting, two one-shot bulk
+              actions, a filter, and column visibility. "Overdue only" moved to
+              the Due column's filter popover where every other column filter
+              lives (a filter hidden inside a menu is a filter nobody can see);
+              the expand/collapse actions moved to the table header, next to the
+              carets they operate. What's left really is arrangement. */}
           <div className="relative">
             <button onClick={() => setToolbarMenu(m => m === "view" ? null : "view")}
               className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
-                toolbarMenu === "view" || groupByCustomer || overdueOnly || hiddenCols.size > 0
+                toolbarMenu === "view" || groupByCustomer || hiddenCols.size > 0
                   ? "text-white border-stone-500 bg-stone-800"
                   : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
-              <SlidersHorizontal size={13} /> View
-              {(groupByCustomer || overdueOnly || hiddenCols.size > 0) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+              <SlidersHorizontal size={13} /> Arrange
+              {(groupByCustomer || hiddenCols.size > 0) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
               <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "view" ? "rotate-180" : ""}`} />
             </button>
             {toolbarMenu === "view" && (
               <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
+                <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Grouping</div>
                 <button onClick={() => setGroupByCustomer(v => !v)}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <Users size={13} className="text-stone-500" />
@@ -1408,25 +1415,21 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   {groupByCustomer && <Check size={13} className="text-emerald-400" />}
                 </button>
                 {groupByCustomer && (
-                  <button onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                    {collapsedCust.size > 0 ? <ChevronDown size={13} className="text-stone-500" /> : <ChevronUp size={13} className="text-stone-500" />}
-                    <span className="flex-1 text-left">{collapsedCust.size > 0 ? "Expand all customers" : "Collapse all customers"}</span>
-                  </button>
+                  <>
+                    <div className="my-1 border-t border-stone-800" />
+                    <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Rows</div>
+                    <button onClick={() => setCollapsedCust(p => p.size > 0 ? new Set() : new Set(allCustIds))}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                      {collapsedCust.size > 0 ? <ChevronDown size={13} className="text-stone-500" /> : <ChevronUp size={13} className="text-stone-500" />}
+                      <span className="flex-1 text-left">{collapsedCust.size > 0 ? "Expand all customers" : "Collapse all customers"}</span>
+                    </button>
+                    <button onClick={() => setExpandedProj(p => p.size > 0 ? new Set() : new Set(allProjKeys))}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
+                      {expandedProj.size > 0 ? <ChevronUp size={13} className="text-stone-500" /> : <ChevronDown size={13} className="text-stone-500" />}
+                      <span className="flex-1 text-left">{expandedProj.size > 0 ? "Collapse all projects" : "Expand all projects"}</span>
+                    </button>
+                  </>
                 )}
-                {groupByCustomer && (
-                  <button onClick={() => setExpandedProj(p => p.size > 0 ? new Set() : new Set(allProjKeys))}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                    {expandedProj.size > 0 ? <ChevronUp size={13} className="text-stone-500" /> : <ChevronDown size={13} className="text-stone-500" />}
-                    <span className="flex-1 text-left">{expandedProj.size > 0 ? "Collapse all projects" : "Expand all projects"}</span>
-                  </button>
-                )}
-                <button onClick={() => setOverdueOnly(v => !v)}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
-                  <AlertTriangle size={13} className="text-stone-500" />
-                  <span className="flex-1 text-left">Overdue only</span>
-                  {overdueOnly && <Check size={13} className="text-emerald-400" />}
-                </button>
                 <div className="my-1 border-t border-stone-800" />
                 <div className="px-2.5 pt-1 pb-0.5 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Columns</div>
                 {([
@@ -1459,12 +1462,21 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "export" ? "rotate-180" : ""}`} />
             </button>
             {toolbarMenu === "export" && (
+              // Named sections, not one flat list of eight. Four different
+              // kinds of artefact were stacked together — the board's own data,
+              // internal management reports, documents you send a customer, and
+              // a download/upload round-trip — so the menu gave no clue which
+              // one you were about to produce. (CLAUDE.md: if something has no
+              // obvious named group, the group is missing; don't dump it in a
+              // bin called Other.)
               <div className="absolute right-0 top-full mt-1 z-30 w-64 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl p-1.5">
+                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">This board</div>
                 <button onClick={() => { exportExcel(); setToolbarMenu(null); }}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <Download size={13} className="text-stone-500" />
                   <span className="flex-1 text-left">Excel — board view{selected.size ? ` (${selected.size} selected)` : ""}</span>
                 </button>
+                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Management reports</div>
                 <button
                   onClick={() => {
                     exportChaseReport({
@@ -1503,6 +1515,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     <div className="text-[11px] text-stone-600">Customer → project ageing, status, last ref &amp; chase count</div>
                   </div>
                 </button>
+                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Send to a customer</div>
                 <button
                   onClick={() => {
                     exportStatementPdf({
@@ -1543,8 +1556,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   </div>
                 </button>
 
-                {/* Bulk comments — download the pre-filled template, mark it up, re-import */}
+                {/* Bulk comments — download the pre-filled template, mark it up,
+                    re-import. "Import" is an INGEST sitting in a menu called
+                    Export; under this heading it reads as the return leg of a
+                    round-trip rather than a stray item. */}
                 <div className="my-1 border-t border-stone-800" />
+                <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-stone-600 uppercase tracking-wider">Comments — download, fill in, upload</div>
                 <button
                   onClick={async () => {
                     setToolbarMenu(null);
@@ -1554,8 +1571,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors">
                   <Download size={13} className="text-violet-400" />
                   <div className="flex-1 text-left">
-                    Comment template
-                    <div className="text-[11px] text-stone-600">Pre-filled with open customers &amp; projects — type comments, then import</div>
+                    Download template
+                    <div className="text-[11px] text-stone-600">Pre-filled with open customers &amp; projects</div>
                   </div>
                 </button>
                 <button
@@ -1564,8 +1581,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] text-stone-300 hover:bg-stone-800 hover:text-white transition-colors disabled:opacity-40">
                   <ArrowDownRight size={13} className="text-violet-400" />
                   <div className="flex-1 text-left">
-                    {importingComments ? "Importing comments…" : "Import comments"}
-                    <div className="text-[11px] text-stone-600">Upload the filled-in template — logs at customer / project level</div>
+                    {importingComments ? "Importing comments…" : "Upload filled template"}
+                    <div className="text-[11px] text-stone-600">Logs at customer / project level</div>
                   </div>
                 </button>
               </div>
@@ -1630,7 +1647,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       )}
 
       {/* Saved views + active filter chips */}
-      {(savedViews.length > 0 || filterChips.length > 0 || anyFilter) && (
+      {(savedViews.length > 0 || filterChips.length > 0 || anyFilter || overdueOnly) && (
         <div className="flex items-center gap-2 px-4 py-1.5 border-b border-stone-800 bg-stone-950 shrink-0 flex-wrap">
           {savedViews.map(v => (
             <span key={v.name} className="group inline-flex items-center gap-1 text-[11px] font-medium text-stone-300 bg-stone-800 border border-stone-700 rounded-full pl-2.5 pr-1.5 py-1 hover:bg-stone-700 cursor-pointer"
@@ -1640,15 +1657,21 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             </span>
           ))}
           {savedViews.length > 0 && filterChips.length > 0 && <span className="w-px h-4 bg-stone-800" />}
+          {overdueOnly && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-900 rounded-full pl-2.5 pr-1.5 py-1">
+              Overdue only
+              <button onClick={() => setOverdueOnly(false)} className="text-emerald-700 hover:text-emerald-300"><X size={11} /></button>
+            </span>
+          )}
           {filterChips.map(c => (
             <span key={c.key} className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-900 rounded-full pl-2.5 pr-1.5 py-1">
               {c.label}
               <button onClick={() => clearChip(c.key)} className="text-emerald-700 hover:text-emerald-300"><X size={11} /></button>
             </span>
           ))}
-          {filterChips.length > 0 && (
+          {(filterChips.length > 0 || overdueOnly) && (
             <>
-              <button onClick={() => setCf({})} className="text-[11px] text-stone-500 hover:text-rose-400 font-medium">Clear all</button>
+              <button onClick={() => { setCf({}); setOverdueOnly(false); }} className="text-[11px] text-stone-500 hover:text-rose-400 font-medium">Clear all</button>
               <button onClick={saveCurrentView} className="text-[11px] text-stone-500 hover:text-emerald-400 font-medium">Save as view…</button>
             </>
           )}
@@ -1792,7 +1815,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   const active =
                     filter === "stage"    ? !!(cf.stage || cf.owner || cf.escType || cf.escTypeState || cf.commitment) :
                     filter === "lastSent" ? !!(cf.lastSent || cf.lastRef) :
-                    filter === "bucket"   ? !!cf.bucket :
+                    filter === "bucket"   ? (!!cf.bucket || overdueOnly) :
                     filter === "email"    ? !!(cf.email || cf.emailText) :
                     !!cf[filter];
                   return (
@@ -1939,6 +1962,14 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           )}
                           {filter === "bucket" && (
                             <div className="space-y-1">
+                              {/* "Overdue only" used to live in the View menu —
+                                  a filter with no chip, invisible once the menu
+                                  closed. It is a Due filter, so it belongs here
+                                  above the buckets that refine it. */}
+                              <label className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white pb-1 mb-1 border-b border-stone-800">
+                                <input type="checkbox" checked={overdueOnly} onChange={() => setOverdueOnly(v => !v)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
+                                Overdue only
+                              </label>
                               {BUCKETS.map(b => (
                                 <label key={b.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
                                   <input type="checkbox" checked={multiVals("bucket").has(b.key)} onChange={() => toggleMulti("bucket", b.key)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
