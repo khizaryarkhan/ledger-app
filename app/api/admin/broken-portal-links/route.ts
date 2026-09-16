@@ -56,6 +56,28 @@ export async function GET(req: Request) {
   const orgId = url.searchParams.get("orgId");
   const days = Math.min(Math.max(Number(url.searchParams.get("days") ?? 30), 1), 365);
 
+  // THE DENOMINATOR. "97 unopened" is unreadable on its own — a token issued
+  // ten minutes ago is unopened too. What tells you whether links were broken
+  // is the OPEN RATE over time: if it was healthy and then collapsed, that
+  // window is the damage. If it is steady, the unopened ones are just people
+  // who did not click, which is most people.
+  const rateRes: any = await db.execute(sql`
+    select date_trunc('day', t.created_at)::date::text as day,
+           count(*)::int                                as issued,
+           count(t.last_viewed_at)::int                 as opened
+      from customer_portal_tokens t
+     where t.created_at >= now() - (${days} || ' days')::interval
+       ${orgId ? sql`and t.org_id = ${orgId}` : sql``}
+     group by 1
+     order by 1 desc
+  `);
+  const daily = ((rateRes?.rows ?? rateRes ?? []) as any[]).map(r => ({
+    day: r.day,
+    issued: Number(r.issued),
+    opened: Number(r.opened),
+    openRate: Number(r.issued) > 0 ? `${Math.round((Number(r.opened) / Number(r.issued)) * 100)}%` : "—",
+  }));
+
   const res: any = await db.execute(sql`
     select t.id,
            t.org_id,
@@ -111,6 +133,9 @@ export async function GET(req: Request) {
       "Disabling Vercel Deployment Protection makes every already-sent link resolve, whether or not " +
       "we can identify it — the redirect happens at Vercel's edge before our code runs.",
     days,
+    // Read `dailyOpenRate` FIRST. A day with a healthy open rate did not have
+    // broken links; a day at 0% with a meaningful number issued did.
+    dailyOpenRate: daily,
     unopenedTokens: rows.length,
     customersAffectedAtMost: organisations.reduce((s, o) => s + o.customerCount, 0),
     truncated: rows.length >= 2000,
