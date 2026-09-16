@@ -118,12 +118,25 @@ export const ENTITIES: BatchEntity[] = [
     // QBO's query API matches neither "PaymentType = 'Cash'" (silently
     // finds nothing) nor "!=" as an operator at all ("Invalid Number"
     // error), confirmed live 2026-09-05. Filtered client-side instead.
-    qboClientFilter: (r: any) => r.PaymentType === "Cash",
+    // Expenses covers BOTH cash and credit-card spending, which is how QBO's
+    // own Expense screen behaves. It previously matched Cash only, so every
+    // card expense was invisible here: absent from exports, and unimportable
+    // (the builder stamped PaymentType "Cash" onto whatever account was
+    // picked, misfiling a card spend as cash).
+    //
+    // Credit-card CREDITS are excluded — `Credit: true` is money coming back
+    // and has its own entity, "Credit Card Credits". Including them would show
+    // the same document under two entities and let an edit in one overwrite
+    // the other.
+    qboClientFilter: (r: any) =>
+      r.PaymentType === "Cash" || (r.PaymentType === "CreditCard" && r.Credit !== true),
     docKey: "Ref No", dateColumn: "Payment Date", qboDateField: "TxnDate",
     refNumberColumn: "Ref No", qboRefNumberField: "DocNumber",
     refs: ["Account", "Vendor", "Customer", "Item", "Class"],
     columns: ["Ref No","Account","Payee","Memo","Payment Date","Payment Method","Expense Account ","Expense Description","Expense Line Amount","Expense Billable Status","Expense Markup Percent","Expense Customer ","Expense Class ","Expense Taxable","Product/Service","Product/Service Description","Product/Service Quantity","Product/Service Rate","Product/Service Amount","Product/Service Billable Status","Product/Service Taxable","Product/Service Markup Percent","Billable Customer:Product/Service ","Product/Service Class ","Location","Currency Code","Exchange Rate"],
-    build: makePurchaseBuilder({ paymentType: "Cash" }),
+    // Cash is the default; a credit-card account switches it (see
+    // purchasePaymentType), so one template serves both.
+    build: makePurchaseBuilder({ paymentType: "Cash", paymentTypeFromAccount: true }),
     reverseRefs: [...VENDOR_REVERSE_REFS],
     toRows: makePurchaseRowMapper({ docNoCol: "Ref No", bankCol: "Account" }),
   },

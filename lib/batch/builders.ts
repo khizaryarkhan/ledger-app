@@ -377,6 +377,43 @@ export interface PurchaseOpts {
   paymentType: "Cash" | "Check" | "CreditCard";
   credit?: boolean; // Credit Card Credit
   idColumn?: string;
+  /**
+   * Take PaymentType from the chosen account instead of the fixed value above.
+   *
+   * Only "Expenses" sets this. QBO's Purchase covers cash, cheque AND card
+   * spending, and its PaymentType must agree with the account funding it — a
+   * card account with PaymentType "Cash" is a misfiled transaction. Checks and
+   * Credit Card Credits keep their fixed type: those entities ARE one payment
+   * type by definition, so deriving there would let the wrong account silently
+   * change what the document is.
+   */
+  paymentTypeFromAccount?: boolean;
+}
+
+/**
+ * The PaymentType a Purchase should carry, given the account paying for it.
+ *
+ * QBO's AccountType for cards is "Credit Card"; everything else an expense can
+ * be paid from (Bank, Other Current Asset…) is cash-basis as far as Purchase is
+ * concerned. An unknown or missing type falls back to the entity's declared
+ * type rather than guessing — better a predictable default than a document
+ * silently reclassified.
+ */
+export function purchasePaymentType(
+  declared: "Cash" | "Check" | "CreditCard",
+  accountType: string | null | undefined,
+): "Cash" | "Check" | "CreditCard" {
+  // A cheque is a cheque whatever account is named. Only Cash/CreditCard are
+  // interchangeable — they are the two faces of QBO's Expense screen. Without
+  // this guard a Check row naming a card account would be silently rewritten
+  // into a credit-card purchase, changing what the document IS rather than
+  // just how it was funded. (Caught by a test, not by review.)
+  if (declared === "Check") return "Check";
+
+  const t = String(accountType ?? "").trim().toLowerCase();
+  if (t === "credit card") return "CreditCard";
+  if (t === "bank") return "Cash";
+  return declared;
 }
 
 export function makePurchaseBuilder(opts: PurchaseOpts) {
@@ -391,7 +428,9 @@ export function makePurchaseBuilder(opts: PurchaseOpts) {
 
     const payload: any = {
       AccountRef: { value: bank.value },
-      PaymentType: opts.paymentType,
+      PaymentType: opts.paymentTypeFromAccount
+        ? purchasePaymentType(opts.paymentType, bank.type)
+        : opts.paymentType,
       Line,
       TxnDate: dateStr(first(doc, "Payment Date")),
       PrivateNote: str(first(doc, "Memo")),

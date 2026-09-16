@@ -22,6 +22,13 @@ export type RefKind =
   | "TaxCode"
   | "Employee";
 
+/**
+ * A resolved QuickBooks reference. `type` is populated for Accounts only
+ * (QBO's AccountType, e.g. "Bank" / "Credit Card"), because a Purchase's
+ * PaymentType must agree with the account funding it.
+ */
+export interface QboRef { value: string; name: string; type?: string }
+
 const READ_NAME: Record<RefKind, string> = {
   Customer: "Customer",
   Vendor: "Vendor",
@@ -138,11 +145,11 @@ export class RefResolver {
     }
   }
 
-  private async ensure(kind: RefKind): Promise<Map<string, { value: string; name: string }>> {
+  private async ensure(kind: RefKind): Promise<Map<string, QboRef>> {
     const existing = this.forward.get(kind);
     if (existing) return existing;
 
-    const fwd = new Map<string, { value: string; name: string }>();
+    const fwd = new Map<string, QboRef>();
     const rev = new Map<string, string>();
     const ATTEMPTS = 3;
     let lastErr: any = null;
@@ -152,9 +159,13 @@ export class RefResolver {
         const nameField = NAME_FIELD[kind];
         for (const r of records) {
           const name: string = r[nameField] || r.Name || "";
-          if (name) fwd.set(name.trim().toLowerCase(), { value: r.Id, name });
+          // AccountType comes along for Accounts so callers can tell a bank
+          // from a credit card without a second query — a Purchase's
+          // PaymentType has to agree with the account it is paid from.
+          const type: string | undefined = kind === "Account" ? r.AccountType : undefined;
+          if (name) fwd.set(name.trim().toLowerCase(), { value: r.Id, name, type });
           if (r.FullyQualifiedName) {
-            fwd.set(r.FullyQualifiedName.trim().toLowerCase(), { value: r.Id, name: r.FullyQualifiedName });
+            fwd.set(r.FullyQualifiedName.trim().toLowerCase(), { value: r.Id, name: r.FullyQualifiedName, type });
           }
           if (r.Id) rev.set(String(r.Id), r.FullyQualifiedName || name || String(r.Id));
         }
@@ -177,8 +188,8 @@ export class RefResolver {
     return fwd;
   }
 
-  /** name → Ref { value, name }. Blank → null; a miss throws (flag the row). */
-  async resolve(kind: RefKind, rawName: string | null | undefined): Promise<{ value: string; name: string } | null> {
+  /** name → Ref { value, name, type? }. Blank → null; a miss throws (flag the row). */
+  async resolve(kind: RefKind, rawName: string | null | undefined): Promise<QboRef | null> {
     if (rawName == null || String(rawName).trim() === "") return null;
     const map = await this.ensure(kind);
     const hit = map.get(String(rawName).trim().toLowerCase());
@@ -187,7 +198,7 @@ export class RefResolver {
   }
 
   /** Non-throwing name → Ref. */
-  async tryResolve(kind: RefKind, rawName: string | null | undefined): Promise<{ value: string; name: string } | null> {
+  async tryResolve(kind: RefKind, rawName: string | null | undefined): Promise<QboRef | null> {
     try { return await this.resolve(kind, rawName); } catch { return null; }
   }
 
