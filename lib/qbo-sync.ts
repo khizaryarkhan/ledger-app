@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/db";
+import { tokenRefreshBlocked, blockRefresh } from "@/lib/qbo-token";
 import {
   qboTokens, qboSyncLog, customers, projects, invoices, contacts,
   payments, paymentApplications, refundReceipts, journalEntryArLines,
@@ -49,6 +50,8 @@ export async function getValidToken(orgId: string) {
   const refreshTokenPlain = decryptSecret(token.refreshToken)!;
   const now = Date.now();
   if (new Date(token.accessTokenExpiresAt).getTime() - now < 10 * 60 * 1000) {
+    // See tokenRefreshBlocked() — an audit run must never rotate a live token.
+    if (tokenRefreshBlocked()) blockRefresh(orgId);
     const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
       method: "POST",
       headers: {

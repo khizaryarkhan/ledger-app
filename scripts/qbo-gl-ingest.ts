@@ -32,6 +32,18 @@
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local", quiet: true });
 
+// SAFETY: this CLI must never rotate the live QBO refresh token.
+//
+// Both token helpers refresh when the access token is near expiry, and persist
+// whatever Intuit returns into qbo_tokens for the org — in whichever database
+// DATABASE_URL points at. Running this against a Neon branch could therefore
+// rotate the production client's refresh token into the branch and leave
+// production holding an invalidated one, breaking their sync silently.
+//
+// With this set the helpers throw instead of refreshing. Reading FROM QBO is
+// safe (we only ever issue queries); it is the token rotation that is not.
+process.env.QBO_NO_TOKEN_REFRESH = "1";
+
 const arg = (name: string): string | null => {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith("--") ? process.argv[i + 1] : null;

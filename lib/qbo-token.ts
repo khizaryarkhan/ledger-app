@@ -8,6 +8,38 @@ import { qboTokens, organisations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
+/**
+ * Audit/read-only mode: refuse to refresh an OAuth token.
+ *
+ * Intuit MAY return a new refresh token when we refresh, and issuing one
+ * invalidates the previous one. Both token helpers persist whatever comes back
+ * into `qbo_tokens` for the org — in whichever database DATABASE_URL happens to
+ * point at.
+ *
+ * So running an audit against a Neon BRANCH with a copy of production's token
+ * can rotate the live client's refresh token into the branch, leaving
+ * production holding an invalidated one. Their nightly sync then fails auth,
+ * silently, until somebody notices. For a single paying client that is not an
+ * acceptable risk to take by accident.
+ *
+ * With QBO_NO_TOKEN_REFRESH=1 the helpers hand back the current access token if
+ * it is still usable and THROW if it is not, rather than rotating. The audit CLI
+ * sets it, so no read-only analysis can ever cost the client their connection.
+ */
+export class QboTokenRefreshBlocked extends Error {}
+
+export function tokenRefreshBlocked(): boolean {
+  return process.env.QBO_NO_TOKEN_REFRESH === "1";
+}
+
+export function blockRefresh(orgId: string): never {
+  throw new QboTokenRefreshBlocked(
+    `QBO access token for org ${orgId} needs refreshing, and QBO_NO_TOKEN_REFRESH=1 is set. ` +
+    `Refreshing here would rotate the live refresh token into this database and could break ` +
+    `the production connection. Wait for a fresh token, or run without the flag against production.`,
+  );
+}
+
 export interface OrgQboToken {
   accessToken: string;
   realmId: string;
@@ -34,6 +66,7 @@ export async function getOrgQboToken(orgId: string): Promise<OrgQboToken | null>
 
   // Refresh if less than 5 minutes remaining
   if (new Date(token.accessTokenExpiresAt).getTime() - now < 5 * 60 * 1000) {
+    if (tokenRefreshBlocked()) blockRefresh(orgId);
     const res = await fetch(
       "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
       {
