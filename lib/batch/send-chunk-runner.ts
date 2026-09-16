@@ -61,6 +61,11 @@ export async function processSendChunk(orgId: string, jobId: string): Promise<Ch
       // their email?" months later — not just a boolean.
       return {
         ok: res.ok,
+        // `row` and `key` are what Job History's failed-row table renders —
+        // without them an email failure shows a blank line with no clue which
+        // customer it was.
+        row: i + 1,
+        key: g.label,
         customer: g.label,
         to: g.to,
         invoices: g.rows.length,

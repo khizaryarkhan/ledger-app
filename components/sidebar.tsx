@@ -61,7 +61,11 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   const isSharedEntity =
     pathname === "/customers" || pathname.startsWith("/customers/") ||
     pathname === "/payables/suppliers" || pathname.startsWith("/payables/suppliers/") ||
-    pathname === "/projects" || pathname.startsWith("/projects/");
+    pathname === "/projects" || pathname.startsWith("/projects/") ||
+    // Job History is reachable from Studio AND from Receivables ("Email
+    // History" — bulk invoice sends run on the same batch engine). Reaching it
+    // from Receivables must not snap the whole sidebar to Studio.
+    pathname === "/batch/history";
   const pathDepartment: Department | null =
     isResources ? "resources"
     : isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
@@ -115,6 +119,12 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/automations", label: "Automations", icon: Zap },
         { href: "/responses", label: "Customer Responses", icon: MessageSquare, count: counts.responses, urgent: true },
         { href: "/inbox", label: "Communication Notes", icon: Inbox, count: counts.inbox },
+        // Bulk invoice sends run as background jobs on the shared batch engine,
+        // so their record lives on the one Job History screen (?op=send). Linked
+        // from here because that is the module the send is started from — the
+        // same "one real URL, reachable from more than one module" pattern as
+        // Customers/Suppliers/Projects below.
+        { href: "/batch/history?op=send", label: "Email History", icon: History },
         { href: "/tasks", label: "Tasks", icon: CheckSquare, count: counts.tasks },
       ],
     },

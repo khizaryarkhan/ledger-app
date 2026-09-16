@@ -78,6 +78,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
   const [sending, setSending] = useState(false);
   const [sentCount, setSentCount] = useState(0);    // progress across a bulk run
   const [totalToSend, setTotalToSend] = useState(0); // as the SERVER grouped it
+  const [queuedJobId, setJobId] = useState<string | null>(null);
 
   const willSplit = multiGroup; // one email per group, distinct refs
 
@@ -104,6 +105,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
       if (!res.ok) { toast?.(d?.error || "Couldn't queue the send", "error"); setSending(false); return; }
 
       const jobId = d.jobId as string;
+      setJobId(jobId);
       setTotalToSend(d.emails ?? sendable.length);
       // Best-effort nudge, matching every other chunked start route — the
       // Inngest event is what actually drives the run.
@@ -120,7 +122,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
       let done = false;
       for (let attempt = 0; !done; attempt++) {
         if (attempt >= MAX_POLLS) {
-          toast?.("Still sending — it will finish in the background. Check Job History for the result.");
+          toast?.("Still sending — it will finish in the background. Open Email History (Receivables) for the result.");
           break;
         }
         await new Promise(r => setTimeout(r, POLL_MS));
@@ -320,7 +322,16 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
           <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table. The text above is the intro message.</p>
         </div>
 
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
+        <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-end gap-2">
+          {queuedJobId && (
+            // The job is on the server now — this tab is only watching it. Say
+            // where the record lives, in case the user closes the tab or the
+            // run outlasts their attention.
+            <a href={`/batch/history?op=send&job=${queuedJobId}`} target="_blank" rel="noopener"
+               className="mr-auto text-[12px] font-medium text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
+              View in Email History
+            </a>
+          )}
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
           <button onClick={send} disabled={sending || sendable.length === 0}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">

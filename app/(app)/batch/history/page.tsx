@@ -1,7 +1,10 @@
 "use client";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { useEffect, useState, useCallback, Fragment } from "react";
-import { History, UploadCloud, DownloadCloud, Trash2, PencilRuler, FileInput, Undo2, Loader2, ChevronRight, AlertTriangle, CheckCircle2, FileDown } from "lucide-react";
+import { History, UploadCloud, DownloadCloud, Trash2, PencilRuler, FileInput, Undo2, Loader2, ChevronRight, AlertTriangle, CheckCircle2, FileDown, Send } from "lucide-react";
 
 interface Job {
   id: string;
@@ -27,13 +30,22 @@ const OP_ICON: Record<string, React.ReactNode> = {
   modify: <PencilRuler size={14} className="text-amber-400" />,
   convert: <FileInput size={14} className="text-amber-400" />,
   undo: <Undo2 size={14} className="text-stone-400" />,
+  send: <Send size={14} className="text-emerald-400" />,
 };
 
 const OP_LABEL: Record<string, string> = {
   upload: "Import", download: "Export", modify: "Update", delete: "Delete", undo: "Undo",
+  send: "Send emails",
 };
 
-export default function BatchHistoryPage() {
+function BatchHistoryInner() {
+  // ?op=send narrows this to invoice-email runs, and ?job=<id> expands one.
+  // The bulk invoice sender is started from the Collections Board, which is a
+  // different module entirely — without an entry point from there, telling
+  // someone to "check Job History" was not an actionable instruction.
+  const params = useSearchParams();
+  const opFilter = params.get("op");
+  const jobParam = params.get("job");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [undoing, setUndoing] = useState<string | null>(null);
@@ -43,11 +55,18 @@ export default function BatchHistoryPage() {
   const load = useCallback(() => {
     fetch("/api/batch/jobs")
       .then((r) => (r.ok ? r.json() : { jobs: [] }))
-      .then((d) => setJobs(d.jobs || []))
+      .then((d) => setJobs((d.jobs || []).filter((j: Job) => !opFilter || j.operation === opFilter)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [opFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // A send queued from the board links straight here; open that run rather than
+  // making the user find it in the list.
+  useEffect(() => {
+    if (!jobParam || !jobs.some(j => j.id === jobParam)) return;
+    setExpanded(prev => prev ?? jobParam);
+  }, [jobParam, jobs]);
 
   const loadDetail = useCallback((id: string) => {
     setDetails((p) => ({ ...p, [id]: { loading: true, failed: [], hasFailedData: false } }));
@@ -89,9 +108,13 @@ export default function BatchHistoryPage() {
         <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
           <History size={18} className="text-amber-400" />
         </div>
-        <h1 className="text-xl font-semibold text-stone-100">Job History</h1>
+        <h1 className="text-xl font-semibold text-stone-100">{opFilter === "send" ? "Email History" : "Job History"}</h1>
       </div>
-      <p className="text-sm text-stone-400 mb-6 ml-12">Every run against your QuickBooks company. Click a run to see what failed; download just the failed rows to fix and re-import without duplicating the ones that worked. Imports can also be reversed.</p>
+      <p className="text-sm text-stone-400 mb-6 ml-12">
+        {opFilter === "send"
+          ? "Every bulk invoice email run. Each row is one customer's email — click a run to see which ones failed and why. A run continues on the server, so closing the tab that started it does not stop it."
+          : "Every run against your QuickBooks company. Click a run to see what failed; download just the failed rows to fix and re-import without duplicating the ones that worked. Imports can also be reversed."}
+      </p>
 
       <div className="border border-stone-800 rounded-lg overflow-hidden">
         <table className="w-full text-[13px]">
@@ -113,7 +136,7 @@ export default function BatchHistoryPage() {
           </thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-            {!loading && jobs.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No runs yet.</td></tr>}
+            {!loading && jobs.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">{opFilter === "send" ? "No email runs yet." : "No runs yet."}</td></tr>}
             {jobs.map((j) => {
               // Also allow undo on a timed-out ("failed") import that still
               // created records — its per-row ids are now preserved.
@@ -171,9 +194,14 @@ export default function BatchHistoryPage() {
                             <div className="flex items-center justify-between gap-3 flex-wrap">
                               <div className="text-[12px] text-stone-300 inline-flex items-center gap-2">
                                 <AlertTriangle size={13} className="text-rose-400" />
-                                <span><span className="font-semibold text-rose-300">{detail.failed.length}</span> row{detail.failed.length !== 1 ? "s" : ""} failed and {j.operation === "upload" ? "were not created" : "were not changed"}.</span>
+                                <span>
+                                  <span className="font-semibold text-rose-300">{detail.failed.length}</span>{" "}
+                                  {j.operation === "send"
+                                    ? <>email{detail.failed.length !== 1 ? "s" : ""} failed and {detail.failed.length !== 1 ? "were" : "was"} not sent.</>
+                                    : <>row{detail.failed.length !== 1 ? "s" : ""} failed and {j.operation === "upload" ? "were not created" : "were not changed"}.</>}
+                                </span>
                               </div>
-                              {detail.hasFailedData ? (
+                              {j.operation === "send" ? null : detail.hasFailedData ? (
                                 <a
                                   href={`/api/batch/jobs/${j.id}/failed-rows`}
                                   className="inline-flex items-center gap-1.5 text-[12px] font-medium text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/15 ring-1 ring-amber-500/30 rounded-md px-2.5 py-1.5 transition"
@@ -190,8 +218,8 @@ export default function BatchHistoryPage() {
                                 <table className="w-full text-[12px]">
                                   <thead className="sticky top-0 bg-stone-900">
                                     <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                                      <th className="text-left px-3 py-2 font-semibold w-16">Row</th>
-                                      <th className="text-left px-3 py-2 font-semibold w-48">Record</th>
+                                      <th className="text-left px-3 py-2 font-semibold w-16">{j.operation === "send" ? "#" : "Row"}</th>
+                                      <th className="text-left px-3 py-2 font-semibold w-48">{j.operation === "send" ? "Customer" : "Record"}</th>
                                       <th className="text-left px-3 py-2 font-semibold">Why it failed</th>
                                     </tr>
                                   </thead>
@@ -209,8 +237,9 @@ export default function BatchHistoryPage() {
                             </div>
 
                             <p className="text-[11px] text-stone-500">
-                              Fix the errors in the downloaded file and re-import just that file — the rows that already succeeded won&apos;t be created again.
-                              {canUndo && " Or use Undo above to reverse the whole import and start over."}
+                              {j.operation === "send"
+                                ? "Re-send just these customers by selecting them on the Collections Board — the ones that already went out are not re-sent."
+                                : <>Fix the errors in the downloaded file and re-import just that file — the rows that already succeeded won&apos;t be created again.{canUndo && " Or use Undo above to reverse the whole import and start over."}</>}
                             </p>
                           </div>
                         )}
@@ -224,5 +253,15 @@ export default function BatchHistoryPage() {
         </table>
       </div>
     </div>
+  );
+}
+
+// useSearchParams opts the tree into client-side rendering, which the app
+// router requires be wrapped — otherwise the build fails on the CSR bailout.
+export default function BatchHistoryPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-stone-500">Loading…</div>}>
+      <BatchHistoryInner />
+    </Suspense>
   );
 }
