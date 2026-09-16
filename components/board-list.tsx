@@ -1069,6 +1069,31 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   const isException = (label: string) => isExceptionStage(label, stages);
   const stageDot    = (label: string) => stageDotClass(label, stages);
   const stageChip   = (label: string) => stageChipClass(label, stages);
+  // ── Next-action severity ────────────────────────────────────────────────
+  // The NBA is toned by RANK, not by type. Colouring by type put six different
+  // filled hues on every row at all three levels, so once stages went quiet the
+  // routine action ("Reply", "Escalate · 5 chases") became the loudest thing on
+  // the board — louder than "Disputed". Same rule as stages: fill means
+  // something needs a human now. Rank comes from lib/next-action.ts's ladder
+  // (reply 100 / add_email 90 / broke promise 88 are the "now" tier).
+  // The icon still carries the TYPE, so nothing is lost by dropping the hues.
+  const naShell = (type: string, rank: number) =>
+    rank >= 88
+      ? (type === "reply"
+          // A waiting reply is the one piece of good news at this tier — the
+          // customer came back to us. Everything else up here is a problem.
+          ? "rounded-full px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-800/60 hover:bg-emerald-500/25"
+          : "rounded-full px-2 py-0.5 bg-rose-500/15 text-rose-400 border border-rose-800/60 hover:bg-rose-500/25")
+      : rank >= 55
+        ? "rounded px-1.5 py-0.5 text-stone-300 border border-transparent hover:border-stone-700 hover:bg-stone-800/60"
+        : "rounded px-1.5 py-0.5 text-stone-500 border border-transparent";
+
+  // Overdue age — ONE treatment at every level. The bands rendered this as a
+  // filled rose/amber pill while the invoice row rendered "78d over" as plain
+  // text, and since the board opens with invoice rows COLLAPSED, the pill was
+  // what everyone actually saw.
+  const overdueCls = (d: number) => d > 90 ? "text-rose-400" : d > 60 ? "text-amber-400" : "text-stone-400";
+
   /** Shell for a stage control: filled chip when it's an exception, otherwise
    *  a quiet hover-target that still reads as clickable. */
   const stageShell = (label: string) =>
@@ -2062,35 +2087,31 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Last Email Ref → last contact */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
-                          <span className={`inline-flex items-center gap-1 text-[11px] ${item.lastChaseInfo.days > 60 ? "text-rose-400" : item.lastChaseInfo.days > 30 ? "text-amber-400" : "text-stone-500"}`}
+                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
                             title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
-                            {activityIcon(item.lastChaseInfo.activityType)}
-                            <span>{item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d`}</span>
+                            <span className="text-stone-600">{activityIcon(item.lastChaseInfo.activityType)}</span>
+                            {item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d ago`}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400/70" title="No contact logged">
-                            <AlertTriangle size={9} />
-                            <span>no contact</span>
-                          </span>
+                          <span className="text-[12px] text-stone-600" title="No contact logged">never</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
                       <td className="px-2 py-2.5 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-2 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
-                            <Zap size={9} className="shrink-0" />
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
+                            title={item.bandNBA.detail ?? item.bandNBA.label}>
+                            <Zap size={10} className="shrink-0 opacity-70" />
                             {item.bandNBA.label}
-                            {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
+                            {item.bandNBA.detail && <span className="opacity-60">· {item.bandNBA.detail}</span>}
                           </span>
                         )}
                       </td>
                       {/* Due → oldest overdue */}
-                      <td className="px-2 py-2.5 whitespace-nowrap">
-                        {item.maxDays > 0 && (
-                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
-                            +{item.maxDays}d
-                          </span>
-                        )}
+                      <td className="px-2 py-2.5 whitespace-nowrap text-right tabular-nums">
+                        {item.maxDays > 0
+                          ? <span className={`text-[12px] font-medium ${overdueCls(item.maxDays)}`}>{item.maxDays}d over</span>
+                          : <span className="text-[12px] text-stone-600">—</span>}
                       </td>
                       {/* Outstanding — the ledger column: its own rule, the
                           strongest ink on the row, one currency per line so
@@ -2193,35 +2214,31 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {/* Last Email Ref → last contact */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.lastChaseInfo !== null ? (
-                          <span className={`inline-flex items-center gap-1 text-[11px] ${item.lastChaseInfo.days > 60 ? "text-rose-400" : item.lastChaseInfo.days > 30 ? "text-amber-400" : "text-stone-500"}`}
+                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium tabular-nums ${agoCls(item.lastChaseInfo.days)}`}
                             title={`Last contact ${item.lastChaseInfo.days}d ago via ${item.lastChaseInfo.activityType}`}>
-                            {activityIcon(item.lastChaseInfo.activityType)}
-                            <span>{item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d`}</span>
+                            <span className="text-stone-600">{activityIcon(item.lastChaseInfo.activityType)}</span>
+                            {item.lastChaseInfo.days === 0 ? "today" : `${item.lastChaseInfo.days}d ago`}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400/60" title="No contact logged">
-                            <AlertTriangle size={8} />
-                            <span>no contact</span>
-                          </span>
+                          <span className="text-[12px] text-stone-600" title="No contact logged">never</span>
                         )}
                       </td>
                       {/* Next action → NBA */}
                       <td className="px-2 py-2 whitespace-nowrap">
                         {item.bandNBA && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-sky-300 bg-sky-500/10 border border-sky-800/60 rounded-full px-1.5 py-0.5 font-medium" title={item.bandNBA.detail ?? item.bandNBA.label}>
-                            <Zap size={8} className="shrink-0" />
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${naShell("band", item.bandNBA.rank ?? 0)}`}
+                            title={item.bandNBA.detail ?? item.bandNBA.label}>
+                            <Zap size={10} className="shrink-0 opacity-70" />
                             {item.bandNBA.label}
-                            {item.bandNBA.detail && <span className="text-sky-300/60">· {item.bandNBA.detail}</span>}
+                            {item.bandNBA.detail && <span className="opacity-60">· {item.bandNBA.detail}</span>}
                           </span>
                         )}
                       </td>
                       {/* Due → oldest overdue in this project */}
-                      <td className="px-2 py-2 whitespace-nowrap">
-                        {item.maxDays > 0 && (
-                          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${item.maxDays > 90 ? "text-rose-300 bg-rose-500/15 border border-rose-900" : item.maxDays > 60 ? "text-amber-300 bg-amber-500/15 border border-amber-900" : "text-stone-300 bg-stone-500/15 border border-stone-700"}`}>
-                            +{item.maxDays}d
-                          </span>
-                        )}
+                      <td className="px-2 py-2 whitespace-nowrap text-right tabular-nums">
+                        {item.maxDays > 0
+                          ? <span className={`text-[12px] font-medium ${overdueCls(item.maxDays)}`}>{item.maxDays}d over</span>
+                          : <span className="text-[12px] text-stone-600">—</span>}
                       </td>
                       {/* Outstanding */}
                       <td className="px-2 py-1.5 text-right text-[13px] font-medium text-stone-300 tabular-nums whitespace-nowrap border-l border-stone-800">
@@ -2551,16 +2568,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       {(() => {
                         const na = nextActionByInv[inv.id];
                         if (!na) return <span className="text-stone-600">—</span>;
-                        const tone: Record<string, string> = {
-                          reply:     "bg-emerald-500/15 text-emerald-300 border-emerald-800/60",
-                          email:     "bg-blue-500/15 text-blue-300 border-blue-800/60",
-                          call:      "bg-orange-500/15 text-orange-300 border-orange-800/60",
-                          escalate:  "bg-rose-500/15 text-rose-300 border-rose-800/60",
-                          add_email: "bg-amber-500/15 text-amber-300 border-amber-800/60",
-                          resolve:   "bg-rose-500/10 text-rose-300 border-rose-900/60",
-                          await:     "text-stone-400 border-stone-700",
-                          none:      "text-stone-600 border-transparent",
-                        };
                         const Icon =
                           na.type === "reply" ? CornerUpLeft :
                           na.type === "call" ? Phone :
@@ -2568,8 +2575,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           na.type === "resolve" ? AlertOctagon :
                           na.type === "await" ? Clock :
                           (na.type === "email" || na.type === "add_email") ? Mail : null;
-                        const body = <>{Icon && <Icon size={11} />}<span>{na.label}</span>{na.detail && <span className="opacity-60">· {na.detail}</span>}</>;
-                        if (!na.act) return <span className={`inline-flex items-center gap-1 text-[11px] ${na.type === "none" ? "text-stone-600" : "text-stone-400"}`}>{body}</span>;
+                        const body = <>{Icon && <Icon size={11} className="shrink-0 opacity-70" />}<span>{na.label}</span>{na.detail && <span className="opacity-60">· {na.detail}</span>}</>;
+                        if (!na.act) return <span className={`inline-flex items-center gap-1 text-[11px] ${naShell(na.type, na.rank)}`}>{body}</span>;
                         const onClick = () => {
                           if (na.act === "send") { setPreQuickSendSelection(selected); setSelected(new Set([inv.id])); setShowSend(true); }
                           else if (na.act === "email") { setEmailEdit(inv.id); setEmailVal(email ?? ""); }
@@ -2579,8 +2586,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         };
                         return (
                           <button onClick={onClick}
-                            title="Click to act on this"
-                            className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full border px-2 py-1 hover:opacity-80 transition-opacity ${tone[na.type]}`}>
+                            title={na.detail ? `${na.label} · ${na.detail} — click to act on this` : `${na.label} — click to act on this`}
+                            className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${naShell(na.type, na.rank)}`}>
                             {body}
                           </button>
                         );
