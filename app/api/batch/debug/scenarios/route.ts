@@ -101,9 +101,19 @@ async function reupload(
   let okCount = 0;
   const errors: string[] = [];
   for (const doc of docs) {
-    const r = await commitOneDoc(token, entity, "modify", doc, resolver);
-    if (r.ok) okCount++;
-    else errors.push((r as any).error);
+    // Mirror runChunkLoop's per-item catch exactly. commitOneDoc THROWS for a
+    // refused document (the safety guards), and in the real pipeline that is
+    // caught per row and recorded as one failed row — the rest of the file
+    // keeps importing. A harness that let the throw escape would report a
+    // correctly-refused document as a crashed scenario, which is the opposite
+    // of what actually happens to a user.
+    try {
+      const r = await commitOneDoc(token, entity, "modify", doc, resolver);
+      if (r.ok) okCount++;
+      else errors.push((r as any).error);
+    } catch (e: any) {
+      errors.push(e?.message || "Unexpected error");
+    }
   }
   return { okCount, errors };
 }
