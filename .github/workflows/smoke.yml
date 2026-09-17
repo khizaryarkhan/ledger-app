@@ -1,0 +1,78 @@
+# Does the LIVE site still work for a customer?
+#
+# ci.yml proves the code is internally consistent. It cannot prove the deployed
+# app responds, because it runs with no database and no network — by design.
+# Every regression that has actually reached a paying client slipped through
+# exactly that gap:
+#
+#   - the customer portal redirected debtors to a Vercel login page
+#   - Payables → Suppliers returned 500 for days
+#   - Google's site-verification file was swallowed by middleware
+#
+# In all three, the code was "fine", every test passed, and the person who
+# found out was the customer. This workflow is the thing that notices first.
+#
+# It runs read-only GETs against production. It writes nothing, sends nothing,
+# and never calls QuickBooks — so it is safe to run as often as we like.
+name: Smoke
+
+on:
+  # Vercel reports its deploys to GitHub as deployment_status events, so this
+  # fires once the new build is actually serving traffic — not when the commit
+  # merged, which is several minutes too early to prove anything.
+  deployment_status:
+
+  # A deploy is not the only way production breaks. An expired token, a
+  # provider outage, a DNS or Vercel setting changed in the dashboard, a
+  # database that stops accepting connections — none of those involve a commit.
+  # Half-hourly catches them within 30 minutes instead of whenever someone looks.
+  schedule:
+    - cron: "*/30 * * * *"
+
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base URL to smoke (defaults to production)"
+        required: false
+        default: "https://primeaccountax.com"
+
+concurrency:
+  group: smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    # On a deployment_status event, only run for a SUCCESSFUL production deploy.
+    # Vercel emits pending/failure states too, and smoking a half-finished
+    # deploy produces a red run that means nothing and trains people to ignore
+    # this workflow — which is worse than not having it.
+    if: >
+      github.event_name != 'deployment_status' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Give the deployment a moment to finish propagating at the edge before
+      # judging it. A cold first request right after a deploy can 404 briefly.
+      - name: Settle
+        if: github.event_name == 'deployment_status'
+        run: sleep 20
+
+      - name: Smoke production
+        env:
+          # Optional: a dedicated READ-ONLY smoke account. Without these, only
+          # the anonymous checks run — which is still worth having, but it
+          # cannot see the signed-in routes, and the Suppliers 500 lived there.
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: npm run smoke -- --base "${{ github.event.inputs.base || 'https://primeaccountax.com' }}"
