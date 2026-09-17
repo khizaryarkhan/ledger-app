@@ -307,6 +307,170 @@ export async function POST(req: Request) {
       scenarios.push(s);
     }
 
+    // ── 7. INVOICES ───────────────────────────────────────────────────────
+    // The sales side, and the entity this product exists for. Same machinery,
+    // different builder and mapper, so it needs its own proof.
+    const [customer] = await qboQueryTop(token, "Customer", 1, "Active = true");
+    const [item] = await qboQueryTop(token, "Item", 1, "Active = true and Type = 'Service'");
+
+    if (customer && item) {
+      const itemLine = (amount: number, desc: string) => ({
+        DetailType: "SalesItemLineDetail",
+        Amount: amount,
+        Description: desc,
+        SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: amount },
+      });
+
+      {
+        const sc: Scenario = { id: "invoice-add-class", accountantDoes: "Download a 3-line invoice, add a Class to every line, re-upload", checks: [] };
+        try {
+          const seeded = await track("invoice", {
+            CustomerRef: { value: customer.Id },
+            DocNumber: `${runId.slice(-8)}I`,
+            Line: [itemLine(100, `${runId} i1`), itemLine(200, `${runId} i2`), itemLine(300, `${runId} i3`)],
+          });
+          const { rows } = await exportRows("invoice", seeded.Id);
+          sc.checks.push(check("export produced one row per line", 3, rows.length));
+          if (cls) for (const r of rows) r["Product/Service Class"] = cls.Name;
+          const { okCount, errors } = await reupload(token, "invoice", rows, resolver);
+          sc.checks.push(check("one update sent", 1, okCount));
+          if (errors.length) sc.error = errors.join(" | ");
+          const after = await qboReadOne(token, "invoice", seeded.Id);
+          sc.checks.push(check("all three lines survive", 3, realLines(after).length));
+          sc.checks.push(check("total unchanged", 600, lineSum(after)));
+        } catch (e: any) { sc.error = e?.message ?? String(e); }
+        scenarios.push(sc);
+      }
+
+      // ── 8. THE SAFETY GUARD ─────────────────────────────────────────────
+      // An invoice carrying a line type the spreadsheet cannot represent must
+      // be REFUSED, not silently stripped of it. Proving the guard fires is the
+      // whole point — an unproven guard is decoration.
+      {
+        const sc: Scenario = { id: "invoice-unrepresentable-line-refused", accountantDoes: "Re-upload an invoice containing a description-only line (which the sheet cannot carry)", checks: [] };
+        try {
+          const seeded = await track("invoice", {
+            CustomerRef: { value: customer.Id },
+            DocNumber: `${runId.slice(-8)}D`,
+            Line: [
+              itemLine(100, `${runId} keep`),
+              { DetailType: "DescriptionOnly", Description: `${runId} note to client` },
+            ],
+          });
+          const before = await qboReadOne(token, "invoice", seeded.Id);
+          const beforeCount = realLines(before).length;
+
+          const { rows } = await exportRows("invoice", seeded.Id);
+          const { okCount, errors } = await reupload(token, "invoice", rows, resolver);
+
+          sc.checks.push(check("the update is REFUSED, not silently applied", 0, okCount));
+          sc.checks.push(check("the refusal explains itself", true, /cannot carry|QuickBooks/i.test(errors[0] ?? "")));
+
+          const after = await qboReadOne(token, "invoice", seeded.Id);
+          sc.checks.push(check("the invoice is left completely untouched", beforeCount, realLines(after).length));
+        } catch (e: any) { sc.error = e?.message ?? String(e); }
+        scenarios.push(sc);
+      }
+
+      // ── 9. RECEIVED PAYMENTS ────────────────────────────────────────────
+      // The highest-stakes update in an AR product: the Line array IS the set
+      // of invoice applications, so a bad write un-pays invoices.
+      {
+        const sc: Scenario = { id: "payment-applied-to-two-invoices", accountantDoes: "A payment settling TWO invoices — edit the memo and re-upload", checks: [] };
+        try {
+          const i1 = await track("invoice", { CustomerRef: { value: customer.Id }, DocNumber: `${runId.slice(-8)}P1`, Line: [itemLine(100, `${runId} p1`)] });
+          const i2 = await track("invoice", { CustomerRef: { value: customer.Id }, DocNumber: `${runId.slice(-8)}P2`, Line: [itemLine(250, `${runId} p2`)] });
+          const pmt = await track("payment", {
+            CustomerRef: { value: customer.Id },
+            TotalAmt: 350,
+            Line: [
+              { Amount: 100, LinkedTxn: [{ TxnId: String(i1.Id), TxnType: "Invoice" }] },
+              { Amount: 250, LinkedTxn: [{ TxnId: String(i2.Id), TxnType: "Invoice" }] },
+            ],
+          });
+
+          const { rows } = await exportRows("receivepayment", pmt.Id);
+          sc.checks.push(check("export produced one row per applied invoice", 2, rows.length));
+          for (const r of rows) r["Memo"] = `${runId} edited memo`;
+
+          const { okCount, errors } = await reupload(token, "receivepayment", rows, resolver);
+          sc.checks.push(check("one update sent for the payment", 1, okCount));
+          if (errors.length) sc.error = errors.join(" | ");
+
+          const after = await qboReadOne(token, "payment", pmt.Id);
+          sc.checks.push(check("BOTH invoice applications survive", 2, realLines(after).length));
+          sc.checks.push(check("the payment still totals 350", 350, Number(after?.TotalAmt ?? 0)));
+
+          // What actually matters to a customer: are the invoices still paid?
+          // An un-applied payment silently reopens them.
+          const inv1 = await qboReadOne(token, "invoice", i1.Id);
+          const inv2 = await qboReadOne(token, "invoice", i2.Id);
+          sc.checks.push(check("invoice 1 still fully paid (balance 0)", 0, Number(inv1?.Balance ?? -1)));
+          sc.checks.push(check("invoice 2 still fully paid (balance 0)", 0, Number(inv2?.Balance ?? -1)));
+        } catch (e: any) { sc.error = e?.message ?? String(e); }
+        scenarios.push(sc);
+      }
+    }
+
+    // ── 10. JOURNAL ENTRIES ───────────────────────────────────────────────
+    // Debits and credits round-trip through a SIGN convention in the sheet
+    // (debit positive, credit negative). Getting that backwards on a re-upload
+    // would flip an entry without changing its total — the kind of error that
+    // reconciles and is still wrong.
+    if (bankAcct) {
+      const sc: Scenario = { id: "journal-entry-roundtrip", accountantDoes: "Download a balanced journal entry, change the memo, re-upload", checks: [] };
+      try {
+        const seeded = await track("journalentry", {
+          DocNumber: `${runId.slice(-8)}J`,
+          Line: [
+            { DetailType: "JournalEntryLineDetail", Amount: 500, Description: `${runId} dr`, JournalEntryLineDetail: { PostingType: "Debit",  AccountRef: { value: expenseAcct.Id } } },
+            { DetailType: "JournalEntryLineDetail", Amount: 500, Description: `${runId} cr`, JournalEntryLineDetail: { PostingType: "Credit", AccountRef: { value: bankAcct.Id } } },
+          ],
+        });
+        const { rows } = await exportRows("journalentry", seeded.Id);
+        sc.checks.push(check("export produced one row per journal line", 2, rows.length));
+        for (const r of rows) r["Memo"] = `${runId} edited`;
+
+        const { okCount, errors } = await reupload(token, "journalentry", rows, resolver);
+        if (errors.length) sc.error = errors.join(" | ");
+        sc.checks.push(check("one update sent", 1, okCount));
+
+        const after = await qboReadOne(token, "journalentry", seeded.Id);
+        const jlines = realLines(after);
+        const dr = jlines.filter((l: any) => l.JournalEntryLineDetail?.PostingType === "Debit").reduce((n: number, l: any) => n + Number(l.Amount || 0), 0);
+        const cr = jlines.filter((l: any) => l.JournalEntryLineDetail?.PostingType === "Credit").reduce((n: number, l: any) => n + Number(l.Amount || 0), 0);
+        sc.checks.push(check("still 2 lines", 2, jlines.length));
+        sc.checks.push(check("debits still 500 — the sign convention survived", 500, dr));
+        sc.checks.push(check("credits still 500 — not flipped", 500, cr));
+      } catch (e: any) { sc.error = e?.message ?? String(e); }
+      scenarios.push(sc);
+    }
+
+    // ── 11. THE IMPORT (CREATE) PATH ──────────────────────────────────────
+    // Deliberately NOT changed when the update grouping was fixed, because a
+    // create has no record id to group on. This measures what it actually does,
+    // so the behaviour is known rather than assumed: a multi-line expense typed
+    // into a sheet with NO Ref No. If the importer sees three documents instead
+    // of one, that is a real and separate defect, and this is how we find out.
+    // Measures grouping only — it creates nothing, so there is nothing to clean.
+    if (bankAcct) {
+      const sc: Scenario = { id: "create-multiline-no-refno", accountantDoes: "Type a NEW 3-line expense into a sheet with no Ref No and import it", checks: [] };
+      try {
+        const entity = getEntity("expense")!;
+        const rows = [1, 2, 3].map((n) => ({
+          "Account": bankAcct.Name,
+          "Payee": vendor.DisplayName,
+          "Payment Date": new Date().toISOString().slice(0, 10),
+          "Expense Account": expenseAcct.Name,
+          "Expense Description": `${runId} create ${n}`,
+          "Expense Line Amount": n * 10,
+        }));
+        const docs = groupDocs(rows as any, entity);
+        sc.checks.push(check("documents the importer sees (1 = one expense, 3 = three separate ones)", 1, docs.length));
+      } catch (e: any) { sc.error = e?.message ?? String(e); }
+      scenarios.push(sc);
+    }
+
     return ok({
       companyName,
       runId,
