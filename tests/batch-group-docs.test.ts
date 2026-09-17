@@ -121,3 +121,67 @@ describe("partially filled sheets", () => {
     expect(docs.find(d => (d.rows[0] as any).Id === "9")!.rows).toHaveLength(2);
   });
 });
+
+describe("the real incident: University of Michigan bills", () => {
+  /**
+   * Straight from the customer's own spreadsheet. Three rows share Bill No
+   * 1329891, but they are TWO different bills:
+   *
+   *   Id 8232  Bill No 1329891  2025-01-31   <- two lines, one bill
+   *   Id 8232  Bill No 1329891  2025-01-31
+   *   Id 7494  Bill No 1329891  2024-12-16   <- a DIFFERENT bill, same number
+   *
+   * QuickBooks does not enforce a unique DocNumber on a Bill, and a vendor
+   * re-using an invoice number across periods is completely ordinary. Grouping
+   * on "Bill No" merged all three into one document; commitOneDoc takes the id
+   * from rows[0], so bill 7494's line was written onto bill 8232 and 7494 was
+   * never updated at all — the Class the user added to it silently did nothing.
+   *
+   * The customer diagnosed this themselves: "When updating, QBO ID should be
+   * the preference. It has merged the line item because the bill numbers are
+   * the same." That is exactly what this now does.
+   */
+  const BILL = { docKey: "Bill No" };
+
+  const SHEET: any[] = [
+    { Id: "8404",  SyncToken: "5", "Bill No": "1356136", Vendor: "University of Michigan", "Bill Date": "2025-06-26", "Expense Account": "Subcontractors" },
+    { Id: "8403",  SyncToken: "3", "Bill No": "1358700", Vendor: "University of Michigan", "Bill Date": "2025-08-00", "Expense Account": "Subcontractors" },
+    { Id: "8233",  SyncToken: "4", "Bill No": "1349730", Vendor: "University of Michigan", "Bill Date": "2025-03-30", "Expense Account": "Subcontractors" },
+    { Id: "10052", SyncToken: "3", "Bill No": "1373305", Vendor: "University of Michigan", "Bill Date": "2026-04-08", "Expense Account": "Subcontractors" },
+    { Id: "8232",  SyncToken: "4", "Bill No": "1329891", Vendor: "University of Michigan", "Bill Date": "2025-01-31", "Expense Account": "Subcontractors" },
+    { Id: "8232",  SyncToken: "4", "Bill No": "1329891", Vendor: "University of Michigan", "Bill Date": "2025-01-31", "Expense Account": "Subcontractors" },
+    { Id: "7494",  SyncToken: "2", "Bill No": "1329891", Vendor: "University of Michigan", "Bill Date": "2024-12-16", "Expense Account": "Subcontractors" },
+    { Id: "10053", SyncToken: "4", "Bill No": "1377045", Vendor: "University of Michigan", "Bill Date": "2026-04-08", "Expense Account": "Service Fees" },
+    { Id: "11627", SyncToken: "1", "Bill No": "1374696", Vendor: "University of Michigan", "Bill Date": "2026-03-04", "Expense Account": "Service Fees" },
+    { Id: "11626", SyncToken: "1", "Bill No": "1380766", Vendor: "University of Michigan", "Bill Date": "2026-06-05", "Expense Account": "Service Fees" },
+    { Id: "11197", SyncToken: "1", "Bill No": "1379190", Vendor: "University of Michigan", "Bill Date": "2026-05-07", "Expense Account": "Service Fees" },
+  ];
+
+  it("produces one document per BILL, not one per bill number", () => {
+    const docs = groupDocs(SHEET, BILL);
+    // 11 rows, 10 distinct bills — 8232 owns two of the rows.
+    expect(docs).toHaveLength(10);
+  });
+
+  it("keeps bill 7494 separate from bill 8232 despite the shared Bill No", () => {
+    const docs = groupDocs(SHEET, BILL);
+    const b8232 = docs.find(d => (d.rows[0] as any).Id === "8232");
+    const b7494 = docs.find(d => (d.rows[0] as any).Id === "7494");
+
+    expect(b8232, "bill 8232 must exist as its own document").toBeTruthy();
+    expect(b7494, "bill 7494 must be written, not silently skipped").toBeTruthy();
+
+    expect(b8232!.rows).toHaveLength(2);   // its own two lines, and only those
+    expect(b7494!.rows).toHaveLength(1);   // not absorbed into 8232
+
+    // The specific corruption: 7494's line must never appear under 8232.
+    expect(b8232!.rows.every((r: any) => r.Id === "8232")).toBe(true);
+  });
+
+  it("every row in the sheet reaches exactly one document", () => {
+    // Nothing dropped, nothing duplicated — the property that actually
+    // guarantees no silent data loss, whatever the bill numbers look like.
+    const docs = groupDocs(SHEET, BILL);
+    expect(docs.reduce((n, d) => n + d.rows.length, 0)).toBe(SHEET.length);
+  });
+});
