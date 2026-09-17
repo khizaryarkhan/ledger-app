@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import { tokenStore } from "./storage";
 import { API_BASE_URL } from "../config";
 
 const ACCESS_KEY = "pax_access_token";
@@ -6,21 +6,21 @@ const REFRESH_KEY = "pax_refresh_token";
 
 export async function getStoredTokens() {
   const [accessToken, refreshToken] = await Promise.all([
-    SecureStore.getItemAsync(ACCESS_KEY),
-    SecureStore.getItemAsync(REFRESH_KEY),
+    tokenStore.getItemAsync(ACCESS_KEY),
+    tokenStore.getItemAsync(REFRESH_KEY),
   ]);
   return { accessToken, refreshToken };
 }
 
 export async function storeTokens(accessToken: string, refreshToken: string) {
   await Promise.all([
-    SecureStore.setItemAsync(ACCESS_KEY, accessToken),
-    SecureStore.setItemAsync(REFRESH_KEY, refreshToken),
+    tokenStore.setItemAsync(ACCESS_KEY, accessToken),
+    tokenStore.setItemAsync(REFRESH_KEY, refreshToken),
   ]);
 }
 
 export async function clearTokens() {
-  await Promise.all([SecureStore.deleteItemAsync(ACCESS_KEY), SecureStore.deleteItemAsync(REFRESH_KEY)]);
+  await Promise.all([tokenStore.deleteItemAsync(ACCESS_KEY), tokenStore.deleteItemAsync(REFRESH_KEY)]);
 }
 
 export class ApiError extends Error {

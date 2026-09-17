@@ -30,13 +30,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setOnSessionExpired(() => setState({ status: "signedOut", error: "Your session expired — please sign in again." }));
+    // The WHOLE bootstrap is guarded, not just the apiMe() call. Reading the
+    // token store can throw (it did on web, and on a device a locked or
+    // unavailable keychain can do the same) — and a throw here left `status`
+    // on "loading" forever: an eternal splash spinner with no error shown and
+    // no way to reach the sign-in screen. Any failure to establish a session
+    // is the same outcome for the user: show them the login screen.
     (async () => {
-      const { accessToken } = await getStoredTokens();
-      if (!accessToken) {
-        setState({ status: "signedOut" });
-        return;
-      }
       try {
+        const { accessToken } = await getStoredTokens();
+        if (!accessToken) {
+          setState({ status: "signedOut" });
+          return;
+        }
         const data = await apiMe();
         setState({ status: "signedIn", user: data.user, org: data.org, role: data.role });
       } catch {

@@ -32,7 +32,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "shots": "expo export -p web --output-dir /tmp/mobweb --clear && node harness/shots.mjs",
+    "shots:only": "node harness/shots.mjs"
   },
   "private": true
 }
