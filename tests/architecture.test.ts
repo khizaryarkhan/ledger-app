@@ -224,3 +224,43 @@ describe("a calendar date is never rendered through a timezone", () => {
     expect(body).not.toMatch(/new Date\(/);
   });
 });
+
+describe("Google site verification stays reachable", () => {
+  /**
+   * Google says, on the verification screen itself: "To stay verified, don't
+   * remove the file, even after verification succeeds." Losing it un-verifies
+   * the domain, which un-blocks nothing and silently re-breaks the OAuth
+   * consent-screen review.
+   *
+   * Two ways to lose it, and this covers both: deleting the file, and letting
+   * middleware swallow the request. The second is the sneaky one — the file is
+   * still on disk and looks fine, but an anonymous fetch gets redirected to
+   * /login, so Google reads a login page where the token should be.
+   */
+  const VERIFY_FILES = readdirSync(join(ROOT, "public")).filter(f => /^google[0-9a-f]+\.html$/.test(f));
+
+  it("the verification file is still present", () => {
+    expect(VERIFY_FILES.length).toBeGreaterThan(0);
+  });
+
+  it("each file contains its own name as the token", () => {
+    for (const f of VERIFY_FILES) {
+      const body = readFileSync(join(ROOT, "public", f), "utf8").trim();
+      expect(body).toBe(`google-site-verification: ${f}`);
+    }
+  });
+
+  it("middleware serves them raw instead of redirecting to /login", () => {
+    const src = readFileSync(join(ROOT, "middleware.ts"), "utf8");
+    const m = /matcher:\s*\[\s*"([^"]+)"/.exec(src);
+    expect(m, "could not find the middleware matcher").toBeTruthy();
+    // Build the real matcher and run the real filenames through it.
+    const re = new RegExp(`^${m![1].replace(/\\/g, "\\")}$`);
+    for (const f of VERIFY_FILES) {
+      expect(re.test(`/${f}`), `${f} is not exempt from middleware`).toBe(false);
+    }
+    // And the exemption must not have opened up the authed app by accident.
+    expect(re.test("/dashboard")).toBe(true);
+    expect(re.test("/")).toBe(true);
+  });
+});

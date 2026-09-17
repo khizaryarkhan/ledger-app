@@ -178,7 +178,20 @@ export const config = {
   // Exclude assets that must be served raw (never auth-redirected):
   //  - kill-switch service worker scripts (real JavaScript)
   //  - SEO files: robots.txt, sitemap.xml, and the generated OG image
+  //  - Google site-verification files (public/googleXXXX.html)
+  //
+  // The verification files matter more than they look. Google fetches
+  // https://primeaccountax.com/google<token>.html anonymously and expects the
+  // file's contents back. Without this exclusion the request falls through to
+  // the catch-all below, is treated as an authenticated page, and is redirected
+  // to /login — so Google sees a login page instead of the token and
+  // verification fails, with nothing in our logs to explain why. That in turn
+  // blocks the OAuth consent-screen review, which is the only thing standing
+  // between us and Gmail sending.
+  //
+  // Same class of failure as the portal links behind Vercel Deployment
+  // Protection: the request never reaches the file, so the file looks wrong.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|service-worker.js|robots.txt|sitemap.xml|opengraph-image).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|service-worker.js|robots.txt|sitemap.xml|opengraph-image|google[0-9a-f]+\.html).*)",
   ],
 };
