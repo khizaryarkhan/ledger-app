@@ -129,12 +129,53 @@ export function ensureIdentityMapping(
 
 /**
  * Group normalized rows into logical documents.
- * Line-item entities group consecutive rows sharing the same docKey value;
- * flat entities (lists, single-line txns) treat every row as its own document.
+ *
+ * Flat entities (lists, single-line txns) treat every row as its own document.
+ * Line-item entities group rows belonging to the same document together.
+ *
+ * ── WHAT MAKES TWO ROWS THE SAME DOCUMENT ───────────────────────────────────
+ *
+ * On an UPDATE it is QuickBooks' own record id, and nothing else. The download
+ * stamps `Id` on every row (see row-mappers), and `ensureIdentityMapping` keeps
+ * it through normalisation, so on a modify we always have it. A create never
+ * carries an Id, so that path is untouched by this and still groups on docKey.
+ *
+ * This used to group on docKey (e.g. "Ref No") for updates too, and that
+ * DESTROYED DATA on a customer's books. DocNumber is optional on a QBO Purchase
+ * and blank on most card spend, and blanks were given a unique key PER ROW:
+ *
+ *     one expense, Id 247, 3 lines, no Ref No
+ *       -> 3 separate "documents", every one of them carrying Id 247
+ *       -> 3 separate NON-SPARSE updates to the same record
+ *       -> a non-sparse update replaces the whole Line array, so each write
+ *          wiped the previous one. Last line wins; the other two are gone.
+ *
+ * The customer downloaded Expenses, added a Class, re-uploaded, and watched
+ * lines disappear. It looked random because it only hit rows with a blank
+ * Ref No — the more lines an expense had, the more of it was destroyed.
+ *
+ * The mirror-image failure was just as real: two DIFFERENT expenses that happen
+ * to share a Ref No (QBO does not enforce uniqueness on Purchase.DocNumber)
+ * merged into one document, and commitOneDoc takes the id from rows[0] — so one
+ * record was overwritten with both records' lines and the other silently skipped.
+ *
+ * Grouping on the id removes both failures at once, because the id is the thing
+ * the update actually writes to. Never reintroduce a heuristic here: if two rows
+ * name the same record, they ARE the same document, whatever else differs.
  */
 export function groupDocs(rows: SheetRow[], entity: { docKey?: string }): GroupedDoc[] {
   const key = entity.docKey ? canon(entity.docKey) : null;
-  if (!key) {
+
+  // An Id on the rows means these came from a download and are being written
+  // back — group on it in preference to anything else. Checked across all rows,
+  // not just the first, because a partially-filled sheet must not silently fall
+  // back to the docKey path for the rows that do have one.
+  const hasId = rows.some((r) => {
+    const v = r["Id"] ?? r["QBO Id"];
+    return v != null && String(v).trim() !== "";
+  });
+
+  if (!key && !hasId) {
     return rows.map((r, i) => ({ key: String(i), rows: [r] }));
   }
 
@@ -143,8 +184,21 @@ export function groupDocs(rows: SheetRow[], entity: { docKey?: string }): Groupe
   let blankCounter = 0;
 
   for (const row of rows) {
-    const raw = row[key];
-    const k = raw == null || String(raw).trim() === "" ? `__blank_${blankCounter++}` : String(raw).trim();
+    const id = row["Id"] ?? row["QBO Id"];
+    const idStr = id == null ? "" : String(id).trim();
+
+    let k: string;
+    if (hasId && idStr !== "") {
+      k = `__id_${idStr}`;
+    } else if (key) {
+      const raw = row[key];
+      // A blank docKey still means "I cannot tell what this belongs to", so it
+      // stays its own document rather than being merged with other blanks.
+      k = raw == null || String(raw).trim() === "" ? `__blank_${blankCounter++}` : String(raw).trim();
+    } else {
+      k = `__row_${blankCounter++}`;
+    }
+
     let doc = byKey.get(k);
     if (!doc) {
       doc = { key: k, rows: [] };
