@@ -14,3 +14,6 @@ tsconfig.tsbuildinfo
 
 # Local database exports — real customer data, never committed
 backups/
+
+# Generated mobile preview screenshots — regenerate with `npm run shots`
+mobile/harness/shots/
