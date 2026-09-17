@@ -7,6 +7,7 @@
 import { qboPost, qboReadOne, qboBatch, qboQueryAll, type BatchItem } from "./qbo-client";
 import type { OrgQboToken } from "@/lib/qbo-token";
 import type { RefResolver } from "./ref-resolver";
+import { checkUpdateSafety } from "./update-safety";
 
 function firstRecord(data: any) {
   if (!data) return null;
@@ -101,6 +102,16 @@ export async function commitOneDoc(
     // into a hard failure when we already had a plausible token to try.
     const existing = await qboReadOne(token, entity.qboEntity!, String(id));
     const freshSyncToken = existing?.SyncToken ?? syncToken;
+
+    // SAFETY: refuse to write back a record that holds something the sheet
+    // cannot carry. An update is a FULL write — the Line array we send becomes
+    // the record's complete new truth — so any line the exporter does not model
+    // is absent from the payload and therefore DELETED, silently, on a paying
+    // customer's books. A visible skip that names the record is strictly better
+    // than a 200 and a mangled transaction: they can fix that one document in
+    // QuickBooks and the rest of their file still goes through.
+    const unsafe = checkUpdateSafety(entity.id, existing);
+    if (unsafe) throw new Error(unsafe.reason);
 
     // SAFETY: refuse to update an estimate linked to invoices via progress
     // invoicing — the public API silently drops that link and can't restore it.
