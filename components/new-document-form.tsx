@@ -13,8 +13,8 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
-import { uom } from "@/lib/inventory/uom";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
+import { orderOptions, salesOrderOptions, type OrderOption } from "@/lib/inventory/order-options";
 
 // Finished Product / Work in Progress lots are always system-generated at
 // commit time — never a user-editable field here (see the "Receive to lot"
@@ -80,43 +80,6 @@ const CFG: Record<DocType, Cfg> = {
 
 type Line = { itemId: string; accountId: string; accountOverride?: boolean; description: string; qty: string; rate: string; amount: string; taxRateId: string; classId: string; locationId: string; lotNo?: string; expiryDate?: string; orderUom?: string; packLevel?: string; unitsPerOrderUnit?: number; supplierSkuId?: string; skuId?: string };
 
-type OrderOption = { label: string; packLevel: string; orderUom: string; unitsPerOrderUnit: number; supplierSkuId: string | null };
-// Base units per one supplier UoM: same dimension → automatic ratio, else the
-// SKU's manual conversion factor.
-function perSupplierUnit(supplierUom: string | null, baseUom: string | null, factor: any): number | null {
-  const a = uom(supplierUom), b = uom(baseUom);
-  if (a && b && a.dimension === b.dimension) return a.toBase / b.toBase;
-  const f = Number(factor); return f > 0 ? f : null;
-}
-/** Build the "order by" choices for a PO line from the item's base UoM + supplier SKUs. */
-function orderOptions(baseUom: string | null, supplierSkus: any[]): OrderOption[] {
-  const opts: OrderOption[] = [{ label: `${baseUom || "unit"} — base`, packLevel: "base", orderUom: baseUom || "", unitsPerOrderUnit: 1, supplierSkuId: null }];
-  for (const s of supplierSkus || []) {
-    const per = perSupplierUnit(s.supplierUom, baseUom, s.conversionFactor);
-    if (!per) continue;
-    if (s.supplierUom && s.supplierUom !== baseUom) opts.push({ label: `${s.supplierUom} — supplier UoM`, packLevel: "supplier", orderUom: s.supplierUom, unitsPerOrderUnit: per, supplierSkuId: s.id });
-    const inner = Number(s.innerUnitPackSize) || 0;
-    if (inner > 0) opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${s.supplierUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner * per, supplierSkuId: s.id });
-    const outer = Number(s.unitsInOuterPack) || 0;
-    if (inner > 0 && outer > 0) opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${s.innerPackType || "inner"})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: outer * inner * per, supplierSkuId: s.id });
-  }
-  return opts;
-}
-/** Sales pack choices from finished-product SKUs (pack sizes already in base UoM). */
-function salesOrderOptions(baseUom: string | null, itemSkus: any[]): OrderOption[] {
-  const opts: OrderOption[] = [{ label: `${baseUom || "unit"} — base`, packLevel: "base", orderUom: baseUom || "", unitsPerOrderUnit: 1, supplierSkuId: null }];
-  for (const s of itemSkus || []) {
-    const inner = Number(s.innerUnitPackSize) || 0;
-    if (inner <= 0) continue;
-    opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${baseUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner, supplierSkuId: s.id });
-    const addl = Number(s.unitsInAddlInnerPack) || 0;
-    const perAddl = addl > 0 ? inner * addl : inner;
-    if (addl > 0) opts.push({ label: `${s.addlInnerPackType || "pack"} (${addl} × ${s.innerPackType || "inner"})`, packLevel: "addl", orderUom: s.addlInnerPackType || "pack", unitsPerOrderUnit: perAddl, supplierSkuId: s.id });
-    const outer = Number(s.unitsInOuterPack) || 0;
-    if (outer > 0) opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (s.addlInnerPackType || "pack") : (s.innerPackType || "inner")})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: perAddl * outer, supplierSkuId: s.id });
-  }
-  return opts;
-}
 const emptyLine = (): Line => ({ itemId: "", accountId: "", description: "", qty: "", rate: "", amount: "", taxRateId: "", classId: "", locationId: "" });
 const todayStr = () => localToday();
 const num = (s: string) => Number(s) || 0;
@@ -128,6 +91,11 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [itemPacks, setItemPacks] = useState<Record<string, { baseUom: string | null; supplierSkus: any[]; skus: any[] }>>({});
+  // Item links of the supplier this document is addressed to (purchase side
+  // only). null = not loaded / no supplier picked yet.
+  const [supplierLinks, setSupplierLinks] = useState<any[] | null>(null);
+  // The escape hatch: show every item regardless of kind or supplier link.
+  const [showAllItems, setShowAllItems] = useState(false);
   const [taxes, setTaxes] = useState<any[]>([]);
   const [dims, setDims] = useState<any[]>([]);
   const [parties, setParties] = useState<any[]>([]);
@@ -249,6 +217,20 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     // eslint-disable-next-line
   }, [type]);
 
+  // Purchasing is scoped to the supplier the document is addressed to. Its item
+  // links drive BOTH which items the picker offers and which pack configurations
+  // each line may order by — fetched once per supplier rather than per item, so
+  // no other supplier's configuration is ever in hand to be offered by mistake.
+  useEffect(() => {
+    if (cfg.side !== "purchase" || !partyId) { setSupplierLinks(null); return; }
+    let live = true;
+    fetch(`/api/inventory/supplier-skus?supplierId=${encodeURIComponent(partyId)}`)
+      .then(r => r.json())
+      .then(d => { if (live) setSupplierLinks(Array.isArray(d) ? d : []); })
+      .catch(() => { if (live) setSupplierLinks([]); });
+    return () => { live = false; };
+  }, [partyId, cfg.side]);
+
   // Keep due date in sync with terms + issue date (unless Custom).
   function applyTerms(key: string, baseDate: string) {
     setTermsKey(key);
@@ -277,6 +259,16 @@ export function NewDocumentForm({ type }: { type: DocType }) {
 
   function onParty(id: string) {
     if (id === "__add__") { setQuickAdd({ kind: cfg.party === "Vendor" ? "supplier" : "customer" }); return; }
+    // Every pack choice on the document describes the OUTGOING supplier's
+    // packaging, so switching supplier invalidates all of them. Drop back to
+    // base UoM rather than carry a foreign conversion factor into the order.
+    // Done here rather than in the fetch effect so that loading a saved
+    // document (which sets partyId once, from its own data) keeps its lines.
+    if (cfg.side === "purchase" && id !== partyId) {
+      setLines(ls => ls.map(l => (l.supplierSkuId
+        ? { ...l, supplierSkuId: "", packLevel: "base", unitsPerOrderUnit: 1, orderUom: items.find(x => x.id === l.itemId)?.baseUom || "" }
+        : l)));
+    }
     setPartyId(id);
     if (mcEnabled) {
       const p = parties.find(x => x.id === id);
@@ -332,6 +324,27 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   // (matches QBO — a customer/supplier's currency is set once, from its first
   // transaction, and can't be overridden document-by-document after that).
   const selectedParty = useMemo(() => parties.find(p => p.id === partyId), [parties, partyId]);
+
+  /**
+   * What the line picker offers. Two narrowings, both escapable:
+   *  - kind — a purchase document offers buyable items, a sales document
+   *    sellable ones. item-kinds.ts already declares both; nothing read them.
+   *  - supplier — on a purchase document, the items this supplier is linked to.
+   * Neither is a safety property: selling off scrap raw material and one-off
+   * buys are both real. A picker that silently hides the item leaves no way to
+   * discover why, so "Show all items" is always one click away.
+   */
+  const visibleItems = useMemo(() => {
+    if (showAllItems || !cfg.side) return items;
+    const wantsBuy = cfg.side === "purchase";
+    let list = items.filter(it => (wantsBuy ? kindOf(it.productType).buyable : kindOf(it.productType).sellable));
+    if (wantsBuy && supplierLinks) {
+      const linked = new Set(supplierLinks.map((l: any) => l.itemId));
+      list = list.filter(it => linked.has(it.id));
+    }
+    return list;
+  }, [items, showAllItems, cfg.side, supplierLinks]);
+  const hiddenItemCount = items.length - visibleItems.length;
   const partyLockedCurrency: string | null = mcEnabled && selectedParty?.currency ? selectedParty.currency : null;
 
   // A Bank/Credit Card account can carry its own currency (Chart of Accounts
@@ -848,13 +861,24 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                             <td className="px-1.5 py-1">
                               <CellSelect value={l.itemId} onChange={e => onItem(i, e.target.value)}>
                                 <option value="">—</option>
-                                {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                                {/* An item already on the line always stays selectable, even when
+                                    the current narrowing would hide it — otherwise reopening a saved
+                                    document silently blanks its own lines. */}
+                                {(visibleItems.some(x => x.id === l.itemId) || !l.itemId
+                                  ? visibleItems
+                                  : [...visibleItems, items.find(x => x.id === l.itemId)].filter(Boolean)
+                                ).map((it: any) => <option key={it.id} value={it.id}>{it.name}</option>)}
                                 <option value={ADD}>+ Add new item…</option>
                               </CellSelect>
                               {isOrderDoc && l.itemId && (() => {
                                 const packs = itemPacks[l.itemId];
                                 const baseU = packs?.baseUom ?? lineItem?.baseUom ?? null;
-                                const opts = cfg.side === "purchase" ? orderOptions(baseU, packs?.supplierSkus ?? []) : salesOrderOptions(baseU, packs?.skus ?? []);
+                                // Purchase pack options come from the addressed supplier's own
+                                // links, not from the item's full link list — the wrong vendor's
+                                // configuration is never fetched, let alone offered.
+                                const opts = cfg.side === "purchase"
+                                  ? orderOptions(baseU, (supplierLinks ?? []).filter((s: any) => s.itemId === l.itemId), partyId)
+                                  : salesOrderOptions(baseU, packs?.skus ?? []);
                                 const cur = `${l.packLevel ?? "base"}|${l.supplierSkuId ?? ""}`;
                                 return (
                                   <div className="mt-1">
@@ -983,10 +1007,25 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                     </tbody>
                   </table>
                 </div>
-                <div className="border-t border-stone-800/70 px-2 py-1.5">
+                <div className="border-t border-stone-800/70 px-2 py-1.5 flex items-center justify-between gap-3">
                   <button onClick={() => setLines(ls => [...ls, emptyLine()])} className="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-400 hover:text-emerald-400 px-2 py-1 rounded-md hover:bg-stone-800/60 transition">
                     <Plus size={13} /> Add line
                   </button>
+                  {/* Say what is being hidden and why. A narrowed picker that
+                      explains itself is a help; one that silently omits an item
+                      is the user hunting for something they know exists. */}
+                  {showItemCol && (hiddenItemCount > 0 || showAllItems) && (
+                    <div className="text-[11px] text-stone-500 pr-1">
+                      {showAllItems
+                        ? <>Showing all {items.length} items. </>
+                        : <>Showing {visibleItems.length} of {items.length} items
+                            {cfg.side === "purchase" && selectedParty ? <> for {selectedParty.name}</> : null}. </>}
+                      <button
+                        onClick={() => setShowAllItems(v => !v)}
+                        className="font-medium text-stone-400 hover:text-emerald-400 underline underline-offset-2 transition"
+                      >{showAllItems ? "Show linked only" : "Show all items"}</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </Section>
