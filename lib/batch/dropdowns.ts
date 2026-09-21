@@ -43,6 +43,12 @@ const UNION_COLUMNS: Record<string, RefKind[]> = {
  */
 const ENTITY_UNION_COLUMNS: Record<string, Record<string, RefKind[]>> = {
   timeactivity: { name: ["Employee", "Vendor"] },
+  // A journal line's Name is a QBO Entity ref, and QuickBooks accepts a
+  // Customer, a Vendor OR an Employee there. The dropdown offered customers
+  // only, so a bookkeeper posting to a supplier had nothing valid to pick and
+  // no way to tell whether typing the name would work. buildJournalEntry has
+  // always accepted all three; only the picker was narrow.
+  journalentry: { name: ["Customer", "Vendor", "Employee"] },
 };
 
 export type DropdownSource = { key: string; label: string; values: string[] };

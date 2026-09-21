@@ -26,6 +26,13 @@ import type { BatchEntity } from "./types";
  * there).
  */
 const ENTITY_NAME_OVERRIDES: Record<string, RefKind> = {
+  // PRIMARY kind only. Both of these genuinely accept more than one list —
+  // a journal line's Name may be a Customer, Vendor or Employee, and a time
+  // activity's an Employee or Vendor — and the full unions live in
+  // dropdowns.ts's ENTITY_UNION_COLUMNS, which is what the spreadsheet picker
+  // uses. Do not read this table as "the only kind allowed": the builders
+  // accept the whole union, and treating this as exhaustive is what left
+  // journal-entry Name offering customers only.
   journalentry: "Customer",
   timeactivity: "Employee",
 };

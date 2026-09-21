@@ -211,10 +211,14 @@ export const ENTITIES: BatchEntity[] = [
     qboEntity: "journalentry", qboReadName: "JournalEntry", supports: FULL,
     docKey: "Journal No", dateColumn: "Journal Date", qboDateField: "TxnDate",
     refNumberColumn: "Journal No", qboRefNumberField: "DocNumber",
-    refs: ["Account", "Class", "Department"],
+    // Customer/Vendor/Employee are all here because a journal line's "Name" is
+    // a QBO Entity ref that may be any of the three. Without them preloaded the
+    // builder's per-row tryResolve falls back to a lazy fetch, and the exporter
+    // cannot turn a supplier's id back into a name at all.
+    refs: ["Account", "Class", "Department", "Customer", "Vendor", "Employee"],
     columns: ["Journal No","Journal Date","Memo"," Account "," Amount"," Description","Name","Location","Class ","Currency Code","Exchange Rate","Is Adjustment"],
     build: buildJournalEntry,
-    reverseRefs: ["Account", "Class", "Department", "Customer"],
+    reverseRefs: ["Account", "Class", "Department", "Customer", "Vendor", "Employee"],
     toRows: mapJournalEntryRows,
   },
   {

@@ -292,7 +292,22 @@ export async function mapJournalEntryRows(r: any, refs: RefResolver): Promise<Ro
     // Debit positive, Credit negative — matches the builder's convention.
     row["Amount"] = d.PostingType === "Credit" ? -Math.abs(line.Amount ?? 0) : Math.abs(line.Amount ?? 0);
     if (line.Description) row["Description"] = line.Description;
-    const name = await refDisplayName(d.Entity?.EntityRef, "Customer", refs);
+    // A journal line's Name is a QuickBooks Entity ref, and QBO allows it to be
+    // a CUSTOMER, a VENDOR or an EMPLOYEE. This used to resolve it against the
+    // Customer list only, so a line whose Name was a supplier exported BLANK —
+    // the reference was silently lost, and re-importing that sheet then cleared
+    // it on the record too. Reported live: "the export does not have the
+    // Supplier names in the Name field, only Customer names."
+    //
+    // QBO states the kind on the Entity itself, so use it rather than guessing:
+    // entityRefName takes a `type` hint and searches that list first, falling
+    // back across the other two. buildJournalEntry already accepted all three
+    // on the way in (Customer → Vendor → Employee), so only the way OUT was
+    // narrow — the two halves of the round trip disagreed.
+    const name = await entityRefName(
+      d.Entity?.EntityRef ? { ...d.Entity.EntityRef, type: d.Entity.Type } : null,
+      refs,
+    );
     if (name) row["Name"] = name;
     const cls = await refDisplayName(d.ClassRef, "Class", refs);
     if (cls) row["Class"] = cls;
