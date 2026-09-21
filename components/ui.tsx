@@ -3,6 +3,7 @@
 import { useEffect, ReactNode } from "react";
 import Link from "next/link";
 import { X, Check, AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
+import { t } from "@/components/form-kit";
 
 /**
  * Standard wrapper for a single accounting report page — back-link to the
@@ -16,11 +17,11 @@ export function ReportShell({ title, sub, icon: Icon, children, onRefresh, loadi
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Icon size={18} className="text-indigo-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">{title}</h1>
+          <h1 className={t.pageTitle}>{title}</h1>
         </div>
         <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">{sub}</p>
+      <p className={`${t.secondary} mb-5 ml-12`}>{sub}</p>
       {children}
     </div>
   );
@@ -36,8 +37,8 @@ export const Badge = ({ children, variant = "neutral", size = "sm" }: { children
     purple: "bg-violet-500/15 text-violet-400 ring-violet-500/30",
     orange: "bg-orange-500/15 text-orange-400 ring-orange-500/30",
   };
-  const sizes: Record<string, string> = { sm: "text-[11px] px-2 py-0.5", md: "text-xs px-2.5 py-1" };
-  return <span className={`inline-flex items-center gap-1 rounded-md ring-1 ring-inset font-medium ${variants[variant]} ${sizes[size]}`}>{children}</span>;
+  const sizes: Record<string, string> = { sm: "text-[11px] px-2 py-0.5", md: "text-[12px] px-2.5 py-1" };
+  return <span className={`inline-flex items-center gap-1 rounded-md ring-1 ring-inset font-semibold ${variants[variant]} ${sizes[size]}`}>{children}</span>;
 };
 
 export const stageBadge = (stage: string) => {
@@ -69,10 +70,12 @@ export const Button = ({ children, variant = "primary", size = "md", onClick, di
     ghost: "text-stone-400 hover:bg-stone-800 hover:text-stone-100",
     danger: "bg-rose-600 text-white hover:bg-rose-500",
   };
-  const sizes: Record<string, string> = { sm: "h-7 px-2.5 text-xs gap-1.5", md: "h-9 px-3.5 text-sm gap-2", lg: "h-10 px-4 text-sm gap-2" };
+  // Portal buttons are 12–13px at weight 600 — never 14px, which is what
+  // text-sm gave and is why buttons read heavier here than in the portal.
+  const sizes: Record<string, string> = { sm: "h-7 px-2.5 text-[12px] gap-1.5", md: "h-9 px-3.5 text-[13px] gap-2", lg: "h-10 px-4 text-[13px] gap-2" };
   return (
     <button type={type} onClick={onClick} disabled={disabled}
-      className={`inline-flex items-center justify-center font-medium rounded-md transition-colors ${variants[variant]} ${sizes[size]} ${className}`}>
+      className={`inline-flex items-center justify-center font-semibold rounded-md transition-colors ${variants[variant]} ${sizes[size]} ${className}`}>
       {Icon && <Icon size={size === "sm" ? 13 : 15} strokeWidth={2} />}
       {children}
     </button>
@@ -83,14 +86,14 @@ export const Input = ({ value, onChange, placeholder, type = "text", className =
   <div className={`relative ${className}`}>
     {Icon && <Icon size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-500" strokeWidth={2} />}
     <input type={type} value={value ?? ""} onChange={onChange} placeholder={placeholder}
-      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors`}
+      className={`w-full h-9 ${Icon ? "pl-8" : "pl-3"} pr-3 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors`}
       {...rest} />
   </div>
 );
 
 export const Select = ({ value, onChange, options, placeholder, className = "" }: any) => (
   <select value={value ?? ""} onChange={onChange}
-    className={`h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat ${className}`}
+    className={`h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat ${className}`}
     style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}>
     {placeholder && <option value="">{placeholder}</option>}
     {options.map((o: any) => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
@@ -107,13 +110,13 @@ export const Modal = ({ open, onClose, title, children, size = "md", footer }: a
   const sizes: Record<string, string> = { sm: "max-w-md", md: "max-w-2xl", lg: "max-w-4xl", xl: "max-w-6xl" };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-stone-900 border border-stone-800 rounded-xl shadow-2xl w-full ${sizes[size]} max-h-[92vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-stone-900 border border-stone-800 rounded-lg shadow-2xl w-full ${sizes[size]} max-h-[92vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
-          <h3 className="text-base font-semibold text-white tracking-tight">{title}</h3>
+          <h3 className={t.heading}>{title}</h3>
           <button onClick={onClose} className="p-1 rounded-md text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto">{children}</div>
-        {footer && <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2 bg-stone-950/50 rounded-b-xl">{footer}</div>}
+        {footer && <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2 bg-stone-950/50 rounded-b-lg">{footer}</div>}
       </div>
     </div>
   );
@@ -124,8 +127,8 @@ export const EmptyState = ({ icon: Icon, title, description, action }: any) => (
     <div className="w-12 h-12 rounded-full bg-stone-800 flex items-center justify-center mb-4">
       <Icon size={20} className="text-stone-500" strokeWidth={1.75} />
     </div>
-    <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>
-    <p className="text-sm text-stone-500 max-w-sm mb-5">{description}</p>
+    <h3 className={`${t.heading} mb-1`}>{title}</h3>
+    <p className={`${t.hint} max-w-sm mb-5`}>{description}</p>
     {action}
   </div>
 );

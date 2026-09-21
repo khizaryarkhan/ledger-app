@@ -19,6 +19,108 @@
 import { ReactNode, SelectHTMLAttributes } from "react";
 import { ChevronDown } from "lucide-react";
 
+// ── Typography ────────────────────────────────────────────────────────────
+/**
+ * The type system, measured from the customer portal (app/portal/[token]),
+ * which is the most finished-looking surface in the product.
+ *
+ * The portal is inline-styled and LIGHT; the app is Tailwind and DARK, so its
+ * colours cannot be copied across. What transfers is the typography — and it
+ * turned out form-kit's controls already matched it (13px body, 11px uppercase
+ * micro-label, 10px table head). The inconsistency everyone can see comes from
+ * the ~2/3 of components that bypass form-kit and reach for Tailwind's named
+ * sizes instead, so the same "body text" lands at 12px, 13px or 14px depending
+ * on which screen you are looking at.
+ *
+ * Portal scale, by frequency:  13px (body, dominant) · 12px (secondary) ·
+ * 11px (label) · 10px (micro) · 15/18/20px (headings)
+ * Weights: 600 for emphasis, 700 for strong, 500 for quiet.
+ * Uppercase + 0.07–0.08em tracking ONLY on 10–11px micro-labels.
+ *
+ * ONE deliberate deviation: the portal sets weight 700 on those micro-labels;
+ * these use 600. The portal is dark-text-on-light, this app is light-text-on-
+ * dark, and light type on a dark ground optically gains weight (halation) — so
+ * 700 here reads heavier than 700 there. 600 reproduces the portal's intended
+ * weight rather than its literal number.
+ *
+ * USE THESE INSTEAD OF text-sm / text-xs / text-base. Those are 14px and 12px
+ * on a different rhythm and are what makes screens look unfinished next to
+ * each other.
+ */
+export const t = {
+  /** 20px — page title. Slight negative tracking, as the portal does on large text. */
+  pageTitle:  "text-[20px] font-semibold tracking-[-0.01em] text-stone-100",
+  /** 18px — section title inside a page. */
+  title:      "text-[18px] font-semibold tracking-[-0.01em] text-stone-100",
+  /** 15px — card / panel heading. */
+  heading:    "text-[15px] font-semibold text-stone-100",
+  /** 13px — body. The default for almost everything. */
+  body:       "text-[13px] text-stone-200",
+  /** 13px, 600 — body that needs emphasis (a name, a primary cell). */
+  bodyStrong: "text-[13px] font-semibold text-stone-100",
+  /** 12px — secondary text: dates, sub-labels, inline hints. */
+  secondary:  "text-[12px] text-stone-400",
+  /** 12px — quiet helper text under a field or beside a control. */
+  hint:       "text-[12px] text-stone-500",
+  /** 11px, 700, uppercase, wide — the micro-label. Matches `fieldLabel`. */
+  label:      "text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-500",
+  /** 10px, 700, uppercase, wide — table headers and the smallest captions. */
+  micro:      "text-[10px] font-semibold uppercase tracking-[0.07em] text-stone-500",
+} as const;
+
+/**
+ * The text-colour ramp, mapped from the portal's four greys so the app has the
+ * same sense of hierarchy rather than picking a stone step per component.
+ *   portal #111827 → strong · #374151 → body · #6B7280 → secondary
+ *   #9CA3AF → muted · #D1D5DB → faint
+ */
+export const ink = {
+  strong:    "text-stone-100",
+  body:      "text-stone-200",
+  secondary: "text-stone-400",
+  muted:     "text-stone-500",
+  faint:     "text-stone-600",
+} as const;
+
+/**
+ * Numbers. The portal sets `fontVariantNumeric: tabular-nums` on every money
+ * figure, which is why its columns line up and ours sometimes do not — with
+ * proportional digits a column of amounts visibly ragged-edges.
+ * Always right-align money; always use tabular figures.
+ */
+export const num = {
+  /** Any quantity or amount in a table cell. */
+  cell:     "text-[13px] tabular-nums text-stone-200 text-right",
+  /** A money amount that carries weight (a total, a balance). */
+  money:    "text-[13px] font-semibold tabular-nums text-stone-100 text-right",
+  /** A total row / grand total. */
+  total:    "text-[13px] font-bold tabular-nums text-stone-100 text-right",
+  /** Money that is good news — paid, received, in credit. */
+  positive: "text-[13px] font-semibold tabular-nums text-emerald-400 text-right",
+  /** Money that needs attention — overdue, negative, a variance. */
+  negative: "text-[13px] font-semibold tabular-nums text-rose-400 text-right",
+  /** A zero or absent value: present, but not competing for attention. */
+  zero:     "text-[13px] tabular-nums text-stone-600 text-right",
+} as const;
+
+/**
+ * Identifiers — invoice numbers, lot codes, document numbers, SKUs.
+ * The portal renders these monospace, which is what makes a column of
+ * "INV-0012 / INV-0013" scannable instead of a wall of similar shapes.
+ */
+export const idText = "font-mono text-[12px] tracking-tight text-stone-300";
+
+/**
+ * Radius scale, from the portal: 5px inputs, 6px buttons, 8px cards. Tailwind's
+ * nearest are rounded-md (6) and rounded-lg (8); `rounded-xl` and above are
+ * deliberately absent — nothing in the portal is rounder than 8.
+ */
+export const radius = {
+  control: "rounded-md",
+  button:  "rounded-md",
+  card:    "rounded-lg",
+} as const;
+
 // ── Control class tokens ──────────────────────────────────────────────────
 /** Standard boxed control (text / number / date / native select). h-9 ≈ 36px. */
 export const control =
@@ -28,8 +130,9 @@ export const control =
   "disabled:opacity-50 disabled:cursor-not-allowed";
 /** Native <select> variant — hide the OS arrow (we draw our own chevron). */
 export const controlSelect = control + " appearance-none pr-9 cursor-pointer";
-/** Micro field label. */
-export const fieldLabel = "block text-[11px] font-medium uppercase tracking-wider text-stone-400 mb-1.5";
+/** Micro field label. Same values as `t.label` — kept as its own export
+ *  because it adds the block/margin a <label> needs. */
+export const fieldLabel = "block " + t.label + " mb-1.5";
 
 /**
  * Inset variants — for surfaces that are already stone-900 (the side drawers).
@@ -48,8 +151,8 @@ export const cell =
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
   "hover:bg-stone-900/70 hover:border-stone-700/70 focus:bg-stone-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 export const cellSelectCls = cell + " appearance-none pr-6 cursor-pointer";
-/** Table header cell. */
-export const th = "text-left font-medium text-[10px] uppercase tracking-wider text-stone-500 px-2.5 py-2.5";
+/** Table header cell. Same values as `t.micro`, plus cell padding. */
+export const th = "text-left " + t.micro + " px-2.5 py-2.5";
 
 // ── Field wrapper: label → control → hint/error ───────────────────────────
 export function Field({

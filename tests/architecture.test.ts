@@ -442,3 +442,60 @@ ${offenders.join("\n")}`,
     }
   });
 });
+
+describe("the app stays on one type scale", () => {
+  /**
+   * The customer portal (app/portal/[token]) is the most finished-looking
+   * surface in the product, and its type scale is 10 / 11 / 12 / 13 / 15 / 18 /
+   * 20px with 13px as body. form-kit's `t` tokens encode exactly that.
+   *
+   * The reason screens look unfinished next to each other is that most
+   * components bypass form-kit and reach for Tailwind's named sizes instead —
+   * so "body text" lands at 12px (text-xs), 13px (t.body) or 14px (text-sm)
+   * depending on which screen you are on. Nothing is broken; it just reads as
+   * three products stitched together.
+   *
+   * A RATCHET, not a ban: 404 usages exist today and are being migrated. This
+   * asserts the number cannot GROW, so new work lands on the scale while the
+   * backlog is worked through. Lower the ceiling as batches land — that is the
+   * point of it. Same approach as the real()-money guard above.
+   *
+   * The portal itself is never scanned: it is inline-styled, light-themed,
+   * customer-facing, and explicitly not to be touched.
+   */
+  const CEILING = 394;
+
+  const OFF_SCALE = /\btext-(sm|xs|base|lg|xl|2xl|3xl)\b|text-\[(9|14|16|17|19)px\]/g;
+
+  it("off-scale type usage does not grow", () => {
+    let total = 0;
+    const worst: { file: string; n: number }[] = [];
+    for (const f of sourceFiles("components")) {
+      const src = readFileSync(f, "utf8");
+      const n = (src.match(OFF_SCALE) ?? []).length;
+      if (n > 0) {
+        total += n;
+        worst.push({ file: relative(ROOT, f).replace(/\\/g, "/"), n });
+      }
+    }
+    worst.sort((a, b) => b.n - a.n);
+    const top = worst.slice(0, 10).map(w => `${w.file}: ${w.n}`).join(", ");
+    expect(
+      total,
+      `off-scale type usages rose to ${total} (ceiling ${CEILING}). Use the "t" tokens from components/form-kit.tsx instead of text-sm / text-xs / text-base. Worst: ${top}`,
+    ).toBeLessThanOrEqual(CEILING);
+  });
+
+  it("form-kit's label and header tokens stay on the scale", () => {
+    // If these drift, every form drifts with them — they are the thing the
+    // other components are being migrated TOWARD.
+    const src = readFileSync(join(ROOT, "components/form-kit.tsx"), "utf8");
+    expect(src).toMatch(/label:\s*"text-\[11px\]/);
+    expect(src).toMatch(/micro:\s*"text-\[10px\]/);
+    expect(src).toMatch(/body:\s*"text-\[13px\]/);
+    // fieldLabel and th must be DERIVED from those, not re-specified, or the
+    // scale forks the moment someone edits one of them.
+    expect(src).toContain('export const fieldLabel = "block " + t.label');
+    expect(src).toContain('export const th = "text-left " + t.micro');
+  });
+});
