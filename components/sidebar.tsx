@@ -65,7 +65,22 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     // Job History is reachable from Studio AND from Receivables ("Email
     // History" — bulk invoice sends run on the same batch engine). Reaching it
     // from Receivables must not snap the whole sidebar to Studio.
-    pathname === "/batch/history";
+    pathname === "/batch/history" ||
+    // Supply Chain reaches SEVEN destinations that live under /accounting —
+    // Purchase Orders, Sales Orders, the reports hub (Stock Status, Lots &
+    // Movements) and Products & Services. Without this they hit `isAccounting`
+    // below and threw the whole sidebar into Accounting: you clicked "Stock
+    // Status" inside Supply Chain and your navigation vanished.
+    //
+    // This is the SAME bug already fixed for /customers, /projects and
+    // /payables/suppliers — it was simply never applied to the Supply Chain
+    // links. Treating them as shared preserves lastDept, so the page behaves
+    // correctly from BOTH sides: reached from Supply Chain you stay in Supply
+    // Chain, reached from Accounting you stay in Accounting.
+    pathname.startsWith("/accounting/trade/purchase-orders") ||
+    pathname.startsWith("/accounting/trade/sales-orders") ||
+    pathname === "/accounting/reports" || pathname.startsWith("/accounting/reports/") ||
+    pathname === "/accounting/products";
   const pathDepartment: Department | null =
     isResources ? "resources"
     : isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
@@ -133,7 +148,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/smart-views", label: "Smart Views", icon: Filter },
         { href: "/performance", label: "Performance", icon: TrendingUp },
-        { href: "/reports", label: "Reports", icon: BarChart3 },
+        { href: "/reports", label: "Receivables Reports", icon: BarChart3 },
       ],
     },
   ];
@@ -161,7 +176,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/payables/payment-runs", label: "Payment Runs", icon: CreditCard },
         { href: "/payables/tasks", label: "Tasks", icon: CheckSquare },
         { href: "/payables/workflow-rules", label: "Workflow Rules", icon: Workflow },
-        { href: "/payables/reports", label: "Reports", icon: BarChart3 },
+        { href: "/payables/reports", label: "Payables Reports", icon: BarChart3 },
       ],
     },
     {
@@ -186,7 +201,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/reporting/profit-loss",    label: "Profit & Loss",    icon: TrendingUp },
         { href: "/reporting/balance-sheet",  label: "Balance Sheet",    icon: BookOpen },
         { href: "/reporting/cash-flow",      label: "Cash Flow",        icon: CreditCard },
-        { href: "/reporting/trial-balance",  label: "Trial Balance",    icon: FileText },
+        { href: "/reporting/trial-balance",  label: "Trial Balance",    icon: FileText },   // the provider's own — see the section label
+
       ],
     },
     {
@@ -243,7 +259,11 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/accounting/accounts",              label: "Chart of Accounts", icon: BookOpen },
         { href: "/accounting/journal",                label: "Journal",          icon: FileText },
         { href: "/accounting/opening-balances",       label: "Opening Balances", icon: Scale },
-        { href: "/accounting/reports/trial-balance",  label: "Trial Balance",    icon: ScrollText },
+        // Qualified because Reporting carries a second "Trial Balance" that is
+        // QuickBooks'/Xero's own and can show different numbers. Naming both
+        // tells the user which book they are reading instead of leaving them
+        // to discover the discrepancy and distrust everything.
+        { href: "/accounting/reports/trial-balance",  label: "Trial Balance (our ledger)",    icon: ScrollText },
       ],
     },
     {
@@ -272,7 +292,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
         { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
-        { href: "/accounting/reports", label: "Reports", icon: BarChart3 },
+        { href: "/accounting/reports", label: "Accounting Reports", icon: BarChart3 },
       ],
     },
   ];
@@ -305,21 +325,31 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // Schedule board (components/mo-console.tsx already IS the manufacturing
   // orders board) — both items point at /supply-chain on purpose, not a bug.
   const supplyChainSections: { label?: string; items: NavItem[] }[] = [
+    // Dashboard and Reports are workspace-wide, not owned by any one section —
+    // lifted to the top so they read the same way as Receivables and Payables.
+    // This also removes three duplicate entries: "Purchasing Reports" and
+    // "Fulfilment Reports" were two labels on the ONE shared hub
+    // (/accounting/reports), and "Production Schedule" / "Production Orders"
+    // were two labels on the ONE board (mo-console.tsx). Two names for one
+    // screen is not a shortcut, it is a reason to distrust the menu.
+    {
+      items: [
+        { href: "/supply-chain/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { href: "/accounting/reports", label: "Supply Chain Reports", icon: BarChart3 },
+      ],
+    },
     {
       label: "Purchasing",
       items: [
         { href: "/accounting/trade/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
         { href: "/supply-chain/receiving", label: "Goods Receipts", icon: PackageCheck },
-        { href: "/accounting/reports", label: "Purchasing Reports", icon: BarChart3 },
       ],
     },
     {
       label: "Manufacturing",
       items: [
-        { href: "/supply-chain/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/supply-chain", label: "Production Schedule", icon: LayoutDashboard },
-        { href: "/supply-chain/build", label: "Build", icon: Workflow },
         { href: "/supply-chain", label: "Production Orders", icon: ListTree },
+        { href: "/supply-chain/build", label: "Build", icon: Workflow },
         { href: "/supply-chain/bom", label: "Bill of Materials", icon: GitBranch },
       ],
     },
@@ -328,7 +358,6 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/trade/sales-orders", label: "Sales Orders", icon: ShoppingCart },
         { href: "/supply-chain/shipping", label: "Shipments", icon: Truck },
-        { href: "/accounting/reports", label: "Fulfilment Reports", icon: BarChart3 },
       ],
     },
     {
@@ -342,8 +371,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // stock without leaving Inventory's remit. A separate Setup group here
         // would hold two entries and split one idea across two places.
         { href: "/supply-chain/transfers", label: "Stock Transfers", icon: ArrowLeftRight },
-        { href: "/supply-chain/locations", label: "Locations", icon: MapPin },
-        { href: "/accounting/products", label: "Products & Materials", icon: Package },
+        // "Stock Locations", not "Locations": Accounting > Setup already has a
+        // Locations entry (/accounting/locations) and it is the GL reporting
+        // DIMENSION, not a physical place. Two menu items with one word meaning
+        // two different things is how a nav stops making sense.
+        { href: "/supply-chain/locations", label: "Stock Locations", icon: MapPin },
+        // "Products & Services", matching Accounting — this is literally the
+        // same screen, and it was appearing under two different names.
+        { href: "/accounting/products", label: "Products & Services", icon: Package },
       ],
     },
   ];
