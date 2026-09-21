@@ -6,6 +6,7 @@
  *  open-invoices      → posted customer invoices with an unpaid A/R balance
  */
 
+import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
 import { tradeDocuments, tradeDocumentLines, apItems, salesShipments, accounts, journalEntries, journalLines, transactionLinks } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
@@ -14,7 +15,6 @@ import { and, eq, asc, inArray, sql } from "drizzle-orm";
 
 const num = (v: any) => Number(v ?? 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -67,13 +67,13 @@ export async function GET(req: Request) {
     const sl = lines.filter(l => l.documentId === so.id);
     const detail = sl.map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
-      const shipped = num(l.receivedQty); const remaining = r4(ordered - shipped);
+      const shipped = num(l.receivedQty); const remaining = roundQty(ordered - shipped);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       const perBase = num(l.unitsPerOrderUnit || 1) > 0 ? num(l.rate) / num(l.unitsPerOrderUnit || 1) : num(l.rate);
       return { itemName: it?.name ?? (l.description || "—"), baseUom: it?.baseUom ?? null, ordered, shipped, remaining, remainingValue: r2(remaining * perBase) };
     });
     const remainingValue = r2(detail.reduce((s, d) => s + d.remainingValue, 0));
-    const fullyShipped = detail.every(d => d.remaining <= 0.0001);
+    const fullyShipped = detail.every(d => d.remaining <= QTY_EPSILON);
     return { id: so.id, docNumber: so.docNumber, customer: so.partyLabel, date: so.issueDate, deliveryDate: so.expiryDate, total: num(so.total), remainingValue, status: fullyShipped ? "Shipped" : detail.some(d => d.shipped > 0) ? "Partial" : "Awaiting", detail };
   }).filter(so => so.status !== "Shipped");
   return ok({ rows, total: r2(rows.reduce((s, p) => s + p.remainingValue, 0)) });

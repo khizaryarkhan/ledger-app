@@ -8,6 +8,7 @@
  * canPostInventoryTxn.
  */
 
+import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { stockLocations, inventoryLotLocations } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -45,7 +46,7 @@ export async function GET() {
     types: LOCATION_TYPES.map(t => ({ value: t, label: LOCATION_TYPE_LABELS[t], hint: LOCATION_TYPE_HINTS[t] })),
     locations: rows.map(r => ({
       ...r,
-      onHandQty: Math.round(Number(heldBy.get(r.id)?.qty ?? 0) * 1e4) / 1e4,
+      onHandQty: roundQty(Number(heldBy.get(r.id)?.qty ?? 0)),
       lotCount: Number(heldBy.get(r.id)?.lots ?? 0),
     })),
   });

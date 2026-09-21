@@ -10,6 +10,7 @@
  * per-document/per-item lists up into org-wide totals for one dashboard call.
  */
 
+import { QTY_EPSILON } from "@/lib/inventory/round";
 import { db } from "@/db";
 import {
   apItems, tradeDocuments, tradeDocumentLines, goodsReceipts, salesShipments,
@@ -32,7 +33,7 @@ function remainingByDoc(lines: (typeof tradeDocumentLines.$inferSelect)[]) {
     const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
     const received = num(l.receivedQty);
     const remainingQty = ordered - received;
-    if (remainingQty <= 0.0001) continue;
+    if (remainingQty <= QTY_EPSILON) continue;
     const perBase = num(l.unitsPerOrderUnit || 1) > 0 ? num(l.rate) / num(l.unitsPerOrderUnit || 1) : num(l.rate);
     byDoc.set(l.documentId, (byDoc.get(l.documentId) ?? 0) + remainingQty * perBase);
     if (l.itemId) byItem.set(l.itemId, (byItem.get(l.itemId) ?? 0) + remainingQty);

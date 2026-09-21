@@ -9,6 +9,7 @@
  * moves stock, allocating cost per pack).
  */
 
+import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { manufacturingOrders, moOutputs, boms, bomLines, apItems, itemSkus } from "@/db/schema";
 import { and, eq, asc, desc, inArray } from "drizzle-orm";
@@ -18,7 +19,6 @@ import { buildProductionMulti } from "@/lib/inventory/production";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 const num = (v: any) => Number(v ?? 0);
-const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 
 export const MO_STATUSES = ["Draft", "Scheduled", "Released", "InProgress", "Completed", "Cancelled"] as const;
@@ -54,20 +54,20 @@ export async function materialsForOutputs(orgId: string, bomId: string | null, o
   const packLines = lines.filter(l => l.role === "pack");
   const unitContent = new Map(outLines.map(l => [l.skuId, num(l.qty)]));
 
-  const baseTotal = r4(outputs.reduce((sum, o) => sum + num(o.qty) * (unitContent.get(o.skuId) || 0), 0));
+  const baseTotal = roundQty(outputs.reduce((sum, o) => sum + num(o.qty) * (unitContent.get(o.skuId) || 0), 0));
   const factor = batch > 0 ? baseTotal / batch : 0;
 
   const req = new Map<string, { qty: number; kind: "ingredient" | "packaging" }>();
-  for (const l of inLines) { const cur = req.get(l.itemId) ?? { qty: 0, kind: "ingredient" as const }; cur.qty = r4(cur.qty + num(l.qty) * factor); req.set(l.itemId, cur); }
+  for (const l of inLines) { const cur = req.get(l.itemId) ?? { qty: 0, kind: "ingredient" as const }; cur.qty = roundQty(cur.qty + num(l.qty) * factor); req.set(l.itemId, cur); }
   for (const o of outputs) for (const p of packLines.filter(pl => pl.packagingForSkuId === o.skuId)) {
-    const cur = req.get(p.itemId) ?? { qty: 0, kind: "packaging" as const }; cur.qty = r4(cur.qty + num(p.qty) * num(o.qty)); req.set(p.itemId, cur);
+    const cur = req.get(p.itemId) ?? { qty: 0, kind: "packaging" as const }; cur.qty = roundQty(cur.qty + num(p.qty) * num(o.qty)); req.set(p.itemId, cur);
   }
   const ids = [...req.keys()];
   const items = ids.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom, onHand: apItems.onHandQty }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids))) : [];
   const byId = new Map(items.map(i => [i.id, i]));
   const outLinesList = ids.map(id => {
     const r = req.get(id)!; const it = byId.get(id); const onHand = num(it?.onHand);
-    return { itemId: id, name: it?.name ?? "Item", baseUom: it?.baseUom ?? null, kind: r.kind, required: r.qty, onHand, short: r4(r.qty - onHand), ok: onHand + 0.0001 >= r.qty };
+    return { itemId: id, name: it?.name ?? "Item", baseUom: it?.baseUom ?? null, kind: r.kind, required: r.qty, onHand, short: roundQty(r.qty - onHand), ok: onHand + 1e-6 >= r.qty };
   });
   return { baseTotal, lines: outLinesList, anyShort: outLinesList.some(l => !l.ok) };
 }

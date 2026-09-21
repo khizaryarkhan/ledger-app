@@ -20,7 +20,7 @@ import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accoun
 import { loadItemCostInfo, planIssue, commitIssue, commitReceipt, type IssuePlan } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { round2, round4, round6 } from "@/lib/inventory/round";
+import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
@@ -80,7 +80,7 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     const restrict = inp.lotPicks?.length ? inp.lotPicks.map(p => p.lotId) : undefined;
     const plan = await planIssue(orgId, item!, qty, { restrictLotIds: restrict, skuId: inp.skuId ?? null, locationId: consumeLocationId });
     if (consumeLocationId && plan.shortfallQty > 0) {
-      err(`${item!.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
+      err(`${item!.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }
     const assetAcct = item!.assetAccountId ?? invAssetId;
     if (!assetAcct) err(`No inventory asset account for input ${item!.name}.`);
@@ -139,7 +139,7 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     if (!sku) err("Output SKU not found.");
     const packSize = Number(sku.size) || 0;
     if (packSize <= 0) err("The chosen output SKU has no pack size (inner unit pack size) — set it on the SKU first.");
-    baseQty = round4(qtyOut * packSize);
+    baseQty = roundQty(qtyOut * packSize);
     skuId = sku.id;
   }
   const producedLotId = await commitReceipt(orgId, {
@@ -195,17 +195,17 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
   const outputs = reqOutputs.map(o => {
     const uc = unitContent.get(o.skuId) || 0;
     if (uc <= 0) err("An output pack has no base content per pack set on the BOM.");
-    return { skuId: o.skuId, packs: Number(o.qty), baseQty: round4(Number(o.qty) * uc) };
+    return { skuId: o.skuId, packs: Number(o.qty), baseQty: roundQty(Number(o.qty) * uc) };
   });
-  const baseTotal = round4(outputs.reduce((s, o) => s + o.baseQty, 0));
+  const baseTotal = roundQty(outputs.reduce((s, o) => s + o.baseQty, 0));
   if (baseTotal <= 0) err("Nothing to produce.");
   const factor = batch > 0 ? baseTotal / batch : 0;
 
   // Aggregate required qty per consumed item (ingredients scaled + packaging per output).
   const required = new Map<string, number>();
-  for (const l of inLines) required.set(l.itemId, round4((required.get(l.itemId) ?? 0) + (Number(l.qty) || 0) * factor));
+  for (const l of inLines) required.set(l.itemId, roundQty((required.get(l.itemId) ?? 0) + (Number(l.qty) || 0) * factor));
   for (const o of outputs) for (const p of packLines.filter(pl => pl.packagingForSkuId === o.skuId)) {
-    required.set(p.itemId, round4((required.get(p.itemId) ?? 0) + (Number(p.qty) || 0) * o.packs));
+    required.set(p.itemId, roundQty((required.get(p.itemId) ?? 0) + (Number(p.qty) || 0) * o.packs));
   }
   const consumedIds = [...required.keys()];
   const itemMap = await loadItemCostInfo(orgId, [...consumedIds, bom!.outputItemId]);
@@ -224,7 +224,7 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
     if (qty <= 0) continue;
     const plan = await planIssue(orgId, item, qty, { locationId: consumeLocationIdMulti });
     if (consumeLocationIdMulti && plan.shortfallQty > 0) {
-      err(`${item.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
+      err(`${item.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }
     const assetAcct = item.assetAccountId ?? invAssetId;
     if (!assetAcct) err(`No inventory asset account for ${item.name}.`);

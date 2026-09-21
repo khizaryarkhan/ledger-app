@@ -1852,7 +1852,7 @@ export const apItems = pgTable("ap_items", {
   productType:       varchar("product_type", { length: 24 }).notNull().default("FinishedProduct"),
   baseUom:           varchar("base_uom", { length: 16 }),
   category:          varchar("category", { length: 128 }),
-  minOhQty:          numeric("min_oh_qty", { precision: 14, scale: 4 }).notNull().default("0"),
+  minOhQty:          numeric("min_oh_qty", { precision: 16, scale: 6 }).notNull().default("0"),
   unitPrice:         real("unit_price"),
   incomeAccountId:   varchar("income_account_id", { length: 64 }),
   // Perpetual-inventory accounting. Inventory-tracked kinds capitalise purchases
@@ -1860,7 +1860,7 @@ export const apItems = pgTable("ap_items", {
   assetAccountId:    varchar("asset_account_id", { length: 64 }),   // Inventory asset (balance sheet)
   cogsAccountId:     varchar("cogs_account_id", { length: 64 }),    // Cost of Goods Sold (P&L)
   lotTracked:        boolean("lot_tracked").notNull().default(false),
-  onHandQty:         numeric("on_hand_qty", { precision: 18, scale: 4 }).notNull().default("0"),   // cached sum of open lots
+  onHandQty:         numeric("on_hand_qty", { precision: 20, scale: 6 }).notNull().default("0"),   // cached sum of open lots
   invValue:          numeric("inv_value", { precision: 18, scale: 4 }).notNull().default("0"),     // cached total FIFO value on hand
   status:            varchar("status", { length: 32 }).notNull().default("Active"),
   raw:               jsonb("raw"),
@@ -1969,8 +1969,8 @@ export const inventoryLots = pgTable("inventory_lots", {
   supplierId:    uuid("supplier_id"),
   receivedDate:  date("received_date"),
   expiryDate:    date("expiry_date"),
-  origQty:       numeric("orig_qty", { precision: 18, scale: 4 }).notNull(),        // base UoM
-  remainingQty:  numeric("remaining_qty", { precision: 18, scale: 4 }).notNull(),
+  origQty:       numeric("orig_qty", { precision: 20, scale: 6 }).notNull(),        // base UoM
+  remainingQty:  numeric("remaining_qty", { precision: 20, scale: 6 }).notNull(),
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),        // cost per base UoM
   status:        varchar("status", { length: 16 }).notNull().default("Open"),        // Open | Depleted
   note:          text("note"),
@@ -2001,7 +2001,7 @@ export const inventoryLotLocations = pgTable("inventory_lot_locations", {
   orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   lotId:      uuid("lot_id").notNull().references(() => inventoryLots.id, { onDelete: "cascade" }),
   locationId: uuid("location_id").notNull().references(() => stockLocations.id, { onDelete: "restrict" }),
-  qty:        numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),
+  qty:        numeric("qty", { precision: 20, scale: 6 }).notNull().default("0"),
   createdAt:  timestamp("created_at").notNull().defaultNow(),
   updatedAt:  timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -2024,7 +2024,7 @@ export const inventoryMovements = pgTable("inventory_movements", {
   // deliberately not back-filled, because the placement was never observed.
   fromLocationId: uuid("from_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   toLocationId:   uuid("to_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
-  qty:           numeric("qty", { precision: 18, scale: 4 }).notNull(),   // signed: + into stock, - out
+  qty:           numeric("qty", { precision: 20, scale: 6 }).notNull(),   // signed: + into stock, - out
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }),
   totalCost:     numeric("total_cost", { precision: 18, scale: 4 }),
   refType:       varchar("ref_type", { length: 32 }),   // Bill | Invoice | SalesReceipt | ProductionRun | Adjustment
@@ -2080,7 +2080,7 @@ export const stockTransferLines = pgTable("stock_transfer_lines", {
   // nature — you pick up particular boxes and carry them — so the line records
   // which lot actually moved rather than re-deriving it later.
   lotId:       uuid("lot_id"),
-  qty:         numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),
+  qty:         numeric("qty", { precision: 20, scale: 6 }).notNull().default("0"),
   unitCost:    numeric("unit_cost", { precision: 18, scale: 6 }).notNull().default("0"),
   amount:      numeric("amount", { precision: 18, scale: 4 }).notNull().default("0"),
   description: text("description"),
@@ -2120,12 +2120,12 @@ export const bomLines = pgTable("bom_lines", {
   role:            varchar("role", { length: 12 }).notNull(),  // output | input | pack
   itemId:          uuid("item_id").notNull(),
   skuId:           uuid("sku_id"),                            // output stock SKU (item_skus)
-  qty:             numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),
+  qty:             numeric("qty", { precision: 20, scale: 6 }).notNull().default("0"),
   // input: qty per batch. output: base FP content per 1 pack unit (e.g. 12 lb/case).
   // pack: packaging material qty per 1 unit of `packagingForSkuId`.
   uom:             varchar("uom", { length: 16 }),
   packagingConfig: varchar("packaging_config", { length: 128 }),  // outputs: e.g. "4 oz/bag"
-  outputPackQty:   numeric("output_pack_qty", { precision: 14, scale: 4 }),   // outputs: pack count
+  outputPackQty:   numeric("output_pack_qty", { precision: 16, scale: 6 }),   // outputs: pack count
   packagingForSkuId: uuid("packaging_for_sku_id"),            // pack lines: the output SKU this packaging is for
   supplierSkuId:   uuid("supplier_sku_id"),                    // inputs: From [SKU]
   sortOrder:       integer("sort_order").notNull().default(0),
@@ -2145,7 +2145,7 @@ export const productionRuns = pgTable("production_runs", {
   bomId:           uuid("bom_id"),
   runNo:           varchar("run_no", { length: 32 }),
   outputItemId:    uuid("output_item_id").notNull(),
-  qtyToProduce:    numeric("qty_to_produce", { precision: 18, scale: 4 }).notNull(),
+  qtyToProduce:    numeric("qty_to_produce", { precision: 20, scale: 6 }).notNull(),
   totalInputCost:  numeric("total_input_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   status:          varchar("status", { length: 16 }).notNull().default("Draft"), // Draft | Completed
   // A build consumes from one place and delivers output to another — commonly
@@ -2171,7 +2171,7 @@ export const productionConsumptions = pgTable("production_consumptions", {
   runId:         uuid("run_id").notNull().references(() => productionRuns.id, { onDelete: "cascade" }),
   itemId:        uuid("item_id").notNull(),
   lotId:         uuid("lot_id").notNull(),
-  qty:           numeric("qty", { precision: 18, scale: 4 }).notNull(),
+  qty:           numeric("qty", { precision: 20, scale: 6 }).notNull(),
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),
   totalCost:     numeric("total_cost", { precision: 18, scale: 4 }).notNull(),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
@@ -2192,7 +2192,7 @@ export const manufacturingOrders = pgTable("manufacturing_orders", {
   bomId:           uuid("bom_id"),
   outputItemId:    uuid("output_item_id").notNull(),
   outputSkuId:     uuid("output_sku_id"),
-  qty:             numeric("qty", { precision: 18, scale: 4 }).notNull(),   // total in base UoM (createMO stores baseTotal); per-pack qtys live in mo_outputs
+  qty:             numeric("qty", { precision: 20, scale: 6 }).notNull(),   // total in base UoM (createMO stores baseTotal); per-pack qtys live in mo_outputs
   scheduledDate:   date("scheduled_date"),
   dueDate:         date("due_date"),
   priority:        varchar("priority", { length: 8 }).notNull().default("Normal"), // Low | Normal | High
@@ -2216,7 +2216,7 @@ export const moOutputs = pgTable("mo_outputs", {
   moId:      uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
   itemId:    uuid("item_id").notNull(),
   skuId:     uuid("sku_id"),
-  qty:       numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),  // in SKU packs
+  qty:       numeric("qty", { precision: 20, scale: 6 }).notNull().default("0"),  // in SKU packs
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ mo_outputs_mo_idx: index("mo_outputs_mo_idx").on(t.moId) }));
 export type MoOutput = typeof moOutputs.$inferSelect;
@@ -2228,8 +2228,8 @@ export const productionOutputs = pgTable("production_outputs", {
   runId:     uuid("run_id").notNull().references(() => productionRuns.id, { onDelete: "cascade" }),
   itemId:    uuid("item_id").notNull(),
   skuId:     uuid("sku_id"),
-  qtyPacks:  numeric("qty_packs", { precision: 18, scale: 4 }).notNull().default("0"),
-  qtyBase:   numeric("qty_base", { precision: 18, scale: 4 }).notNull().default("0"),
+  qtyPacks:  numeric("qty_packs", { precision: 20, scale: 6 }).notNull().default("0"),
+  qtyBase:   numeric("qty_base", { precision: 20, scale: 6 }).notNull().default("0"),
   unitCost:  numeric("unit_cost", { precision: 18, scale: 6 }).notNull().default("0"),
   amount:    numeric("amount", { precision: 18, scale: 4 }).notNull().default("0"),
   lotId:     uuid("lot_id"),
@@ -2398,7 +2398,7 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   accountId:   uuid("account_id"),
   itemId:      uuid("item_id"),
   description: text("description"),
-  qty:         numeric("qty", { precision: 14, scale: 4 }),
+  qty:         numeric("qty", { precision: 16, scale: 6 }),
   rate:        numeric("rate", { precision: 14, scale: 4 }),
   amount:         numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
   taxRateId:      uuid("tax_rate_id"),
@@ -2413,9 +2413,9 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   skuId:             uuid("sku_id"),                                  // stock SKU (item_skus) transacted, for SI/FP
   classId:           uuid("class_id"),                                // dimension — carried from the order form
   locationId:        uuid("location_id"),                             // dimension — carried from the order form
-  orderedBaseQty:    numeric("ordered_base_qty", { precision: 18, scale: 4 }).notNull().default("0"), // qty × unitsPerOrderUnit
-  receivedQty:       numeric("received_qty", { precision: 18, scale: 4 }).notNull().default("0"),     // base UoM received to date
-  billedQty:         numeric("billed_qty", { precision: 18, scale: 4 }).notNull().default("0"),       // base UoM billed to date
+  orderedBaseQty:    numeric("ordered_base_qty", { precision: 20, scale: 6 }).notNull().default("0"), // qty × unitsPerOrderUnit
+  receivedQty:       numeric("received_qty", { precision: 20, scale: 6 }).notNull().default("0"),     // base UoM received to date
+  billedQty:         numeric("billed_qty", { precision: 20, scale: 6 }).notNull().default("0"),       // base UoM billed to date
 }, (t) => ({
   trade_document_lines_doc_idx: index("trade_document_lines_doc_idx").on(t.documentId),
 }));
@@ -2460,13 +2460,13 @@ export const goodsReceiptLines = pgTable("goods_receipt_lines", {
   poId:        uuid("po_id"),        // trade_documents id (nullable — receive without a PO)
   poLineId:    uuid("po_line_id"),   // trade_document_lines id
   description: text("description"),
-  qtyBase:     numeric("qty_base", { precision: 18, scale: 4 }).notNull(),        // received, item base UoM
+  qtyBase:     numeric("qty_base", { precision: 20, scale: 6 }).notNull(),        // received, item base UoM
   unitCost:    numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),        // home, per base UoM
   amount:      numeric("amount", { precision: 18, scale: 4 }).notNull().default("0"), // home = qtyBase × unitCost
   lotId:       uuid("lot_id"),
   lotNo:       varchar("lot_no", { length: 64 }),
   expiryDate:  date("expiry_date"),
-  billedQty:   numeric("billed_qty", { precision: 18, scale: 4 }).notNull().default("0"), // base billed to date
+  billedQty:   numeric("billed_qty", { precision: 20, scale: 6 }).notNull().default("0"), // base billed to date
   createdAt:   timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   goods_receipt_lines_receipt_idx: index("goods_receipt_lines_receipt_idx").on(t.receiptId),
@@ -2488,7 +2488,7 @@ export const jobWorkOrders = pgTable("job_work_orders", {
   vendorLabel:         varchar("vendor_label", { length: 255 }),
   sentItemId:          uuid("sent_item_id").notNull(),
   sentSkuId:           uuid("sent_sku_id"),
-  sentQty:             numeric("sent_qty", { precision: 18, scale: 4 }).notNull(),
+  sentQty:             numeric("sent_qty", { precision: 20, scale: 6 }).notNull(),
   sentAmount:          numeric("sent_amount", { precision: 14, scale: 2 }).notNull().default("0"),
   dispatchDate:        date("dispatch_date").notNull(),
   dispatchEntryId:     uuid("dispatch_entry_id"),
@@ -2504,7 +2504,7 @@ export const jobWorkOrders = pgTable("job_work_orders", {
   // possible; see job_work_receipts (one row per tranche) below.
   receivedItemId:      uuid("received_item_id"),
   receivedSkuId:       uuid("received_sku_id"),
-  receivedQty:         numeric("received_qty", { precision: 18, scale: 4 }), // running total across all receipts
+  receivedQty:         numeric("received_qty", { precision: 20, scale: 6 }), // running total across all receipts
   receivedLotId:       uuid("received_lot_id"),
   receiptId:           uuid("receipt_id"),
   receiveDate:         date("receive_date"),
@@ -2513,7 +2513,7 @@ export const jobWorkOrders = pgTable("job_work_orders", {
   // Set only when the order is explicitly closed (no more receipts expected).
   closedAt:            timestamp("closed_at"),
   closedBy:            uuid("closed_by"),
-  wastageQty:          numeric("wastage_qty", { precision: 18, scale: 4 }),   // sentQty - receivedQty; negative = gain
+  wastageQty:          numeric("wastage_qty", { precision: 20, scale: 6 }),   // sentQty - receivedQty; negative = gain
   wastageAmount:       numeric("wastage_amount", { precision: 14, scale: 2 }),
   wastageEntryId:      uuid("wastage_entry_id"),
   expectedYieldPct:    numeric("expected_yield_pct", { precision: 9, scale: 4 }), // optional benchmark, informational only
@@ -2535,13 +2535,13 @@ export const jobWorkReceipts = pgTable("job_work_receipts", {
   jobWorkOrderId:      uuid("job_work_order_id").notNull(),
   receivedItemId:      uuid("received_item_id").notNull(),
   receivedSkuId:       uuid("received_sku_id"),
-  receivedQty:         numeric("received_qty", { precision: 18, scale: 4 }).notNull(),
+  receivedQty:         numeric("received_qty", { precision: 20, scale: 6 }).notNull(),
   // How much of the DISPATCHED item (in ITS unit) this tranche represents —
   // needed whenever the received item's unit differs from the sent item's
   // (e.g. kg of fabric in -> count of garments out). Null means "assume 1:1
   // with receivedQty", which is exactly right when sent/received share a unit
   // (e.g. kg yarn -> kg fabric) and is the default for backward compatibility.
-  materialQtyConsumed: numeric("material_qty_consumed", { precision: 18, scale: 4 }),
+  materialQtyConsumed: numeric("material_qty_consumed", { precision: 20, scale: 6 }),
   receivedLotId:       uuid("received_lot_id"),
   receiptId:           uuid("receipt_id"),
   receiveDate:         date("receive_date").notNull(),
@@ -2657,13 +2657,13 @@ export const shipmentLines = pgTable("shipment_lines", {
   soId:            uuid("so_id"),        // trade_documents id (nullable — ship without an SO)
   soLineId:        uuid("so_line_id"),
   description:     text("description"),
-  qtyBase:         numeric("qty_base", { precision: 18, scale: 4 }).notNull(),          // shipped, item base UoM
+  qtyBase:         numeric("qty_base", { precision: 20, scale: 6 }).notNull(),          // shipped, item base UoM
   unitCost:        numeric("unit_cost", { precision: 18, scale: 6 }).notNull().default("0"), // home FIFO cost relieved per base
   cogsAmount:      numeric("cogs_amount", { precision: 18, scale: 4 }).notNull().default("0"),
   saleRate:        numeric("sale_rate", { precision: 18, scale: 6 }),                    // sale price per base (for invoicing)
   incomeAccountId: varchar("income_account_id", { length: 64 }),
   taxRateId:       uuid("tax_rate_id"),
-  invoicedQty:     numeric("invoiced_qty", { precision: 18, scale: 4 }).notNull().default("0"), // base invoiced to date
+  invoicedQty:     numeric("invoiced_qty", { precision: 20, scale: 6 }).notNull().default("0"), // base invoiced to date
   createdAt:       timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   shipment_lines_shipment_idx: index("shipment_lines_shipment_idx").on(t.shipmentId),

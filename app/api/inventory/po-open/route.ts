@@ -3,6 +3,7 @@
  * line's remaining-to-receive quantity (base UoM). Feeds the receiving picker.
  */
 
+import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
 import { tradeDocuments, tradeDocumentLines, apItems } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
     const poLines = lines.filter(l => l.documentId === po.id && l.itemId).map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
       const received = num(l.receivedQty);
-      const remaining = Math.round((ordered - received) * 1e4) / 1e4;
+      const remaining = roundQty(ordered - received);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       return {
         lineId: l.id, itemId: l.itemId, skuId: l.skuId ?? null, itemName: it?.name ?? "Item", baseUom: it?.baseUom ?? null,
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
         rate: num(l.rate), orderedBaseQty: ordered, receivedQty: received, remainingQty: remaining,
         unitCostBase: num(l.unitsPerOrderUnit || 1) > 0 ? Math.round((num(l.rate) / num(l.unitsPerOrderUnit || 1)) * 1e6) / 1e6 : num(l.rate),
       };
-    }).filter(l => l.remainingQty > 0.0001);
+    }).filter(l => l.remainingQty > QTY_EPSILON);
     return {
       id: po.id, docNumber: po.docNumber, partyId: po.partyId, partyLabel: po.partyLabel,
       currency: po.currency, exchangeRate: num(po.exchangeRate) || 1, issueDate: po.issueDate, expiryDate: po.expiryDate,

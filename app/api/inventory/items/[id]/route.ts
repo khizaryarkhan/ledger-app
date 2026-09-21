@@ -4,6 +4,7 @@
  * DELETE /api/inventory/items/[id]  → delete the item (SKUs cascade)
  */
 
+import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
@@ -38,7 +39,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const skuSize = new Map(skus.map(s => [s.id, Number(s.innerUnitPackSize) || 0]));
   const onHandBySkuOut = [...bySku.entries()].map(([skuId, v]) => {
     const size = skuId ? (skuSize.get(skuId) || 0) : 0;
-    return { skuId, baseQty: v.qty, value: Math.round(v.value * 100) / 100, packs: size > 0 ? Math.round((v.qty / size) * 1e4) / 1e4 : null };
+    return { skuId, baseQty: v.qty, value: Math.round(v.value * 100) / 100, packs: size > 0 ? roundQty(v.qty / size) : null };
   });
   return ok({
     item,

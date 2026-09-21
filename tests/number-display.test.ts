@@ -16,6 +16,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { fmt } from "@/lib/format";
+import { round4, round6, roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 
 /** Strip currency symbols and NBSPs so assertions are about the DIGITS. */
 const digits = (s: string) => s.replace(/[^\d.,\-<>]/g, "").trim();
@@ -123,5 +124,54 @@ describe("num2 and money agree", () => {
     for (const n of [0, 1.2, 100, 1234.5, 1234.567, 1.234567]) {
       expect(digits(fmt.money(n, "EUR"))).toBe(fmt.num2(n));
     }
+  });
+});
+
+describe("a quantity survives the trip to the database and back", () => {
+  /**
+   * Displaying 5 decimals while storing 4 is worse than displaying 4: the user
+   * is shown a figure the system has already discarded. Both halves of that had
+   * to change together — the columns (migration 0088) and the rounding that ran
+   * before the column ever saw the value.
+   */
+
+  it("roundQty keeps the fifth decimal that round4 destroyed", () => {
+    // The exact case from the display rule: 10.12345 is a legitimate quantity.
+    expect(round4(10.12345)).toBe(10.1235);   // what shipped before — lossy
+    expect(roundQty(10.12345)).toBe(10.12345); // what ships now
+  });
+
+  it("what roundQty produces is what fmt.qty renders", () => {
+    // If the engine rounded to a different scale than the formatter displays,
+    // a figure would change the moment it was saved and reloaded.
+    for (const n of [10, 10.5, 0.125, 10.12345, 1234.00001]) {
+      expect(fmt.qty(roundQty(n))).toBe(fmt.qty(n));
+    }
+  });
+
+  it("the sixth decimal is kept for arithmetic even though only five show", () => {
+    // Scale 6 exists so a UoM conversion or a FIFO split does not accumulate
+    // error; display stays at 5 deliberately.
+    expect(roundQty(1 / 3)).toBe(0.333333);
+    expect(fmt.qty(roundQty(1 / 3))).toBe("0.33333");
+  });
+
+  it("the epsilon calls zero exactly what the column cannot distinguish", () => {
+    // A remainder of 0.00005 is real at scale 6 and must not be treated as a
+    // closed line; one of 0.0000001 cannot be stored and must be.
+    expect(0.00005 > QTY_EPSILON).toBe(true);
+    expect(0.0000001 > QTY_EPSILON).toBe(false);
+    // And it agrees with the rounding: anything that rounds to zero is zero.
+    expect(roundQty(0.0000001)).toBe(0);
+    expect(roundQty(0.00005)).not.toBe(0);
+  });
+
+  it("money and quantity round at their own scales, not a shared one", () => {
+    // The bug was one helper serving both. A unit cost is numeric(_,6) and a
+    // movement total is numeric(_,4); using the quantity helper for a total, or
+    // the money helper for a quantity, is how two decimals went missing.
+    expect(round6(1.2345678)).toBe(1.234568);
+    expect(round4(1.2345678)).toBe(1.2346);
+    expect(roundQty(1.2345678)).toBe(1.234568);
   });
 });

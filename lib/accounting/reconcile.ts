@@ -286,7 +286,7 @@ export async function reconcileOrg(orgId: string, orgName: string): Promise<OrgR
          group by lot_id
       ) p on p.lot_id = l.id
      where l.org_id = ${orgId}
-       and abs(l.remaining_qty - coalesce(p.placed, 0)) > 0.0001
+       and abs(l.remaining_qty - coalesce(p.placed, 0)) > 0.000001
      order by abs(l.remaining_qty - coalesce(p.placed, 0)) desc`);
   checks.push({
     key: "lot_placement_balances",

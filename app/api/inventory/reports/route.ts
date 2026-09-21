@@ -6,6 +6,7 @@
  *  lots      → every open FIFO cost lot with its item, remaining qty, cost & value
  */
 
+import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
 import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations } from "@/db/schema";
 import { requireReadScope, ok, bad } from "@/lib/api";
@@ -26,7 +27,7 @@ async function openOrderQtyByItem(orgIds: string[], kind: "PurchaseOrder" | "Sal
     if (!l.itemId) continue;
     const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
     const remaining = ordered - num(l.receivedQty); // receivedQty = received (PO) / shipped (SO)
-    if (remaining > 0.0001) map.set(l.itemId, (map.get(l.itemId) ?? 0) + remaining);
+    if (remaining > QTY_EPSILON) map.set(l.itemId, (map.get(l.itemId) ?? 0) + remaining);
   }
   return map;
 }
@@ -59,8 +60,8 @@ async function placementsByItem(orgIds: string[]) {
     if (q <= 0) continue;
     const list = map.get(r.itemId) ?? [];
     const existing = list.find(l => l.locationId === r.locationId);
-    if (existing) existing.qty = Math.round((existing.qty + q) * 1e4) / 1e4;
-    else list.push({ locationId: r.locationId, code: r.code, name: r.name, type: r.type, qty: Math.round(q * 1e4) / 1e4 });
+    if (existing) existing.qty = roundQty(existing.qty + q);
+    else list.push({ locationId: r.locationId, code: r.code, name: r.name, type: r.type, qty: roundQty(q) });
     map.set(r.itemId, list);
   }
   return map;
@@ -84,7 +85,7 @@ async function placementsByLot(orgIds: string[]) {
     const q = num(r.qty);
     if (q <= 0) continue;
     const list = map.get(r.lotId) ?? [];
-    list.push({ code: r.code, name: r.name, qty: Math.round(q * 1e4) / 1e4 });
+    list.push({ code: r.code, name: r.name, qty: roundQty(q) });
     map.set(r.lotId, list);
   }
   return map;
@@ -109,8 +110,8 @@ export async function GET(req: Request) {
       const available = onHand + exp - com;
       return {
         id: i.id, name: i.name, code: i.code, category: i.category, baseUom: i.baseUom, productType: i.productType,
-        onHandQty: onHand, expectedQty: Math.round(exp * 1e4) / 1e4, committedQty: Math.round(com * 1e4) / 1e4,
-        availableQty: Math.round(available * 1e4) / 1e4, minOhQty: min,
+        onHandQty: onHand, expectedQty: roundQty(exp), committedQty: roundQty(com),
+        availableQty: roundQty(available), minOhQty: min,
         belowMin: min > 0 && available < min, out: onHand <= 0,
         // Where the on-hand quantity actually is. Empty for an org with no
         // locations yet, and for stock whose placement rows do not cover its
@@ -140,7 +141,7 @@ export async function GET(req: Request) {
       const packSize = sku ? num(sku.size) : 0;
       return {
         id: l.id, itemId: l.itemId, itemName: meta.name, itemCode: meta.code, baseUom: meta.baseUom,
-        skuName: sku?.name ?? null, packs: packSize > 0 ? Math.round((rem / packSize) * 1e4) / 1e4 : null, packType: sku?.packType ?? null,
+        skuName: sku?.name ?? null, packs: packSize > 0 ? roundQty(rem / packSize) : null, packType: sku?.packType ?? null,
         lotNo: l.lotNo, sourceType: l.sourceType, receivedDate: l.receivedDate, expiryDate: l.expiryDate,
         remainingQty: rem, unitCost: cost, value: Math.round(rem * cost * 100) / 100,
         locations: lotPlacements.get(l.id) ?? [],
@@ -155,7 +156,7 @@ export async function GET(req: Request) {
     grand += value;
     return {
       id: i.id, name: i.name, code: i.code, category: i.category, baseUom: i.baseUom, productType: i.productType,
-      onHandQty: onHand, avgCost: onHand !== 0 ? Math.round((value / onHand) * 1e4) / 1e4 : 0, value: Math.round(value * 100) / 100,
+      onHandQty: onHand, avgCost: onHand !== 0 ? Math.round((value / onHand) * 1e6) / 1e6 : 0, value: Math.round(value * 100) / 100,
     };
   });
   return ok({ rows, total: Math.round(grand * 100) / 100 });

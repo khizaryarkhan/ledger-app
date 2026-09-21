@@ -53,7 +53,7 @@ import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accoun
 import { loadItemCostInfo, commitReceipt, planIssue, commitIssue } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
-import { round2, round6 } from "@/lib/inventory/round";
+import { round2, round6, QTY_EPSILON} from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 import { deleteEntry } from "@/lib/inventory/void";
 
@@ -321,7 +321,7 @@ export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: s
   const wastageQty = round2(sentQty - materialQtyReceived); // negative = received more than sent (a gain)
   const wastageAmount = sentQty > 0 ? round2(wastageQty * (sentAmount / sentQty)) : 0;
 
-  if (wastageQty < -0.0001 && !opts?.confirmGain) {
+  if (wastageQty < -QTY_EPSILON && !opts?.confirmGain) {
     err(`This order received ${Math.abs(wastageQty)} more than was sent — confirm this is correct before closing.`);
   }
 

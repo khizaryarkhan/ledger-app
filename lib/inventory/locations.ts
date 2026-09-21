@@ -18,6 +18,7 @@
  * one race that matters is closed by a unique index rather than a lock.
  */
 
+import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { stockLocations, inventoryLotLocations, inventoryLots } from "@/db/schema";
 import { and, eq, ne, sql, asc, inArray } from "drizzle-orm";
@@ -54,7 +55,9 @@ export const NON_ISSUABLE_TYPES: ReadonlySet<string> = new Set<string>(["Quarant
 export class LocationError extends Error {}
 const fail = (m: string): never => { throw new LocationError(m); };
 
-const n4 = (n: number) => (Math.round((Number(n) || 0) * 1e4) / 1e4).toFixed(4);
+// Placement quantities, numeric(_,6) since migration 0088. Every use in this
+// file is a quantity — there is no money here.
+const nQty = (n: number) => (Math.round((Number(n) || 0) * 1e6) / 1e6).toFixed(6);
 
 export type LocationRow = typeof stockLocations.$inferSelect;
 
@@ -309,7 +312,7 @@ export async function stockHeldAt(orgId: string, locationId: string): Promise<nu
   const [row] = await db.select({ total: sql<string>`coalesce(sum(${inventoryLotLocations.qty}), 0)` })
     .from(inventoryLotLocations)
     .where(and(eq(inventoryLotLocations.orgId, orgId), eq(inventoryLotLocations.locationId, locationId)));
-  return Math.round(Number(row?.total ?? 0) * 1e4) / 1e4;
+  return roundQty(Number(row?.total ?? 0));
 }
 
 /**
@@ -340,16 +343,16 @@ export async function deleteLocation(orgId: string, id: string): Promise<void> {
 
 /** Add quantity to a lot's placement at a location (creates the row if new). */
 export async function placeQty(orgId: string, lotId: string, locationId: string, qty: number): Promise<void> {
-  const q = Math.round((Number(qty) || 0) * 1e4) / 1e4;
+  const q = roundQty(qty);
   if (q <= 0) return;
   // One statement, so two concurrent receipts into the same lot+location cannot
   // read-modify-write over each other — there are no transactions to hold them
   // apart. The unique index makes the conflict target exact.
   await db.execute(sql`
     INSERT INTO inventory_lot_locations (org_id, lot_id, location_id, qty)
-    VALUES (${orgId}, ${lotId}, ${locationId}, ${n4(q)})
+    VALUES (${orgId}, ${lotId}, ${locationId}, ${nQty(q)})
     ON CONFLICT (lot_id, location_id)
-    DO UPDATE SET qty = inventory_lot_locations.qty + ${n4(q)}, updated_at = now()
+    DO UPDATE SET qty = inventory_lot_locations.qty + ${nQty(q)}, updated_at = now()
   `);
 }
 
@@ -360,7 +363,7 @@ export async function placeQty(orgId: string, lotId: string, locationId: string,
  * write got there first — the caller decides what that means.
  */
 export async function takeQty(orgId: string, lotId: string, locationId: string, qty: number): Promise<number> {
-  const q = Math.round((Number(qty) || 0) * 1e4) / 1e4;
+  const q = roundQty(qty);
   if (q <= 0) return 0;
   // A CTE, because RETURNING reports the NEW row and so cannot say how much was
   // actually removed once `greatest(..., 0)` has clamped it: asking for 3 from a
@@ -373,7 +376,7 @@ export async function takeQty(orgId: string, lotId: string, locationId: string, 
        WHERE org_id = ${orgId} AND lot_id = ${lotId} AND location_id = ${locationId}
     ), upd AS (
       UPDATE inventory_lot_locations t
-         SET qty = greatest(t.qty - ${n4(q)}, 0), updated_at = now()
+         SET qty = greatest(t.qty - ${nQty(q)}, 0), updated_at = now()
         FROM prev
        WHERE t.id = prev.id
       RETURNING t.qty AS new_qty, prev.qty AS old_qty
@@ -390,7 +393,7 @@ export async function takeQty(orgId: string, lotId: string, locationId: string, 
       eq(inventoryLotLocations.locationId, locationId),
     ));
   }
-  return Math.round(Number(row.taken ?? 0) * 1e4) / 1e4;
+  return roundQty(Number(row.taken ?? 0));
 }
 
 export type LotPlacement = { locationId: string; qty: number; type: string; issuable: boolean };
@@ -465,7 +468,7 @@ export async function stockAtLocation(orgId: string, locationId: string) {
     cur.value += q * cost;
     cur.lots.push({
       lotId: r.lotId, lotNo: r.lotNo, skuId: r.skuId,
-      qty: Math.round(q * 1e4) / 1e4, unitCost: cost,
+      qty: roundQty(q), unitCost: cost,
       expiryDate: r.expiryDate as any, receivedDate: r.receivedDate as any,
     });
     byItem.set(r.itemId, cur);
@@ -473,7 +476,7 @@ export async function stockAtLocation(orgId: string, locationId: string) {
 
   return [...byItem.values()].map(v => ({
     ...v,
-    qty: Math.round(v.qty * 1e4) / 1e4,
+    qty: roundQty(v.qty),
     value: Math.round(v.value * 1e4) / 1e4,
   }));
 }
@@ -505,7 +508,7 @@ export async function onHandByLocation(orgId: string, itemId: string) {
   }
   return [...map.values()].map(v => ({
     ...v,
-    qty: Math.round(v.qty * 1e4) / 1e4,
+    qty: roundQty(v.qty),
     value: Math.round(v.value * 1e4) / 1e4,
   }));
 }

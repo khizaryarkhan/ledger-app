@@ -6,6 +6,7 @@
  *  open-bills     → posted supplier bills with an unpaid A/P balance
  */
 
+import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
 import { tradeDocuments, tradeDocumentLines, apItems, goodsReceipts, accounts, journalEntries, journalLines, transactionLinks } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
@@ -14,7 +15,6 @@ import { and, eq, asc, inArray, sql } from "drizzle-orm";
 
 const num = (v: any) => Number(v ?? 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -70,12 +70,12 @@ export async function GET(req: Request) {
     const pl = lines.filter(l => l.documentId === po.id);
     const detail = pl.map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
-      const received = num(l.receivedQty); const remaining = r4(ordered - received);
+      const received = num(l.receivedQty); const remaining = roundQty(ordered - received);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       return { itemName: it?.name ?? (l.description || "—"), baseUom: it?.baseUom ?? null, ordered, received, remaining, remainingValue: r2(remaining * (num(l.unitsPerOrderUnit || 1) > 0 ? num(l.rate) / num(l.unitsPerOrderUnit || 1) : num(l.rate))) };
     });
     const remainingValue = r2(detail.reduce((s, d) => s + d.remainingValue, 0));
-    const fullyReceived = detail.every(d => d.remaining <= 0.0001);
+    const fullyReceived = detail.every(d => d.remaining <= QTY_EPSILON);
     return { id: po.id, docNumber: po.docNumber, supplier: po.partyLabel, date: po.issueDate, deliveryDate: po.expiryDate, total: num(po.total), remainingValue, status: fullyReceived ? "Received" : detail.some(d => d.received > 0) ? "Partial" : "Awaiting", detail };
   }).filter(po => po.status !== "Received");
   return ok({ rows, total: r2(rows.reduce((s, p) => s + p.remainingValue, 0)) });

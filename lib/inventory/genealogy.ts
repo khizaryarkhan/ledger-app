@@ -19,6 +19,7 @@
  * in the tree, not just at the root.
  */
 
+import { QTY_EPSILON } from "@/lib/inventory/round";
 import { db } from "@/db";
 import {
   inventoryLots, inventoryMovements, apItems, users,
@@ -407,7 +408,7 @@ async function flattenAncestorsForReport(
       } else {
         const [jwo] = await db.select().from(jobWorkOrders).where(and(eq(jobWorkOrders.orgId, orgId), eq(jobWorkOrders.id, e.via.refId))).limit(1);
         const sentQtyForOrder = jwo ? Number(jwo.sentQty) : 0;
-        const orderWastagePct = jwo && jwo.status === "Closed" && sentQtyForOrder > 0 && Math.abs(Number(jwo.wastageQty ?? 0)) > 0.0001
+        const orderWastagePct = jwo && jwo.status === "Closed" && sentQtyForOrder > 0 && Math.abs(Number(jwo.wastageQty ?? 0)) > QTY_EPSILON
           ? round2((Number(jwo.wastageQty) / sentQtyForOrder) * 100) : null;
         acc = {
           qty, rawQty: e.qtyConsumed, feeTotal: round2(e.via.feeAmount ?? 0),

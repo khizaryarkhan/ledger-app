@@ -11,6 +11,7 @@
  * recompute the cached totals from the authoritative lot rows afterwards.
  */
 
+import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { apItems, inventoryLots, inventoryMovements } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
@@ -21,7 +22,13 @@ import {
   type LotPlacement,
 } from "@/lib/inventory/locations";
 
+// n4 = money at numeric(_,4) (movement totalCost, cached invValue).
+// nQty = QUANTITY at numeric(_,6) — widened by migration 0088 so a 5th and 6th
+// decimal survive the write. These were the same helper until then, which is
+// exactly why entering 10.12345 kg silently stored 10.1235.
+// n6 = unit cost / rate at numeric(_,6).
 const n4 = (n: number) => (Math.round((Number(n) || 0) * 1e4) / 1e4).toFixed(4);
+const nQty = (n: number) => (Math.round((Number(n) || 0) * 1e6) / 1e6).toFixed(6);
 const n6 = (n: number) => (Math.round((Number(n) || 0) * 1e6) / 1e6).toFixed(6);
 const num = (v: any) => Number(v ?? 0);
 
@@ -61,7 +68,7 @@ export async function recalcItemCache(orgId: string, itemId: string): Promise<vo
     .where(and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.itemId, itemId), eq(inventoryLots.status, "Open")));
   let qty = 0, val = 0;
   for (const l of lots) { const q = num(l.rem); qty += q; val += q * num(l.cost); }
-  await db.update(apItems).set({ onHandQty: n4(qty), invValue: n4(val), updatedAt: new Date() })
+  await db.update(apItems).set({ onHandQty: nQty(qty), invValue: n4(val), updatedAt: new Date() })
     .where(and(eq(apItems.id, itemId), eq(apItems.orgId, orgId)));
 }
 
@@ -170,7 +177,7 @@ export async function planIssue(
     }
   }
 
-  const shortfallQty = Math.round(remaining * 1e4) / 1e4;
+  const shortfallQty = roundQty(remaining);
   if (shortfallQty > 0) {
     const fb = item.unitCost ?? (picks.length ? picks[picks.length - 1].unitCost : 0);
     picks.push({ lotId: null, lotNo: null, qty: shortfallQty, unitCost: fb, locationId: null });
@@ -180,7 +187,7 @@ export async function planIssue(
     itemId: item.id, qty: want,
     totalCost: Math.round(cost * 1e4) / 1e4,
     picks, shortfallQty,
-    unlocatedQty: Math.round(unlocated * 1e4) / 1e4,
+    unlocatedQty: roundQty(unlocated),
   };
 }
 
@@ -230,7 +237,7 @@ export function reachableSlices(placements: LotPlacement[], lotRemaining: number
   // say where it is, is still held stock — draw it, mark it, and let the
   // reconciliation check be the thing that complains.
   const placed = placements.reduce((s, p) => s + p.qty, 0);
-  const gap = Math.round((lotRemaining - placed) * 1e4) / 1e4;
+  const gap = roundQty(lotRemaining - placed);
   if (gap > 0) slices.push({ locationId: null, qty: gap });
 
   return slices;
@@ -290,7 +297,7 @@ export async function commitReceipt(orgId: string, r: ReceiptInput): Promise<str
     sourceType: r.sourceType ?? "purchase", sourceId: r.entryId ?? r.refId,
     supplierId: r.supplierId ?? null,
     receivedDate: r.receivedDate, expiryDate: r.expiryDate ?? null,
-    origQty: n4(qty), remainingQty: n4(qty), unitCost: n6(unitCost),
+    origQty: nQty(qty), remainingQty: nQty(qty), unitCost: n6(unitCost),
     status: qty > 0 ? "Open" : "Depleted", note: r.note ?? null,
   } as any).returning({ id: inventoryLots.id });
 
@@ -300,7 +307,7 @@ export async function commitReceipt(orgId: string, r: ReceiptInput): Promise<str
 
   await db.insert(inventoryMovements).values({
     orgId, itemId: r.itemId, skuId: r.skuId ?? null, lotId: lot.id, movementType: r.sourceType === "production" ? "produce" : r.sourceType === "jobwork" ? "jobwork_receipt" : "receipt",
-    qty: n4(qty), unitCost: n6(unitCost), totalCost: n4(qty * unitCost),
+    qty: nQty(qty), unitCost: n6(unitCost), totalCost: n4(qty * unitCost),
     toLocationId: locationId,
     refType: r.refType, refId: r.refId, entryId: r.entryId ?? null,
     movementDate: r.receivedDate, note: r.note ?? null, createdBy: r.createdBy ?? null,
@@ -323,8 +330,8 @@ export async function commitIssue(orgId: string, c: IssueCommit): Promise<void> 
     if (p.lotId) {
       // Guarded decrement — never drive a lot negative if a concurrent write moved it.
       await db.update(inventoryLots).set({
-        remainingQty: sql`greatest(${inventoryLots.remainingQty} - ${n4(p.qty)}, 0)`,
-        status: sql`case when ${inventoryLots.remainingQty} - ${n4(p.qty)} <= 0 then 'Depleted' else 'Open' end`,
+        remainingQty: sql`greatest(${inventoryLots.remainingQty} - ${nQty(p.qty)}, 0)`,
+        status: sql`case when ${inventoryLots.remainingQty} - ${nQty(p.qty)} <= 0 then 'Depleted' else 'Open' end`,
       }).where(and(eq(inventoryLots.id, p.lotId), eq(inventoryLots.orgId, orgId)));
 
       if (p.locationId) {
@@ -334,7 +341,7 @@ export async function commitIssue(orgId: string, c: IssueCommit): Promise<void> 
         // what is there, then spill the rest across the lot's other placements
         // rather than leaving the difference stranded.
         const taken = await takeQty(orgId, p.lotId, p.locationId, p.qty);
-        const short = Math.round((p.qty - taken) * 1e4) / 1e4;
+        const short = roundQty(p.qty - taken);
         if (short > 0) {
           const spilled = await spillTake(orgId, p.lotId, short, p.locationId);
           if (spilled < short) {
@@ -354,7 +361,7 @@ export async function commitIssue(orgId: string, c: IssueCommit): Promise<void> 
 
     await db.insert(inventoryMovements).values({
       orgId, itemId: c.itemId, skuId: c.skuId ?? null, lotId: p.lotId, movementType: c.movementType,
-      qty: n4(-p.qty), unitCost: n6(p.unitCost), totalCost: n4(-(p.qty * p.unitCost)),
+      qty: nQty(-p.qty), unitCost: n6(p.unitCost), totalCost: n4(-(p.qty * p.unitCost)),
       fromLocationId: fromLocationId ?? null,
       refType: c.refType, refId: c.refId, entryId: c.entryId ?? null,
       movementDate: c.date, note: p.lotId ? c.note ?? null : (c.note ? `${c.note} (no stock — costed at fallback)` : "No stock on hand — costed at fallback"),
@@ -378,7 +385,7 @@ async function spillTake(orgId: string, lotId: string, qty: number, exceptLocati
     const taken = await takeQty(orgId, lotId, p.locationId, Math.min(p.qty, need));
     got += taken; need -= taken;
   }
-  return Math.round(got * 1e4) / 1e4;
+  return roundQty(got);
 }
 
 /**
@@ -429,7 +436,7 @@ export async function reverseInventoryByEntry(orgId: string, entryId: string): P
       // location it left from.
       const back = Math.abs(num(m.qty));
       await db.update(inventoryLots).set({
-        remainingQty: sql`${inventoryLots.remainingQty} + ${n4(back)}`, status: "Open",
+        remainingQty: sql`${inventoryLots.remainingQty} + ${nQty(back)}`, status: "Open",
       }).where(and(eq(inventoryLots.id, m.lotId), eq(inventoryLots.orgId, orgId)));
 
       // Movements written before locations existed carry no from_location_id

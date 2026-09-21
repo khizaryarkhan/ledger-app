@@ -20,7 +20,7 @@ import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
-import { round2, round4 } from "@/lib/inventory/round";
+import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
@@ -112,14 +112,14 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     const cogsAcct = item!.cogsAccountId ?? cogsSys;
     const assetAcct = item!.assetAccountId ?? invAssetId;
     if (!cogsAcct || !assetAcct) err(`No COGS / inventory account for ${item!.name}.`);
-    const qty = round4(Math.abs(Number(r.qtyBase) || 0));
+    const qty = roundQty(Math.abs(Number(r.qtyBase) || 0));
     if (qty <= 0) continue;
     const lineLocationId = r.locationId
       ? await resolveLocationId(orgId, r.locationId, { forIssue: true, label: "Line shipping location" })
       : headerLocationId;
     const plan = await planIssue(orgId, item!, qty, { skuId: r.skuId ?? null, locationId: lineLocationId });
     if (lineLocationId && plan.shortfallQty > 0) {
-      err(`${item!.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected location. Transfer stock in, or ship from where it actually is.`);
+      err(`${item!.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected location. Transfer stock in, or ship from where it actually is.`);
     }
     const cost = round2(plan.totalCost);
     if (cost > 0) { lines.push({ accountId: cogsAcct!, debit: cost, description: `COGS — ${item!.name}` }); lines.push({ accountId: assetAcct!, credit: cost, description: `Inventory relief — ${item!.name}` }); cogsTotal = round2(cogsTotal + cost); }
@@ -171,7 +171,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     await db.insert(shipmentLines).values({
       orgId, shipmentId, itemId: item.id, skuId: c.r.skuId ?? null, soId: c.r.soId ?? null, soLineId: c.r.soLineId ?? null,
       description: c.r.description ?? item.name, qtyBase: c.qty.toString(),
-      unitCost: (c.qty > 0 ? round4(c.plan.totalCost / c.qty) : 0).toString(), cogsAmount: round2(c.plan.totalCost).toString(),
+      unitCost: (c.qty > 0 ? round6(c.plan.totalCost / c.qty) : 0).toString(), cogsAmount: round2(c.plan.totalCost).toString(),
       saleRate: c.saleRate.toString(), incomeAccountId: c.income, taxRateId: c.r.taxRateId ?? null,
     } as any);
     if (c.r.soLineId) {
@@ -216,7 +216,7 @@ export async function invoiceFromShipments(orgId: string, input: InvoiceFromShip
   const invLines: any[] = [];
   const touched: { lineId: string; shipmentId: string; qty: number; amount: number }[] = [];
   for (const l of lineRows) {
-    const rem = round4(Number(l.qtyBase) - Number(l.invoicedQty));
+    const rem = roundQty(Number(l.qtyBase) - Number(l.invoicedQty));
     if (rem <= 0) continue;
     const rate = Number(l.saleRate) || 0;
     const amount = round2(rem * rate);

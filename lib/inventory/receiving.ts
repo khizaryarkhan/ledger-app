@@ -21,7 +21,7 @@ import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
-import { round2, round4, round6 } from "@/lib/inventory/round";
+import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
@@ -97,7 +97,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     if (!item!.tracked) err(`${item!.name} isn't an inventory-tracked item — only tracked items can be received into stock.`);
     const assetAcct = item!.assetAccountId ?? invAssetId;
     if (!assetAcct) err(`No inventory asset account for ${item!.name}.`);
-    const qty = round4(Math.abs(Number(r.qtyBase) || 0));
+    const qty = roundQty(Math.abs(Number(r.qtyBase) || 0));
     if (qty <= 0) continue;
     const homeUnit = round6((Number(r.unitCost) || 0) * rate);
     const amount = round4(qty * homeUnit);
@@ -138,7 +138,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
   const poAmounts = new Map<string, number>();
   for (const c of commits) {
     const item = itemMap.get(c.r.itemId)!;
-    const qty = round4(Math.abs(Number(c.r.qtyBase) || 0));
+    const qty = roundQty(Math.abs(Number(c.r.qtyBase) || 0));
     const lotId = await commitReceipt(orgId, {
       itemId: item.id, skuId: c.r.skuId ?? null, qty, unitCost: c.homeUnit, productType: item.productType, lotNo: c.r.lotNo ?? null, expiryDate: c.r.expiryDate ?? null,
       supplierId: input.supplierId ?? null, sourceType: "purchase", receivedDate: date,
@@ -206,7 +206,7 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
   const billLines: any[] = [];
   const touched: { lineId: string; qty: number; amount: number }[] = [];
   for (const l of lineRows) {
-    const rem = round4(Number(l.qtyBase) - Number(l.billedQty));
+    const rem = roundQty(Number(l.qtyBase) - Number(l.billedQty));
     if (rem <= 0) continue;
     // Match the receipt's rounding basis (round4 then round2) so GR/IR clears
     // to exactly zero when a receipt line is fully billed.

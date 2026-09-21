@@ -35,7 +35,7 @@ import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accoun
 import { loadItemCostInfo, planIssue, recalcItemCache } from "@/lib/inventory/valuation";
 import { resolveLocationId, placeQty, takeQty } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
-import { round2, round4, round6 } from "@/lib/inventory/round";
+import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
@@ -92,7 +92,7 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
     if (!item) err(`Item ${r.itemId} not found.`);
     if (!item!.tracked) err(`${item!.name} isn't inventory-tracked — there is no stock of it to move.`);
 
-    const qty = round4(Math.abs(Number(r.qtyBase) || 0));
+    const qty = roundQty(Math.abs(Number(r.qtyBase) || 0));
     const plan = await planIssue(orgId, item!, qty, {
       skuId: r.skuId ?? null,
       locationId: fromLocationId,
@@ -100,7 +100,7 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
     });
 
     if (plan.shortfallQty > 0) {
-      const available = round4(qty - plan.shortfallQty);
+      const available = roundQty(qty - plan.shortfallQty);
       err(
         `${item!.name}: only ${available} of ${qty} is available at ${fromLoc?.name ?? "the source location"}` +
         (r.lotIds?.length ? " in the selected lot(s)." : ".")
@@ -120,7 +120,7 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
       if (!pick.lotId) continue;
       moves.push({
         itemId: item!.id, itemName: item!.name, skuId: r.skuId ?? null, lotId: pick.lotId,
-        qty: round4(pick.qty), unitCost: round6(pick.unitCost),
+        qty: roundQty(pick.qty), unitCost: round6(pick.unitCost),
         amount: round4(pick.qty * pick.unitCost),
         fromAccountId, toAccountId, description: r.description ?? null,
       });

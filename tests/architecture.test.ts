@@ -812,3 +812,92 @@ describe("money and quantity are formatted in one place", () => {
     expect(src).toMatch(/const QTY_MAX_DP = 5;/);
   });
 });
+
+describe("quantities keep the decimals the database now holds", () => {
+  // Migration 0088 widened every quantity column to numeric(_,6). That achieves
+  // nothing on its own: before it, `round4()` and `.toFixed(4)` truncated each
+  // quantity in the engines BEFORE it reached the database, and inline
+  // `Math.round(q * 1e4) / 1e4` truncated it again on the way back out to a
+  // report. Both halves had to change, and both halves are the kind that grow
+  // back one convenient copy at a time.
+  const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
+
+  /** Names that mean "this is a count of things", not an amount of money. */
+  const QTY_NAME = /\b(qty|quantity|packs|baseQty|onHand|remaining|shortfall|unlocated|committed|available|expected|received|shipped|billed|invoiced|wastage)\w*/i;
+
+  const MONEY_NAME = /\b(amount|cost|value|price|rate|total|balance|fx|unitCost|avgCost)\w*/i;
+
+  const engineFiles = () =>
+    [...sourceFiles("lib/inventory"), ...sourceFiles("app/api/inventory")];
+
+  it("no quantity is rounded to four decimals", () => {
+    // 4dp is the OLD column scale. A quantity rounded there loses the 5th and
+    // 6th decimal permanently — silently, and only for the customers whose
+    // units are small enough to need them.
+    const offenders: string[] = [];
+    for (const f of engineFiles()) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        const rounds4 = /round4\s*\(|toFixed\(4\)|\*\s*1e4\s*\)\s*\/\s*1e4/.test(line);
+        if (!rounds4) return;
+        // A line may legitimately round money to 4 alongside a quantity name
+        // (`totalCost: n4(qty * unitCost)`), so a quantity name alone is not
+        // the test — the flag is a quantity name with NO money name present.
+        if (QTY_NAME.test(line) && !MONEY_NAME.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `these round a quantity to 4 decimals, which is the pre-0088 column scale — ` +
+      `use roundQty / nQty (6dp) so the 5th decimal a user typed survives: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the quantity epsilon is the smallest quantity the column can hold", () => {
+    // Every "is this remainder zero?" test was a bare 0.0001, which at 6dp
+    // storage silently closes a PO line that still has 0.00005 outstanding.
+    const src = readFileSync(join(ROOT, "lib/inventory/round.ts"), "utf8");
+    expect(src).toMatch(/export const QTY_EPSILON = 1e-6;/);
+    expect(src).toMatch(/export const roundQty = .*1e6.*1e6;/);
+
+    const offenders: string[] = [];
+    for (const f of engineFiles()) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (/0\.0001\b/.test(line) && QTY_NAME.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `these compare a quantity against a hand-written 0.0001 — import ` +
+      `QTY_EPSILON from lib/inventory/round so the threshold tracks the column ` +
+      `scale instead of drifting from it: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("every quantity column in the schema carries six decimals", () => {
+    // The guard that makes the other two mean something: if a new quantity
+    // column lands at scale 4, rounding to 6 in the engine just hands Postgres
+    // a number it will round back down.
+    const src = readFileSync(join(ROOT, "db/schema.ts"), "utf8");
+    const offenders: string[] = [];
+    let table = "";
+    src.split("\n").forEach(line => {
+      const t = /export const \w+ = pgTable\("([^"]+)"/.exec(line);
+      if (t) table = t[1];
+      const c = /(\w+):\s*numeric\("([^"]+)",\s*\{\s*precision:\s*(\d+),\s*scale:\s*(\d+)/.exec(line);
+      if (!c) return;
+      const [, , col, , scale] = c;
+      if (/qty|quantity|packs/i.test(col) && Number(scale) < 6) {
+        offenders.push(`${table}.${col} (scale ${scale})`);
+      }
+    });
+    expect(
+      offenders,
+      `these quantity columns still hold only 4 decimals, so a 5-decimal entry ` +
+      `is rounded away on write: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+});

@@ -4,6 +4,7 @@
  * (receivedQty is reused as "shipped" for Sales Orders.)
  */
 
+import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
 import { tradeDocuments, tradeDocumentLines, apItems } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
     const soLines = lines.filter(l => l.documentId === so.id && l.itemId).map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
       const shipped = num(l.receivedQty);
-      const remaining = Math.round((ordered - shipped) * 1e4) / 1e4;
+      const remaining = roundQty(ordered - shipped);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       const saleRateBase = num(l.unitsPerOrderUnit || 1) > 0 ? num(l.rate) / num(l.unitsPerOrderUnit || 1) : num(l.rate);
       return {
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
         orderedBaseQty: ordered, shippedQty: shipped, remainingQty: remaining,
         saleRateBase: Math.round(saleRateBase * 1e6) / 1e6, taxRateId: l.taxRateId ?? null,
       };
-    }).filter(l => l.remainingQty > 0.0001);
+    }).filter(l => l.remainingQty > QTY_EPSILON);
     return {
       id: so.id, docNumber: so.docNumber, partyId: so.partyId, partyLabel: so.partyLabel,
       currency: so.currency, exchangeRate: num(so.exchangeRate) || 1, issueDate: so.issueDate, expiryDate: so.expiryDate,

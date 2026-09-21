@@ -96,11 +96,37 @@ reached the paying client, not around coverage.
     their own formatters. The customer portal is explicitly out of scope; it
     already shows cents (`maximumFractionDigits: 2`), differing only in that a
     round figure prints `100` rather than `100.00`.
-- **⚠️ Every quantity column is `numeric(_,4)`** — 25 at `numeric(18,4)` and 3
-  at `numeric(14,4)`. Display now allows 5 decimals, but the DATABASE cannot
-  hold a 5th, so a 5-decimal entry is silently rounded to 4 on write. Widening
-  them is a real migration across 28 columns and has not been done — do not
-  assume a 5-decimal quantity survives a round trip.
+- **Quantity columns are `numeric(_,6)`** (migration `0088`, 2026-09-21 — 28
+  columns across 16 tables). They were all `numeric(_,4)`, so once display was
+  raised to 5 decimals the database still could not hold a 5th and `10.12345`
+  silently became `10.1235` on write. Widened by +2 on BOTH scale and precision
+  (`numeric(18,4) -> numeric(20,6)`, `numeric(14,4) -> numeric(16,6)`) so the
+  integer range is unchanged and no existing row could be rejected by the ALTER.
+  - **Widening the columns achieved nothing on its own.** `round4()` and
+    `.toFixed(4)` truncated every quantity in the engines *before* it reached
+    the database, and inline `Math.round(q * 1e4) / 1e4` truncated it again on
+    the way back out to a report. Both halves had to change together; either one
+    alone leaves the user reading a figure the system has already discarded.
+  - **`lib/inventory/round.ts` is the vocabulary, and the names carry the
+    distinction**: `roundQty` / `nQty` = quantity (6dp), `round4` / `n4` = money
+    at `numeric(_,4)` (movement `total_cost`, line `amount`, cached `inv_value`),
+    `round6` / `n6` = unit cost or rate at `numeric(_,6)`. `n4` used to serve
+    quantities *and* money in `valuation.ts`, which is precisely how the loss
+    went unnoticed — never reintroduce one helper for both.
+  - **`QTY_EPSILON` (`1e-6`) is the only "is this remainder zero?" threshold.**
+    Every such test was a bare `0.0001`, which at 6dp storage closes a PO line
+    that still has `0.00005` outstanding. The rule is: if the column cannot tell
+    it from zero, it is zero — so the epsilon is tied to the column scale, not
+    picked by feel. `reconcile.ts`'s `lot_placement_balances` tolerance moved
+    the same way.
+  - Scale **6**, not 5: it matches `unit_cost`/`exchange_rate`, which were
+    already `numeric(_,6)`, and leaves headroom for UoM conversions that produce
+    repeating decimals. **Display stays at 5** — the 6th decimal is for
+    arithmetic, not for reading.
+  - `tests/architecture.test.ts` guards all three properties (no quantity
+    rounded at 4dp, no hand-written `0.0001` against a quantity, no schema
+    quantity column below scale 6) and each guard was proven to fail on the real
+    defect. `tests/number-display.test.ts` pins the round trip itself.
 - GL/ledger columns use `numeric(14,2)` (stored as `.toFixed(2)` strings for
   Drizzle).
 - **Theming:** app supports Dark/Light/System via CSS variables. The Tailwind
@@ -562,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0087` at `when`
-  `1789500000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0088` at `when`
+  `1789600000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
