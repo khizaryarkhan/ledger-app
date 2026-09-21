@@ -327,3 +327,118 @@ describe("stock placement is only ever written through one choke point", () => {
     }
   });
 });
+
+describe("every migration chunk is exactly one SQL command", () => {
+  /**
+   * neon-http sends each `--> statement-breakpoint` chunk as its own PREPARED
+   * statement, and Postgres refuses more than one command in one of those:
+   *   NeonDbError: cannot insert multiple commands into a prepared statement
+   *
+   * This is not a style rule. It failed a production deploy: two blocks were
+   * appended to 0087 without a breakpoint between them, every test passed, tsc
+   * was clean, and the build died at `npm run db:migrate` — after the code had
+   * already been pushed to main. Nothing else in the suite can see it, because
+   * nothing else reads the .sql files.
+   *
+   * 0017 and 0018 predate this guard and are already applied in production.
+   * Rewriting an applied migration changes nothing in the database and risks
+   * breaking a from-scratch migrate, so they are grandfathered by name rather
+   * than "fixed".
+   */
+  const GRANDFATHERED = new Set([
+    "db/migrations/0017_communications_message_id.sql",
+    "db/migrations/0018_invoice_escalation.sql",
+  ]);
+
+  /** Top-level commands in a chunk, treating $$...$$ bodies as opaque. */
+  function commandsIn(chunk: string): string[] {
+    const withoutComments = chunk
+      .split("\n")
+      .filter(l => !l.trim().startsWith("--"))
+      .join("\n");
+    // A DO $$ ... $$ block is ONE command however many semicolons it contains.
+    const opaque = withoutComments.replace(/\$\$[\s\S]*?\$\$/g, "$$BLOCK$$");
+    return opaque.split(";").map(c => c.trim()).filter(Boolean);
+  }
+
+  it("no chunk contains two or more commands", () => {
+    const dir = join(ROOT, "db/migrations");
+    const files = readdirSync(dir).filter(f => f.endsWith(".sql")).sort();
+    expect(files.length, "no migrations found — is the path right?").toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const f of files) {
+      const rel = `db/migrations/${f}`;
+      if (GRANDFATHERED.has(rel)) continue;
+      const sql = readFileSync(join(dir, f), "utf8");
+      sql.split("--> statement-breakpoint").forEach((chunk, i) => {
+        const cmds = commandsIn(chunk);
+        if (cmds.length > 1) {
+          offenders.push(`${rel} chunk #${i} has ${cmds.length} commands (first: ${cmds[0].slice(0, 60)}…)`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `neon-http cannot run these — add a "--> statement-breakpoint" between them:
+${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("the journal's `when` values strictly increase", () => {
+    /**
+     * Drizzle SKIPS an entry whose `when` is not greater than the previous one,
+     * silently and without error. CLAUDE.md records that this dropped a table in
+     * production once.
+     *
+     * 0016 and 0017 are that incident, still visible in the data: both `when`
+     * values predate 0015's — which is precisely why the repair migration is
+     * called `0085_heal_skipped_0016_0017`. It is NOT corrected here — the entries are long applied, and
+     * rewriting an applied `when` would re-order history for any fresh database
+     * while changing nothing in the existing one.
+     */
+    const KNOWN_INVERSIONS = new Set(["0016_contacts_updated_at", "0017_communications_message_id"]);
+
+    const journal = JSON.parse(readFileSync(join(ROOT, "db/migrations/meta/_journal.json"), "utf8"));
+    const entries: { when: number; tag: string }[] = journal.entries ?? [];
+    expect(entries.length).toBeGreaterThan(0);
+
+    for (let i = 1; i < entries.length; i++) {
+      if (KNOWN_INVERSIONS.has(entries[i].tag)) continue;
+      // Compare against the highest `when` seen so far rather than the previous
+      // entry, so the one grandfathered dip cannot mask a NEW one after it.
+      const ceiling = Math.max(...entries.slice(0, i).map(e => e.when));
+      expect(
+        entries[i].when,
+        `${entries[i].tag} has when=${entries[i].when}, not greater than every earlier entry (max ${ceiling}) — drizzle will skip it`,
+      ).toBeGreaterThan(ceiling);
+    }
+  });
+
+  it("every journal entry has a file, and every file an entry", () => {
+    /**
+     * A .sql file the journal never names simply does not run. 0018 is exactly
+     * that: its columns are in db/schema.ts and the app writes them, so they
+     * were applied by hand or by `drizzle-kit push` — the migration-drift class
+     * CLAUDE.md documents.
+     *
+     * It is deliberately NOT added to the journal. Its statements are bare
+     * `ADD COLUMN` with no IF NOT EXISTS, so running them against a database
+     * that already has those columns would fail — and because migrations run in
+     * `vercel-build`, that would break every future deploy, not just one.
+     */
+    const ORPHANED_BY_HISTORY = new Set(["0018_invoice_escalation"]);
+
+    const journal = JSON.parse(readFileSync(join(ROOT, "db/migrations/meta/_journal.json"), "utf8"));
+    const tags: string[] = (journal.entries ?? []).map((e: any) => e.tag);
+    const files = readdirSync(join(ROOT, "db/migrations"))
+      .filter(f => f.endsWith(".sql"))
+      .map(f => f.replace(/\.sql$/, ""));
+
+    for (const t of tags) expect(files, `journal names ${t} but no such .sql file exists`).toContain(t);
+    for (const f of files) {
+      if (ORPHANED_BY_HISTORY.has(f)) continue;
+      expect(tags, `${f}.sql exists but the journal never runs it`).toContain(f);
+    }
+  });
+});
