@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Loader, Check, Scale } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { controlCompact } from "@/components/form-kit";
 
 const money = fmt.num2;
 // Accounts whose normal (positive opening) side is a debit.
@@ -68,7 +69,7 @@ export function OpeningBalances() {
     setMsg("Opening balances posted."); load();
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded px-2 py-1 text-[13px] text-stone-100 w-40 text-right focus:outline-none focus:border-emerald-600";
+  const inputCls = controlCompact + " w-40 text-right tabular-nums";
 
   return (
     <div className="p-6 max-w-3xl">
@@ -81,7 +82,7 @@ export function OpeningBalances() {
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Bring balances over from your previous system. Enter each account's balance as of the start date; the difference posts to Opening Balance Equity automatically.</p>
 
-      <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
+      <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className={controlCompact} /></div>
 
       {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">

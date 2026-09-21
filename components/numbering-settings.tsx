@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { Hash, Check, Loader } from "lucide-react";
 import { formatDocNumber as preview } from "@/lib/accounting/doc-format";
+import { controlCompact } from "@/components/form-kit";
 
 // Per-type transaction numbering (QBO model). Each type has its own series:
 // a prefix, a next number, and zero-padding. Numbers are auto-assigned on the
@@ -34,7 +35,7 @@ export function NumberingSettings() {
     } finally { setSavingType(null); }
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-[13px] text-stone-100";
+  const inputCls = controlCompact;
 
   return (
     <Card className="p-5 mb-4">

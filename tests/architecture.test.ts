@@ -512,3 +512,87 @@ describe("the app stays on one type scale", () => {
     expect(src).toContain('export const th = "text-left " + t.micro');
   });
 });
+
+describe("form controls come from the kit, not from each component", () => {
+  /**
+   * CLAUDE.md has said for a long time not to hand-roll input class strings —
+   * "that's how the forms drifted into inconsistency before". It was never
+   * enforced, so it drifted again: 34 components carried form controls and only
+   * 12 composed from form-kit. The other 22 each defined their own, which is
+   * why two drawers opened looking like two different products.
+   *
+   * The signature below is what every one of those hand-rolled controls shared:
+   * a stone background, a border and a radius, on a line that is an <input>,
+   * <select>, <textarea>, or a `const inputCls = "..."` feeding one.
+   *
+   * Compose from form-kit instead:
+   *   control / controlInset   full form field (h-9)
+   *   controlCompact           inline filter or in-table numeric (h-8)
+   *   controlMultiline         textarea
+   *   cell / cellSelectCls     ghost line-item cell
+   *   fieldLabel, th           label and table header
+   * Extra classes are fine on top — `${controlCompact} w-16 text-right` says
+   * "a standard control, narrower and right-aligned", which is a variation.
+   * Re-declaring the whole anatomy is a fork.
+   *
+   * Excluded: form-kit itself (it IS the definition), ui.tsx (the shared
+   * primitives), and the public marketing / pre-auth surfaces, which have their
+   * own visual language and no reason to match an internal data screen.
+   */
+  const OWNS_ITS_STYLING = new Set([
+    "form-kit.tsx",
+    "ui.tsx",
+    "marketing.tsx",
+    "alternative-page.tsx",
+    "solution-page.tsx",
+    "interest-form.tsx",
+    "login-form.tsx",
+  ]);
+
+  // A stone surface + border + radius, in either order.
+  const CONTROL_SIG = /bg-stone-9[05]0[^"`]*border[^"`]*rounded|rounded[^"`]*border[^"`]*bg-stone-9[05]0/;
+  const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
+
+  // Only the class string belonging to the CONTROL ITSELF, never every string
+  // on the line. A card <div> and an <input> routinely share a line, and
+  // flagging the card because an input sits beside it is a false positive —
+  // the kind that gets a guard switched off rather than obeyed.
+  const CONTROL_CLASS = /<(?:input|select|textarea)[^>]*?className="([^"]*)"/g;
+  const CONTROL_CONST = /(?:inputCls|labelCls|const input)\s*=\s*"([^"]*)"/g;
+
+  it("no component hand-rolls a form control's styling", () => {
+    const offenders: string[] = [];
+    for (const f of sourceFiles("components")) {
+      const name = f.split(/[\\/]/).pop()!;
+      if (OWNS_ITS_STYLING.has(name)) continue;
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        for (const re of [CONTROL_CLASS, CONTROL_CONST]) {
+          re.lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(line)) !== null) {
+            if (CONTROL_SIG.test(m[1])) offenders.push(`${name}:${i + 1}`);
+          }
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these define a control's styling inline instead of composing from ` +
+      `components/form-kit.tsx (control / controlInset / controlCompact / ` +
+      `controlMultiline / cell): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the kit still exports the tokens components are told to use", () => {
+    const src = readFileSync(join(ROOT, "components/form-kit.tsx"), "utf8");
+    for (const token of [
+      "control", "controlInset", "controlCompact", "controlMultiline",
+      "cell", "fieldLabel", "th",
+    ]) {
+      expect(src, `form-kit no longer exports ${token}`).toMatch(
+        new RegExp(`export const ${token}\\b`),
+      );
+    }
+  });
+});

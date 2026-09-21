@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { controlCompact } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -47,7 +48,7 @@ export function FxExposureReport() {
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Foreign-currency balances and the home value they were booked at. Enter today's rate per currency to see the unrealised gain/loss if revalued now. Home currency: {home}.</p>
 
-      <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
+      <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
 
       <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className="w-full text-[13px] min-w-[720px]">
@@ -65,7 +66,7 @@ export function FxExposureReport() {
                 <td className="px-4 py-2 text-stone-400 font-mono">{r.currency}</td>
                 <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.foreignBalance)}</td>
                 <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.homeCarrying)}</td>
-                <td className="px-4 py-2 text-right"><input type="number" value={rates[r.currency] ?? ""} onChange={e => setRates(p => ({ ...p, [r.currency]: e.target.value }))} className="bg-stone-950 border border-stone-700 rounded px-2 py-1 text-[12px] text-stone-100 w-24 text-right font-mono" /></td>
+                <td className="px-4 py-2 text-right"><input type="number" value={rates[r.currency] ?? ""} onChange={e => setRates(p => ({ ...p, [r.currency]: e.target.value }))} className={`${controlCompact} w-24 text-right font-mono`} /></td>
                 <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.revalued)}</td>
                 <td className={`px-4 py-2 text-right tabular-nums ${r.gl > 0 ? "text-emerald-400" : r.gl < 0 ? "text-rose-400" : "text-stone-500"}`}>{money(r.gl)}</td>
               </tr>

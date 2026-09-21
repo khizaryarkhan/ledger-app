@@ -7,6 +7,7 @@ import Link from "next/link";
 import { RefreshCw, Users, Building2, Receipt, ArrowLeft } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { controlCompact } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -23,7 +24,7 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
 
   return (
     <ReportShell title={isAR ? "Aged Receivables" : "Aged Payables"} sub={isAR ? "Open customer invoices bucketed by how overdue they are." : "Open supplier bills bucketed by how overdue they are."} icon={isAR ? Users : Building2} onRefresh={load} loading={data === null}>
-      <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
+      <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
       <div className="grid grid-cols-5 gap-2 mb-4">
         {BUCKETS.map(b => (
           <div key={b} className={`rounded-xl border p-3 ${b === "90+" ? "border-rose-800/50 bg-rose-500/5" : "border-stone-800 bg-stone-900"}`}>
@@ -74,8 +75,8 @@ export function TaxLiabilityReport() {
   return (
     <ReportShell title="Sales Tax Liability" sub="Output tax collected on sales, less input tax reclaimed on purchases, for the period." icon={Receipt} onRefresh={load} loading={data === null}>
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">
-        From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" />
-        to <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" />
+        From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} />
+        to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} />
       </div>
       <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden max-w-xl">
         {data === null ? <div className="px-4 py-8 text-center text-stone-500">Loading…</div> : (<>

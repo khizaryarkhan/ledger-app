@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { X, Loader, Check } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
+import { controlInset } from "@/components/form-kit";
 
 export type QuickAddKind =
   | "customer" | "supplier" | "item"
@@ -76,7 +77,7 @@ export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCre
   }
 
   const label = "block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1";
-  const input = "w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 focus:border-stone-500 outline-none";
+  const input = controlInset;
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-end">

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, Lock, Users, Building2, Contact, Pencil, Trash2 } from "lucide-react";
 import { PartyDrawer } from "@/components/party-drawer";
+import { controlInset } from "@/components/form-kit";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; singular: string; icon: any }> = {
@@ -56,7 +57,7 @@ export function PartyList({ type, nativeOnly = false }: { type: PartyType; nativ
   }, [rows, q, src]);
 
   const Icon = meta.icon;
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100";
+  const inputCls = controlInset;
 
   return (
     <div className="p-6 max-w-5xl">

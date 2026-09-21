@@ -145,6 +145,33 @@ export const controlInset =
   "disabled:opacity-50 disabled:cursor-not-allowed";
 export const controlSelectInset = controlInset + " appearance-none pr-9 cursor-pointer";
 
+/**
+ * Multi-line control (textarea). Same anatomy as `controlInset` but without the
+ * fixed h-9, which would clip a textarea to one line. Split out rather than
+ * left to callers to patch, because "controlInset + h-auto" was exactly the
+ * kind of local tweak that grew into the competing class strings this kit
+ * exists to replace.
+ */
+export const controlMultiline =
+  "w-full min-h-[76px] rounded-md bg-stone-950 border border-stone-700/70 px-3 py-2 text-[13px] text-stone-100 " +
+  "placeholder:text-stone-600 outline-none resize-y transition-[border-color,box-shadow,background-color] duration-150 " +
+  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
+
+/**
+ * Compact control for inline filters — the "As of <date>" and "Search…" boxes
+ * that sit in a report header rather than in a form. h-8 instead of h-9 so the
+ * row stays tight; everything else matches, so a filter still looks like it
+ * belongs to the same product as the form below it.
+ */
+export const controlCompact =
+  "h-8 rounded-md bg-stone-950 border border-stone-700/70 px-2.5 text-[13px] text-stone-100 " +
+  "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
+  "hover:border-stone-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
+
+/** Compact control carrying a leading icon — adds room for it. */
+export const controlCompactIcon = controlCompact + " pl-8";
+
 /** Ghost table-cell control — chrome only on hover/focus, reads like a ledger. */
 export const cell =
   "w-full h-8 rounded-md bg-transparent border border-transparent px-2 text-[13px] text-stone-100 " +

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { CalendarRange, Check, Loader, Lock, Unlock, AlertTriangle } from "lucide-react";
+import { controlInset } from "@/components/form-kit";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -72,7 +73,7 @@ export function FinancialYearSettings() {
     } finally { setBusy(false); }
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100";
+  const inputCls = controlInset;
 
   return (
     <Card className="p-5 mb-4">

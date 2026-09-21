@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { X, Loader, Check, AlertTriangle, Users, Building2, Contact } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
+import { controlInset } from "@/components/form-kit";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; noun: string; icon: any }> = {
@@ -78,7 +79,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyT
   }
 
   const label = "block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1";
-  const input = "w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 focus:border-stone-500 outline-none";
+  const input = controlInset;
   const section = "text-[12px] font-semibold text-stone-300 uppercase tracking-wider pt-2";
   const Icon = meta.icon;
 

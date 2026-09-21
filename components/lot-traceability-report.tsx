@@ -18,6 +18,7 @@ import { useSearchParams } from "next/navigation";
 import { Search, GitBranch, Truck, ShieldCheck, ShieldAlert, FileDown } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { controlInset } from "@/components/form-kit";
 
 const qty = fmt.qty;
 const money = fmt.num2;
@@ -80,7 +81,7 @@ export function LotTraceabilityReport() {
     <ReportShell title="Lot Traceability" sub="A lot's complete history — raw materials, processing, cost rollup and distribution." icon={GitBranch} onRefresh={() => selectedId && load(selectedId)} loading={loading}>
       <div className="relative max-w-sm mb-4">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Search by lot code…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Search by lot code…" className={`${controlInset} pl-9`} />
       </div>
 
       {results.length > 0 && !selectedId && (

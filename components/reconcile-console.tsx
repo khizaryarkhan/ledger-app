@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Landmark, Loader, Check, X } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { controlCompact, controlInset } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -50,7 +51,7 @@ export function ReconcileConsole() {
     loadView(accountId); loadAccts();
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 focus:outline-none focus:border-emerald-600";
+  const inputCls = controlInset;
 
   return (
     <div className="p-6 max-w-5xl">
@@ -80,7 +81,7 @@ export function ReconcileConsole() {
             <div className={`rounded-xl border p-3 ${balanced ? "border-emerald-800/50 bg-emerald-500/5" : "border-amber-800/50 bg-amber-500/5"}`}><div className="text-[10px] uppercase tracking-wide text-stone-500">Difference</div><div className={`text-[15px] font-semibold tabular-nums ${balanced ? "text-emerald-400" : "text-amber-400"}`}>{money(difference)}</div></div>
           </div>
           <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 text-[12px] text-stone-400">Statement date <input type="date" value={stmtDate} onChange={e => setStmtDate(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
+            <div className="flex items-center gap-2 text-[12px] text-stone-400">Statement date <input type="date" value={stmtDate} onChange={e => setStmtDate(e.target.value)} className={controlCompact} /></div>
             <button onClick={finalize} disabled={!balanced || saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-40" title={balanced ? "" : "Difference must be zero"}>
               {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Finish reconciliation
             </button>

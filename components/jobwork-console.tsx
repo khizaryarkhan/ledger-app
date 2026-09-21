@@ -20,9 +20,10 @@ import { fmt } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
+import { controlInset, fieldLabel } from "@/components/form-kit";
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
-const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
+const inputCls = controlInset;
+const labelCls = fieldLabel;
 const money = fmt.num2;
 const qtyFmt = fmt.qty;
 

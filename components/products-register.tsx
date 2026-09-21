@@ -18,12 +18,12 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inventory/uom";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, fieldLabel, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
-const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
+const inputCls = controlInset;
+const labelCls = fieldLabel;
 
 const UOM_GROUPS: { dim: string; label: string }[] = [
   { dim: "mass", label: "Mass" }, { dim: "volume", label: "Volume" },

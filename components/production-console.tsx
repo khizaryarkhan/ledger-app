@@ -11,9 +11,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Factory, X, Loader, Check, Wand2, Trash2 } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
+import { controlCompact, controlInset, fieldLabel } from "@/components/form-kit";
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
-const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
+const inputCls = controlInset;
+const labelCls = fieldLabel;
 const money = fmt.num2;
 
 export function ProductionConsole() {
@@ -299,7 +300,7 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
                             <td className="py-1 text-stone-300 font-mono">{lot.lotNo || lot.id.slice(0, 8)}</td>
                             <td className="py-1 text-right text-stone-400 tabular-nums">{Number(lot.remainingQty)}</td>
                             <td className="py-1 text-right text-stone-400 tabular-nums font-mono">{money(lot.unitCost)}</td>
-                            <td className="py-1 text-right"><input type="number" value={r.alloc[lot.id] ?? ""} onChange={e => setAlloc(idx, lot.id, e.target.value)} className="bg-stone-950 border border-stone-700 rounded px-2 py-1 text-[11.5px] text-stone-100 w-20 text-right" /></td>
+                            <td className="py-1 text-right"><input type="number" value={r.alloc[lot.id] ?? ""} onChange={e => setAlloc(idx, lot.id, e.target.value)} className={`${controlCompact} w-20 text-right tabular-nums`} /></td>
                           </tr>
                         ))}
                       </tbody>

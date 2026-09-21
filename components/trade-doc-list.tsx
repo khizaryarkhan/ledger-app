@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, RefreshCw, Check, FileText, ShoppingCart, ChevronDown, ChevronRight, Layers, X, Loader, Trash2, Printer, Route } from "lucide-react";
+import { controlCompact } from "@/components/form-kit";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
 const META: Record<Kind, { title: string; singular: string; newType: string; icon: any; convertTo: string; invoiceVerb: string; fulfil?: string }> = {
@@ -211,7 +212,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
     } finally { setBusy(false); }
   }
 
-  const input = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-[13px] text-stone-100 text-right tabular-nums";
+  const input = controlCompact + " text-right tabular-nums";
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-stone-900 border border-stone-700 rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -226,7 +227,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
           {err && <div className="mb-3 text-[12px] text-rose-400">{err}</div>}
           <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">
             Quick fill:
-            <input type="number" min="0" max="100" value={pct} onChange={e => applyPct(e.target.value)} className="bg-stone-950 border border-stone-700 rounded px-2 py-1 w-16 text-right" />% of remaining
+            <input type="number" min="0" max="100" value={pct} onChange={e => applyPct(e.target.value)} className={`${controlCompact} w-16 text-right tabular-nums`} />% of remaining
             <button onClick={() => applyPct("100")} className="text-teal-400 hover:text-teal-300 ml-1">all</button>
           </div>
           {!lines ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={12} className="animate-spin" /> Loading…</div> : (

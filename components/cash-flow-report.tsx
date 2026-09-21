@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, TrendingUp, ArrowLeft } from "lucide-react";
+import { controlCompact } from "@/components/form-kit";
 
 const money = (n: number) => { const v = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return n < 0 ? `(${v})` : v; };
 
@@ -32,7 +33,7 @@ export function CashFlowReport() {
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={d === null ? "animate-spin" : ""} /></button>
       </div>
       <p className="text-[13px] text-stone-400 mb-4 ml-12">Indirect method — net income adjusted for the period's changes in working capital, investing and financing.</p>
-      <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /> to <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
+      <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} /> to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} /></div>
 
       {d === null ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">

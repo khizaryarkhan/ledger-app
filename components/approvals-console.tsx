@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck, Check, X, RefreshCw, Sliders } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { controlCompact } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -154,7 +155,7 @@ export function ApprovalsConsole() {
             {rowErr?.id === r.id && <p className="mt-1.5 text-[12px] text-rose-400">{rowErr.msg}</p>}
             {rejecting === r.id && (
               <div className="mt-2 flex items-center gap-2">
-                <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for rejecting…" className="flex-1 bg-stone-950 border border-stone-700 rounded-lg px-3 py-1.5 text-[12.5px] text-stone-100 focus:outline-none focus:border-rose-600" />
+                <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for rejecting…" className={`${controlCompact} flex-1`} />
                 <button onClick={() => reject(r.id)} disabled={!reason.trim() || busyId === r.id} className="text-[12.5px] font-medium bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">Confirm reject</button>
               </div>
             )}
