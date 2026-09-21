@@ -533,9 +533,26 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0082` at `when`
-  `1789000000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0087` at `when`
+  `1789500000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
+  **Each chunk between breakpoints must be exactly ONE command** — neon-http
+  sends each as a PREPARED statement and Postgres rejects two with
+  `cannot insert multiple commands into a prepared statement`. A `DO $$ … $$`
+  block counts as one however many semicolons it contains. This failed the 0087
+  deploy: two blocks were appended with no breakpoint between them, every test
+  passed, tsc was clean, and it died in `vercel-build` AFTER the push — because
+  migrations run during the build. `tests/architecture.test.ts` now guards all
+  three properties (one command per chunk, strictly increasing `when`,
+  journal/file correspondence), proven to fail on the real defect.
+  Two pre-existing violations are grandfathered by name, deliberately: 0016/0017
+  carry `when` values older than 0015 and were skipped (hence
+  `0085_heal_skipped_0016_0017`), and `0018_invoice_escalation.sql` is on disk
+  but absent from the journal, so it has never run — its columns reached prod by
+  hand or `drizzle-kit push`. **Do not "fix" 0018 by adding it**: its bare
+  `ADD COLUMN` statements would fail against a database that already has those
+  columns, and migrations run inside `vercel-build`, so that breaks every future
+  deploy rather than one.
 - **Tailwind `content` globs must include `lib/**`** — classes defined in shared
   lib files were silently unstyled until it was added.
 - Test migrations/backfills on a **Neon branch** before prod. Don't run
