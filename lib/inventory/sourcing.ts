@@ -19,6 +19,8 @@
  * item says we have not decided yet — which is a gap to close, not a licence.
  */
 
+import { kindOf } from "@/lib/inventory/item-kinds";
+
 export type SourcingPolicy = "restricted" | "open";
 
 export type SourcingMeta = {
@@ -104,7 +106,7 @@ export function pricePerBaseUnit(unitPrice: any, baseUnitsPerSupplierUnit: numbe
 export const SOURCING_ENFORCED_TYPES = new Set(["PurchaseOrder", "Bill", "Expense"]);
 
 export type SourcingLine = { itemId?: string | null; description?: string | null };
-export type SourcingItem = { id: string; name?: string | null; sourcingPolicy?: string | null };
+export type SourcingItem = { id: string; name?: string | null; sourcingPolicy?: string | null; productType?: string | null };
 
 export type SourcingViolation = { itemId: string; itemName: string; message: string };
 
@@ -136,10 +138,25 @@ export function sourcingViolations(
     // An item we cannot see is not one we can judge; the document's own
     // validation deals with a bad id.
     if (!item) continue;
+    const itemName = item.name?.trim() || "This item";
+
+    // A kind that cannot be bought at all fails first, and says so. Work in
+    // Progress is tracked but neither bought nor sold — it has no Suppliers
+    // panel and never will — so the ordinary "link it to this supplier"
+    // message would send the buyer looking for a control that does not exist.
+    const kind = kindOf(item.productType);
+    if (!kind.buyable) {
+      seen.add(itemId);
+      out.push({
+        itemId, itemName,
+        message: `${itemName} is a ${kind.label} — it cannot be purchased. ${kind.producible ? "It is created by a production build, not bought." : "Change its type if you do buy it."}`,
+      });
+      continue;
+    }
+
     if (allowsAnySupplier(item.sourcingPolicy)) continue;
     if (linkedItemIds.has(itemId)) continue;
     seen.add(itemId);
-    const itemName = item.name?.trim() || "This item";
     out.push({
       itemId,
       itemName,

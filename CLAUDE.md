@@ -1112,6 +1112,40 @@ Suppliers panel, because that is where the question is asked.
   not yet fixed: changing them flips the Drizzle type from `number` to `string`
   and ripples through every consumer, so it wants its own commit.
 
+## Item kinds — audit findings (2026-09-21)
+
+`ITEM_KINDS` flags are load-bearing: posting picks asset vs expense from
+`tracked`, production refuses a non-`producible` output, the Products register
+decides which panels an item has, and purchasing refuses a non-`buyable` line.
+A flag changed carelessly does not fail loudly. `tests/item-kinds.test.ts` pins
+the invariants other modules already assume (producible/consumable ⇒ tracked,
+lot-tracked ⇒ tracked, every kind acquirable somehow, every kind in
+`ITEM_KIND_LIST`), each proven to fail on a real regression.
+
+- **Work in Progress is the kind every branch forgets** — tracked, but neither
+  bought nor sold. It opened the register to a completely blank panel, and the
+  Phase 3 purchasing check told the buyer to "link it on the Suppliers panel",
+  which WIP does not have and never will.
+- **The register's expanded panel is now DERIVED from the flags**, with the
+  explanation as the remainder, so it is exhaustive by construction. The old
+  hand-written fallback (`!tracked && !buyable`) was satisfiable by **no kind at
+  all** — both untracked kinds are buyable — so that text never once rendered.
+  Don't reinstate the simpler-looking condition; a test keeps the evidence.
+- **`PATCH /api/inventory/items/[id]` now mirrors POST's system-account
+  fallback.** The edit drawer offers "Inventory Asset (system default)" as a
+  blank option; without the fallback it wrote NULL, and the item then failed on
+  every document with "no expense account set" — naming a field that kind does
+  not even show. Evaluated against the kind the item *will* have, so a Service
+  changed to a Raw Material lands with its accounts already correct.
+- **`buyable` is enforced on purchase documents; `sellable` is deliberately
+  NOT enforced on sales.** Buying a Work in Progress is incoherent — it is
+  created by a build. Selling a Raw Material is merely unusual: scrap and waste
+  sales are real, and textile orgs do them routinely. Enforce what is
+  impossible, not what is uncommon.
+- **Still unenforced server-side: `consumable`.** Only `producible` (in
+  `lib/inventory/production.ts`) and now `buyable` are checked. Flagged rather
+  than fixed — BOM lines are the place it would belong.
+
 ## Stock locations (Supply Chain completion, Phase 1, 2026-09-21)
 
 Stock is location-aware. Until migration `0087`, `inventory_lots` and

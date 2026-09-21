@@ -39,7 +39,7 @@ export async function findSourcingViolations(
 
   // Org-scoped, so an item id from another tenant simply is not found and the
   // pure rule skips it — the document's own validation rejects it separately.
-  const items = await db.select({ id: apItems.id, name: apItems.name, sourcingPolicy: apItems.sourcingPolicy })
+  const items = await db.select({ id: apItems.id, name: apItems.name, sourcingPolicy: apItems.sourcingPolicy, productType: apItems.productType })
     .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds)));
   const itemMap = new Map(items.map(i => [i.id, i]));
 

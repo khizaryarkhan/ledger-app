@@ -11,6 +11,7 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
 import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
 import { sourcingOf } from "@/lib/inventory/sourcing";
+import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { onHandBySku } from "@/lib/inventory/valuation";
 import { itemReferences, itemHasStockHistory, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
@@ -93,6 +94,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       if (packed.length) return bad(`This item has ${packed.length} supplier link${packed.length === 1 ? "" : "s"} with pack configuration. Remove ${packed.length === 1 ? "it" : "them"} before switching to "${meta.label}".`, 409);
     }
     set.sourcingPolicy = meta.policy;
+  }
+  // A tracked item must post to a balance-sheet asset and relieve COGS, so the
+  // same fallback POST applies has to apply here too. The edit form offers
+  // "Inventory Asset (system default)" as a blank value; without this, choosing
+  // it wrote NULL and the item then failed on every document with "no expense
+  // account set" — a message about a field that kind does not even show.
+  // Evaluated against the kind the item will HAVE, so switching a Service to a
+  // Raw Material lands with its accounts already correct.
+  const willBeTracked = kindOf(set.productType ?? existing.productType).tracked;
+  if (willBeTracked) {
+    const asset = set.assetAccountId !== undefined ? set.assetAccountId : existing.assetAccountId;
+    const cogs = set.cogsAccountId !== undefined ? set.cogsAccountId : existing.cogsAccountId;
+    if (!asset || !cogs) {
+      await ensureSystemAccounts(orgId!).catch(() => {});
+      if (!asset) set.assetAccountId = await systemAccountId(orgId!, INV_SUBTYPE.asset);
+      if (!cogs) set.cogsAccountId = await systemAccountId(orgId!, INV_SUBTYPE.cogs);
+    }
   }
   await db.update(apItems).set(set).where(and(eq(apItems.id, params.id), eq(apItems.orgId, orgId!)));
   return ok({ id: params.id, updated: true });

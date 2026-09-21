@@ -145,3 +145,41 @@ describe("SOURCING_ENFORCED_TYPES", () => {
     }
   });
 });
+
+describe("sourcingViolations — kinds that cannot be purchased", () => {
+  // Work in Progress is tracked but neither bought nor sold. Before this, the
+  // check treated it as an ordinary unlinked item and told the buyer to "link
+  // it on the item's Suppliers panel" — a panel WIP does not have and never
+  // will, because the register only shows one for buyable kinds.
+  const wip = new Map<string, any>([["wip", { id: "wip", name: "Grey Fabric", sourcingPolicy: "restricted", productType: "WorkInProgress" }]]);
+
+  it("says the item cannot be purchased, not that it needs linking", () => {
+    const v = sourcingViolations([{ itemId: "wip" }], wip, new Set(), "Karachi Dyes");
+    expect(v).toHaveLength(1);
+    expect(v[0].message).toContain("cannot be purchased");
+    expect(v[0].message).toContain("production build");
+    expect(v[0].message).not.toContain("Suppliers panel");
+  });
+
+  it("still refuses it even when a link somehow exists", () => {
+    // A link predating a type change must not make an unbuyable kind buyable.
+    expect(sourcingViolations([{ itemId: "wip" }], wip, new Set(["wip"]))).toHaveLength(1);
+  });
+
+  it("still refuses it even when the item is marked open", () => {
+    const open = new Map([["wip", { id: "wip", name: "Grey Fabric", sourcingPolicy: "open", productType: "WorkInProgress" }]]);
+    expect(sourcingViolations([{ itemId: "wip" }], open, new Set())).toHaveLength(1);
+  });
+
+  it("leaves buyable kinds to the ordinary link rule", () => {
+    const rm = new Map([["y", { id: "y", name: "Yarn", sourcingPolicy: "restricted", productType: "RawMaterial" }]]);
+    expect(sourcingViolations([{ itemId: "y" }], rm, new Set(["y"]))).toEqual([]);
+    expect(sourcingViolations([{ itemId: "y" }], rm, new Set())[0].message).toContain("Suppliers panel");
+  });
+
+  it("treats a missing productType as the legacy Finished Product default", () => {
+    // Rows predating product_type must not all become unpurchasable.
+    const legacy = new Map([["l", { id: "l", name: "Legacy", sourcingPolicy: "open" }]]);
+    expect(sourcingViolations([{ itemId: "l" }], legacy, new Set())).toEqual([]);
+  });
+});

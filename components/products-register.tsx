@@ -160,6 +160,11 @@ export function ProductsRegister() {
 
 function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolean; onToggle: () => void; onChanged: () => void }) {
   const meta = kindOf(item.productType);
+  // Sales SKUs describe our own packaging of stock we sell; supplier links
+  // describe how a vendor sells it to us. An item can want both, one, or
+  // neither — see the note on the expanded panel below.
+  const showsSkus = meta.sellable && meta.tracked;
+  const showsSuppliers = meta.buyable;
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -201,10 +206,23 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
       {open && (
         <tr className="border-b border-stone-800/60 bg-stone-950/40">
           <td colSpan={7} className="px-6 py-4">
+            {/* Derived from the kind's flags, never enumerated by kind, and
+                exhaustive by construction: whatever the flags say, the panel
+                says something. The previous version hand-wrote the three
+                conditions and Work in Progress (tracked, but neither bought nor
+                sold) satisfied none of them — it opened to a blank panel — while
+                the "non-inventory" note could never appear at all, because both
+                non-tracked kinds are buyable. */}
             <div className="space-y-5">
-              {(meta.sellable && meta.tracked) && <SkuEditor item={item} onChanged={onChanged} />}
-              {meta.buyable && <SupplierSkuEditor item={item} onChanged={onChanged} />}
-              {!meta.tracked && !meta.buyable && <p className="text-[12px] text-stone-500">This is a non-inventory {meta.label.toLowerCase()} — no stock, lots or packaging are tracked. It posts directly to its income/expense accounts.</p>}
+              {showsSkus && <SkuEditor item={item} onChanged={onChanged} />}
+              {showsSuppliers && <SupplierSkuEditor item={item} onChanged={onChanged} />}
+              {!showsSkus && !showsSuppliers && (
+                <p className="text-[12px] text-stone-500 leading-relaxed">
+                  {meta.tracked
+                    ? <>A {meta.label.toLowerCase()} is held in stock but is neither bought nor sold — it is produced by a build and consumed by another one, so it has no supplier packaging and no sales SKUs. Its quantity and FIFO cost come from those builds.</>
+                    : <>This is a non-inventory {meta.label.toLowerCase()} — no stock, lots or packaging are tracked. It posts directly to its income/expense accounts.</>}
+                </p>
+              )}
             </div>
           </td>
         </tr>
