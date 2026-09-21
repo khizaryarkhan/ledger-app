@@ -71,9 +71,38 @@ reached the paying client, not around coverage.
 - **Real 1:1 collection emails** send from the admin's own connected mailbox
   (Gmail/Microsoft/SMTP). `support@foodready.ai`-style system mail is only for
   transactional/system messages.
-- **Money:** `fmt.money()` in `lib/format.ts` deliberately rounds to whole
-  numbers for scannability. GL/ledger columns use `numeric(14,2)` (stored as
-  `.toFixed(2)` strings for Drizzle).
+- **Money and quantity display (set 2026-09-21 — REVERSES the old rule).**
+  `lib/format.ts` owns both, and nothing may build its own currency formatter;
+  `tests/architecture.test.ts` enforces that and was proven against real
+  violations.
+  - **Money — minimum 2 decimals, up to 6, trailing zeros beyond the 2nd
+    stripped.** `100 -> 100.00`, `1234.5 -> 1,234.50`, `1.2345 -> 1.2345`,
+    `1.234567 -> 1.234567` (unit costs are `numeric(18,6)`; rounding them to
+    cents misstates cost).
+  - **Quantity — up to 5 decimals, never padded.** `10 -> 10`, `10.5 -> 10.5`,
+    `10.12345 -> 10.12345`. A non-zero value that rounds to zero at 5dp renders
+    as `<0.00001` rather than `0` — "no stock" and "a very little stock" are
+    different facts.
+  - `fmt.num2` is money without the symbol and uses the SAME decimals, so a
+    figure does not change shape between a ledger column and a summary card.
+  - **The old rule said `fmt.money()` "deliberately rounds to whole numbers for
+    scannability".** That was overruled: an accounting product that hides cents
+    is not scannable, it is wrong. **Nine independent copies** of the formatter
+    existed with `maximumFractionDigits: 0` hard-coded, including the chase
+    email a DEBTOR reads — so fixing `lib/format.ts` alone would have corrected
+    three surfaces and silently left the rest rounding. They were found by the
+    guard, not by looking.
+  - **Not changed, deliberately**: `app/portal/**` and `app/api/portal/**` keep
+    their own formatters. The customer portal is explicitly out of scope; it
+    already shows cents (`maximumFractionDigits: 2`), differing only in that a
+    round figure prints `100` rather than `100.00`.
+- **⚠️ Every quantity column is `numeric(_,4)`** — 25 at `numeric(18,4)` and 3
+  at `numeric(14,4)`. Display now allows 5 decimals, but the DATABASE cannot
+  hold a 5th, so a 5-decimal entry is silently rounded to 4 on write. Widening
+  them is a real migration across 28 columns and has not been done — do not
+  assume a 5-decimal quantity survives a round trip.
+- GL/ledger columns use `numeric(14,2)` (stored as `.toFixed(2)` strings for
+  Drizzle).
 - **Theming:** app supports Dark/Light/System via CSS variables. The Tailwind
   palette (stone + accent steps) resolves through `rgb(var(--…))` in
   `tailwind.config.js`; token values live in `app/globals.css` (`:root` = dark,

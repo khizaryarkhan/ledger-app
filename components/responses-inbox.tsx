@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { AlertOctagon, CalendarClock, Check, X, Loader, Inbox as InboxIcon, ExternalLink } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 type Dispute = {
   id: string; invoiceId: string; invoiceNumber: string; customerName: string | null;
@@ -26,7 +27,7 @@ type Data = {
 };
 
 const sourceBadge = (s: string) => s === "Customer Portal" ? "blue" : s === "Accountant" ? "yellow" : "neutral";
-const money = (n: number, ccy: string) => new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy || "EUR", maximumFractionDigits: 0 }).format(n);
+const money = (n: number, ccy: string) => fmt.money(n, ccy || "EUR");
 
 export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`, linkInvoices = true }: { invoiceHref?: (id: string) => string; linkInvoices?: boolean }) {
   const [data, setData] = useState<Data | null>(null);

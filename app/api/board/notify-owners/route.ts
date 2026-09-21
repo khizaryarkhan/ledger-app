@@ -27,6 +27,7 @@ import { sendEmail } from "@/lib/mailer";
 import { createOwnerPortalToken } from "@/lib/portal";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
+import { fmt } from "@/lib/format";
 
 // PDF fetching + per-owner sends are sequential and can take minutes for
 // large batches — raise the function timeout above Vercel's default.
@@ -48,7 +49,7 @@ const esc = (s: any) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const money = (n: number, ccy: string) =>
-  new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy || "EUR" }).format(n);
+  fmt.money(n, ccy || "EUR");
 
 export async function POST(req: Request) {
   const { error, orgId, session } = await requireOrg();

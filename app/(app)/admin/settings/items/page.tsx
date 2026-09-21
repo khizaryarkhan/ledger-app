@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Package, Plus, Loader, X, Trash2, Pencil } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 type Item = { id: string; name: string; description: string | null; unitAmount: number; currency: string; taxRate: number | null; active: boolean };
 
 function money(cents: number, ccy = "eur") {
-  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: ccy.toUpperCase() }).format((cents || 0) / 100); }
+  try { return fmt.money((cents || 0) / 100, ccy.toUpperCase()); }
   catch { return `${ccy.toUpperCase()} ${(cents / 100).toFixed(2)}`; }
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
-import { formatDateShort } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ interface BillDecision {
 
 function money(n: number | null | undefined, ccy: string) {
   if (n == null) return "—";
-  return new Intl.NumberFormat("en-IE", { style:"currency", currency: ccy || "EUR", maximumFractionDigits:2 }).format(n);
+  return fmt.money(n, ccy || "EUR");
 }
 
 function fmtDate(d?: string | null) {

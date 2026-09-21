@@ -11,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
+import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,12 +86,7 @@ type ReportTab = "ap-aging" | "cash-requirements" | "supplier-performance";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtMoney(amount: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+  return fmt.money(amount, currency);
 }
 
 function fmtDate(d?: string) {

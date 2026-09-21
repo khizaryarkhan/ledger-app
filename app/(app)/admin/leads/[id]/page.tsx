@@ -9,13 +9,13 @@ import {
   Building2, Globe, Send, Plus, Clock, MessageSquare, ChevronDown, Filter,
   Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X, CalendarCheck,
 } from "lucide-react";
-import { formatDateShort } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 
 const STATUS = [...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => s.key);
 const STATUS_LABEL = Object.fromEntries([...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => [s.key, s.label])) as Record<string, string>;
 
 function money(v: number, ccy = "USD") {
-  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(v || 0); } catch { return `${ccy} ${v}`; }
+  try { return fmt.money(v || 0, ccy); } catch { return `${ccy} ${v}`; }
 }
 function timeAgo(d: string) {
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
@@ -671,7 +671,7 @@ function TasksPanel({ leadId, tasks, onChange, onToast }: any) {
 
 // ── Account & billing (Phase 0 Account 360: the full company lifecycle) ──────────
 function centsMoney(cents: number, ccy = "usd") {
-  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: (ccy || "usd").toUpperCase(), maximumFractionDigits: 0 }).format((cents || 0) / 100); }
+  try { return fmt.money((cents || 0) / 100, (ccy || "usd").toUpperCase()); }
   catch { return `${(ccy || "USD").toUpperCase()} ${(cents / 100).toFixed(0)}`; }
 }
 function AccountPanel({ lead, account }: { lead: any; account: any }) {

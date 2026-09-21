@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, Badge, Button } from "@/components/ui";
+import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ function fmtDateTime(d?: string) {
 
 function fmtMoney(amount?: number, currency = "USD") {
   if (amount == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(amount);
+  return fmt.money(amount, currency);
 }
 
 function poStatusBadge(status: POStatus): string {

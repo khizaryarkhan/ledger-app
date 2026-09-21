@@ -11,6 +11,7 @@ import { eq, and, ilike, ne, gte, lte, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { fmt as numberFormat } from "@/lib/format";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -188,8 +189,10 @@ function daysOverdue(dueDate: string): number {
   return Math.floor((Date.now() - new Date(dueDate).getTime()) / 86_400_000);
 }
 
+// Aliased import: this module already has its own local `fmt` used throughout,
+// and `fmt.money` inside a function called `fmt` would have recursed.
 function fmt(n: number, ccy = "EUR") {
-  return new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
+  return numberFormat.money(n, ccy);
 }
 
 // ── Fuzzy entity lookup — returns matches or a CONFIRM_NEEDED signal ──────────

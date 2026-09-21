@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ChevronLeft, RefreshCw } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 type Activity = {
   channel: string; direction?: string; sender: string | null; recipients?: string | null;
@@ -24,7 +25,7 @@ type Inv = {
 };
 
 const money = (n: number, ccy: string) =>
-  new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy || "EUR" }).format(n);
+  fmt.money(n, ccy || "EUR");
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });

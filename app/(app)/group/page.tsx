@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Network, Loader2, Building2, ArrowRight } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 type Row = { id: string; invoiceNumber: string; orgName: string; customerName: string; currency: string; outstanding: number; dueDate: string | null; days: number; stage: string; status: string };
 type OrgRoll = { orgId: string; orgName: string; outstanding: number; count: number };
@@ -15,7 +16,7 @@ type Data = {
 };
 
 const money = (n: number, ccy: string) => {
-  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n); }
+  try { return fmt.money(n, ccy); }
   catch { return `${ccy} ${Math.round(n).toLocaleString()}`; }
 };
 const totals = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1]);

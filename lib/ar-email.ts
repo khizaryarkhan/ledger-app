@@ -4,6 +4,8 @@
  * Pure function (no db/network) so it's safe to import on client or server.
  */
 
+import { fmt } from "@/lib/format";
+
 export type ArEmailRow = {
   invoiceNumber: string;
   customerName?: string | null;
@@ -21,7 +23,8 @@ export type ArEmailRow = {
 };
 
 function money(n: number, ccy = "EUR") {
-  return new Intl.NumberFormat("en-IE", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
+  // Via fmt.money so a debtor sees the exact figure from the invoice, to the cent.
+  return fmt.money(n, ccy);
 }
 
 /** Minimal attribute escape so a stray quote in a URL can't break out of href="". */

@@ -723,11 +723,11 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
     parts.push(
       <span key="pay" className="flex items-center gap-1.5">
         <span className={`font-semibold ${isPaid ? "text-emerald-700" : "text-stone-400"}`}>
-          {meta.currency}{Number(meta.amount).toFixed(2)}
+          {fmt.money(Number(meta.amount), meta.currency)}
         </span>
         {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
         {isPaid && <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 font-medium">Fully Paid</span>}
-        {!isPaid && <span className="text-[11px] text-stone-400">({meta.currency}{Number(meta.totalPaid).toFixed(2)} of {meta.currency}{Number(meta.invoiceTotal).toFixed(2)})</span>}
+        {!isPaid && <span className="text-[11px] text-stone-400">({fmt.money(Number(meta.totalPaid), meta.currency)} of {meta.currency}{Number(meta.invoiceTotal).toFixed(2)})</span>}
       </span>
     );
   }

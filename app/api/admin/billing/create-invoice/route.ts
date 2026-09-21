@@ -30,6 +30,7 @@ import { requirePlatformAdmin } from "@/lib/billing";
 import { logBillingEvent } from "@/lib/billing";
 import { logActivity } from "@/lib/admin/activities";
 import { sendSystemEmail } from "@/lib/system-mailer";
+import { fmt } from "@/lib/format";
 
 /**
  * Stripe does NOT email charge_automatically invoices (and only emails
@@ -281,7 +282,7 @@ export async function POST(req: Request) {
       // send_invoice invoices — always send ours too, belt-and-braces.
       let emailSent = false;
       if (invoice?.hosted_invoice_url) {
-        const amountLabel = new Intl.NumberFormat("en-IE", { style: "currency", currency: currency.toUpperCase() }).format((d.amount ?? 0) / 100) + `/${d.interval}`;
+        const amountLabel = fmt.money((d.amount ?? 0) / 100, currency.toUpperCase()) + `/${d.interval}`;
         emailSent = await emailInvoiceLink({ to: d.billingEmail, orgName: org.name, hostedUrl: invoice.hosted_invoice_url, amountLabel, kind: "subscription" });
       }
 
@@ -348,7 +349,7 @@ export async function POST(req: Request) {
     // setting is enabled — always send our own branded email too.
     let emailSent = false;
     if (sent.hosted_invoice_url) {
-      const amountLabel = new Intl.NumberFormat("en-IE", { style: "currency", currency: currency.toUpperCase() }).format((sent.total ?? 0) / 100);
+      const amountLabel = fmt.money((sent.total ?? 0) / 100, currency.toUpperCase());
       emailSent = await emailInvoiceLink({ to: d.billingEmail, orgName: org.name, hostedUrl: sent.hosted_invoice_url, amountLabel, kind: "one-off" });
     }
 

@@ -12,6 +12,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import { Badge, Button, Card, Input, Select, Modal, EmptyState } from "@/components/ui";
+import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -240,11 +241,7 @@ function RuleCard({
   const condParts: string[] = [];
   if (rule.thresholdAmount) {
     condParts.push(
-      `Amount > ${new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: 0,
-      }).format(rule.thresholdAmount)}`
+      `Amount > ${fmt.money(rule.thresholdAmount, "USD")}`
     );
   }
   if (rule.supplierType) condParts.push(`Supplier type: ${rule.supplierType}`);

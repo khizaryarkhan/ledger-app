@@ -9,6 +9,7 @@ import {
   Info, Users, Briefcase, Check, Minus,
   FileText, Plus, Pencil, Trash2, X, ChevronDown,
 } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 // ─────────────────────────────────────────────
 // REMINDER PROGRAMME TAB
@@ -553,7 +554,7 @@ function ReminderProgramme() {
         <div className="text-right tabular-nums">
           {outstanding > 0 ? (
             <span className="text-sm font-semibold text-white">
-              {new Intl.NumberFormat(undefined, { style: "currency", currency: openInvoices[0]?.currency ?? "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(outstanding)}
+              {fmt.money(outstanding, openInvoices[0]?.currency ?? "USD")}
             </span>
           ) : (
             <span className="text-[11px] text-stone-500">—</span>

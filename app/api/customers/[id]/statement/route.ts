@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { customers, invoices, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { fmt as numberFormat } from "@/lib/format";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
@@ -40,7 +41,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const totalBalance = open.reduce((s, i) => s + openBal(i), 0);
   const currency = open[0]?.currency || customer.currency || "EUR";
-  const fmt = (n: number) => new Intl.NumberFormat("en-IE", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
+  const fmt = (n: number) => numberFormat.money(n, currency);
   const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 

@@ -741,3 +741,74 @@ describe("the app looks like one product", () => {
     ).toEqual([]);
   });
 });
+
+describe("money and quantity are formatted in one place", () => {
+  /**
+   * The decimal rules live in lib/format.ts (`fmt.money`, `fmt.num2`,
+   * `fmt.qty`). Nine independent copies of a currency formatter existed, each
+   * with `maximumFractionDigits: 0` hard-coded — so changing the rule centrally
+   * fixed three surfaces and silently left the other nine rounding away cents,
+   * including the chase email a DEBTOR reads.
+   *
+   * That is the failure this guards: not that a copy is ugly, but that a copy
+   * does not receive the fix.
+   *
+   * EXCLUDED: everything customer-portal-facing — app/portal/** (the page) and
+   * app/api/portal/** (its PDF and statement generators). The portal was
+   * explicitly placed out of scope, so its formatters are left alone. They
+   * already use maximumFractionDigits 2, so they do show cents; the only
+   * difference from the app rule is that a round figure prints as "100" rather
+   * than "100.00". Worth aligning, but not worth changing a document a customer
+   * receives without being asked for it.
+   */
+  const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
+
+  function scanned() {
+    return [...sourceFiles("components"), ...sourceFiles("lib"), ...sourceFiles("app")]
+      .filter(f => !/\/app\/(api\/)?portal\//.test(f.replace(/\\/g, "/")))
+      // lib/format.ts IS the definition.
+      .filter(f => !f.replace(/\\/g, "/").endsWith("lib/format.ts"));
+  }
+
+  it("no module builds its own currency formatter", () => {
+    const offenders: string[] = [];
+    for (const f of scanned()) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (/new Intl\.NumberFormat/.test(line) && /style:\s*["']currency["']/.test(line)) {
+          offenders.push(`${rel}:${i + 1}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these build their own currency formatter instead of calling fmt.money ` +
+      `from lib/format — a copy does not receive a fix to the rule: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("nothing rounds money to whole units", () => {
+    // `maximumFractionDigits: 0` on a currency value is the specific defect
+    // that hid cents across the app until 2026-09-21.
+    const offenders: string[] = [];
+    for (const f of scanned()) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (/maximumFractionDigits:\s*0\b/.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `money rounded to whole units — use fmt.money (min 2 decimals): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the rules themselves are what lib/format declares", () => {
+    const src = readFileSync(join(ROOT, "lib/format.ts"), "utf8");
+    expect(src).toMatch(/const MONEY_MIN_DP = 2;/);
+    expect(src).toMatch(/const MONEY_MAX_DP = 6;/);
+    expect(src).toMatch(/const QTY_MAX_DP = 5;/);
+  });
+});

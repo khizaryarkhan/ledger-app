@@ -130,24 +130,77 @@ function currencyLocale(ccy: string): string {
   return "en-US"; // USD, CAD, CHF, AED, etc.
 }
 
+// ── Number display rules (set 2026-09-21) ─────────────────────────────────
+//
+// MONEY   minimum 2 decimals, up to 6, trailing zeros beyond the 2nd stripped.
+// QTY     up to 5 decimals, no padding at all.
+//
+// The two instructions behind this — "at least N decimals" and "no trailing
+// zeros" — pull against each other, and the resolution differs by kind because
+// the kinds differ:
+//
+//   money  100      -> 100.00      the 2 is a FLOOR: currency always shows cents
+//          1234.5   -> 1,234.50
+//          1.234500 -> 1.2345      zeros beyond the floor are stripped
+//          1.234567 -> 1.234567    unit costs are numeric(18,6); show what is there
+//
+//   qty    10       -> 10          no floor: a count of ten is "10", not "10.00000"
+//          10.5     -> 10.5
+//          10.12345 -> 10.12345
+//
+// This REVERSES the previous rule, which this file and CLAUDE.md both recorded
+// as deliberate: fmt.money rounded to whole numbers "for scannability". That
+// was overruled — an accounting product that hides cents is not scannable, it
+// is wrong. num2 existed only to work around it and is now an alias.
+const MONEY_MIN_DP = 2;
+const MONEY_MAX_DP = 6;   // matches the widest money column, numeric(18,6)
+const QTY_MAX_DP = 5;
+
+/**
+ * A value that is not zero must never print as zero.
+ *
+ * `maximumFractionDigits` rounds, so 0.000001 formats as "0" — which tells the
+ * reader there is no stock when there is some. Rare, but it is a lie rather
+ * than an imprecision, so it gets its own branch.
+ */
+function tinyButNotZero(n: number, maxDp: number): string | null {
+  if (n === 0 || !isFinite(n)) return null;
+  if (Math.abs(n) >= Math.pow(10, -maxDp) / 2) return null;
+  return n > 0 ? `<${Math.pow(10, -maxDp)}` : `>-${Math.pow(10, -maxDp)}`;
+}
+
 export const fmt = {
   money: (n: number | null | undefined, ccy = "EUR") => {
     if (n == null || isNaN(n)) return "—";
     // Guard against invalid/placeholder currency codes (e.g. "?") which throw RangeError
     const safeCcy = /^[A-Z]{3}$/.test(ccy ?? "") ? ccy : "EUR";
     try {
-      return new Intl.NumberFormat(currencyLocale(safeCcy), { style: "currency", currency: safeCcy, maximumFractionDigits: 0 }).format(n);
+      return new Intl.NumberFormat(currencyLocale(safeCcy), {
+        style: "currency", currency: safeCcy,
+        minimumFractionDigits: MONEY_MIN_DP,
+        maximumFractionDigits: MONEY_MAX_DP,
+      }).format(n);
     } catch {
-      return `${safeCcy} ${n.toLocaleString()}`;
+      return `${safeCcy} ${fmt.num2(n)}`;
     }
   },
-  // Plain 2-decimal number (no currency symbol) — for ledger/report tables that
-  // need cent precision (fmt.money deliberately rounds to whole numbers).
+  /**
+   * Money with no currency symbol — ledger and report columns where the
+   * currency is stated once in a header. Same decimal rule as `money`, so a
+   * figure does not change shape depending on which column it lands in.
+   */
   num2: (n: number | string | null | undefined) =>
-    Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-  // Quantity — up to 4 decimals, no trailing-zero padding.
-  qty: (n: number | string | null | undefined) =>
-    Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 }),
+    Number(n ?? 0).toLocaleString(undefined, {
+      minimumFractionDigits: MONEY_MIN_DP,
+      maximumFractionDigits: MONEY_MAX_DP,
+    }),
+  /** Quantity — up to 5 decimals, never padded. */
+  qty: (n: number | string | null | undefined) => {
+    const v = Number(n ?? 0);
+    if (isNaN(v)) return "—";
+    return tinyButNotZero(v, QTY_MAX_DP)
+      ?? v.toLocaleString(undefined, { maximumFractionDigits: QTY_MAX_DP });
+  },
   // Always includes year — use formatDate(d, orgSettings.dateFormat) for org-specific format.
   // Goes through formatDateShort, so a YYYY-MM-DD due date is rendered as the
   // date it literally is, not as a UTC instant re-read in the viewer's zone.

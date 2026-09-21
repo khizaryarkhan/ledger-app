@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, Badge, Button } from "@/components/ui";
 import { CalendarClock, AlertOctagon, Check, X, Loader } from "lucide-react";
+import { fmt } from "@/lib/format";
 
 type Promise_ = {
   id: string; promiseDate: string; amount: number | null; source: string;
@@ -35,7 +36,7 @@ export function PromiseDisputePanel({ invoiceId, currency, onChange }: { invoice
 
   useEffect(() => { load(); }, [load]);
 
-  const money = (n: number) => new Intl.NumberFormat("en-IE", { style: "currency", currency: currency || "EUR", maximumFractionDigits: 0 }).format(n);
+  const money = (n: number) => fmt.money(n, currency || "EUR");
   const openDispute = disputes.find(d => d.status === "Open" || d.status === "Under Review");
 
   async function patchDispute(id: string, body: any) {

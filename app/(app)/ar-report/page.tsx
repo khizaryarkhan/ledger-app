@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
-import { daysOverdue, localToday } from "@/lib/format";
+import { daysOverdue, fmt, localToday } from "@/lib/format";
 import { Printer, ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -14,7 +14,10 @@ function openBal(inv: any): number {
 }
 const money = (n: number, ccy?: string | null) => {
   const sym = ccy === "GBP" ? "£" : ccy === "EUR" ? "€" : ccy === "USD" ? "$" : ccy ? ccy + " " : "";
-  return sym + Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  // Keeps its own symbol prefix (this report prints absolute values, with the
+  // sign carried by the column rather than the number) but takes the DIGITS
+  // from the shared rule, so it shows cents like every other surface.
+  return sym + fmt.num2(Math.abs(n));
 };
 const pct = (n: number) => n.toFixed(1) + "%";
 const fmtDate = (d: string | Date) =>
