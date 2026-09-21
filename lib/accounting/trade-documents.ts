@@ -18,6 +18,7 @@ import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
 import { LedgerValidationError } from "@/lib/ledger";
+import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 
 export type TradeKind = "Estimate" | "PurchaseOrder" | "SalesOrder";
 
@@ -66,6 +67,13 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   const raw = (input.lines ?? []).filter(l => l.accountId && round2(l.amount) !== 0);
   if (raw.length === 0) err("Add at least one line with an account and amount.");
   if (!input.partyId && !input.partyLabel) err(kind === "PurchaseOrder" ? "Select a supplier." : "Select a customer.");
+
+  // A Purchase Order commits to buying, so the sourcing decision has to exist
+  // before the commitment does — not later, at the Bill, when the goods are
+  // already on their way. Checked against the UNFILTERED lines, not `raw`, so a
+  // line naming an item is judged even while its amount is still zero.
+  const sourcingErr = await sourcingErrorMessage(orgId, kind, input.partyId, input.lines ?? []);
+  if (sourcingErr) err(sourcingErr);
 
   const priced = await priceLines(orgId, raw);
   const subtotal = round2(priced.reduce((s, l) => s + l.net, 0));

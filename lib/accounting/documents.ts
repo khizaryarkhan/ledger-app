@@ -569,6 +569,14 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
   const PURCH = new Set<DocType>(["Bill", "Expense", "VendorCredit"]);
 
   if (SALES.has(type) || PURCH.has(type)) {
+    // Sourcing policy, before anything is built. A Bill or Expense carrying a
+    // tracked item posts Dr Inventory and creates FIFO lots with no PO in
+    // sight, so enforcing this only on Purchase Orders would leave the whole
+    // rule bypassable by choosing a different document.
+    if (PURCH.has(type)) {
+      const msg = await sourcingErrorMessage(orgId, type, input.partyId, input.lines ?? []);
+      if (msg) err(msg);
+    }
     const itemMap = await itemMapForInput(orgId, input);
     lines.push(...await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap, invAssetId));
     invPlan = await planDocumentInventory(orgId, type, input, itemMap, invAssetId, invCogsId, rate);
@@ -1069,3 +1077,4 @@ export async function documentPayload(orgId: string, entryId: string) {
   const editable = EDIT_PAYLOAD_TYPES.has(type) && !!payload;
   return { sourceType: entry.sourceType, docNumber: entry.docNumber, status: entry.status, editable, payload };
 }
+import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";

@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import {
   SOURCING_POLICIES, sourcingOf, allowsAnySupplier, allowsPackConfiguration, pricePerBaseUnit,
+  sourcingViolations, SOURCING_ENFORCED_TYPES,
 } from "@/lib/inventory/sourcing";
 
 describe("sourcingOf", () => {
@@ -62,5 +63,85 @@ describe("pricePerBaseUnit", () => {
     expect(pricePerBaseUnit("12000", 500)).toBe(24);
     const third = pricePerBaseUnit("100", 3)!;
     expect(third * 3).toBeCloseTo(100, 10);
+  });
+});
+
+describe("sourcingViolations", () => {
+  const items = new Map<string, any>([
+    ["yarn",  { id: "yarn",  name: "Cotton Yarn 24s", sourcingPolicy: "restricted" }],
+    ["dye",   { id: "dye",   name: "Reactive Dye",    sourcingPolicy: "restricted" }],
+    ["consult", { id: "consult", name: "Consulting",  sourcingPolicy: "open" }],
+  ]);
+  const linkedToA = new Set(["yarn"]);
+
+  it("passes an item this supplier is linked to", () => {
+    expect(sourcingViolations([{ itemId: "yarn" }], items, linkedToA)).toEqual([]);
+  });
+
+  it("flags a restricted item this supplier is not linked to", () => {
+    const v = sourcingViolations([{ itemId: "dye" }], items, linkedToA, "Karachi Dyes");
+    expect(v).toHaveLength(1);
+    expect(v[0].itemId).toBe("dye");
+    // The message has to say how to fix it — a bare refusal leaves the buyer
+    // with a blocked order and no next step.
+    expect(v[0].message).toContain("Reactive Dye");
+    expect(v[0].message).toContain("Karachi Dyes");
+    expect(v[0].message).toContain("Suppliers panel");
+  });
+
+  it("always passes an open item, from any supplier", () => {
+    expect(sourcingViolations([{ itemId: "consult" }], items, new Set())).toEqual([]);
+  });
+
+  it("flags every restricted item, not just the first", () => {
+    // Fixing a multi-line order one refusal at a time is several round trips
+    // through a form that clears itself.
+    const more = new Map(items);
+    more.set("thread", { id: "thread", name: "Thread", sourcingPolicy: "restricted" });
+    const v = sourcingViolations([{ itemId: "dye" }, { itemId: "thread" }, { itemId: "yarn" }], more, linkedToA);
+    expect(v.map(x => x.itemId)).toEqual(["dye", "thread"]);
+  });
+
+  it("reports one item once however many lines name it", () => {
+    const v = sourcingViolations([{ itemId: "dye" }, { itemId: "dye" }, { itemId: "dye" }], items, linkedToA);
+    expect(v).toHaveLength(1);
+  });
+
+  it("ignores lines with no item — an expense line has nothing to source", () => {
+    expect(sourcingViolations([{ itemId: null }, { itemId: "" }, {}], items, new Set())).toEqual([]);
+  });
+
+  it("skips an item it cannot see rather than guessing", () => {
+    // Another tenant's id, or a stale one. The document's own validation owns
+    // that failure; inventing a sourcing complaint would mislabel it.
+    expect(sourcingViolations([{ itemId: "ghost" }], items, new Set())).toEqual([]);
+  });
+
+  it("flags everything restricted when no supplier is named", () => {
+    // Nobody to be linked to, so nothing restricted can be sourced.
+    const v = sourcingViolations([{ itemId: "yarn" }, { itemId: "consult" }], items, new Set(), null);
+    expect(v.map(x => x.itemId)).toEqual(["yarn"]);
+    expect(v[0].message).toContain("this supplier");
+  });
+
+  it("treats an unrecognised policy as restricted", () => {
+    const odd = new Map([["x", { id: "x", name: "Odd", sourcingPolicy: "whatever" }]]);
+    expect(sourcingViolations([{ itemId: "x" }], odd, new Set())).toHaveLength(1);
+  });
+});
+
+describe("SOURCING_ENFORCED_TYPES", () => {
+  it("binds every document that acquires goods, not just the purchase order", () => {
+    // A Bill with tracked items posts Dr Inventory and creates lots with no PO
+    // anywhere, so a PO-only rule would be bypassable by choosing another form.
+    for (const t of ["PurchaseOrder", "Bill", "Expense"]) expect(SOURCING_ENFORCED_TYPES.has(t)).toBe(true);
+  });
+
+  it("leaves returns and sales documents alone", () => {
+    // A VendorCredit reduces what is owed for goods already received; blocking
+    // it would strand a legitimate return once a link is tidied away.
+    for (const t of ["VendorCredit", "Invoice", "SalesOrder", "Estimate", "CreditNote", "Payment", "BillPayment"]) {
+      expect(SOURCING_ENFORCED_TYPES.has(t)).toBe(false);
+    }
   });
 });

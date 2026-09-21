@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0088` at `when`
-  `1789600000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0089` at `when`
+  `1789700000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1045,6 +1045,72 @@ network at all — that is what makes it ours rather than a proxy.
     reservation/reallocation and planned-vs-actual costing are the next
     phases, designed for but not built — see the roadmap plan for the full
     picture.
+
+## Supplier sourcing — who may supply an item (2026-09-21)
+
+Two objects, deliberately apart. Every mature system splits them the same way
+(SAP purchasing info record vs source list; Oracle supplier-item attributes vs
+ASL status; NetSuite item-vendor sublist; Odoo `product.supplierinfo`) and
+collapsing them is the mistake this design exists to avoid:
+
+- **`item_supplier_skus` is COMMERCIAL** — what this vendor charges, in what
+  unit, in what packs, how long they take. **Never restrictive by itself.**
+- **`ap_items.sourcing_policy` is AUTHORISATION** — `restricted` (default: only
+  linked suppliers) or `open` (anyone, base UoM, **no pack configuration**).
+
+**`open` cannot live on a link row.** Such a row would carry the `supplier_id`
+it is simultaneously claiming not to have. It is a property of the ITEM — where
+SAP also puts it. The UI still renders the toggle at the head of the item's
+Suppliers panel, because that is where the question is asked.
+
+- **Pack configuration is withheld from `open` items, not merely unused.** A
+  pack describes one *named* vendor's packaging; an open item has no vendor to
+  name. `allowsPackConfiguration` is always the inverse of `allowsAnySupplier`
+  and `tests/sourcing.test.ts` pins that pairing — nothing may re-derive it.
+- **`open` and "no link yet" are different facts.** `open` = anyone may supply
+  it. A missing link on a `restricted` item = the decision has not been
+  recorded. Don't collapse them; the error message says how to record it rather
+  than only refusing.
+- **Enforced on `PurchaseOrder`, `Bill` and `Expense` — every document that
+  ACQUIRES goods, not just the PO.** A Bill with a tracked item posts Dr
+  Inventory and creates FIFO lots with no PO anywhere, so a PO-only rule is
+  advisory: the first person in a hurry posts a Bill instead.
+  - **`VendorCredit` is exempt** — a *return*, not a purchase; blocking it
+    strands a legitimate return once a link is tidied away.
+  - **Job work is exempt** — material sent to a knitter was never bought from
+    them.
+  - **Goods receipts are exempt, deliberately.** The goods are physically on
+    the dock; refusing to record stock that exists is the same failure the
+    unlocated-stock rule already rejects ("drift is better than refusing to let
+    physical stock move"). `billFromReceipts` is naturally exempt too — its
+    lines are GR/IR clearing lines with `itemId: null`, so nothing is stranded.
+- **`lib/inventory/sourcing.ts` (pure, client-safe) vs
+  `lib/inventory/sourcing-server.ts` (imports `db`)** — same split, and same
+  reason, as `lib/modules.ts` / `lib/modules-server.ts`. Guarded in
+  `tests/architecture.test.ts`, along with both posting paths calling the check
+  and the check running BEFORE any line is built. Proven to fail on a real
+  regression.
+- **The form's narrowed picker is help, not the control.** It can be bypassed
+  by a direct API call, the mobile client, or its own "Show all items" escape.
+  The client-side check exists only so the buyer hears it before pressing Post.
+- **Prices are quoted per ONE SUPPLIER UoM**, matching the vendor's own price
+  list — a record you can't check against the price list is one nobody
+  maintains. A line charges per *order* unit, which varies by pack level, so
+  the two reconcile through the base unit: `price/base = unit_price ÷
+  base-units-per-supplier-unit`, then `rate = price/base × units_per_order_unit`.
+  Every level derives from one figure, so `rate × qty` is the same money
+  whichever unit was ordered in — separately rounded pack prices would drift and
+  GR/IR would stop netting off. `numeric(18,6)`, because 100 over 3 kg doesn't
+  divide evenly.
+- **A supplier price is only defaulted when its currency matches the
+  document's.** Defaulting across a currency boundary silently misstates a line.
+- `is_preferred` is one-per-item via a **partial unique index**, not application
+  logic — two concurrent saves can't both win and neon-http has no transaction
+  to hold. Same reasoning as 0087's default-location race.
+- **`apItems.unitCost`/`unitPrice` are still `real()`** — 4-byte floats holding
+  money, now sitting beside a `numeric(18,6)` supplier price. Known, flagged,
+  not yet fixed: changing them flips the Drizzle type from `number` to `string`
+  and ripples through every consumer, so it wants its own commit.
 
 ## Stock locations (Supply Chain completion, Phase 1, 2026-09-21)
 

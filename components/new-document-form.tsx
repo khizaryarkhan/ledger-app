@@ -15,6 +15,7 @@ import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, type OrderOption } from "@/lib/inventory/order-options";
+import { sourcingViolations, SOURCING_ENFORCED_TYPES, allowsAnySupplier } from "@/lib/inventory/sourcing";
 
 // Finished Product / Work in Progress lots are always system-generated at
 // commit time — never a user-editable field here (see the "Receive to lot"
@@ -339,8 +340,11 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     const wantsBuy = cfg.side === "purchase";
     let list = items.filter(it => (wantsBuy ? kindOf(it.productType).buyable : kindOf(it.productType).sellable));
     if (wantsBuy && supplierLinks) {
+      // An "any supplier" item belongs in every supplier's list by definition —
+      // hiding it would make the escape hatch useless exactly where it is meant
+      // to be used.
       const linked = new Set(supplierLinks.map((l: any) => l.itemId));
-      list = list.filter(it => linked.has(it.id));
+      list = list.filter(it => linked.has(it.id) || allowsAnySupplier(it.sourcingPolicy));
     }
     return list;
   }, [items, showAllItems, cfg.side, supplierLinks]);
@@ -517,6 +521,17 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           } else if (!l.accountId || num(l.amount) === 0) {
             setErr("Each line needs an account (or a product/service) and an amount."); setPosting(false); return;
           }
+        }
+        // Sourcing policy, checked here purely so the buyer hears it before
+        // pressing Post rather than after. The real control is server-side in
+        // lib/inventory/sourcing-server.ts — this list is whatever the browser
+        // happens to hold, and "Show all items" can put an unlinked item on a
+        // line quite deliberately.
+        if (SOURCING_ENFORCED_TYPES.has(type)) {
+          const itemMap = new Map(items.map((i: any) => [i.id, i]));
+          const linked = new Set((supplierLinks ?? []).map((l: any) => l.itemId));
+          const v = sourcingViolations(lines, itemMap, linked, selectedParty?.name);
+          if (v.length) { setErr(v.length === 1 ? v[0].message : `${v.length} items are not linked to this supplier: ${v.map(x => x.itemName).join(", ")}.`); setPosting(false); return; }
         }
       }
       if (cfg.terms) payload.dueDate = dueDate || undefined;

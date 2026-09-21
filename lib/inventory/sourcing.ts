@@ -83,3 +83,68 @@ export function pricePerBaseUnit(unitPrice: any, baseUnitsPerSupplierUnit: numbe
   if (!isFinite(baseUnitsPerSupplierUnit) || baseUnitsPerSupplierUnit <= 0) return null;
   return p / baseUnitsPerSupplierUnit;
 }
+
+// ── Enforcement ──────────────────────────────────────────────────────────────
+
+/**
+ * Which purchase documents the policy binds.
+ *
+ * It binds every document that ACQUIRES goods, not only the Purchase Order.
+ * CLAUDE.md is explicit that each procure-to-pay step is bypassable — a Bill
+ * with tracked items posts Dr Inventory and creates lots with no PO anywhere —
+ * so a rule that only covered POs would be advisory: the first person in a
+ * hurry posts a Bill instead and the discipline is gone.
+ *
+ * VendorCredit is deliberately absent. It is a RETURN, not a purchase: it
+ * reduces what is owed for goods already received, and blocking it would strand
+ * a legitimate return when a supplier link is later tidied away. Job work is
+ * absent for a different reason — material sent to a knitter was never bought
+ * from them, so there is nothing to authorise.
+ */
+export const SOURCING_ENFORCED_TYPES = new Set(["PurchaseOrder", "Bill", "Expense"]);
+
+export type SourcingLine = { itemId?: string | null; description?: string | null };
+export type SourcingItem = { id: string; name?: string | null; sourcingPolicy?: string | null };
+
+export type SourcingViolation = { itemId: string; itemName: string; message: string };
+
+/**
+ * Which lines of a purchase document name an item this supplier may not supply.
+ *
+ * Pure, and separate from the query that feeds it, so the rule can be proven
+ * without a database — `linkedItemIds` is simply "the items this supplier is
+ * linked to". Same split as lib/modules.ts / lib/modules-server.ts.
+ *
+ * Absence of a link on a `restricted` item is a real finding, but note what it
+ * is NOT: evidence of wrongdoing. It means the sourcing decision has not been
+ * recorded, which is why the message says how to record it rather than simply
+ * refusing.
+ */
+export function sourcingViolations(
+  lines: SourcingLine[],
+  items: Map<string, SourcingItem>,
+  linkedItemIds: Set<string>,
+  supplierName?: string | null,
+): SourcingViolation[] {
+  const who = supplierName?.trim() || "this supplier";
+  const out: SourcingViolation[] = [];
+  const seen = new Set<string>();
+  for (const l of lines ?? []) {
+    const itemId = l?.itemId;
+    if (!itemId || seen.has(itemId)) continue;
+    const item = items.get(itemId);
+    // An item we cannot see is not one we can judge; the document's own
+    // validation deals with a bad id.
+    if (!item) continue;
+    if (allowsAnySupplier(item.sourcingPolicy)) continue;
+    if (linkedItemIds.has(itemId)) continue;
+    seen.add(itemId);
+    const itemName = item.name?.trim() || "This item";
+    out.push({
+      itemId,
+      itemName,
+      message: `${itemName} is not linked to ${who}. Link it on the item's Suppliers panel — with their unit, packaging and price — or set the item to "${SOURCING_POLICIES.open.label}" if anyone may supply it.`,
+    });
+  }
+  return out;
+}

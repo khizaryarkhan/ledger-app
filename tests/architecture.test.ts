@@ -104,6 +104,61 @@ describe("client bundles never reach server-only modules", () => {
   it("no component imports modules-server", () => {
     expect(importers("components", "modules-server")).toEqual([]);
   });
+
+  /**
+   * lib/inventory/sourcing-server.ts is the same split for the sourcing policy:
+   * it imports `db`, while lib/inventory/sourcing.ts holds the pure rule and IS
+   * imported by client components (the Products register, the document form).
+   * Collapsing the two would pull the database — and its credentials — into the
+   * browser bundle the moment either is imported there.
+   */
+  it("no component imports sourcing-server", () => {
+    expect(importers("components", "sourcing-server")).toEqual([]);
+  });
+
+  it("the pure sourcing rule stays free of the database", () => {
+    const src = readFileSync(join(ROOT, "lib/inventory/sourcing.ts"), "utf8");
+    expect(src).not.toMatch(/from\s+["']@\/db/);
+    expect(src).not.toMatch(/from\s+["']drizzle-orm/);
+  });
+});
+
+describe("a purchase cannot be posted without its sourcing decision", () => {
+  /**
+   * The policy is enforced where a document becomes a fact in the ledger, not
+   * in the form. The form's narrowed picker is help; it can be bypassed by a
+   * direct API call, the mobile client, or its own "Show all items" escape.
+   *
+   * Both writers must check. A Bill carrying a tracked item posts Dr Inventory
+   * and creates FIFO lots with no Purchase Order anywhere (CLAUDE.md: every
+   * procure-to-pay step is bypassable), so a rule that only bound the PO path
+   * would be advisory — the first person in a hurry posts a Bill instead.
+   */
+  const callsSourcing = (file: string) =>
+    /sourcingErrorMessage\s*\(/.test(readFileSync(join(ROOT, file), "utf8"));
+
+  it("postDocument checks it — that is the Bill and Expense path", () => {
+    expect(callsSourcing("lib/accounting/documents.ts")).toBe(true);
+  });
+
+  it("createTradeDoc checks it — that is the Purchase Order path", () => {
+    expect(callsSourcing("lib/accounting/trade-documents.ts")).toBe(true);
+  });
+
+  it("the check runs before any line is built, not after", () => {
+    // Ordering is the point: postDocument writes nothing until it returns, but
+    // a check placed after the inventory plan would already have read lots and
+    // resolved locations for a document that must not exist.
+    // Measured from inside postDocument, so the helpers' own definitions
+    // earlier in the file cannot be mistaken for their call sites.
+    const src = readFileSync(join(ROOT, "lib/accounting/documents.ts"), "utf8");
+    const body = src.slice(src.indexOf("export async function postDocument"));
+    const check = body.indexOf("sourcingErrorMessage(");
+    const build = body.indexOf("buildSalesPurchaseLines(");
+    expect(check).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(build);
+  });
 });
 
 describe("no GROUP BY on a view-backed table", () => {
