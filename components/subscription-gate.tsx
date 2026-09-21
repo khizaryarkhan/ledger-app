@@ -132,8 +132,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
             <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle size={24} className="text-amber-400" />
             </div>
-            <h2 className="text-lg font-semibold text-white">{copy.title}</h2>
-            <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">{copy.body}</p>
+            <h2 className="text-[18px] font-semibold text-white">{copy.title}</h2>
+            <p className="text-[13px] text-stone-400 mt-1.5 leading-relaxed">{copy.body}</p>
           </div>
 
           {/* Body */}
@@ -146,8 +146,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                   <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                     <Clock size={15} className="text-blue-400 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-blue-300">Temporary access request pending</p>
-                      <p className="text-xs text-blue-400/80 mt-0.5">
+                      <p className="text-[13px] font-medium text-blue-300">Temporary access request pending</p>
+                      <p className="text-[12px] text-blue-400/80 mt-0.5">
                         Your request is under review. You'll be notified once a decision is made.
                       </p>
                     </div>
@@ -164,8 +164,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                         <RefreshCw size={15} className="text-emerald-400" />
                       </div>
                       <div className="text-left">
-                        <p className="text-sm font-semibold text-white">I've paid — refresh</p>
-                        <p className="text-xs text-stone-400">Check the invoice email if you haven't paid yet</p>
+                        <p className="text-[13px] font-semibold text-white">I've paid — refresh</p>
+                        <p className="text-[12px] text-stone-400">Check the invoice email if you haven't paid yet</p>
                       </div>
                     </div>
                     <ChevronRight size={15} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
@@ -180,8 +180,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                         <RefreshCw size={15} className="text-emerald-400" />
                       </div>
                       <div className="text-left">
-                        <p className="text-sm font-semibold text-white">Renew Subscription</p>
-                        <p className="text-xs text-stone-400">Choose a plan and restore full access instantly</p>
+                        <p className="text-[13px] font-semibold text-white">Renew Subscription</p>
+                        <p className="text-[12px] text-stone-400">Choose a plan and restore full access instantly</p>
                       </div>
                     </div>
                     <ChevronRight size={15} className="text-stone-500 group-hover:text-emerald-400 transition-colors" />
@@ -198,8 +198,8 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                         <Clock size={15} className="text-stone-400" />
                       </div>
                       <div className="text-left">
-                        <p className="text-sm font-semibold text-white">Request Temporary Access</p>
-                        <p className="text-xs text-stone-400">Ask our team for short-term access while you decide</p>
+                        <p className="text-[13px] font-semibold text-white">Request Temporary Access</p>
+                        <p className="text-[12px] text-stone-400">Ask our team for short-term access while you decide</p>
                       </div>
                     </div>
                     <ChevronRight size={15} className="text-stone-500 group-hover:text-stone-300 transition-colors" />
@@ -211,11 +211,11 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
             {/* ── Plans view ── */}
             {view === "plans" && (
               <div className="space-y-3">
-                <button onClick={() => { setView("options"); setCheckoutError(null); }} className="text-xs text-stone-500 hover:text-stone-300 transition-colors mb-1">
+                <button onClick={() => { setView("options"); setCheckoutError(null); }} className="text-[12px] text-stone-500 hover:text-stone-300 transition-colors mb-1">
                   ← Back
                 </button>
                 {checkoutError && (
-                  <div className="px-3 py-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 leading-relaxed">
+                  <div className="px-3 py-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[12px] text-rose-300 leading-relaxed">
                     {checkoutError}
                   </div>
                 )}
@@ -224,7 +224,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                     {[1,2].map(i => <div key={i} className="h-16 bg-stone-800 rounded-lg" />)}
                   </div>
                 ) : plans.length === 0 ? (
-                  <p className="text-sm text-stone-400 text-center py-4">No plans available. Contact support.</p>
+                  <p className="text-[13px] text-stone-400 text-center py-4">No plans available. Contact support.</p>
                 ) : plans.map((plan: any) => {
                   const amount = plan.amount != null
                     ? `$${(plan.amount / 100).toFixed(plan.amount % 100 === 0 ? 0 : 2)}`
@@ -244,19 +244,19 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                             <Zap size={13} className="text-emerald-400" />
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-white">
+                            <p className="text-[13px] font-medium text-white">
                               {plan.productName}
                               {plan.interval === "year" && (
                                 <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">Best value</span>
                               )}
                             </p>
-                            {plan.description && <p className="text-xs text-stone-400 mt-0.5">{plan.description}</p>}
+                            {plan.description && <p className="text-[12px] text-stone-400 mt-0.5">{plan.description}</p>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           {amount && (
-                            <p className="text-sm font-semibold text-white">
-                              {amount}<span className="text-xs text-stone-400 font-normal">{period}</span>
+                            <p className="text-[13px] font-semibold text-white">
+                              {amount}<span className="text-[12px] text-stone-400 font-normal">{period}</span>
                             </p>
                           )}
                           {isLoading
@@ -274,11 +274,11 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
             {/* ── Request temp access view ── */}
             {view === "request" && (
               <div className="space-y-4">
-                <button onClick={() => setView("options")} className="text-xs text-stone-500 hover:text-stone-300 transition-colors">
+                <button onClick={() => setView("options")} className="text-[12px] text-stone-500 hover:text-stone-300 transition-colors">
                   ← Back
                 </button>
                 <div>
-                  <label className="block text-xs text-stone-400 mb-1.5">
+                  <label className="block text-[12px] text-stone-400 mb-1.5">
                     Reason for temporary access <span className="text-stone-600">(optional)</span>
                   </label>
                   <textarea
@@ -287,13 +287,13 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                     placeholder="e.g. Need to export data before renewing, waiting on payment approval…"
                     rows={3}
                     maxLength={1000}
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-lg border border-stone-700 bg-stone-800/60 text-[13px] text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
                 <button
                   onClick={handleRequestAccess}
                   disabled={submitting}
-                  className="w-full py-2.5 rounded-lg bg-stone-700 hover:bg-stone-600 text-sm font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-lg bg-stone-700 hover:bg-stone-600 text-[13px] font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting && <Loader size={13} className="animate-spin" />}
                   Submit request
@@ -307,13 +307,13 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                 <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto">
                   <CheckCircle2 size={20} className="text-emerald-400" />
                 </div>
-                <p className="text-sm font-medium text-white">Request submitted</p>
-                <p className="text-xs text-stone-400 leading-relaxed">
+                <p className="text-[13px] font-medium text-white">Request submitted</p>
+                <p className="text-[12px] text-stone-400 leading-relaxed">
                   Our team will review your request shortly. You'll regain access once it's approved.
                 </p>
                 <button
                   onClick={() => setView("options")}
-                  className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                  className="text-[12px] text-emerald-400 hover:text-emerald-300 transition-colors"
                 >
                   Back to options
                 </button>

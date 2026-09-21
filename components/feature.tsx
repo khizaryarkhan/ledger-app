@@ -26,7 +26,7 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
       {onAddNote && (
         <div className="bg-white ring-1 ring-stone-200 rounded-lg p-3 mb-4">
           <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add an internal note..."
-            className="w-full text-sm resize-none focus:outline-none placeholder-stone-400" rows={2} />
+            className="w-full text-[13px] resize-none focus:outline-none placeholder-stone-400" rows={2} />
           {noteDraft && (
             <div className="flex justify-end pt-2 border-t border-stone-100">
               <Button size="sm" onClick={() => { onAddNote(noteDraft); setNoteDraft(""); }}>Save note</Button>
@@ -58,15 +58,15 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                   <div className="bg-white ring-1 ring-stone-200 rounded-lg p-4">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <div className="text-sm font-medium text-stone-900">
+                        <div className="text-[13px] font-medium text-stone-900">
                           {isNote ? `Note by ${c.sender || "User"}` : isInbound ? `From ${contact?.name || c.sender}` : `To ${contact?.name || c.recipients}`}
                         </div>
                         {!isNote && <div className="text-[11px] text-stone-500 mt-0.5">{isInbound ? c.sender : c.recipients}</div>}
                       </div>
                       <div className="text-[11px] text-stone-500">{fmt.relative(c.sentAt)}</div>
                     </div>
-                    {!isNote && c.subject && <div className="text-sm font-semibold text-stone-900 mb-2">{c.subject}</div>}
-                    <div className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">{c.body}</div>
+                    {!isNote && c.subject && <div className="text-[13px] font-semibold text-stone-900 mb-2">{c.subject}</div>}
+                    <div className="text-[13px] text-stone-700 whitespace-pre-wrap leading-relaxed">{c.body}</div>
                     <div className={`mt-3 pt-3 border-t border-stone-100 flex items-center ${invoice ? "justify-between" : "justify-end"}`}>
                       {invoice && (
                         <div className="flex items-center gap-2">
@@ -351,7 +351,7 @@ ${senderName}`;
           <label className="text-[11px] font-medium text-stone-400 block mb-1">To</label>
           <input value={toValue} onChange={e => setToValue(e.target.value)}
             placeholder="email@example.com, another@example.com"
-            className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
+            className="w-full mt-0.5 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           {allContacts.length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">Quick add:</span>
@@ -372,7 +372,7 @@ ${senderName}`;
           <label className="text-[11px] font-medium text-stone-400 block mb-1">CC</label>
           <input value={ccValue} onChange={e => setCcValue(e.target.value)}
             placeholder="Optional"
-            className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
+            className="w-full mt-0.5 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           {allContacts.filter((c: any) => c.isEscalation).length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">Escalation:</span>
@@ -391,7 +391,7 @@ ${senderName}`;
           <div>
             <label className="text-[11px] font-medium text-stone-400 block mb-1">Subject</label>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject..."
-              className="w-full mt-0.5 text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
+              className="w-full mt-0.5 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
           <div>
             <label className="text-[11px] font-medium text-stone-400 block mb-1">Template</label>
@@ -445,7 +445,7 @@ ${senderName}`;
         <div>
           <label className="text-[11px] font-medium text-stone-400 block mb-1">Message</label>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10}
-            className="w-full text-sm border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500 font-mono leading-relaxed resize-none"
+            className="w-full text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500 font-mono leading-relaxed resize-none"
             placeholder="Write your message..." />
         </div>
       </div>
@@ -480,19 +480,19 @@ export function PaymentModal({ invoice, onClose }: any) {
         <Button onClick={handle} disabled={!amount || amount <= 0 || submitting}>{submitting ? "Saving…" : "Record"}</Button>
       </>}>
       <div className="p-5 space-y-3">
-        <div className="bg-stone-50 rounded-md p-3 text-sm">
-          <div className="text-xs text-stone-500 mb-1">Outstanding</div>
-          <div className="text-lg font-semibold text-stone-900 tabular-nums">{fmt.money(out, invoice.currency)}</div>
+        <div className="bg-stone-50 rounded-md p-3 text-[13px]">
+          <div className="text-[12px] text-stone-500 mb-1">Outstanding</div>
+          <div className="text-[18px] font-semibold text-stone-900 tabular-nums">{fmt.money(out, invoice.currency)}</div>
         </div>
         <div>
-          <label className="text-xs font-medium text-stone-700 block mb-1">Payment amount ({invoice.currency})</label>
+          <label className="text-[12px] font-medium text-stone-700 block mb-1">Payment amount ({invoice.currency})</label>
           <Input type="number" value={amount} onChange={(e: any) => setAmount(e.target.value)} />
         </div>
         <div>
-          <label className="text-xs font-medium text-stone-700 block mb-1">Payment date</label>
+          <label className="text-[12px] font-medium text-stone-700 block mb-1">Payment date</label>
           <input type="date" value={paidDate} max={new Date().toISOString().slice(0, 10)}
             onChange={e => setPaidDate(e.target.value)}
-            className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
+            className="w-full h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
         </div>
       </div>
     </Modal>
@@ -522,10 +522,10 @@ export function DisputeModal({ invoice, onClose }: any) {
         <Button variant="danger" onClick={handle} disabled={!reason.trim() || submitting}>{submitting ? "Saving…" : "Mark disputed"}</Button>
       </>}>
       <div className="p-5">
-        <div className="mb-3 text-sm text-stone-600">Marking this invoice as disputed will pause automated reminders.</div>
-        <label className="text-xs font-medium text-stone-700 block mb-1">Dispute reason *</label>
+        <div className="mb-3 text-[13px] text-stone-600">Marking this invoice as disputed will pause automated reminders.</div>
+        <label className="text-[12px] font-medium text-stone-700 block mb-1">Dispute reason *</label>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
-          className="w-full text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5"
+          className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5"
           placeholder="Describe the dispute..." />
       </div>
     </Modal>
@@ -555,8 +555,8 @@ export function PromiseModal({ invoice, onClose }: any) {
         <Button onClick={handle} disabled={submitting}>Set commitment date</Button>
       </>}>
       <div className="p-5">
-        <div className="mb-3 text-sm text-stone-600">Reminders will pause until this date.</div>
-        <label className="text-xs font-medium text-stone-700 block mb-1">Expected payment date</label>
+        <div className="mb-3 text-[13px] text-stone-600">Reminders will pause until this date.</div>
+        <label className="text-[12px] font-medium text-stone-700 block mb-1">Expected payment date</label>
         <Input type="date" value={date} onChange={(e: any) => setDate(e.target.value)} />
       </div>
     </Modal>
@@ -586,14 +586,14 @@ export function TaskModal({ invoiceId, customerId, onClose }: any) {
         <Button onClick={handle} disabled={!form.title || submitting}>Add task</Button>
       </>}>
       <div className="p-5 space-y-3">
-        <div><label className="text-xs font-medium text-stone-700 block mb-1">Title *</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
-        <div><label className="text-xs font-medium text-stone-700 block mb-1">Description</label>
+        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Title *</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
+        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Description</label>
           <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full text-sm rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" />
+            className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => setForm({ ...form, dueDate: e.target.value })} /></div>
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Priority</label><Select value={form.priority} onChange={(e: any) => setForm({ ...form, priority: e.target.value })} options={["Low", "Medium", "High", "Urgent"]} className="w-full" /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => setForm({ ...form, dueDate: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Priority</label><Select value={form.priority} onChange={(e: any) => setForm({ ...form, priority: e.target.value })} options={["Low", "Medium", "High", "Urgent"]} className="w-full" /></div>
         </div>
       </div>
     </Modal>
@@ -624,20 +624,20 @@ export function AddContactModal({ customerId, projectId, onClose }: any) {
       </>}>
       <div className="p-5 space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Name *</label><Input value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} placeholder="Full name" /></div>
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Job title</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Name *</label><Input value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} placeholder="Full name" /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Job title</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Email *</label><Input type="email" value={form.email} onChange={(e: any) => setForm({ ...form, email: e.target.value })} /></div>
-          <div><label className="text-xs font-medium text-stone-700 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Email *</label><Input type="email" value={form.email} onChange={(e: any) => setForm({ ...form, email: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} /></div>
         </div>
-        <div><label className="text-xs font-medium text-stone-700 block mb-1">Contact type</label>
+        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Contact type</label>
           <Select value={form.type} onChange={(e: any) => setForm({ ...form, type: e.target.value })} options={["Billing", "Finance", "Project", "Escalation", "Legal", "Other"]} className="w-full" />
         </div>
         <div className="space-y-1.5 pt-1">
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPrimary} onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })} className="rounded" /> Primary billing contact</label>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isEscalation} onChange={(e) => setForm({ ...form, isEscalation: e.target.checked })} className="rounded" /> Escalation contact</label>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.receivesAuto} onChange={(e) => setForm({ ...form, receivesAuto: e.target.checked })} className="rounded" /> Receives automated emails</label>
+          <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={form.isPrimary} onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })} className="rounded" /> Primary billing contact</label>
+          <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={form.isEscalation} onChange={(e) => setForm({ ...form, isEscalation: e.target.checked })} className="rounded" /> Escalation contact</label>
+          <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={form.receivesAuto} onChange={(e) => setForm({ ...form, receivesAuto: e.target.checked })} className="rounded" /> Receives automated emails</label>
         </div>
       </div>
     </Modal>
@@ -658,7 +658,7 @@ export function TasksList({ tasks, showAssignee = true }: any) {
             {t.completed ? <Check size={16} className="text-emerald-600" /> : <Circle size={16} className="text-stone-300 hover:text-stone-500" />}
           </button>
           <div className="flex-1 min-w-0">
-            <div className={`text-sm font-medium ${t.completed ? "text-stone-400 line-through" : "text-stone-900"}`}>{t.title}</div>
+            <div className={`text-[13px] font-medium ${t.completed ? "text-stone-400 line-through" : "text-stone-900"}`}>{t.title}</div>
             {t.description && <div className="text-[12px] text-stone-500 mt-0.5">{t.description}</div>}
           </div>
           {t.priority === "Urgent" && <span className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-rose-50 text-rose-700 ring-rose-200 font-medium">Urgent</span>}
@@ -844,13 +844,13 @@ export function AuditTimeline({ customerId, projectId, label }: {
           Loading audit trail…
         </div>
       ) : error ? (
-        <div className="text-center py-12 text-rose-500 text-sm">Failed to load audit events.</div>
+        <div className="text-center py-12 text-rose-500 text-[13px]">Failed to load audit events.</div>
       ) : events.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-3">
             <Clock size={18} className="text-stone-400" />
           </div>
-          <div className="text-sm font-medium text-stone-600">No events recorded yet</div>
+          <div className="text-[13px] font-medium text-stone-600">No events recorded yet</div>
           <div className="text-[12px] text-stone-400 mt-1">Activity will appear here as actions are taken.</div>
         </div>
       ) : (
@@ -1144,29 +1144,29 @@ ${senderName}`;
             results.sent > 0 ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"
           }`}>
             <CheckCircle size={20} className={`flex-shrink-0 mt-0.5 ${results.sent > 0 ? "text-emerald-600" : "text-rose-500"}`} />
-            <div className="space-y-1 text-sm">
+            <div className="space-y-1 text-[13px]">
               <div className={`font-semibold ${results.sent > 0 ? "text-emerald-900" : "text-rose-800"}`}>
                 {results.sent} email{results.sent !== 1 ? "s" : ""} sent successfully
               </div>
               {results.skipped.length > 0 && (
-                <div className="text-xs text-stone-600">
+                <div className="text-[12px] text-stone-600">
                   {results.skipped.length} skipped (no email): {results.skipped.join(", ")}
                 </div>
               )}
               {results.failed.length > 0 && (
-                <div className="text-xs text-rose-700">
+                <div className="text-[12px] text-rose-700">
                   {results.failed.length} failed to send: {results.failed.join(", ")}
                 </div>
               )}
               {results.pdfErrors.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-amber-200">
-                  <div className="text-xs font-semibold text-amber-700 mb-1">
+                  <div className="text-[12px] font-semibold text-amber-700 mb-1">
                     ⚠ PDF attachment issues ({results.pdfErrors.length}):
                   </div>
                   {results.pdfErrors.map((e, i) => (
-                    <div key={i} className="text-xs text-amber-700">{e}</div>
+                    <div key={i} className="text-[12px] text-amber-700">{e}</div>
                   ))}
-                  <div className="text-xs text-amber-600 mt-1">
+                  <div className="text-[12px] text-amber-600 mt-1">
                     Emails were delivered but without PDF attachments.
                   </div>
                 </div>
@@ -1198,7 +1198,7 @@ ${senderName}`;
                       if (t) { setSubject(t.subject); setBody(t.body); }
                       e.target.value = "";
                     }}
-                    className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                    className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
                   >
                     <option value="">— Pick a template to pre-fill —</option>
                     {orgTemplates.map((t: any) => (
@@ -1217,7 +1217,7 @@ ${senderName}`;
                   value={subject}
                   onChange={e => setSubject(e.target.value)}
                   placeholder="e.g. Invoice {invoiceNumber} — {ref}"
-                  className="w-full h-9 px-3 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
+                  className="w-full h-9 px-3 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white"
                 />
               </div>
 
@@ -1233,7 +1233,7 @@ ${senderName}`;
                   value={body}
                   onChange={e => setBody(e.target.value)}
                   rows={12}
-                  className="w-full flex-1 px-3 py-2.5 text-sm rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white font-mono leading-relaxed resize-none"
+                  className="w-full flex-1 px-3 py-2.5 text-[13px] rounded-lg ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none bg-white font-mono leading-relaxed resize-none"
                   placeholder="Write your message here…"
                 />
               </div>
@@ -1269,7 +1269,7 @@ ${senderName}`;
                   <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
                 </div>
                 <div>
-                  <div className="text-sm font-medium text-stone-800">Attach invoice PDF</div>
+                  <div className="text-[13px] font-medium text-stone-800">Attach invoice PDF</div>
                   <div className="text-[11px] text-stone-400">Fetches each PDF from QuickBooks and attaches to the email</div>
                 </div>
               </label>

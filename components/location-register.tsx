@@ -151,10 +151,10 @@ export function LocationRegister() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-stone-100 flex items-center gap-2">
+          <h1 className="text-[18px] font-semibold text-stone-100 flex items-center gap-2">
             <MapPin size={18} className="text-orange-400" /> Stock Locations
           </h1>
-          <p className="text-sm text-stone-400 mt-1">
+          <p className="text-[13px] text-stone-400 mt-1">
             The physical places stock sits. Receipts land in one, shipments leave from one,
             and a transfer moves stock between them without changing what it cost.
           </p>
@@ -163,7 +163,7 @@ export function LocationRegister() {
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-stone-500 py-10 justify-center">
+        <div className="flex items-center gap-2 text-[13px] text-stone-500 py-10 justify-center">
           <Loader2 size={15} className="animate-spin" /> Loading locations…
         </div>
       ) : rows.length === 0 ? (
@@ -175,7 +175,7 @@ export function LocationRegister() {
         />
       ) : (
         <Card padding="none">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead className="border-b border-stone-800">
               <tr>
                 <th className={th}>Code</th>

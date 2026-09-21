@@ -149,7 +149,7 @@ export function ArAgingReport() {
                 value={asOf}
                 max={todayIso}
                 onChange={e => setAsOf(e.target.value || todayIso)}
-                className="h-8 px-2 text-sm rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white"
+                className="h-8 px-2 text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white"
               />
               {isHistorical && (
                 <button onClick={() => setAsOf(todayIso)} className="text-[10px] text-stone-400 hover:text-stone-700 ml-1 font-medium">
@@ -266,12 +266,12 @@ export function ArAgingReport() {
 
       {/* Loading state */}
       {loading && (
-        <Card><div className="text-center text-stone-400 text-sm py-8">Computing AR Aging as of {asOf}…</div></Card>
+        <Card><div className="text-center text-stone-400 text-[13px] py-8">Computing AR Aging as of {asOf}…</div></Card>
       )}
 
       {/* Empty state */}
       {!loading && data && data.summary.length === 0 && (
-        <Card><div className="text-center text-stone-400 text-sm py-8">No open AR as of {asOf}.</div></Card>
+        <Card><div className="text-center text-stone-400 text-[13px] py-8">No open AR as of {asOf}.</div></Card>
       )}
 
       {/* Flags banner */}
@@ -297,7 +297,7 @@ export function ArAgingReport() {
       {/* SUMMARY VIEW */}
       {!loading && data && view === "summary" && data.summary.length > 0 && (
         <Card padding="none">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
                 <th className="text-left font-semibold px-4 py-3">Customer</th>
@@ -413,7 +413,7 @@ export function ArAgingReport() {
       {/* DETAIL VIEW */}
       {!loading && data && view === "detail" && data.detail.length > 0 && (
         <Card padding="none">
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
                 <th className="text-left font-semibold px-3 py-2.5">Customer</th>

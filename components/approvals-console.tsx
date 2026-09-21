@@ -53,7 +53,7 @@ function ThresholdSettings() {
     <div className="mt-8">
       <div className="flex items-center gap-2 mb-1">
         <Sliders size={15} className="text-stone-500" />
-        <h2 className="text-sm font-semibold text-stone-200">Approval thresholds</h2>
+        <h2 className="text-[13px] font-semibold text-stone-200">Approval thresholds</h2>
       </div>
       <p className="text-[12.5px] text-stone-500 mb-3">
         "Always require" gates every transaction of that type regardless of value — the recommended setting for Job Work dispatch,
@@ -61,7 +61,7 @@ function ThresholdSettings() {
         Admin only.
       </p>
       <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800">
-        {rows === null && <div className="px-4 py-6 text-center text-stone-500 text-sm">Loading…</div>}
+        {rows === null && <div className="px-4 py-6 text-center text-stone-500 text-[13px]">Loading…</div>}
         {(rows ?? []).map(row => (
           <div key={row.entityType} className="px-4 py-3">
             <div className="flex items-center gap-4">
@@ -129,15 +129,15 @@ export function ApprovalsConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center"><ShieldCheck size={18} className="text-amber-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Approvals</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Approvals</h1>
         </div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Nothing here has posted yet — approving runs it for real; rejecting discards it. You can't approve your own request.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Nothing here has posted yet — approving runs it for real; rejecting discards it. You can't approve your own request.</p>
 
       <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800">
-        {rows === null && <div className="px-4 py-8 text-center text-stone-500 text-sm">Loading…</div>}
-        {rows && rows.length === 0 && <div className="px-4 py-8 text-center text-stone-500 text-sm">No pending approvals.</div>}
+        {rows === null && <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>}
+        {rows && rows.length === 0 && <div className="px-4 py-8 text-center text-stone-500 text-[13px]">No pending approvals.</div>}
         {(rows ?? []).map(r => (
           <div key={r.id} className="px-4 py-3">
             <div className="flex items-center justify-between">

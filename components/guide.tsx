@@ -90,7 +90,7 @@ function renderBlock(b: GuideBlock, i: number) {
     case "p":
       return <p key={i} className="text-[13.5px] text-stone-400 leading-relaxed my-3">{b.text}</p>;
     case "subhead":
-      return <h3 key={i} className="text-sm font-semibold text-white mt-6 mb-1">{b.text}</h3>;
+      return <h3 key={i} className="text-[13px] font-semibold text-white mt-6 mb-1">{b.text}</h3>;
     case "steps":
       return (
         <ol key={i} className="my-3 space-y-2">
@@ -143,12 +143,12 @@ export function GuideLayout({ title, subtitle, sections }: {
       {/* Header */}
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">{title}</h1>
-          <p className="text-sm text-stone-500 mt-1 max-w-2xl">{subtitle}</p>
+          <h1 className="text-[24px] font-bold text-white tracking-tight">{title}</h1>
+          <p className="text-[13px] text-stone-500 mt-1 max-w-2xl">{subtitle}</p>
         </div>
         <button
           onClick={() => window.print()}
-          className="print:hidden shrink-0 flex items-center gap-2 h-9 px-3.5 text-xs font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 transition-colors">
+          className="print:hidden shrink-0 flex items-center gap-2 h-9 px-3.5 text-[12px] font-medium rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800 transition-colors">
           <Printer size={14} /> Print / Save as PDF
         </button>
       </div>
@@ -186,7 +186,7 @@ export function GuideLayout({ title, subtitle, sections }: {
                       <Icon size={15} className="text-emerald-400" />
                     </span>
                   )}
-                  <h2 className="text-lg font-semibold text-white">{s.title}</h2>
+                  <h2 className="text-[18px] font-semibold text-white">{s.title}</h2>
                 </div>
                 {s.intro && <p className="text-[13.5px] text-stone-400 leading-relaxed mt-3">{s.intro}</p>}
                 {s.blocks.map(renderBlock)}

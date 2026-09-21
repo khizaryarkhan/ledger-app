@@ -79,7 +79,7 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
     setAction(null);
   }
 
-  if (loading) return <div className="text-stone-400 text-sm py-8 text-center">Loading…</div>;
+  if (loading) return <div className="text-stone-400 text-[13px] py-8 text-center">Loading…</div>;
   if (!data) return null;
 
   // Invoice label — a link in the main app, plain text in the rep portal (no detail page there)
@@ -106,9 +106,9 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
           <AlertOctagon size={16} className={isOpen ? "text-rose-400 mt-0.5 shrink-0" : "text-stone-500 mt-0.5 shrink-0"} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <Inv id={d.invoiceId} className="text-sm font-medium text-white hover:underline font-mono">#{d.invoiceNumber}</Inv>
-              <span className="text-sm text-stone-500">·</span>
-              <span className="text-sm text-stone-300">{d.customerName}{d.projectName ? ` / ${d.projectName}` : ""}</span>
+              <Inv id={d.invoiceId} className="text-[13px] font-medium text-white hover:underline font-mono">#{d.invoiceNumber}</Inv>
+              <span className="text-[13px] text-stone-500">·</span>
+              <span className="text-[13px] text-stone-300">{d.customerName}{d.projectName ? ` / ${d.projectName}` : ""}</span>
               <Badge variant="red" size="sm">Dispute · {d.category}</Badge>
               <Badge variant={sourceBadge(d.source)} size="sm">{d.source}</Badge>
               <Badge variant={d.status === "Open" ? "red" : d.status === "Under Review" ? "yellow" : "green"} size="sm">{d.status}</Badge>
@@ -157,18 +157,18 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
               <div>
                 <label className="text-[11px] font-medium text-stone-400">Outcome</label>
                 <select value={outcome} onChange={e => setOutcome(e.target.value)}
-                  className="w-full mt-1 text-sm border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white outline-none focus:border-emerald-500">
+                  className="w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white outline-none focus:border-emerald-500">
                   {DISPUTE_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
             )}
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
               placeholder={action!.mode === "resolve" ? "Resolution note (optional)" : "Reason for rejecting (optional)"}
-              className="w-full text-sm border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white placeholder-stone-500 outline-none focus:border-emerald-500 resize-none" />
+              className="w-full text-[13px] border border-stone-700 rounded-lg px-2.5 py-1.5 bg-stone-800 text-white placeholder-stone-500 outline-none focus:border-emerald-500 resize-none" />
             <div className="flex items-center justify-end gap-2">
-              <button onClick={() => setAction(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400 hover:text-white">Cancel</button>
+              <button onClick={() => setAction(null)} className="px-3 py-1.5 text-[12px] font-medium text-stone-400 hover:text-white">Cancel</button>
               <button onClick={submitAction} disabled={busy === d.id}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-700 hover:bg-stone-800"}`}>
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-700 hover:bg-stone-800"}`}>
                 {busy === d.id ? "Saving…" : action!.mode === "resolve" ? "Confirm resolve" : "Confirm reject"}
               </button>
             </div>
@@ -183,9 +183,9 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
       <CalendarClock size={16} className={p.isBroken ? "text-amber-400 mt-0.5 shrink-0" : "text-blue-400 mt-0.5 shrink-0"} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <Inv id={p.invoiceId} className="text-sm font-medium text-white hover:underline font-mono">#{p.invoiceNumber}</Inv>
-          <span className="text-sm text-stone-500">·</span>
-          <span className="text-sm text-stone-300">{p.customerName}{p.projectName ? ` / ${p.projectName}` : ""}</span>
+          <Inv id={p.invoiceId} className="text-[13px] font-medium text-white hover:underline font-mono">#{p.invoiceNumber}</Inv>
+          <span className="text-[13px] text-stone-500">·</span>
+          <span className="text-[13px] text-stone-300">{p.customerName}{p.projectName ? ` / ${p.projectName}` : ""}</span>
           <Badge variant={sourceBadge(p.source)} size="sm">{p.source}</Badge>
           {p.isBroken && <Badge variant="yellow" size="sm">⚠ Broken</Badge>}
           {p.status !== "Active" && <Badge variant="neutral" size="sm">{p.status}</Badge>}
@@ -226,7 +226,7 @@ export function ResponsesInbox({ invoiceHref = (id: string) => `/invoices/${id}`
         <div className="flex items-center gap-1">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors ${tab === t.id ? "border-emerald-500 text-white" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
+              className={`px-3 py-2 text-[13px] font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors ${tab === t.id ? "border-emerald-500 text-white" : "border-transparent text-stone-500 hover:text-stone-200"}`}>
               {t.label}
               {t.count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${t.id === "attention" ? "bg-rose-500 text-white" : "bg-stone-800 text-stone-300"}`}>{t.count}</span>}
             </button>

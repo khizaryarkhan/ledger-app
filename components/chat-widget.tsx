@@ -76,7 +76,7 @@ export function ChatWidget() {
           aria-label="Open AI assistant"
         >
           <MessageCircle size={18} />
-          <span className="text-sm font-medium">Ask AI</span>
+          <span className="text-[13px] font-medium">Ask AI</span>
         </button>
       )}
 
@@ -89,7 +89,7 @@ export function ChatWidget() {
                 <Bot size={14} className="text-emerald-400" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-white leading-none">AR Assistant</div>
+                <div className="text-[13px] font-semibold text-white leading-none">AR Assistant</div>
                 <div className="text-[10px] text-stone-500 mt-0.5">Powered by GPT-4o</div>
               </div>
             </div>
@@ -114,7 +114,7 @@ export function ChatWidget() {
                     : <Bot size={12} className="text-stone-400" />
                   }
                 </div>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                   m.role === "user"
                     ? "bg-emerald-500/20 text-emerald-100 border border-emerald-500/20 rounded-tr-sm"
                     : "bg-stone-800 text-stone-200 border border-stone-700 rounded-tl-sm"
@@ -159,7 +159,7 @@ export function ChatWidget() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything about your AR…"
                 disabled={loading}
-                className="flex-1 bg-transparent text-sm text-stone-200 placeholder:text-stone-500 outline-none disabled:opacity-50"
+                className="flex-1 bg-transparent text-[13px] text-stone-200 placeholder:text-stone-500 outline-none disabled:opacity-50"
               />
               <button
                 onClick={() => send(input)}

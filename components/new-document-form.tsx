@@ -521,15 +521,15 @@ export function NewDocumentForm({ type }: { type: DocType }) {
       <div className="p-6 max-w-2xl mx-auto">
         <div className="rounded-2xl bg-stone-900 border border-stone-800 p-8 text-center">
           <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4"><Check size={24} className="text-emerald-400" /></div>
-          <h2 className="text-lg font-semibold text-white">{cfg.title} posted</h2>
-          <p className="text-sm text-stone-400 mt-1">
+          <h2 className="text-[18px] font-semibold text-white">{cfg.title} posted</h2>
+          <p className="text-[13px] text-stone-400 mt-1">
             {done.docNumber && <span className="font-mono">{done.docNumber}</span>}
             {done.txnNo != null && <span className="text-stone-600"> · TXN-{String(done.txnNo).padStart(6, "0")}</span>}
             {" "}for <span className="text-stone-200 font-medium">{money(totals.total)}</span> {currency || home}
           </p>
           <div className="flex items-center justify-center gap-3 mt-6">
-            <button onClick={reset} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">New {cfg.title.toLowerCase()}</button>
-            <Link href={cfg.trade ? `/accounting/trade/${cfg.trade}` : "/accounting/journal"} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm">{cfg.trade ? `View ${cfg.title.toLowerCase()}s` : "View in ledger"}</Link>
+            <button onClick={reset} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium">New {cfg.title.toLowerCase()}</button>
+            <Link href={cfg.trade ? `/accounting/trade/${cfg.trade}` : "/accounting/journal"} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px]">{cfg.trade ? `View ${cfg.title.toLowerCase()}s` : "View in ledger"}</Link>
           </div>
         </div>
       </div>
@@ -556,14 +556,14 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/20 flex items-center justify-center shrink-0"><FileText size={17} className="text-emerald-400" /></div>
             <div className="min-w-0">
-              <h1 className="text-[17px] font-semibold text-stone-100 leading-tight truncate">{editId ? "Edit" : "New"} {cfg.title.toLowerCase()}</h1>
+              <h1 className="text-[18px] font-semibold text-stone-100 leading-tight truncate">{editId ? "Edit" : "New"} {cfg.title.toLowerCase()}</h1>
               <p className="text-[11px] text-stone-500 truncate">{cfg.blurb}</p>
             </div>
           </div>
           <div className="flex items-center gap-5 shrink-0">
             <div className="text-right hidden sm:block">
               <div className="text-[10px] uppercase tracking-wider text-stone-500">Total</div>
-              <div className="text-lg font-semibold text-white tabular-nums leading-tight">{money(totals.total)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
+              <div className="text-[18px] font-semibold text-white tabular-nums leading-tight">{money(totals.total)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
             </div>
             <button onClick={close} className="text-stone-500 hover:text-stone-200 hover:bg-stone-800 p-1.5 rounded-lg transition" title="Close"><X size={20} /></button>
           </div>
@@ -572,7 +572,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
         {loading ? (
-          <div className="py-10 text-center text-stone-500 text-sm inline-flex items-center gap-2"><Loader size={14} className="animate-spin" /> Loading…</div>
+          <div className="py-10 text-center text-stone-500 text-[13px] inline-flex items-center gap-2"><Loader size={14} className="animate-spin" /> Loading…</div>
         ) : (
           <div className="space-y-6 max-w-[1200px]">
             {err && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2 inline-flex items-center gap-2"><AlertTriangle size={13} /> {err}</div>}
@@ -697,12 +697,12 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                   </div>
                   <div className="w-52">
                     <label className={label}>Amount received *</label>
-                    <input type="number" step="0.01" min="0" value={amount} onChange={e => { setAmount(e.target.value); setAmountTouched(true); }} className={`${input} w-full text-right tabular-nums text-base`} />
+                    <input type="number" step="0.01" min="0" value={amount} onChange={e => { setAmount(e.target.value); setAmountTouched(true); }} className={`${input} w-full text-right tabular-nums text-[15px]`} />
                   </div>
                   {partyId && openDocs && (
                     <div className="ml-auto text-right">
                       <div className="text-[10px] uppercase tracking-wider text-stone-500">{cfg.party === "Vendor" ? "Supplier" : "Customer"} balance</div>
-                      <div className="text-lg font-semibold text-stone-200 tabular-nums">{money(customerBalance)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
+                      <div className="text-[18px] font-semibold text-stone-200 tabular-nums">{money(customerBalance)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
                     </div>
                   )}
                 </div>
@@ -1022,12 +1022,12 @@ export function NewDocumentForm({ type }: { type: DocType }) {
               <div className="w-64 rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 text-[13px] space-y-2">
                 <div className="flex justify-between text-stone-400"><span>Subtotal</span><span className="tabular-nums text-stone-200">{money(totals.net)}</span></div>
                 {cfg.tax && <div className="flex justify-between text-stone-400"><span>Tax</span><span className="tabular-nums text-stone-200">{money(totals.tax)}</span></div>}
-                <div className="flex justify-between items-baseline border-t border-stone-800 pt-2 mt-1"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-lg font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
+                <div className="flex justify-between items-baseline border-t border-stone-800 pt-2 mt-1"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-[18px] font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
               </div>
             )}
             {(cfg.mode === "deposit" || cfg.mode === "payment" || cfg.mode === "transfer") && (
               <div className="w-56 rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 text-[13px]">
-                <div className="flex justify-between items-baseline"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-lg font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
+                <div className="flex justify-between items-baseline"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-[18px] font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
               </div>
             )}
           </div>
@@ -1040,7 +1040,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
         {!loading && (
           <div className="flex items-center justify-end gap-3 px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
             <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-            <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+            <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
               {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
             </button>
           </div>

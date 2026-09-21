@@ -169,7 +169,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Type</label>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
+              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
               {TYPE_FILTERS.map(f => {
                 const n = f.id === "all" ? (counts.total ?? 0) : (counts[f.id] ?? 0);
                 if (scope === "project" && f.id === "Refund Receipt") return null;
@@ -180,7 +180,7 @@ export function TransactionsTab({
           <div>
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Date</label>
             <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
+              className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
               {DATE_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
@@ -189,7 +189,7 @@ export function TransactionsTab({
           {hasSelection && onSendSelected && (
             <button
               onClick={() => onSendSelected(selectedIds)}
-              className="flex items-center gap-2 h-8 px-3 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+              className="flex items-center gap-2 h-8 px-3 text-[13px] font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
             >
               <Send size={13} />
               Send {selectedIds.length} invoice{selectedIds.length !== 1 ? "s" : ""}
@@ -222,7 +222,7 @@ export function TransactionsTab({
 
       {/* Table */}
       <Card padding="none">
-        <table className="w-full text-sm">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
               {onSendSelected && (
@@ -249,10 +249,10 @@ export function TransactionsTab({
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-sm">Loading…</td></tr>
+              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-sm">No transactions found for this filter.</td></tr>
+              <tr><td colSpan={onSendSelected ? 9 : 8} className="px-4 py-8 text-center text-stone-500 text-[13px]">No transactions found for this filter.</td></tr>
             )}
             {filtered.map(r => {
               const showBalance = r.balance > 0.005;

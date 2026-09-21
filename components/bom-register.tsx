@@ -13,7 +13,7 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
+const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 
 function StatusBadge({ s }: { s: string }) {
   const cls = s === "Active" ? "bg-emerald-500/12 text-emerald-400 border-emerald-800/50" : s === "Draft" ? "bg-amber-500/12 text-amber-400 border-amber-800/50" : "bg-stone-500/12 text-stone-400 border-stone-700";
@@ -51,14 +51,14 @@ export function BomRegister() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center"><GitMerge size={18} className="text-violet-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Bill of Materials</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Bill of Materials</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New BOM</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Recipes that define what inputs are consumed to produce which outputs. A production Build against a BOM moves inventory cost from the inputs to the finished output.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Recipes that define what inputs are consumed to produce which outputs. A production Build against a BOM moves inventory cost from the inputs to the finished output.</p>
 
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-sm">

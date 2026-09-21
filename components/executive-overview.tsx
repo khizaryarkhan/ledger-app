@@ -42,7 +42,7 @@ function Kpi({ icon: Icon, label, value, sub, tone = "stone" }: { icon: any; lab
         <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${toneCls[tone]}`}><Icon size={14} /></div>
         <div className="text-[11.5px] uppercase tracking-wide text-stone-500">{label}</div>
       </div>
-      <div className="text-xl font-semibold text-stone-100 tabular-nums">{value}</div>
+      <div className="text-[20px] font-semibold text-stone-100 tabular-nums">{value}</div>
       {sub && <div className="text-[12px] text-stone-500 mt-0.5">{sub}</div>}
     </div>
   );
@@ -86,14 +86,14 @@ export function ExecutiveOverview() {
     <div className="p-6 max-w-6xl">
       <div className="flex items-center justify-between mb-1">
         <div>
-          <h1 className="text-xl font-semibold text-stone-100">Executive Overview</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Executive Overview</h1>
           <p className="text-[12.5px] text-stone-500 mt-0.5">The whole business, at a glance — as of {data ? fmt.date(data.asOf) : "…"}</p>
         </div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={data === null ? "animate-spin" : ""} /></button>
       </div>
 
       {err && <div className="mt-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{err}</div>}
-      {data === null && !err && <div className="mt-8 text-center text-stone-500 text-sm">Loading…</div>}
+      {data === null && !err && <div className="mt-8 text-center text-stone-500 text-[13px]">Loading…</div>}
 
       {data && (
         <>
@@ -121,7 +121,7 @@ export function ExecutiveOverview() {
           </div>
 
           <div className="mt-6 rounded-xl bg-stone-900 border border-stone-800 p-5">
-            <h2 className="text-sm font-semibold text-stone-200 mb-3">Profitability</h2>
+            <h2 className="text-[13px] font-semibold text-stone-200 mb-3">Profitability</h2>
             <MarginRow label="Revenue" mtd={data.revenue.mtd} ytd={data.revenue.ytd} money={money} />
             <MarginRow label={`Gross profit  ${marginPct(data.grossProfit.ytd, data.revenue.ytd) ?? ""}`} mtd={data.grossProfit.mtd} ytd={data.grossProfit.ytd} money={money} />
             <MarginRow label={`Net profit  ${marginPct(data.netProfit.ytd, data.revenue.ytd) ?? ""}`} mtd={data.netProfit.mtd} ytd={data.netProfit.ytd} money={money} />

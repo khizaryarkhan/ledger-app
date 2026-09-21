@@ -446,55 +446,68 @@ ${offenders.join("\n")}`,
 describe("the app stays on one type scale", () => {
   /**
    * The customer portal (app/portal/[token]) is the most finished-looking
-   * surface in the product, and its type scale is 10 / 11 / 12 / 13 / 15 / 18 /
-   * 20px with 13px as body. form-kit's `t` tokens encode exactly that.
+   * surface in the product. Its scale is 10 / 11 / 12 / 13 / 15 / 18 / 20px
+   * with 13px as body, and form-kit's `t` tokens encode exactly that.
    *
-   * The reason screens look unfinished next to each other is that most
-   * components bypass form-kit and reach for Tailwind's named sizes instead —
-   * so "body text" lands at 12px (text-xs), 13px (t.body) or 14px (text-sm)
-   * depending on which screen you are on. Nothing is broken; it just reads as
-   * three products stitched together.
+   * The reason screens used to look unfinished beside each other was never a
+   * missing design: most components bypassed form-kit and reached for
+   * Tailwind's named sizes, so "body text" landed at 12px (text-xs), 13px
+   * (t.body) or 14px (text-sm) depending on which screen you were on.
    *
-   * A RATCHET, not a ban: 404 usages exist today and are being migrated. This
-   * asserts the number cannot GROW, so new work lands on the scale while the
-   * backlog is worked through. Lower the ceiling as batches land — that is the
-   * point of it. Same approach as the real()-money guard above.
+   * 394 usages across 49 components were migrated in one pass; this is now a
+   * BAN rather than a ratchet, because the debt is cleared and the only way it
+   * returns is a new component written without looking at the scale.
    *
-   * The portal itself is never scanned: it is inline-styled, light-themed,
-   * customer-facing, and explicitly not to be touched.
+   * Two exclusions, both deliberate:
+   *
+   *  - PUBLIC MARKETING AND PRE-AUTH surfaces. A landing page legitimately
+   *    needs a display scale — hero type well above 20px — and squeezing it to
+   *    a 13px body would make it worse, not more consistent. Different surface,
+   *    different job.
+   *  - COMMENT LINES. Prose explaining the rule necessarily names the classes
+   *    the rule forbids. A codemod run without this exclusion rewrote
+   *    form-kit's own documentation into gibberish before it was caught.
+   *
+   * The portal itself is never scanned: it is inline-styled, customer-facing,
+   * and explicitly not to be touched.
    */
-  const CEILING = 394;
+  const DISPLAY_SCALE_SURFACES = new Set([
+    "marketing.tsx",
+    "alternative-page.tsx",
+    "solution-page.tsx",
+    "interest-form.tsx",
+    "login-form.tsx",
+  ]);
 
-  const OFF_SCALE = /\btext-(sm|xs|base|lg|xl|2xl|3xl)\b|text-\[(9|14|16|17|19)px\]/g;
+  const OFF_SCALE = /\btext-(sm|xs|base|lg|xl|2xl|3xl)\b|text-\[(9|14|16|17|19)px\]/;
+  const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
 
-  it("off-scale type usage does not grow", () => {
-    let total = 0;
-    const worst: { file: string; n: number }[] = [];
+  it("no app component uses an off-scale text size", () => {
+    const offenders: string[] = [];
     for (const f of sourceFiles("components")) {
-      const src = readFileSync(f, "utf8");
-      const n = (src.match(OFF_SCALE) ?? []).length;
-      if (n > 0) {
-        total += n;
-        worst.push({ file: relative(ROOT, f).replace(/\\/g, "/"), n });
-      }
+      const name = f.split(/[\\/]/).pop()!;
+      if (DISPLAY_SCALE_SURFACES.has(name)) continue;
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (OFF_SCALE.test(line)) offenders.push(`${name}:${i + 1}`);
+      });
     }
-    worst.sort((a, b) => b.n - a.n);
-    const top = worst.slice(0, 10).map(w => `${w.file}: ${w.n}`).join(", ");
     expect(
-      total,
-      `off-scale type usages rose to ${total} (ceiling ${CEILING}). Use the "t" tokens from components/form-kit.tsx instead of text-sm / text-xs / text-base. Worst: ${top}`,
-    ).toBeLessThanOrEqual(CEILING);
+      offenders,
+      `these use a size outside the portal scale — use the "t" tokens from ` +
+      `components/form-kit.tsx (13px body, 12px secondary, 11px label, 10px micro, ` +
+      `15/18/20px headings): ${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("form-kit's label and header tokens stay on the scale", () => {
-    // If these drift, every form drifts with them — they are the thing the
-    // other components are being migrated TOWARD.
+    // If these drift, every form drifts with them — they are what the rest of
+    // the app was migrated toward.
     const src = readFileSync(join(ROOT, "components/form-kit.tsx"), "utf8");
     expect(src).toMatch(/label:\s*"text-\[11px\]/);
     expect(src).toMatch(/micro:\s*"text-\[10px\]/);
     expect(src).toMatch(/body:\s*"text-\[13px\]/);
-    // fieldLabel and th must be DERIVED from those, not re-specified, or the
-    // scale forks the moment someone edits one of them.
+    // Derived, not restated, or the scale forks when someone edits one of them.
     expect(src).toContain('export const fieldLabel = "block " + t.label');
     expect(src).toContain('export const th = "text-left " + t.micro');
   });

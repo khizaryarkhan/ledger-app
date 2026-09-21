@@ -213,7 +213,7 @@ function FilterDropdown({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search values…"
-            className="w-full h-7 pl-6 pr-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-emerald-500"
+            className="w-full h-7 pl-6 pr-2 text-[12px] rounded border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-600 focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
@@ -236,7 +236,7 @@ function FilterDropdown({
       {/* Value list */}
       <div className="max-h-52 overflow-y-auto py-1">
         {visible.length === 0 && (
-          <div className="px-3 py-4 text-center text-xs text-stone-500">No values found</div>
+          <div className="px-3 py-4 text-center text-[12px] text-stone-500">No values found</div>
         )}
         {visible.map((v) => (
           <label key={v} className="flex items-center gap-2 px-3 py-1 hover:bg-stone-800 cursor-pointer select-none">
@@ -255,13 +255,13 @@ function FilterDropdown({
       <div className="p-2 border-t border-stone-800 flex gap-2">
         <button
           onClick={apply}
-          className="flex-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded font-medium transition-colors"
+          className="flex-1 h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] rounded font-medium transition-colors"
         >
           OK
         </button>
         <button
           onClick={onClose}
-          className="flex-1 h-7 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs rounded transition-colors"
+          className="flex-1 h-7 bg-stone-800 hover:bg-stone-700 text-stone-300 text-[12px] rounded transition-colors"
         >
           Cancel
         </button>

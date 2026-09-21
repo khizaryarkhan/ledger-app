@@ -43,7 +43,7 @@ export function DeliveryRiskReport() {
   return (
     <ReportShell title="Delivery Risk" sub="Job Work, Purchase Orders and Manufacturing Orders currently running past their expected date, grouped by the Sales Order they're for." icon={AlertTriangle} onRefresh={load} loading={loading}>
       {(!alerts || alerts.length === 0) ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-sm">
+        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">
           {loading ? "Loading…" : "Nothing at risk right now — every open step is within its expected date."}
         </div>
       ) : (

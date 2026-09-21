@@ -36,22 +36,22 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center"><Icon size={18} className="text-pink-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">{label}</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">{label}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New {type === "person" ? "person" : "equipment"}</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">
         {type === "person" ? "People available to schedule against Projects and production orders." : "Machines/equipment available to schedule against production orders."}
       </p>
 
       {showNew && <ResourceDrawer type={type} employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
       {openId && <ResourceDrawer type={type} employees={employees} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
 
-      {rows === null ? <p className="text-sm text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-sm">No {label.toLowerCase()} yet — add one.</div>
+      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No {label.toLowerCase()} yet — add one.</div>
       ) : (
         <div className="rounded-xl border border-stone-800 overflow-hidden">
           <table className="w-full text-[13px]">
@@ -117,7 +117,7 @@ function ResourceDrawer({ type, employees, id, onClose, onSaved }: { type: "pers
 
   return (
     <Drawer title={isEdit ? "Edit " + (type === "person" ? "person" : "equipment") : "New " + (type === "person" ? "person" : "equipment")} onClose={onClose}>
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : (
+      {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-6">
           <Section title="Details">
             <div className="grid grid-cols-2 gap-x-4 gap-y-4">

@@ -1256,7 +1256,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         <div className="flex flex-col bg-stone-900 text-white border-b border-stone-800">
           {/* Action bar row */}
           <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap">
-            <span className="text-sm font-medium">{selected.size} selected · {(() => {
+            <span className="text-[13px] font-medium">{selected.size} selected · {(() => {
               const m: Record<string,number> = {};
               selectedRows.forEach(r => { const c = r.inv.currency ?? "USD"; m[c] = (m[c]||0) + r.bal; });
               return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([c,v]) => fmt.money(v,c)).join(" · ");
@@ -1269,17 +1269,17 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <div className="flex-1" />
             <button
               onClick={() => { setBatchPanel(p => p === "stage" ? null : "stage"); if (!escalateTargets.length) fetch("/api/org/escalate-targets").then(r => r.json()).then(d => setEscalateTargets(d.targets ?? [])); }}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-emerald-600 text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
+              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "stage" ? "bg-emerald-600 text-white border-emerald-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
               <Pencil size={13} /> Change Stage
             </button>
             <button
               onClick={() => { setBatchPanel(p => p === "chase" ? null : "chase"); setBatchChaseDate(todayStr()); }}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "chase" ? "bg-amber-600 text-white border-amber-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
+              className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md border transition-colors ${batchPanel === "chase" ? "bg-amber-600 text-white border-amber-600" : "border-stone-600 text-stone-300 hover:bg-stone-800"}`}>
               <ArrowUpRight size={13} /> Log Chase
             </button>
             <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1"><X size={15} /></button>
             <button onClick={() => setShowSend(true)}
-              className="flex items-center gap-1.5 bg-white text-stone-900 text-sm font-semibold px-3 py-1.5 rounded-md hover:bg-stone-100">
+              className="flex items-center gap-1.5 bg-white text-stone-900 text-[13px] font-semibold px-3 py-1.5 rounded-md hover:bg-stone-100">
               <Send size={14} /> Send
             </button>
           </div>
@@ -1397,7 +1397,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
               carets they operate. What's left really is arrangement. */}
           <div className="relative">
             <button onClick={() => setToolbarMenu(m => m === "view" ? null : "view")}
-              className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
+              className={`flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
                 toolbarMenu === "view" || groupByCustomer || hiddenCols.size > 0
                   ? "text-white border-stone-500 bg-stone-800"
                   : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
@@ -1456,7 +1456,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           {/* Export menu — Excel, Chase Report, PDFs */}
           <div className="relative">
             <button onClick={() => setToolbarMenu(m => m === "export" ? null : "export")}
-              className={`flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
+              className={`flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
                 toolbarMenu === "export" ? "text-white border-stone-500 bg-stone-800" : "text-stone-400 border-stone-700 hover:bg-stone-800"}`}>
               <Download size={13} /> Export
               <ChevronDown size={12} className={`transition-transform ${toolbarMenu === "export" ? "rotate-180" : ""}`} />
@@ -1596,7 +1596,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
             <button
               onClick={() => { setNotifyInvChecked(new Set(ownerGroups.flatMap(g => g.items.map(r => r.inv.id)))); setNotifyExpanded(new Set()); setNotifyOpen(true); }}
               title="Email each owner their escalated invoices with PDFs attached"
-              className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-white border border-rose-800 bg-rose-500/10 hover:bg-rose-500/20 rounded-md px-2.5 py-1.5 transition-colors">
+              className="flex items-center gap-1.5 text-[12px] font-medium text-rose-400 hover:text-white border border-rose-800 bg-rose-500/10 hover:bg-rose-500/20 rounded-md px-2.5 py-1.5 transition-colors">
               <UserCheck size={13} /> Notify Owners ({ownerGroups.length})
             </button>
           )}
@@ -1683,7 +1683,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !notifySending && setNotifyOpen(false)}>
           <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-stone-800">
-              <h2 className="text-base font-semibold text-white">Notify escalation owners</h2>
+              <h2 className="text-[15px] font-semibold text-white">Notify escalation owners</h2>
               <p className="text-[12px] text-stone-500 mt-0.5">Each owner gets one email with their action list and the invoice PDFs attached.</p>
             </div>
 
@@ -1792,9 +1792,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
-          <div className="text-center text-sm text-stone-400 py-16">No open invoices match the current filters.</div>
+          <div className="text-center text-[13px] text-stone-400 py-16">No open invoices match the current filters.</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead className="sticky top-0 bg-stone-900 z-20">
               <tr className="border-b border-stone-800 text-left">
                 <th className="px-3 py-2.5 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" /></th>
@@ -2155,7 +2155,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           strongest ink on the row, one currency per line so
                           decimals align (they were joined with " · " before,
                           which destroyed alignment the moment an org had two). */}
-                      <td className="px-2 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap border-l border-stone-800 text-[14px]">
+                      <td className="px-2 py-2 text-right font-semibold text-white tabular-nums whitespace-nowrap border-l border-stone-800 text-[13px]">
                         {Object.entries(item.total).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
                           <div key={c}>{fmt.money(v, c)}</div>
                         ))}
@@ -2916,7 +2916,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       .filter(([, v]) => v > 0)
                       .sort((a, b) => b[1] - a[1])
                       .map(([c, v]) => (
-                        <div key={c} className="text-white text-[14px] font-semibold">{fmt.money(v, c)}</div>
+                        <div key={c} className="text-white text-[13px] font-semibold">{fmt.money(v, c)}</div>
                       ));
                   })()}
                 </td>

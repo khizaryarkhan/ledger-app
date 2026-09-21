@@ -75,15 +75,15 @@ export function OpeningBalances() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Scale size={18} className="text-indigo-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Opening Balances</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Opening Balances</h1>
         </div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Bring balances over from your previous system. Enter each account's balance as of the start date; the difference posts to Opening Balance Equity automatically.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Bring balances over from your previous system. Enter each account's balance as of the start date; the difference posts to Opening Balance Equity automatically.</p>
 
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
 
-      {loading ? <p className="text-sm text-stone-500">Loading…</p> : (
+      {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
           {groups.map(g => (
             <div key={g.cls}>

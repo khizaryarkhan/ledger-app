@@ -28,13 +28,13 @@ export function CashFlowReport() {
     <div className="p-6 max-w-3xl">
       <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-3"><ArrowLeft size={13} /> All reports</Link>
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><TrendingUp size={18} className="text-indigo-400" /></div><h1 className="text-xl font-semibold text-stone-100">Cash Flow Statement</h1></div>
+        <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><TrendingUp size={18} className="text-indigo-400" /></div><h1 className="text-[20px] font-semibold text-stone-100">Cash Flow Statement</h1></div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={d === null ? "animate-spin" : ""} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-4 ml-12">Indirect method — net income adjusted for the period's changes in working capital, investing and financing.</p>
+      <p className="text-[13px] text-stone-400 mb-4 ml-12">Indirect method — net income adjusted for the period's changes in working capital, investing and financing.</p>
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /> to <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
 
-      {d === null ? <p className="text-sm text-stone-500">Loading…</p> : (
+      {d === null ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
           <table className="w-full text-[13px]">
             <tbody>

@@ -12,7 +12,7 @@ import { Plus, RefreshCw, Factory, X, Loader, Check, Wand2, Trash2 } from "lucid
 import { fmt } from "@/lib/format";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
+const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
 const money = fmt.num2;
 
@@ -47,14 +47,14 @@ export function ProductionConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center"><Factory size={18} className="text-orange-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Production</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Production</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={runs === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New build</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Run a build against a BOM. Inputs are consumed from their FIFO cost lots (or lots you pick) and the finished item is produced at the exact summed cost.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Run a build against a BOM. Inputs are consumed from their FIFO cost lots (or lots you pick) and the finished item is produced at the exact summed cost.</p>
       {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <BuildDrawer boms={boms} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); fetch(`/api/inventory/items`).then(x => x.json()).then(r => setItems(Array.isArray(r) ? r : [])).catch(() => {}); }} />}

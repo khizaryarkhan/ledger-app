@@ -41,7 +41,7 @@ export function CurrencySettings() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <h3 className="text-sm font-semibold text-white">Currency</h3>
+            <h3 className="text-[13px] font-semibold text-white">Currency</h3>
             {busy && <Loader size={13} className="text-stone-500 animate-spin" />}
             {saved && <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1"><Check size={12} /> Saved</span>}
           </div>
@@ -57,7 +57,7 @@ export function CurrencySettings() {
                   value={home}
                   disabled={mc}
                   onChange={(e) => { setHome(e.target.value); save({ currency: e.target.value }); }}
-                  className="block w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 disabled:opacity-60 disabled:cursor-not-allowed">
+                  className="block w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 disabled:opacity-60 disabled:cursor-not-allowed">
                   {options.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
                 </select>
                 {mc ? (

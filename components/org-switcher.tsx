@@ -101,7 +101,7 @@ export function OrgSwitcher() {
               {isSuperAdmin ? `All Organisations (${orgs.length})` : "Switch Organisation"}
             </p>
             {isSuperAdmin && (
-              <span className="text-[9px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+              <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
                 <Shield size={9} /> Super Admin
               </span>
             )}

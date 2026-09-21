@@ -141,7 +141,7 @@ export const Toast = ({ toast, onClose }: any) => {
   const variants: Record<string, string> = { success: "bg-emerald-600", error: "bg-rose-600", info: "bg-stone-800 border border-stone-700" };
   return (
     <div className="fixed bottom-6 right-6 z-50 animate-toast">
-      <div className={`${variants[toast.type] || variants.info} text-white px-4 py-2.5 rounded-lg shadow-xl text-sm font-medium flex items-center gap-2`}>
+      <div className={`${variants[toast.type] || variants.info} text-white px-4 py-2.5 rounded-lg shadow-xl text-[13px] font-medium flex items-center gap-2`}>
         {toast.type === "success" && <Check size={16} />}
         {toast.type === "error" && <AlertCircle size={16} />}
         {toast.message}
@@ -154,7 +154,7 @@ export const RegionFilter = ({ value, onChange }: { value: string; onChange: (v:
   const { REGIONS } = require("@/lib/regions");
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
-      className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat"
+      className="h-9 px-3 pr-8 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none appearance-none bg-no-repeat"
       style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundPosition: "right 0.5rem center", backgroundSize: "12px" }}>
       <option value="">All regions</option>
       {REGIONS.map((r: any) => <option key={r.id} value={r.id}>{r.label}</option>)}

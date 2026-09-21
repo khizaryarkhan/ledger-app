@@ -49,7 +49,7 @@ export function AlertBell() {
         className="relative p-1.5 rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors">
         <Bell size={16} />
         {alerts.length > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-[3px] rounded-full bg-rose-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-[3px] rounded-full bg-rose-500 text-white text-[10px] font-semibold flex items-center justify-center leading-none">
             {alerts.length > 9 ? "9+" : alerts.length}
           </span>
         )}

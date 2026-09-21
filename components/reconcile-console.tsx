@@ -50,18 +50,18 @@ export function ReconcileConsole() {
     loadView(accountId); loadAccts();
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-emerald-600";
+  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 focus:outline-none focus:border-emerald-600";
 
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center"><Landmark size={18} className="text-sky-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Bank Reconciliation</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Bank Reconciliation</h1>
         </div>
         <button onClick={() => { loadAccts(); if (accountId) loadView(accountId); }} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Tick the transactions that appear on your bank/card statement until the cleared balance matches the statement's ending balance, then finalize.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Tick the transactions that appear on your bank/card statement until the cleared balance matches the statement's ending balance, then finalize.</p>
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <select value={accountId} onChange={e => setAccountId(e.target.value)} className={`${inputCls} min-w-[240px]`}>

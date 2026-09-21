@@ -63,7 +63,7 @@ export function PromiseDisputePanel({ invoiceId, currency, onChange }: { invoice
   return (
     <Card className="col-span-3">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-white">Promise &amp; Dispute history</h3>
+        <h3 className="text-[13px] font-semibold text-white">Promise &amp; Dispute history</h3>
         {openDispute && (
           <Badge variant="red">⚠ Automations paused — dispute open</Badge>
         )}
@@ -80,7 +80,7 @@ export function PromiseDisputePanel({ invoiceId, currency, onChange }: { invoice
                 <AlertOctagon size={16} className={isOpen ? "text-rose-400 mt-0.5 shrink-0" : "text-stone-500 mt-0.5 shrink-0"} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-white">Dispute · {d.category}</span>
+                    <span className="text-[13px] font-medium text-white">Dispute · {d.category}</span>
                     <Badge variant={sourceBadge(d.source)} size="sm">{d.source}</Badge>
                     <Badge variant={d.status === "Open" ? "red" : d.status === "Under Review" ? "yellow" : "green"} size="sm">{d.status}</Badge>
                     {d.outcome && <Badge variant="neutral" size="sm">{d.outcome}</Badge>}
@@ -112,18 +112,18 @@ export function PromiseDisputePanel({ invoiceId, currency, onChange }: { invoice
                     <div>
                       <label className="text-[11px] font-medium text-stone-400">Outcome</label>
                       <select value={outcome} onChange={e => setOutcome(e.target.value)}
-                        className="w-full mt-1 text-sm border border-stone-600 rounded-lg px-2.5 py-1.5 bg-stone-800 text-stone-200 outline-none focus:ring-2 focus:ring-emerald-500/50">
+                        className="w-full mt-1 text-[13px] border border-stone-600 rounded-lg px-2.5 py-1.5 bg-stone-800 text-stone-200 outline-none focus:ring-2 focus:ring-emerald-500/50">
                         {DISPUTE_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     </div>
                   )}
                   <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
                     placeholder={action!.mode === "resolve" ? "Resolution note (optional)" : "Reason for rejecting (optional)"}
-                    className="w-full text-sm border border-stone-600 rounded-lg px-2.5 py-1.5 bg-stone-800 text-stone-200 placeholder-stone-500 outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none" />
+                    className="w-full text-[13px] border border-stone-600 rounded-lg px-2.5 py-1.5 bg-stone-800 text-stone-200 placeholder-stone-500 outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none" />
                   <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => setAction(null)} className="px-3 py-1.5 text-xs font-medium text-stone-400 hover:text-stone-200">Cancel</button>
+                    <button onClick={() => setAction(null)} className="px-3 py-1.5 text-[12px] font-medium text-stone-400 hover:text-stone-200">Cancel</button>
                     <button onClick={submitAction} disabled={resolving === d.id}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-600 hover:bg-stone-500"}`}>
+                      className={`px-3 py-1.5 text-[12px] font-semibold rounded-md text-white disabled:opacity-50 ${action!.mode === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-stone-600 hover:bg-stone-500"}`}>
                       {resolving === d.id ? "Saving…" : action!.mode === "resolve" ? "Confirm resolve" : "Confirm reject"}
                     </button>
                   </div>
@@ -139,7 +139,7 @@ export function PromiseDisputePanel({ invoiceId, currency, onChange }: { invoice
             <CalendarClock size={16} className="text-blue-400 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-white">
+                <span className="text-[13px] font-medium text-white">
                   Promised {p.amount != null ? money(p.amount) : "full balance"} by {p.promiseDate}
                 </span>
                 <Badge variant={sourceBadge(p.source)} size="sm">{p.source}</Badge>

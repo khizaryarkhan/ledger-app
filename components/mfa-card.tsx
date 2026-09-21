@@ -81,16 +81,16 @@ export function MfaCard() {
         {enabled
           ? <ShieldCheck size={16} className="text-emerald-400" />
           : <ShieldAlert size={16} className="text-amber-400" />}
-        <h3 className="text-sm font-semibold text-stone-100">Two-Factor Authentication</h3>
+        <h3 className="text-[13px] font-semibold text-stone-100">Two-Factor Authentication</h3>
       </div>
-      <p className="text-xs text-stone-500 mb-4">
+      <p className="text-[12px] text-stone-500 mb-4">
         Protects your super-admin account with a time-based code from an authenticator app.
       </p>
 
       {/* One-time recovery codes after enabling */}
       {recoveryCodes && (
         <div className="mb-4 rounded-lg border border-emerald-800 bg-emerald-950/40 p-3">
-          <div className="text-xs font-semibold text-emerald-300 mb-2">
+          <div className="text-[12px] font-semibold text-emerald-300 mb-2">
             Save these recovery codes now — they won’t be shown again.
           </div>
           <div className="grid grid-cols-2 gap-1 font-mono text-[13px] text-stone-200">
@@ -104,15 +104,15 @@ export function MfaCard() {
         </div>
       )}
 
-      {err && <div className="mb-3 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">{err}</div>}
+      {err && <div className="mb-3 text-[12px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">{err}</div>}
 
       {enabled ? (
         <div className="space-y-2">
-          <div className="text-xs text-emerald-400 font-medium">Enabled</div>
+          <div className="text-[12px] text-emerald-400 font-medium">Enabled</div>
           <div className="flex items-center gap-2">
             <input value={disarmCode} onChange={(e) => setDisarmCode(e.target.value)}
               placeholder="Code to disable"
-              className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             <Button variant="ghost" onClick={disable} disabled={disarming || !disarmCode}>
               {disarming ? <Loader2 size={14} className="animate-spin" /> : "Disable"}
             </Button>
@@ -120,7 +120,7 @@ export function MfaCard() {
         </div>
       ) : setup ? (
         <div className="space-y-3">
-          <p className="text-xs text-stone-400">
+          <p className="text-[12px] text-stone-400">
             Scan with Google Authenticator, Authy, or 1Password — or enter the key manually.
           </p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -132,7 +132,7 @@ export function MfaCard() {
           <div className="flex items-center gap-2">
             <input value={code} onChange={(e) => setCode(e.target.value)}
               inputMode="numeric" placeholder="6-digit code"
-              className="h-9 px-3 text-sm rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+              className="h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-700 bg-stone-800 text-stone-200 placeholder-stone-600 focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
             <Button onClick={confirmEnable} disabled={busy || code.length < 6}>
               {busy ? <Loader2 size={14} className="animate-spin" /> : "Verify & enable"}
             </Button>

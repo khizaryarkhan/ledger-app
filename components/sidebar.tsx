@@ -458,7 +458,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
               </div>
-              <span className="text-sm font-semibold text-white tracking-tight leading-snug">
+              <span className="text-[13px] font-semibold text-white tracking-tight leading-snug">
                 {orgSettings?.displayName || orgSettings?.name || "Prime Accountax"}
               </span>
             </div>

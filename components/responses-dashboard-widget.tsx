@@ -86,9 +86,9 @@ export function ResponsesDashboardWidget() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <MessageSquare size={15} className="text-stone-500" />
-            <h3 className="text-sm font-semibold text-white">Customer Responses</h3>
+            <h3 className="text-[13px] font-semibold text-white">Customer Responses</h3>
           </div>
-          <Link href="/responses" className="text-xs text-stone-500 hover:text-stone-200 flex items-center gap-1">
+          <Link href="/responses" className="text-[12px] text-stone-500 hover:text-stone-200 flex items-center gap-1">
             Open inbox <ArrowUpRight size={12} />
           </Link>
         </div>
@@ -102,7 +102,7 @@ export function ResponsesDashboardWidget() {
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
               <AlertOctagon size={12} /> Needs attention
             </div>
-            <div className={`text-2xl font-bold tabular-nums ${counts.needsAttention > 0 ? "text-rose-400" : "text-white"}`}>
+            <div className={`text-[24px] font-bold tabular-nums ${counts.needsAttention > 0 ? "text-rose-400" : "text-white"}`}>
               {counts.needsAttention}
             </div>
           </button>
@@ -115,7 +115,7 @@ export function ResponsesDashboardWidget() {
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
               <AlertOctagon size={12} /> Open disputes
             </div>
-            <div className="text-2xl font-bold tabular-nums text-white">{counts.openDisputes}</div>
+            <div className="text-[24px] font-bold tabular-nums text-white">{counts.openDisputes}</div>
           </button>
 
           {/* Active promises */}
@@ -126,7 +126,7 @@ export function ResponsesDashboardWidget() {
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mb-1">
               <CalendarClock size={12} /> Active commitments
             </div>
-            <div className="text-2xl font-bold tabular-nums text-blue-400">{counts.activePromises}</div>
+            <div className="text-[24px] font-bold tabular-nums text-blue-400">{counts.activePromises}</div>
           </button>
 
           {/* Promise to secure */}
@@ -135,10 +135,10 @@ export function ResponsesDashboardWidget() {
               <CheckCircle2 size={12} /> Commitment to secure
             </div>
             {unpromisedCount === 0 ? (
-              <div className="text-2xl font-bold tabular-nums text-white">0</div>
+              <div className="text-[24px] font-bold tabular-nums text-white">0</div>
             ) : (
               <>
-                <div className="text-2xl font-bold tabular-nums text-amber-400">{unpromisedCount}</div>
+                <div className="text-[24px] font-bold tabular-nums text-amber-400">{unpromisedCount}</div>
                 <div className="text-[11px] text-amber-500/80 leading-snug mt-0.5">{unpromisedSummary}</div>
                 <div className="text-[10px] text-stone-600 mt-0.5">overdue invoice{unpromisedCount !== 1 ? "s" : ""} · no commitment</div>
               </>
@@ -210,7 +210,7 @@ export function ResponsesDashboardWidget() {
               <Link
                 href="/responses"
                 onClick={() => setPanel(null)}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-sm text-stone-300 hover:text-white transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-[13px] text-stone-300 hover:text-white transition-colors"
               >
                 Open full inbox <ArrowUpRight size={13} />
               </Link>
@@ -228,7 +228,7 @@ function PanelHeader({ title, subtitle, color, onClose }: { title: string; subti
   return (
     <div className={`flex items-center justify-between px-5 py-4 border-b border-stone-800 flex-shrink-0 ${color === "rose" ? "bg-rose-500/5" : color === "amber" ? "bg-amber-500/5" : ""}`}>
       <div>
-        <h2 className="text-sm font-semibold text-white">{title}</h2>
+        <h2 className="text-[13px] font-semibold text-white">{title}</h2>
         <p className="text-[11px] text-stone-500 mt-0.5">{subtitle}</p>
       </div>
       <button onClick={onClose} className="p-1.5 rounded hover:bg-stone-800 text-stone-400 hover:text-white transition-colors">
@@ -239,7 +239,7 @@ function PanelHeader({ title, subtitle, color, onClose }: { title: string; subti
 }
 
 function EmptyPanel() {
-  return <div className="py-12 text-center text-sm text-stone-500">Nothing to show</div>;
+  return <div className="py-12 text-center text-[13px] text-stone-500">Nothing to show</div>;
 }
 
 function PromiseRow({ p, onClose, broken }: { p: PromiseItem; onClose: () => void; broken?: boolean }) {
@@ -257,9 +257,9 @@ function PromiseRow({ p, onClose, broken }: { p: PromiseItem; onClose: () => voi
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs font-mono text-stone-400">{p.invoiceNumber}</span>
+          <span className="text-[12px] font-mono text-stone-400">{p.invoiceNumber}</span>
           <span className="text-[11px] text-stone-600">·</span>
-          <span className="text-xs text-stone-300 truncate">{p.customerName}</span>
+          <span className="text-[12px] text-stone-300 truncate">{p.customerName}</span>
         </div>
         {p.projectName && <div className="text-[11px] text-stone-500 truncate mb-0.5">{p.projectName}</div>}
         <div className="flex items-center gap-2 mt-1">
@@ -269,7 +269,7 @@ function PromiseRow({ p, onClose, broken }: { p: PromiseItem; onClose: () => voi
         </div>
         {p.note && <div className="text-[11px] text-stone-500 mt-1 italic truncate">"{p.note}"</div>}
       </div>
-      <div className="text-sm font-semibold text-white tabular-nums whitespace-nowrap mt-0.5">
+      <div className="text-[13px] font-semibold text-white tabular-nums whitespace-nowrap mt-0.5">
         {fmt.money(p.amount, p.currency)}
       </div>
     </Link>
@@ -285,9 +285,9 @@ function DisputeRow({ d, onClose }: { d: DisputeItem; onClose: () => void }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs font-mono text-stone-400">{d.invoiceNumber}</span>
+          <span className="text-[12px] font-mono text-stone-400">{d.invoiceNumber}</span>
           <span className="text-[11px] text-stone-600">·</span>
-          <span className="text-xs text-stone-300 truncate">{d.customerName}</span>
+          <span className="text-[12px] text-stone-300 truncate">{d.customerName}</span>
         </div>
         {d.projectName && <div className="text-[11px] text-stone-500 truncate mb-0.5">{d.projectName}</div>}
         <div className="flex items-center gap-2 mt-1">

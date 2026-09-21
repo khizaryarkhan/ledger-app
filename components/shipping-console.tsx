@@ -52,7 +52,7 @@ export function ShippingConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center"><Truck size={18} className="text-violet-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Shipping</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Shipping</h1>
         </div>
         <div className="flex items-center gap-2">
           {Object.values(sel).some(Boolean) && (
@@ -64,7 +64,7 @@ export function ShippingConsole() {
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Ship stock</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Fulfil customer orders — against a Sales Order or ad-hoc. COGS is recognised here (Dr COGS / Cr Inventory). Then tick shipments and create an Invoice for the revenue.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Fulfil customer orders — against a Sales Order or ad-hoc. COGS is recognised here (Dr COGS / Cr Inventory). Then tick shipments and create an Invoice for the revenue.</p>
       {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <ShipDrawer customers={customers} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}

@@ -48,7 +48,7 @@ export function StockValuationReport() {
         </div>
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
         </div>
       </div>
 
@@ -144,7 +144,7 @@ export function StockStatusReport() {
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
         </div>
         <label className="flex items-center gap-2 text-[12px] text-stone-400"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} className="accent-emerald-600" /> Only items needing attention</label>
       </div>

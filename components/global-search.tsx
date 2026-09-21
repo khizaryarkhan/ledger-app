@@ -83,7 +83,7 @@ export function GlobalSearch() {
               {loading ? <Loader size={16} className="animate-spin text-stone-500" /> : <Search size={16} className="text-stone-500" />}
               <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
                 placeholder="Search customers, suppliers, invoices, accounts, TXN-000123…"
-                className="flex-1 bg-transparent text-sm text-stone-100 placeholder-stone-600 outline-none" />
+                className="flex-1 bg-transparent text-[13px] text-stone-100 placeholder-stone-600 outline-none" />
               <kbd className="text-[10px] bg-stone-800 border border-stone-700 rounded px-1.5 py-0.5 text-stone-500">Esc</kbd>
             </div>
 

@@ -56,14 +56,14 @@ export function PartyList({ type, nativeOnly = false }: { type: PartyType; nativ
   }, [rows, q, src]);
 
   const Icon = meta.icon;
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100";
+  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100";
 
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Icon size={18} className="text-teal-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">{meta.title}</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">{meta.title}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
@@ -72,7 +72,7 @@ export function PartyList({ type, nativeOnly = false }: { type: PartyType; nativ
           </button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">
         {nativeOnly
           ? `${meta.title} in your native accounting books — created and transacted in this app. QuickBooks/Xero names live in the Receivable & Payable modules.`
           : `All ${meta.title.toLowerCase()} — synced from QuickBooks/Xero (read-only) alongside those created here (native).`}

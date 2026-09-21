@@ -54,14 +54,14 @@ export function MoConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center"><Workflow size={18} className="text-orange-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Production Schedule</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Production Schedule</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New MO</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Plan and monitor manufacturing orders. Completing an MO runs the build — consuming materials and producing the finished item.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Plan and monitor manufacturing orders. Completing an MO runs the build — consuming materials and producing the finished item.</p>
 
       <div className="grid grid-cols-4 gap-2 mb-5">
         {[["Open MOs", kpis.open, "text-stone-100"], ["Scheduled ≤7 days", kpis.soon, "text-sky-400"], ["In progress", kpis.wip, "text-amber-400"], ["Completed this month", kpis.done, "text-emerald-400"]].map(([l, v, c]) => (
@@ -75,8 +75,8 @@ export function MoConsole() {
       {showNew && <NewMoDrawer boms={boms} items={items} salesOrders={salesOrders} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
       {openId && <MoDrawer id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
 
-      {rows === null ? <p className="text-sm text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-sm">No manufacturing orders yet — plan one with New MO.</div>
+      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No manufacturing orders yet — plan one with New MO.</div>
       ) : (
         <div className="grid grid-cols-5 gap-3">
           {COLUMNS.map(col => {
@@ -89,7 +89,7 @@ export function MoConsole() {
                     <button key={m.id} onClick={() => setOpenId(m.id)} className="w-full text-left rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-600 p-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-[11px] text-stone-400">{m.moNo}</span>
-                        {m.priority === "High" && <span className="text-[9px] text-rose-400 font-medium">HIGH</span>}
+                        {m.priority === "High" && <span className="text-[10px] text-rose-400 font-medium">HIGH</span>}
                       </div>
                       <div className="text-[13px] font-medium text-stone-100 mt-0.5 leading-tight">{m.outputItem?.name ?? "—"}</div>
                       <div className="text-[11px] text-stone-500 mt-0.5">{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}{m.scheduledDate ? ` · ${m.scheduledDate}` : ""}</div>
@@ -241,7 +241,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
   return (
     <Drawer title={mo ? `${mo.moNo} · ${d.outputItem?.name ?? ""}` : "Manufacturing order"} onClose={onClose}>
-      {!d ? <p className="text-sm text-stone-500">Loading…</p> : (
+      {!d ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-[12px] text-stone-400">
             <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${mo.status === "Completed" ? "border-emerald-800/50 text-emerald-400 bg-emerald-500/10" : mo.status === "Cancelled" ? "border-stone-700 text-stone-500" : "border-sky-800/50 text-sky-400 bg-sky-500/10"}`}>{mo.status}</span>

@@ -22,7 +22,7 @@ import { Field, Section, SelectField, controlInset, th } from "@/components/form
 
 type ProductType = ItemKind;
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
+const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
 
 const UOM_GROUPS: { dim: string; label: string }[] = [
@@ -101,7 +101,7 @@ export function ProductsRegister() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Boxes size={18} className="text-teal-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Products &amp; Services</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Products &amp; Services</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
@@ -110,7 +110,7 @@ export function ProductsRegister() {
           </button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">
         Your inventory register. <span className="text-emerald-400">Finished products</span> carry a base UoM and packaging SKUs; <span className="text-amber-400">raw materials</span> link to suppliers with their UoM and a conversion factor when units differ.
       </p>
 

@@ -80,7 +80,7 @@ export function LotTraceabilityReport() {
     <ReportShell title="Lot Traceability" sub="A lot's complete history — raw materials, processing, cost rollup and distribution." icon={GitBranch} onRefresh={() => selectedId && load(selectedId)} loading={loading}>
       <div className="relative max-w-sm mb-4">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Search by lot code…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()} placeholder="Search by lot code…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
       </div>
 
       {results.length > 0 && !selectedId && (
@@ -99,15 +99,15 @@ export function LotTraceabilityReport() {
 
       {selectedId && (
         <div className="space-y-4">
-          {loading && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-sm">Loading…</p></div>}
-          {!loading && !data && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-sm">Lot not found.</p></div>}
+          {loading && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Loading…</p></div>}
+          {!loading && !data && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Lot not found.</p></div>}
           {!loading && data && (
             <>
               <div className="rounded-xl bg-stone-900 border border-stone-800 p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-stone-500">Batch Traceability &amp; Cost Reconciliation</div>
-                    <div className="text-lg font-semibold text-stone-100 mt-0.5">{data.lot.itemName} <span className="font-mono text-emerald-400">{data.lot.lotNo ?? data.lot.id.slice(0, 8)}</span></div>
+                    <div className="text-[18px] font-semibold text-stone-100 mt-0.5">{data.lot.itemName} <span className="font-mono text-emerald-400">{data.lot.lotNo ?? data.lot.id.slice(0, 8)}</span></div>
                   </div>
                   <div className="flex items-center gap-3">
                     <a href={`/print/lot-trace/${selectedId}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-400 hover:underline">

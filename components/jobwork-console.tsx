@@ -21,7 +21,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 
-const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
+const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-[13px] text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
 const money = fmt.num2;
 const qtyFmt = fmt.qty;
@@ -87,14 +87,14 @@ export function JobWorkConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center"><Shirt size={18} className="text-sky-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Job Work</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Job Work</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={orders === null ? "animate-spin" : ""} /></button>
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Send to job worker</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Send your own material to a vendor for external processing (knitting, dyeing, ...) and receive it back transformed — still owned throughout, no purchase or sale. A dispatch can come back across several partial receipts; close the order once no more are expected to recognize any wastage.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Send your own material to a vendor for external processing (knitting, dyeing, ...) and receive it back transformed — still owned throughout, no purchase or sale. A dispatch can come back across several partial receipts; close the order once no more are expected to recognize any wastage.</p>
       {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <DispatchDrawer vendors={vendors} items={items} salesOrders={salesOrders} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}
@@ -187,7 +187,7 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative h-full w-full sm:w-[440px] bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-sm font-semibold text-stone-100">Send to job worker</h2>
+          <h2 className="text-[13px] font-semibold text-stone-100">Send to job worker</h2>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -246,11 +246,11 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
           {pendingMsg ? (
-            <button onClick={onDone} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-semibold">Done</button>
+            <button onClick={onDone} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-semibold">Done</button>
           ) : (
             <>
               <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
                 {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Dispatch
               </button>
             </>
@@ -301,7 +301,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative h-full w-full sm:w-[440px] bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-sm font-semibold text-stone-100">Receive from {order.vendorLabel}</h2>
+          <h2 className="text-[13px] font-semibold text-stone-100">Receive from {order.vendorLabel}</h2>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -343,7 +343,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Post receipt
           </button>
         </div>
@@ -393,7 +393,7 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full max-w-md bg-stone-950 border border-stone-800 rounded-xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-sm font-semibold text-stone-100">Close {order.docNumber}</h2>
+          <h2 className="text-[13px] font-semibold text-stone-100">Close {order.docNumber}</h2>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-3">
@@ -418,7 +418,7 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
             {busy ? <Loader size={14} className="animate-spin" /> : <PackageCheck size={15} />} Close order
           </button>
         </div>

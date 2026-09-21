@@ -98,7 +98,7 @@ export function CreateMenu() {
                 ) : (
                   <span key={it.label} className="text-[13px] text-stone-600 px-2 py-1.5 flex items-center justify-between cursor-default">
                     {it.label}
-                    <span className="text-[9px] uppercase tracking-wide bg-stone-800 text-stone-500 rounded px-1.5 py-0.5">soon</span>
+                    <span className="text-[10px] uppercase tracking-wide bg-stone-800 text-stone-500 rounded px-1.5 py-0.5">soon</span>
                   </span>
                 ))}
               </div>

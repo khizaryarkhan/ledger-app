@@ -55,7 +55,7 @@ export function ReceivingConsole() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-cyan-500/15 flex items-center justify-center"><PackageCheck size={18} className="text-cyan-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Receiving</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Receiving</h1>
         </div>
         <div className="flex items-center gap-2">
           {selectedIds.length > 0 && (
@@ -67,7 +67,7 @@ export function ReceivingConsole() {
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Receive stock</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Record goods received into stock — against a PO or ad-hoc. Then tick received receipts and create a Bill to clear the GR/IR accrual to Accounts Payable.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Record goods received into stock — against a PO or ad-hoc. Then tick received receipts and create a Bill to clear the GR/IR accrual to Accounts Payable.</p>
       {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}

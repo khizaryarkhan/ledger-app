@@ -34,7 +34,7 @@ export function NumberingSettings() {
     } finally { setSavingType(null); }
   }
 
-  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm text-stone-100";
+  const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-[13px] text-stone-100";
 
   return (
     <Card className="p-5 mb-4">
@@ -43,11 +43,11 @@ export function NumberingSettings() {
           <Hash size={18} className="text-stone-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white mb-0.5">Transaction numbers</h3>
+          <h3 className="text-[13px] font-semibold text-white mb-0.5">Transaction numbers</h3>
           <p className="text-[12px] text-stone-400 mb-4">Your own document number series — one per transaction type. Auto‑assigned on each form and editable there.</p>
 
       {rows === null ? (
-        <div className="py-6 text-center text-stone-500 text-sm">Loading…</div>
+        <div className="py-6 text-center text-stone-500 text-[13px]">Loading…</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[560px]">

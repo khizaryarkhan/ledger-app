@@ -68,7 +68,7 @@ export function MailboxConnect() {
     <div className="max-w-lg">
       <div className="flex items-center gap-2.5 mb-1">
         <span className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center"><Plug size={16} className="text-emerald-400" /></span>
-        <h1 className="text-lg font-bold text-white">Email Integration</h1>
+        <h1 className="text-[18px] font-bold text-white">Email Integration</h1>
       </div>
       <p className="text-[13px] text-stone-500 mb-5">Connect your own <span className="text-stone-300">@primeaccountax.com</span> mailbox to send and receive in the portal. Real sales communication goes from your address — not the system <span className="font-mono">support@</span> account.</p>
 
@@ -94,10 +94,10 @@ export function MailboxConnect() {
         <p className="text-[11px] text-stone-600">We verify the connection before saving. Your password is encrypted at rest.</p>
         <div className="flex justify-between items-center pt-1">
           {account?.connected ? <button onClick={disconnect} className="text-[12px] text-stone-500 hover:text-rose-400">Disconnect mailbox</button> : <span />}
-          <button onClick={connect} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {saving ? "Verifying…" : account?.connected ? "Update" : "Connect"}</button>
+          <button onClick={connect} disabled={saving} className="h-9 px-4 text-[12px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {saving ? "Verifying…" : account?.connected ? "Update" : "Connect"}</button>
         </div>
       </div>
-      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
+      {toast && <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg text-[13px] font-medium shadow-xl ${toast.ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>{toast.msg}</div>}
     </div>
   );
 }

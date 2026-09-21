@@ -41,11 +41,11 @@ export function FxExposureReport() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Coins size={18} className="text-indigo-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Currency Exposure &amp; FX Revaluation</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Currency Exposure &amp; FX Revaluation</h1>
         </div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={data === null ? "animate-spin" : ""} /></button>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Foreign-currency balances and the home value they were booked at. Enter today's rate per currency to see the unrealised gain/loss if revalued now. Home currency: {home}.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Foreign-currency balances and the home value they were booked at. Enter today's rate per currency to see the unrealised gain/loss if revalued now. Home currency: {home}.</p>
 
       <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-stone-100" /></div>
 

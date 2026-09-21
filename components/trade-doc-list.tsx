@@ -66,7 +66,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Icon size={18} className="text-teal-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">{meta.title}</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">{meta.title}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
@@ -211,13 +211,13 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
     } finally { setBusy(false); }
   }
 
-  const input = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm text-stone-100 text-right tabular-nums";
+  const input = "bg-stone-950 border border-stone-700 rounded-lg px-2.5 py-1.5 text-[13px] text-stone-100 text-right tabular-nums";
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-stone-900 border border-stone-700 rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-stone-800">
           <div>
-            <h2 className="text-base font-semibold text-white">{meta.invoiceVerb} {doc.docNumber}</h2>
+            <h2 className="text-[15px] font-semibold text-white">{meta.invoiceVerb} {doc.docNumber}</h2>
             <p className="text-[12px] text-stone-500">Choose how much of each line to {meta.convertTo === "invoice" ? "invoice" : "bill"} now — the rest stays open for later.</p>
           </div>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
@@ -253,7 +253,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
             <div className="text-[13px] text-stone-300">This {meta.convertTo}: <span className="font-semibold text-white tabular-nums">{money(total)}</span> <span className="text-stone-600 text-[11px]">(before tax)</span></div>
             <div className="flex items-center gap-3">
               <button onClick={onClose} className="text-[13px] text-stone-500 hover:text-stone-300">Cancel</button>
-              <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+              <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
                 {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Create {meta.convertTo}
               </button>
             </div>

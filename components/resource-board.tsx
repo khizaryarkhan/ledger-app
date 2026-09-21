@@ -45,7 +45,7 @@ export function ResourceBoard() {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center"><CalendarClock size={18} className="text-pink-400" /></div>
-          <h1 className="text-xl font-semibold text-stone-100">Resource Board</h1>
+          <h1 className="text-[20px] font-semibold text-stone-100">Resource Board</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500"><ChevronLeft size={15} /></button>
@@ -55,12 +55,12 @@ export function ResourceBoard() {
           <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New assignment</button>
         </div>
       </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">Who and what is booked this week, against which Project or production order.</p>
+      <p className="text-[13px] text-stone-400 mb-5 ml-12">Who and what is booked this week, against which Project or production order.</p>
 
       {showNew && <NewAssignmentDrawer onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
-      {rows === null ? <p className="text-sm text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-sm">No active resources — add People or Equipment first.</div>
+      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No active resources — add People or Equipment first.</div>
       ) : (
         <div className="rounded-xl border border-stone-800 overflow-x-auto">
           <table className="w-full text-[12.5px] min-w-[820px]">
