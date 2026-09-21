@@ -372,9 +372,28 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     }
     return it.incomeAccountId || "";
   }
+  /**
+   * A supplier quotes in THEIR currency. Defaulting that figure onto a document
+   * denominated in another one would silently misstate the line, so the price
+   * only applies when the two agree — otherwise the buyer enters the converted
+   * figure themselves and knows they did.
+   */
+  function supplierRate(opt: OrderOption | null | undefined): number | null {
+    if (!opt || opt.unitPrice == null) return null;
+    return (opt.currency || home) === (currency || home) ? opt.unitPrice : null;
+  }
+  /** This supplier's own pack/price choices for one item, or [] if none. */
+  function optionsFor(it: any): OrderOption[] {
+    return orderOptions(it?.baseUom ?? null, (supplierLinks ?? []).filter((s: any) => s.itemId === it?.id), partyId);
+  }
+
   function applyItem(i: number, it: any) {
     const acct = itemAccountId(it);
-    const rate = cfg.side === "purchase" ? (it.unitCost ?? "") : (it.unitPrice ?? "");
+    // What this supplier charges beats the item-level unit cost, which is one
+    // figure shared across every vendor and so cannot be right for more than
+    // one of them. Falls back to it when the link carries no price.
+    const quoted = cfg.side === "purchase" ? supplierRate(optionsFor(it)[0]) : null;
+    const rate = quoted ?? (cfg.side === "purchase" ? (it.unitCost ?? "") : (it.unitPrice ?? ""));
     setLine(i, { itemId: it.id, accountId: acct || lines[i].accountId, rate: rate === null ? "" : String(rate ?? ""), taxRateId: it.taxRateId || lines[i].taxRateId, description: it.name || lines[i].description, orderUom: it.baseUom || "", packLevel: "base", unitsPerOrderUnit: 1, supplierSkuId: "", lotNo: "" });
     recompute(i, { rate: String(rate ?? "") });
     // Pre-fill a suggested lot code for Stock Item / Raw Material purchases —
@@ -403,6 +422,10 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     // communication only); SI stock stays base UoM (skuId null).
     const stockSkuId = cfg.side === "sales" ? (opt.supplierSkuId ?? "") : "";
     setLine(i, { orderUom: opt.orderUom, packLevel: opt.packLevel, unitsPerOrderUnit: opt.unitsPerOrderUnit, supplierSkuId: opt.supplierSkuId ?? "", skuId: stockSkuId });
+    // The rate is per ORDER unit, so switching from kg to a 25kg bag must
+    // reprice the line or the order reads as 25kg bought at the price of one.
+    const quoted = supplierRate(opt);
+    if (quoted != null) { setLine(i, { rate: String(quoted) }); recompute(i, { rate: String(quoted) }); }
   }
 
   // Resolve a completed quick-add into the right list + selection.

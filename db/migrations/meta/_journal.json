@@ -617,6 +617,13 @@
       "when": 1789600000000,
       "tag": "0088_quantity_precision",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "6",
+      "when": 1789700000000,
+      "tag": "0089_supplier_commercial_terms",
+      "breakpoints": true
     }
   ]
 }

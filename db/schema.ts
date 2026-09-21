@@ -1850,6 +1850,12 @@ export const apItems = pgTable("ap_items", {
   // Inventory kind — the single source of truth for accounting behaviour:
   // FinishedProduct | StockItem | RawMaterial | WorkInProgress | NonInventory | Service
   productType:       varchar("product_type", { length: 24 }).notNull().default("FinishedProduct"),
+  // Where this item may be bought from: "restricted" (only its linked
+  // suppliers) | "open" (any supplier, base UoM only, no pack configuration —
+  // there is no named vendor whose packaging it could describe). See
+  // lib/inventory/sourcing.ts; SAP puts the same indicator on the material
+  // master rather than on the source list, for the same reason.
+  sourcingPolicy:    varchar("sourcing_policy", { length: 16 }).notNull().default("restricted"),
   baseUom:           varchar("base_uom", { length: 16 }),
   category:          varchar("category", { length: 128 }),
   minOhQty:          numeric("min_oh_qty", { precision: 16, scale: 6 }).notNull().default("0"),
@@ -1896,7 +1902,9 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
   id:                 uuid("id").defaultRandom().primaryKey(),
   orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   itemId:             uuid("item_id").notNull().references(() => apItems.id, { onDelete: "cascade" }),
-  supplierId:         uuid("supplier_id"),
+  // No FK: ap_suppliers is a compatibility VIEW over parties (migration 0079)
+  // and Postgres cannot reference a view. Tenancy is re-checked in the API.
+  supplierId:         uuid("supplier_id").notNull(),
   supplierUom:        varchar("supplier_uom", { length: 16 }),
   skuName:            varchar("sku_name", { length: 255 }),
   supplierSku:        varchar("supplier_sku", { length: 64 }),
@@ -1906,8 +1914,20 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
   unitsInOuterPack:   numeric("units_in_outer_pack", { precision: 14, scale: 4 }),
   outerPackType:      varchar("outer_pack_type", { length: 32 }),
   conversionFactor:   numeric("conversion_factor", { precision: 18, scale: 8 }), // base UoM per 1 supplier UoM
+  // Commercial terms — the purchasing-info-record half of this link (0089).
+  // unitPrice and minOrderQty are per ONE SUPPLIER UoM: the unit the vendor
+  // quotes in, so the row reads the same as their price list. A line's rate is
+  // derived per pack level in lib/inventory/order-options.ts.
+  unitPrice:          numeric("unit_price", { precision: 18, scale: 6 }),
+  currency:           varchar("currency", { length: 3 }),   // null = org home currency
+  leadTimeDays:       integer("lead_time_days"),
+  minOrderQty:        numeric("min_order_qty", { precision: 20, scale: 6 }),
+  isPreferred:        boolean("is_preferred").notNull().default(false),
   createdAt:          timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ item_supplier_skus_item_idx: index("item_supplier_skus_item_idx").on(t.itemId) }));
+}, (t) => ({
+  item_supplier_skus_item_idx: index("item_supplier_skus_item_idx").on(t.itemId),
+  item_supplier_skus_supplier_idx: index("item_supplier_skus_supplier_idx").on(t.orgId, t.supplierId),
+}));
 export type ItemSupplierSku = typeof itemSupplierSkus.$inferSelect;
 
 // =========================================================================

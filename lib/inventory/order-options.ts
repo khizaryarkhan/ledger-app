@@ -16,6 +16,7 @@
  */
 
 import { uom } from "@/lib/inventory/uom";
+import { pricePerBaseUnit } from "@/lib/inventory/sourcing";
 
 export type OrderOption = {
   label: string;
@@ -23,6 +24,15 @@ export type OrderOption = {
   orderUom: string;
   unitsPerOrderUnit: number;
   supplierSkuId: string | null;
+  /**
+   * What this supplier charges for one of THIS order unit, derived from the
+   * link's price-per-supplier-unit. null when the link carries no price — the
+   * line then keeps whatever rate it already had rather than defaulting to a
+   * figure nobody quoted.
+   */
+  unitPrice: number | null;
+  /** The currency that price is quoted in; null = the org's home currency. */
+  currency: string | null;
 };
 
 /**
@@ -37,13 +47,25 @@ export function perSupplierUnit(supplierUom: string | null, baseUom: string | nu
 }
 
 /** The always-available, always-safe choice: transact in the item's own unit. */
-const baseOption = (baseUom: string | null): OrderOption => ({
+const baseOption = (baseUom: string | null, unitPrice: number | null = null, currency: string | null = null): OrderOption => ({
   label: `${baseUom || "unit"} — base`,
   packLevel: "base",
   orderUom: baseUom || "",
   unitsPerOrderUnit: 1,
   supplierSkuId: null,
+  unitPrice,
+  currency,
 });
+
+/**
+ * Which of a supplier's links to this item sets the price for the base UoM
+ * option, when they have more than one (several pack configurations of the same
+ * material). The one flagged preferred, else the first — never a silent average
+ * or the cheapest, because both invent a figure no vendor quoted.
+ */
+function pricingLink(links: any[]): any | null {
+  return links.find(l => l.isPreferred) ?? links[0] ?? null;
+}
 
 /**
  * Pack choices for a PURCHASE line, scoped to the supplier the document is
@@ -60,24 +82,35 @@ const baseOption = (baseUom: string | null): OrderOption => ({
  * factor 1, no vendor packaging asserted.
  */
 export function orderOptions(baseUom: string | null, supplierSkus: any[], supplierId: string): OrderOption[] {
-  const opts: OrderOption[] = [baseOption(baseUom)];
-  if (!supplierId) return opts;
-  for (const s of supplierSkus || []) {
-    // Defence in depth: callers pass an already-scoped list, but the rule lives
-    // here so a future caller cannot opt out of it by accident.
-    if (s.supplierId !== supplierId) continue;
+  // Defence in depth: callers pass an already-scoped list, but the rule lives
+  // here so a future caller cannot opt out of it by accident.
+  const mine = supplierId ? (supplierSkus || []).filter(s => s.supplierId === supplierId) : [];
+
+  // Every level is priced off ONE price-per-base-unit so the pack rates cannot
+  // drift apart: a bag is exactly 25 kg of the same figure, not a separately
+  // rounded number that fails to reconcile with it.
+  const pricing = pricingLink(mine);
+  const perPricing = pricing ? perSupplierUnit(pricing.supplierUom, baseUom, pricing.conversionFactor) : null;
+  const basePrice = pricing && perPricing ? pricePerBaseUnit(pricing.unitPrice, perPricing) : null;
+  const ccy = (pricing?.currency as string | null) ?? null;
+  const priceFor = (unitsPerOrderUnit: number) => (basePrice == null ? null : basePrice * unitsPerOrderUnit);
+
+  const opts: OrderOption[] = [baseOption(baseUom, priceFor(1), basePrice == null ? null : ccy)];
+  for (const s of mine) {
     const per = perSupplierUnit(s.supplierUom, baseUom, s.conversionFactor);
     if (!per) continue;
+    const push = (o: Omit<OrderOption, "unitPrice" | "currency">) =>
+      opts.push({ ...o, unitPrice: priceFor(o.unitsPerOrderUnit), currency: basePrice == null ? null : ccy });
     if (s.supplierUom && s.supplierUom !== baseUom) {
-      opts.push({ label: `${s.supplierUom} — supplier UoM`, packLevel: "supplier", orderUom: s.supplierUom, unitsPerOrderUnit: per, supplierSkuId: s.id });
+      push({ label: `${s.supplierUom} — supplier UoM`, packLevel: "supplier", orderUom: s.supplierUom, unitsPerOrderUnit: per, supplierSkuId: s.id });
     }
     const inner = Number(s.innerUnitPackSize) || 0;
     if (inner > 0) {
-      opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${s.supplierUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner * per, supplierSkuId: s.id });
+      push({ label: `${s.innerPackType || "inner pack"} (${inner} ${s.supplierUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner * per, supplierSkuId: s.id });
     }
     const outer = Number(s.unitsInOuterPack) || 0;
     if (inner > 0 && outer > 0) {
-      opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${s.innerPackType || "inner"})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: outer * inner * per, supplierSkuId: s.id });
+      push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${s.innerPackType || "inner"})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: outer * inner * per, supplierSkuId: s.id });
     }
   }
   return opts;
@@ -94,15 +127,15 @@ export function salesOrderOptions(baseUom: string | null, itemSkus: any[]): Orde
   for (const s of itemSkus || []) {
     const inner = Number(s.innerUnitPackSize) || 0;
     if (inner <= 0) continue;
-    opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${baseUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner, supplierSkuId: s.id });
+    opts.push({ label: `${s.innerPackType || "inner pack"} (${inner} ${baseUom || ""})`, packLevel: "inner", orderUom: s.innerPackType || "inner", unitsPerOrderUnit: inner, supplierSkuId: s.id, unitPrice: null, currency: null });
     const addl = Number(s.unitsInAddlInnerPack) || 0;
     const perAddl = addl > 0 ? inner * addl : inner;
     if (addl > 0) {
-      opts.push({ label: `${s.addlInnerPackType || "pack"} (${addl} × ${s.innerPackType || "inner"})`, packLevel: "addl", orderUom: s.addlInnerPackType || "pack", unitsPerOrderUnit: perAddl, supplierSkuId: s.id });
+      opts.push({ label: `${s.addlInnerPackType || "pack"} (${addl} × ${s.innerPackType || "inner"})`, packLevel: "addl", orderUom: s.addlInnerPackType || "pack", unitsPerOrderUnit: perAddl, supplierSkuId: s.id, unitPrice: null, currency: null });
     }
     const outer = Number(s.unitsInOuterPack) || 0;
     if (outer > 0) {
-      opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (s.addlInnerPackType || "pack") : (s.innerPackType || "inner")})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: perAddl * outer, supplierSkuId: s.id });
+      opts.push({ label: `${s.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (s.addlInnerPackType || "pack") : (s.innerPackType || "inner")})`, packLevel: "outer", orderUom: s.outerPackType || "outer", unitsPerOrderUnit: perAddl * outer, supplierSkuId: s.id, unitPrice: null, currency: null });
     }
   }
   return opts;

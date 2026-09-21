@@ -8,8 +8,9 @@ import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
 import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
+import { sourcingOf } from "@/lib/inventory/sourcing";
 import { onHandBySku } from "@/lib/inventory/valuation";
 import { itemReferences, itemHasStockHistory, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
@@ -81,6 +82,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.cogsAccountId !== undefined) set.cogsAccountId = s(b.cogsAccountId, 64);
   if (b.lotTracked !== undefined) set.lotTracked = !!b.lotTracked;
   if (b.taxRateId !== undefined) set.taxRateId = s(b.taxRateId, 64);
+  if (b.sourcingPolicy !== undefined) {
+    const meta = sourcingOf(b.sourcingPolicy);
+    // Switching to "any supplier" would strand pack configurations that can no
+    // longer be reached — and silently deleting a vendor's packaging because a
+    // dropdown changed is not a decision this endpoint gets to make.
+    if (!meta.allowsPackConfiguration) {
+      const packed = await db.select({ id: itemSupplierSkus.id }).from(itemSupplierSkus)
+        .where(and(eq(itemSupplierSkus.orgId, orgId!), eq(itemSupplierSkus.itemId, params.id), isNotNull(itemSupplierSkus.innerUnitPackSize)));
+      if (packed.length) return bad(`This item has ${packed.length} supplier link${packed.length === 1 ? "" : "s"} with pack configuration. Remove ${packed.length === 1 ? "it" : "them"} before switching to "${meta.label}".`, 409);
+    }
+    set.sourcingPolicy = meta.policy;
+  }
   await db.update(apItems).set(set).where(and(eq(apItems.id, params.id), eq(apItems.orgId, orgId!)));
   return ok({ id: params.id, updated: true });
 }

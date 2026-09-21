@@ -18,6 +18,9 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inventory/uom";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
+import { allowsPackConfiguration } from "@/lib/inventory/sourcing";
+import { CURRENCIES } from "@/lib/accounting/currencies";
+import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, fieldLabel, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
@@ -317,36 +320,94 @@ function SkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => voi
 function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
   const [adding, setAdding] = useState(false);
+  const [policy, setPolicy] = useState<string>(item.sourcingPolicy ?? "restricted");
+  const [policyErr, setPolicyErr] = useState("");
+  const open = !allowsPackConfiguration(policy);
   async function load() {
     const r = await fetch(`/api/inventory/items/${item.id}`).then(x => x.json()).catch(() => null);
     setRows(r?.supplierSkus ?? []);
+    if (r?.item?.sourcingPolicy) setPolicy(r.item.sourcingPolicy);
   }
   useEffect(() => { load(); }, [item.id]);
   async function remove(id: string) { await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" }); load(); }
+
+  async function setSourcing(next: string) {
+    setPolicyErr("");
+    const prev = policy;
+    setPolicy(next);                                  // optimistic — the switch should feel instant
+    const r = await fetch(`/api/inventory/items/${item.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourcingPolicy: next }),
+    });
+    if (!r.ok) {
+      // The server refuses to strand pack configurations. Put the switch back
+      // where it was and say why, rather than leaving the UI asserting a policy
+      // the item does not have.
+      setPolicy(prev);
+      setPolicyErr((await r.json().catch(() => ({})))?.error || "Could not change the sourcing policy.");
+      return;
+    }
+    load(); onChanged();
+  }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Package size={14} className="text-amber-400" /> Suppliers <span className="text-stone-500 font-normal">· item base UoM {item.baseUom || "—"}</span></div>
-        <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>
+        {!open && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>}
       </div>
+
+      {/* Sourcing policy sits at the head of this panel rather than among the
+          item's own fields: it is the question "who may supply this?", and this
+          is where the answer is read. */}
+      <label className="flex items-start gap-2 mb-2 px-3 py-2 rounded-lg border border-stone-800 bg-stone-900/40 cursor-pointer">
+        <input type="checkbox" checked={open} onChange={e => setSourcing(e.target.checked ? "open" : "restricted")}
+          className="mt-0.5 accent-emerald-600" />
+        <span className="text-[12px] leading-relaxed">
+          <span className="font-medium text-stone-300">Buy from any supplier</span>
+          <span className="text-stone-500"> — bought in {item.baseUom || "its base unit"}, with no pack configuration. A pack describes one named vendor's packaging, and this item has no named vendor.</span>
+        </span>
+      </label>
+      {policyErr && <div className="mb-2 text-[11px] text-rose-400">{policyErr}</div>}
+
+      {open ? (
+        <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">
+          Any supplier may supply this item. Nothing to configure.
+        </div>
+      ) : (
       <div className="rounded-lg border border-stone-800 overflow-hidden">
         <table className="w-full text-[12px]">
           <thead><tr className="border-b border-stone-800">
             <th className={th}>Supplier</th><th className={th}>Supplier UoM</th>
-            <th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th><th className={`${th} text-right`}>Conv. factor</th><th className="w-8" />
+            <th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th>
+            <th className={`${th} text-right`}>Price</th><th className={`${th} text-right`}>Lead time</th>
+            <th className={`${th} text-right`}>Conv. factor</th><th className="w-8" />
           </tr></thead>
           <tbody>
-            {rows === null && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
-            {rows !== null && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">No suppliers linked yet.</td></tr>}
+            {rows === null && <tr><td colSpan={8} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
+            {rows !== null && rows.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-stone-500">No suppliers linked yet.</td></tr>}
             {(rows ?? []).map(s => {
               const cross = item.baseUom && s.supplierUom && needsConversionFactor(s.supplierUom, item.baseUom);
               return (
                 <tr key={s.id} className="border-b border-stone-800/50">
-                  <td className="px-3 py-2 text-stone-200">{s.supplierName || "—"}</td>
+                  <td className="px-3 py-2 text-stone-200">
+                    <span className="inline-flex items-center gap-1.5">
+                      {s.supplierName || "—"}
+                      {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
+                    </span>
+                  </td>
                   <td className="px-3 py-2 text-stone-300 font-mono">{s.supplierUom || "—"}</td>
                   <td className="px-3 py-2 text-stone-400 font-mono">{s.supplierSku || "—"}</td>
                   <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: s.supplierUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
+                  {/* Quoted per supplier UoM, and labelled as such — the same
+                      shape as the vendor's own price list, which is what makes
+                      it checkable. */}
+                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                    {s.unitPrice != null
+                      ? <span className="text-stone-200">{fmt.num2(Number(s.unitPrice))}<span className="text-stone-600">/{s.supplierUom || item.baseUom || "unit"}</span></span>
+                      : <span className="text-stone-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
                   <td className="px-3 py-2 text-right font-mono">{s.conversionFactor ? <span className="text-amber-300">{Number(s.conversionFactor)} {item.baseUom}/{s.supplierUom}</span> : (cross ? <span className="text-rose-400">missing</span> : <span className="text-stone-600">auto</span>)}</td>
                   <td className="px-3 py-2"><button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
                 </tr>
@@ -355,6 +416,7 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
           </tbody>
         </table>
       </div>
+      )}
       {adding && <SupplierSkuDrawer item={item} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); }} />}
     </div>
   );
@@ -363,7 +425,8 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
 function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => void; onCreated: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  const [f, setF] = useState<Record<string, string>>({ supplierId: "", supplierUom: "", skuName: "", supplierSku: "", itemCodeBySupplier: "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "" });
+  const [f, setF] = useState<Record<string, string>>({ supplierId: "", supplierUom: "", skuName: "", supplierSku: "", itemCodeBySupplier: "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "", unitPrice: "", currency: "", leadTimeDays: "", minOrderQty: "" });
+  const [isPreferred, setIsPreferred] = useState(false);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -377,7 +440,7 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
     if (!f.supplierUom) { setErr("Choose the supplier's UoM."); return; }
     if (crossDim && !f.conversionFactor) { setErr(`Supplier UoM "${f.supplierUom}" and item base UoM "${item.baseUom}" are different measures — enter a conversion factor.`); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/supplier-skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f }) });
+    const r = await fetch(`/api/inventory/supplier-skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f, isPreferred }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
@@ -411,6 +474,33 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
           </div>
         </Section>
         {preview && <div className="rounded-lg bg-amber-500/8 border border-amber-800/40 px-3 py-2 text-[12px] text-amber-300 font-mono">{preview}</div>}
+        {/* Commercial terms — quoted in the SUPPLIER's unit, deliberately, so
+            the row reads the same as the price list it is copied from. Every
+            pack level's rate is derived from this one figure. */}
+        <Section title="Commercial terms">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            <Field label={`Price per ${f.supplierUom || "supplier UoM"}`} hint={f.supplierUom && f.innerUnitPackSize && Number(f.innerUnitPackSize) > 0 && Number(f.unitPrice) > 0
+              ? `A ${f.innerPackType || "pack"} of ${f.innerUnitPackSize} costs ${fmt.num2(Number(f.unitPrice) * Number(f.innerUnitPackSize))}`
+              : "As the supplier quotes it — pack prices are worked out from this."}>
+              <input type="number" step="any" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} />
+            </Field>
+            <Field label="Currency" hint="Blank = your home currency.">
+              <SelectField inset value={f.currency} onChange={e => set("currency", e.target.value)}>
+                <option value="">Home currency</option>
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </SelectField>
+            </Field>
+            <Field label="Lead time (days)" hint="Order to delivery."><input type="number" className={controlInset} value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} /></Field>
+            <Field label={`Minimum order (${f.supplierUom || "supplier UoM"})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
+            <label className="col-span-2 flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="mt-0.5 accent-emerald-600" />
+              <span className="text-[12px] leading-relaxed">
+                <span className="font-medium text-stone-300">Preferred source</span>
+                <span className="text-stone-500"> — the default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.</span>
+              </span>
+            </label>
+          </div>
+        </Section>
         {crossDim && (
           <div className="rounded-lg bg-rose-500/8 border border-rose-800/40 px-3 py-3">
             <label className={`${labelCls} text-rose-300`}>Conversion factor required</label>

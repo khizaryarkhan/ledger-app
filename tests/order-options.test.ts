@@ -114,3 +114,59 @@ describe("salesOrderOptions", () => {
     expect(salesOrderOptions("each", [{ id: "s", innerUnitPackSize: 0 }])).toHaveLength(1);
   });
 });
+
+describe("orderOptions — price derivation", () => {
+  /** 480 per kg, 25kg bags, 20 bags to a pallet. */
+  const priced = { ...linkA, unitPrice: "480", currency: "PKR" };
+
+  it("prices every pack level off one price-per-base-unit", () => {
+    const opts = orderOptions("kg", [priced], SUPPLIER_A);
+    const by = (lvl: string) => opts.find(o => o.packLevel === lvl)?.unitPrice;
+    expect(by("base")).toBe(480);        // per kg
+    expect(by("inner")).toBe(12_000);    // per 25kg bag
+    expect(by("outer")).toBe(240_000);   // per 20-bag pallet
+  });
+
+  it("keeps the pack rate reconcilable with the base rate", () => {
+    // The property that matters downstream: rate x qty is the same money
+    // whichever unit the buyer ordered in. A separately-rounded pack price
+    // would drift from the base one and the GR/IR clearing would not net off.
+    const opts = orderOptions("kg", [priced], SUPPLIER_A);
+    for (const o of opts) {
+      expect(o.unitPrice).toBe(480 * o.unitsPerOrderUnit);
+    }
+  });
+
+  it("converts the quoted unit before pricing when it differs from base", () => {
+    // Quoted per tonne, item stocked in kg: 480,000/mt IS 480/kg.
+    const perTonne = { id: "l", supplierId: SUPPLIER_A, supplierUom: "mt", conversionFactor: null, unitPrice: "480000", innerUnitPackSize: 0, unitsInOuterPack: 0 };
+    const opts = orderOptions("kg", [perTonne], SUPPLIER_A);
+    expect(opts.find(o => o.packLevel === "base")?.unitPrice).toBe(480);
+    expect(opts.find(o => o.packLevel === "supplier")?.unitPrice).toBe(480_000);
+  });
+
+  it("carries no price when the link has none, rather than inventing one", () => {
+    const opts = orderOptions("kg", [linkA], SUPPLIER_A);
+    expect(opts.every(o => o.unitPrice === null)).toBe(true);
+    expect(opts.every(o => o.currency === null)).toBe(true);
+  });
+
+  it("prices from the preferred link when a supplier has several for one item", () => {
+    const cheap = { ...linkA, id: "l-cheap", unitPrice: "400", innerUnitPackSize: 10, innerPackType: "sack", unitsInOuterPack: 0 };
+    const chosen = { ...linkA, id: "l-pref", unitPrice: "480", isPreferred: true };
+    // Order deliberately puts the non-preferred first: "first wins" would pick
+    // the wrong one, and picking the cheapest would invent a quote.
+    const opts = orderOptions("kg", [cheap, chosen], SUPPLIER_A);
+    expect(opts.find(o => o.packLevel === "base")?.unitPrice).toBe(480);
+  });
+
+  it("reports the currency the price was quoted in", () => {
+    const opts = orderOptions("kg", [priced], SUPPLIER_A);
+    expect(opts.find(o => o.packLevel === "base")?.currency).toBe("PKR");
+  });
+
+  it("ignores a zero or negative price instead of defaulting a line to nothing", () => {
+    expect(orderOptions("kg", [{ ...priced, unitPrice: "0" }], SUPPLIER_A).every(o => o.unitPrice === null)).toBe(true);
+    expect(orderOptions("kg", [{ ...priced, unitPrice: "-5" }], SUPPLIER_A).every(o => o.unitPrice === null)).toBe(true);
+  });
+});
