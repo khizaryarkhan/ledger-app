@@ -14,6 +14,7 @@ import { useEffect, useState, Fragment } from "react";
 import { Gauge, ChevronDown, ChevronRight } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 const qty = fmt.qty;
@@ -34,10 +35,10 @@ export function JobWorkYieldReport() {
 
   return (
     <ReportShell title="Subcontractor Yield & Wastage Performance" sub="Actual material yield vs. sent, per job-work vendor — only closed orders (wastage is only final once an order is closed)." icon={Gauge} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[820px]">
-            <thead><tr className="text-left text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <thead><tr className={tableHead}>
               <th className="px-4 py-2.5"></th>
               <th className="px-4 py-2.5">Vendor</th>
               <th className="px-4 py-2.5 text-right">Closed orders</th>

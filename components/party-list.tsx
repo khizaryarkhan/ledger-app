@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, Lock, Users, Building2, Contact, Pencil, Trash2 } from "lucide-react";
 import { PartyDrawer } from "@/components/party-drawer";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, tableHead } from "@/components/form-kit";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; singular: string; icon: any }> = {
@@ -102,11 +102,11 @@ export function PartyList({ type, nativeOnly = false }: { type: PartyType; nativ
       )}
       {rowErr && <p className="text-[12px] text-rose-400 mb-2">{rowErr}</p>}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[560px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="text-left px-4 py-2.5">Name</th>
                 <th className="text-left px-4 py-2.5">Email</th>
                 <th className="text-left px-4 py-2.5">Currency</th>

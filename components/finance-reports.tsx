@@ -5,9 +5,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, Users, Building2, Receipt, ArrowLeft } from "lucide-react";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
-import { controlCompact } from "@/components/form-kit";
+import { controlCompact, tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -16,7 +16,7 @@ const BUCKET_LABEL: Record<string, string> = { current: "Current", "1-30": "1–
 
 export function AgingReport({ side }: { side: "receivable" | "payable" }) {
   const [data, setData] = useState<any>(null);
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(localToday());
   const isAR = side === "receivable";
   async function load() { setData(await fetch(`/api/accounting/aging?side=${side}&asOf=${asOf}`).then(r => r.json()).catch(() => ({ rows: [], buckets: {}, total: 0 }))); }
   useEffect(() => { load(); }, [asOf]);
@@ -27,15 +27,15 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
       <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
       <div className="grid grid-cols-5 gap-2 mb-4">
         {BUCKETS.map(b => (
-          <div key={b} className={`rounded-xl border p-3 ${b === "90+" ? "border-rose-800/50 bg-rose-500/5" : "border-stone-800 bg-stone-900"}`}>
+          <div key={b} className={`rounded-lg border p-3 ${b === "90+" ? "border-rose-800/50 bg-rose-500/5" : "border-stone-800 bg-stone-900"}`}>
             <div className="text-[10px] uppercase tracking-wide text-stone-500">{BUCKET_LABEL[b]}{b !== "current" ? " days" : ""}</div>
             <div className={`text-[15px] font-semibold tabular-nums ${b === "90+" ? "text-rose-400" : "text-stone-100"}`}>{money(data?.buckets?.[b])}</div>
           </div>
         ))}
       </div>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className="w-full text-[13px] min-w-[680px]">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+          <thead><tr className={tableHead}>
             <th className="text-left px-4 py-2.5">Doc</th><th className="text-left px-4 py-2.5">{isAR ? "Customer" : "Supplier"}</th><th className="text-left px-4 py-2.5">Due</th><th className="text-left px-4 py-2.5">Age</th><th className="text-right px-4 py-2.5">Total</th><th className="text-right px-4 py-2.5">Open</th>
           </tr></thead>
           <tbody>
@@ -63,7 +63,7 @@ export function TaxLiabilityReport() {
   const [data, setData] = useState<any>(null);
   const y = new Date().getFullYear();
   const [from, setFrom] = useState(`${y}-01-01`);
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(localToday());
   async function load() { setData(await fetch(`/api/accounting/tax-liability?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { load(); }, [from, to]);
   const Row = ({ label, value, strong, hint }: { label: string; value: number; strong?: boolean; hint?: string }) => (
@@ -78,7 +78,7 @@ export function TaxLiabilityReport() {
         From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} />
         to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} />
       </div>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden max-w-xl">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden max-w-xl">
         {data === null ? <div className="px-4 py-8 text-center text-stone-500">Loading…</div> : (<>
           <Row label="Opening balance" value={data.openingBalance} hint="owed at period start" />
           <Row label="Output tax (on sales)" value={data.outputTax} />

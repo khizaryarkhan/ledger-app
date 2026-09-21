@@ -596,3 +596,148 @@ describe("form controls come from the kit, not from each component", () => {
     }
   });
 });
+
+describe("the app looks like one product", () => {
+  /**
+   * Consistency is the product's stated first principle, so it is asserted
+   * rather than reviewed. Each rule below was a measured defect, not a
+   * preference — the counts are from the audit that produced the fixes.
+   *
+   * Public marketing and pre-auth pages are excluded throughout: they are a
+   * different surface with a display scale of their own, and forcing them to
+   * match an internal data screen would make them worse.
+   */
+  const DISPLAY_SURFACES = new Set([
+    "marketing.tsx", "alternative-page.tsx", "solution-page.tsx",
+    "interest-form.tsx", "login-form.tsx",
+  ]);
+  const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
+
+  function appComponents() {
+    return sourceFiles("components").filter(
+      f => !DISPLAY_SURFACES.has(f.split(/[\\/]/).pop()!),
+    );
+  }
+
+  /** Lines of a file with comment lines dropped, as [lineNo, text]. */
+  function codeLines(f: string): [number, string][] {
+    return readFileSync(f, "utf8")
+      .split("\n")
+      .map((l, i) => [i + 1, l] as [number, string])
+      .filter(([, l]) => !COMMENT_LINE.test(l));
+  }
+
+  it("no text is invisible against the dark theme", () => {
+    /**
+     * text-stone-700/800/900 is dark ink. It is correct on a light chip or
+     * button and unreadable on the app's near-black surface — 82 elements were
+     * in the second category, including every label in forms.tsx. They were
+     * light-theme leftovers, and on a dark background they simply did not
+     * render.
+     *
+     * The light-background check is what makes this a per-element rule rather
+     * than a global ban: `bg-white text-stone-900` is a deliberate light
+     * button and there are six of them.
+     */
+    const DARK_INK = /text-stone-[789]00/;
+    const LIGHT_BG = /\bbg-(white|stone-(?:50|100|200)|amber-100|emerald-100|rose-100|blue-100)\b/;
+    const CLASS = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
+
+    const offenders: string[] = [];
+    for (const f of appComponents()) {
+      const name = f.split(/[\\/]/).pop()!;
+      for (const [no, line] of codeLines(f)) {
+        CLASS.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = CLASS.exec(line)) !== null) {
+          const cls = m[1] ?? m[2] ?? "";
+          if (DARK_INK.test(cls) && !LIGHT_BG.test(cls)) offenders.push(`${name}:${no}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `dark ink with no light background — invisible on this theme. Use the ` +
+      `ink ramp in form-kit (stone-100 strong / 200 body / 400 secondary / ` +
+      `500 muted): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("no border is a light-theme leftover", () => {
+    // border-stone-200 on a near-black surface draws a bright line where a
+    // subtle divider was meant. 15 of these existed, in the same three files
+    // that carried the invisible text.
+    const offenders: string[] = [];
+    for (const f of appComponents()) {
+      const name = f.split(/[\\/]/).pop()!;
+      for (const [no, line] of codeLines(f)) {
+        if (/\bborder-stone-[1-4]00\b/.test(line)) offenders.push(`${name}:${no}`);
+      }
+    }
+    expect(
+      offenders,
+      `light borders on the dark theme — use border-stone-700/800: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("nothing is rounder than the portal's 8px ceiling", () => {
+    // The portal uses 5 / 6 / 8 and nothing above. 85 elements were at 12px or
+    // 16px, which is why a card here looked softer than the same card three
+    // screens away. rounded-full is untouched — a pill is a circle by intent.
+    const offenders: string[] = [];
+    for (const f of appComponents()) {
+      const name = f.split(/[\\/]/).pop()!;
+      for (const [no, line] of codeLines(f)) {
+        if (/\brounded(-(?:t|b|l|r|tl|tr|bl|br))?-(?:xl|2xl|3xl)\b/.test(line)) {
+          offenders.push(`${name}:${no}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `radius above the 8px ceiling — use rounded-lg: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("every table header row uses the one token", () => {
+    // Six variants across 31 tables. The <th> cells are fine — they carry only
+    // alignment and padding — so this guards the <tr> that carries the type.
+    const offenders: string[] = [];
+    for (const f of appComponents()) {
+      const name = f.split(/[\\/]/).pop()!;
+      for (const [no, line] of codeLines(f)) {
+        const m = /<tr className="([^"]*)"/.exec(line);
+        if (m && /uppercase|text-\[1[01]px\]/.test(m[1])) offenders.push(`${name}:${no}`);
+      }
+    }
+    expect(
+      offenders,
+      `hand-styled table header row — use tableHead from form-kit: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("dates are derived from the local calendar, never UTC", () => {
+    /**
+     * `new Date().toISOString().slice(0,10)` is UTC. CLAUDE.md: "Use
+     * localToday(), never today(), for anything compared against an invoice or
+     * due date — today() is UTC and shifts the day either side of Greenwich."
+     *
+     * 27 sites filled default date inputs and "as of" filters this way. West
+     * of Greenwich after about 19:00 local they default to TOMORROW. This is
+     * the same defect class as the "a date is a date" incident, in the place
+     * the existing guard cannot see: that one watches the RENDER side for
+     * `+ "T00:00:00Z"`, and these are on the DERIVE side.
+     */
+    const offenders: string[] = [];
+    for (const f of sourceFiles("components")) {
+      const name = f.split(/[\\/]/).pop()!;
+      for (const [no, line] of codeLines(f)) {
+        if (/toISOString\(\)\.slice\(0,\s*10\)/.test(line)) offenders.push(`${name}:${no}`);
+      }
+    }
+    expect(
+      offenders,
+      `UTC date derivation — use localToday() / ymd() from lib/format: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+});

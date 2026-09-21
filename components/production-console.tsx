@@ -9,9 +9,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Factory, X, Loader, Check, Wand2, Trash2 } from "lucide-react";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
-import { controlCompact, controlInset, fieldLabel } from "@/components/form-kit";
+import { controlCompact, controlInset, fieldLabel, tableHead } from "@/components/form-kit";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -60,11 +60,11 @@ export function ProductionConsole() {
 
       {showNew && <BuildDrawer boms={boms} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); fetch(`/api/inventory/items`).then(x => x.json()).then(r => setItems(Array.isArray(r) ? r : [])).catch(() => {}); }} />}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[640px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="text-left px-4 py-2.5">Build #</th>
                 <th className="text-left px-4 py-2.5">Output</th>
                 <th className="text-right px-4 py-2.5">Qty</th>
@@ -111,7 +111,7 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
   const [outputSkus, setOutputSkus] = useState<any[]>([]);
   const [qty, setQty] = useState("1");
   const [batchSize, setBatchSize] = useState(1);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [rows, setRows] = useState<InputRow[]>([]);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
@@ -293,7 +293,7 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
                   ? <p className="text-[11px] text-rose-400">No stock on hand — receive this material first, or it will be costed at its fallback unit cost.</p>
                   : (
                     <table className="w-full text-[11.5px]">
-                      <thead><tr className="text-[10px] uppercase text-stone-500"><th className="text-left py-1">Lot</th><th className="text-right py-1">Available</th><th className="text-right py-1">Unit cost</th><th className="text-right py-1 w-24">Use qty</th></tr></thead>
+                      <thead><tr className={tableHead}><th className="text-left py-1">Lot</th><th className="text-right py-1">Available</th><th className="text-right py-1">Unit cost</th><th className="text-right py-1 w-24">Use qty</th></tr></thead>
                       <tbody>
                         {(r.lots ?? []).map((lot: any) => (
                           <tr key={lot.id}>

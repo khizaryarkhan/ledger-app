@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw, AlertTriangle, X, Loader, Check } from "lucide-react";
 import { Field, Section, SelectField, controlInset } from "@/components/form-kit";
+import { localToday, ymd } from "@/lib/format";
 
 const ASSIGNABLE_LABEL: Record<string, string> = { project: "Project", manufacturing_order: "Manufacturing Order", job_work_order: "Job Work Order" };
 const ASSIGNABLE_ENDPOINT: Record<string, string> = { project: "/api/projects", manufacturing_order: "/api/production/mos", job_work_order: "/api/inventory/jobwork" };
@@ -22,7 +23,7 @@ function assignableOptionLabel(type: string, row: any): string {
 }
 
 function startOfWeek(d: Date) { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+const iso = (d: Date) => ymd(d);
 const dowLabel = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
 
 export function ResourceBoard() {
@@ -60,9 +61,9 @@ export function ResourceBoard() {
       {showNew && <NewAssignmentDrawer onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
       {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No active resources — add People or Equipment first.</div>
+        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No active resources — add People or Equipment first.</div>
       ) : (
-        <div className="rounded-xl border border-stone-800 overflow-x-auto">
+        <div className="rounded-lg border border-stone-800 overflow-x-auto">
           <table className="w-full text-[12.5px] min-w-[820px]">
             <thead>
               <tr className="border-b border-stone-800 bg-stone-950/40">
@@ -109,7 +110,7 @@ function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCr
   const [resources, setResources] = useState<any[]>([]);
   const [assignableType, setAssignableType] = useState("project");
   const [assignableOptions, setAssignableOptions] = useState<any[]>([]);
-  const [form, setForm] = useState({ resourceId: "", assignableId: "", startDate: new Date().toISOString().slice(0, 10), endDate: "", allocationPercent: "100", notes: "" });
+  const [form, setForm] = useState({ resourceId: "", assignableId: "", startDate: localToday(), endDate: "", allocationPercent: "100", notes: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
 
   useEffect(() => { fetch("/api/resources?status=active").then(r => r.json()).then(d => setResources(Array.isArray(d) ? d : [])).catch(() => {}); }, []);

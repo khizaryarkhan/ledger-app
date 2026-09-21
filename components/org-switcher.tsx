@@ -95,7 +95,7 @@ export function OrgSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 w-72 bg-stone-900 rounded-xl shadow-2xl border border-stone-800 z-50 overflow-hidden flex flex-col">
+        <div className="absolute right-0 top-full mt-1.5 w-72 bg-stone-900 rounded-lg shadow-2xl border border-stone-800 z-50 overflow-hidden flex flex-col">
           <div className="px-3 py-2 border-b border-stone-800 flex items-center justify-between">
             <p className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">
               {isSuperAdmin ? `All Organisations (${orgs.length})` : "Switch Organisation"}

@@ -8,7 +8,7 @@ import Link from "next/link";
 import { RefreshCw, Search, Boxes, ClipboardList, ArrowLeft } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 const qty = fmt.qty;
@@ -53,11 +53,11 @@ export function StockValuationReport() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           {view === "summary" ? (
             <table className="w-full text-[13px] min-w-[640px]">
-              <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <thead><tr className={tableHead}>
                 <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">Code</th><th className="text-left px-4 py-2.5">Category</th>
                 <th className="text-right px-4 py-2.5">On hand</th><th className="text-right px-4 py-2.5">Avg cost</th><th className="text-right px-4 py-2.5">Value</th>
               </tr></thead>
@@ -84,7 +84,7 @@ export function StockValuationReport() {
             </table>
           ) : (
             <table className="w-full text-[13px] min-w-[720px]">
-              <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <thead><tr className={tableHead}>
                 <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">SKU</th><th className="text-left px-4 py-2.5">Lot #</th><th className="text-left px-4 py-2.5">Expiry</th><th className="text-left px-4 py-2.5">Where</th>
                 <th className="text-right px-4 py-2.5">Remaining</th><th className="text-right px-4 py-2.5">Unit cost</th><th className="text-right px-4 py-2.5">Value</th>
               </tr></thead>
@@ -149,10 +149,10 @@ export function StockStatusReport() {
         </div>
         <label className="flex items-center gap-2 text-[12px] text-stone-400"><input type="checkbox" checked={only} onChange={e => setOnly(e.target.checked)} className="accent-emerald-600" /> Only items needing attention</label>
       </div>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[620px]">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <thead><tr className={tableHead}>
               <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">Code</th>
               <th className="text-right px-4 py-2.5">On hand</th><th className="text-left px-4 py-2.5">Where</th><th className="text-right px-4 py-2.5">Expected (PO)</th><th className="text-right px-4 py-2.5">Committed (SO)</th><th className="text-right px-4 py-2.5">Available</th><th className="text-right px-4 py-2.5">Min.</th><th className="text-left px-4 py-2.5">Status</th>
             </tr></thead>

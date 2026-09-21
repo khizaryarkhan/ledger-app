@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Button, Badge } from "@/components/ui";
-import { fmt, formatDateShort } from "@/lib/format";
+import { fmt, formatDateShort, localToday } from "@/lib/format";
 import { Calendar, FileText, RefreshCw, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { CurrencyPills } from "@/components/currency-pills";
+import { tableHead } from "@/components/form-kit";
 
 type Bucket = "Current" | "1-30" | "31-60" | "61-90" | "90+";
 const BUCKETS: Bucket[] = ["Current", "1-30", "31-60", "61-90", "90+"];
@@ -69,7 +70,7 @@ type ReconcilePayload = {
 
 function bucketColor(b: Bucket): string {
   switch (b) {
-    case "Current": return "text-stone-700";
+    case "Current": return "text-stone-400";
     case "1-30":    return "text-amber-700";
     case "31-60":   return "text-orange-700";
     case "61-90":   return "text-rose-700";
@@ -81,7 +82,7 @@ function bucketColor(b: Bucket): string {
 export function ArAgingReport() {
   const { customers } = useData() as any;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localToday();
   const [asOf, setAsOf] = useState(todayIso);
   const [view, setView] = useState<"summary" | "detail">("summary");
   const [includeClosed, setIncludeClosed] = useState(false);
@@ -152,7 +153,7 @@ export function ArAgingReport() {
                 className="h-8 px-2 text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-stone-400 focus:outline-none bg-white"
               />
               {isHistorical && (
-                <button onClick={() => setAsOf(todayIso)} className="text-[10px] text-stone-400 hover:text-stone-700 ml-1 font-medium">
+                <button onClick={() => setAsOf(todayIso)} className="text-[10px] text-stone-400 hover:text-stone-200 ml-1 font-medium">
                   Today
                 </button>
               )}
@@ -215,7 +216,7 @@ export function ArAgingReport() {
             <label className="flex items-center gap-1.5 h-8 px-2 rounded-md ring-1 ring-stone-200 bg-white cursor-pointer">
               <input type="checkbox" checked={includeClosed} onChange={e => setIncludeClosed(e.target.checked)}
                 className="rounded" />
-              <span className="text-[12px] text-stone-700">Show closed transactions</span>
+              <span className="text-[12px] text-stone-400">Show closed transactions</span>
             </label>
           </div>
 
@@ -241,13 +242,13 @@ export function ArAgingReport() {
               <div className="flex items-center gap-4 text-[12px]">
                 <div>
                   <span className="text-stone-500">QBO Balance Sheet AR: </span>
-                  <span className="font-semibold tabular-nums text-stone-900">
+                  <span className="font-semibold tabular-nums text-stone-100">
                     {recon.balanceSheetAR !== null ? fmt.money(recon.balanceSheetAR, "?") : "—"}
                   </span>
                 </div>
                 <div>
                   <span className="text-stone-500">Our AR Aging total: </span>
-                  <span className="font-semibold tabular-nums text-stone-900">{fmt.money(recon.ledgerAR, "?")}</span>
+                  <span className="font-semibold tabular-nums text-stone-100">{fmt.money(recon.ledgerAR, "?")}</span>
                 </div>
                 {recon.variance !== null && (
                   <div>
@@ -299,7 +300,7 @@ export function ArAgingReport() {
         <Card padding="none">
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+              <tr className={tableHead}>
                 <th className="text-left font-semibold px-4 py-3">Customer</th>
                 {BUCKETS.map(b => (
                   <th key={b} className="text-right font-semibold px-3 py-3 w-28">{b}</th>
@@ -325,18 +326,18 @@ export function ArAgingReport() {
                 return (
                   <>
                     <tr key={row.customerId}
-                      className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer"
+                      className="border-b border-stone-800 hover:bg-stone-50 cursor-pointer"
                       onClick={() => toggleExpanded(row.customerId)}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {isExpanded ? <ChevronDown size={13} className="text-stone-400" /> : <ChevronRight size={13} className="text-stone-400" />}
                           {isExternal ? (
-                            <span className="text-stone-800 font-medium">{displayName}</span>
+                            <span className="text-stone-300 font-medium">{displayName}</span>
                           ) : (
                             <Link href={`/customers/${row.customerId}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="text-stone-800 hover:text-brand-orange font-medium">
+                              className="text-stone-300 hover:text-brand-orange font-medium">
                               {displayName}
                             </Link>
                           )}
@@ -354,7 +355,7 @@ export function ArAgingReport() {
                           </td>
                         );
                       })}
-                      <td className={`px-4 py-3 text-right tabular-nums font-semibold ${row.total < 0 ? "text-amber-700" : "text-stone-900"}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums font-semibold ${row.total < 0 ? "text-amber-700" : "text-stone-100"}`}>
                         {(() => {
                           const totByCcy: Record<string, number> = {};
                           custDetail.forEach(d => { totByCcy[d.currency] = (totByCcy[d.currency] || 0) + d.openBalance; });
@@ -363,7 +364,7 @@ export function ArAgingReport() {
                       </td>
                     </tr>
                     {isExpanded && custDetail.map(d => (
-                      <tr key={d.txnId} className="border-b border-stone-100 bg-stone-50/50">
+                      <tr key={d.txnId} className="border-b border-stone-800 bg-stone-50/50">
                         <td className="px-4 py-2 pl-12 text-[12px] text-stone-600">
                           <Link href={`/invoices/${d.txnId}`} className="hover:text-brand-orange">
                             <span className="font-mono">{d.txnNumber}</span>
@@ -376,7 +377,7 @@ export function ArAgingReport() {
                             {d.bucket === b ? fmt.money(d.openBalance, d.currency) : "—"}
                           </td>
                         ))}
-                        <td className="px-4 py-2 text-right tabular-nums text-[12px] text-stone-700">
+                        <td className="px-4 py-2 text-right tabular-nums text-[12px] text-stone-400">
                           {fmt.money(d.openBalance, d.currency)}
                         </td>
                       </tr>
@@ -386,8 +387,8 @@ export function ArAgingReport() {
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-stone-300 bg-stone-50">
-                <td className="px-4 py-3 font-semibold text-stone-900">TOTAL</td>
+              <tr className="border-t-2 border-stone-700 bg-stone-50">
+                <td className="px-4 py-3 font-semibold text-stone-100">TOTAL</td>
                 {BUCKETS.map(b => {
                   const gtByCcy: Record<string, number> = {};
                   data.detail.filter(d => d.bucket === b).forEach(d => { gtByCcy[d.currency] = (gtByCcy[d.currency] || 0) + d.openBalance; });
@@ -397,7 +398,7 @@ export function ArAgingReport() {
                     </td>
                   );
                 })}
-                <td className="px-4 py-3 text-right tabular-nums font-bold text-stone-900">
+                <td className="px-4 py-3 text-right tabular-nums font-bold text-stone-100">
                   {(() => {
                     const allByCcy: Record<string, number> = {};
                     data.detail.forEach(d => { allByCcy[d.currency] = (allByCcy[d.currency] || 0) + d.openBalance; });
@@ -415,7 +416,7 @@ export function ArAgingReport() {
         <Card padding="none">
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+              <tr className={tableHead}>
                 <th className="text-left font-semibold px-3 py-2.5">Customer</th>
                 <th className="text-left font-semibold px-3 py-2.5">Type</th>
                 <th className="text-left font-semibold px-3 py-2.5">Number</th>
@@ -440,12 +441,12 @@ export function ArAgingReport() {
                 .map(d => {
                   const cust = customerById.get(d.customerId);
                   return (
-                    <tr key={d.txnId} className="border-b border-stone-100 hover:bg-stone-50 text-[12px]">
-                      <td className="px-3 py-2 text-stone-700 truncate max-w-[180px]">
+                    <tr key={d.txnId} className="border-b border-stone-800 hover:bg-stone-50 text-[12px]">
+                      <td className="px-3 py-2 text-stone-400 truncate max-w-[180px]">
                         <Link href={`/customers/${d.customerId}`} className="hover:text-brand-orange">{cust?.name || d.customerId}</Link>
                       </td>
                       <td className="px-3 py-2 text-stone-600">{d.txnType}</td>
-                      <td className="px-3 py-2 text-stone-700 font-mono">
+                      <td className="px-3 py-2 text-stone-400 font-mono">
                         <Link href={`/invoices/${d.txnId}`} className="hover:text-brand-orange">{d.txnNumber}</Link>
                       </td>
                       <td className="px-3 py-2 text-stone-600 tabular-nums">
@@ -458,7 +459,7 @@ export function ArAgingReport() {
                       <td className="px-3 py-2 text-right tabular-nums text-stone-600">
                         {d.totalApplied > 0.005 ? fmt.money(d.totalApplied, d.currency) : "—"}
                       </td>
-                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${d.openBalance < 0 ? "text-amber-700" : "text-stone-900"}`}>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${d.openBalance < 0 ? "text-amber-700" : "text-stone-100"}`}>
                         {fmt.money(d.openBalance, d.currency)}
                       </td>
                       <td className={`px-3 py-2 text-right tabular-nums ${d.daysPastDue > 0 ? "text-rose-700" : "text-stone-500"}`}>
@@ -475,9 +476,9 @@ export function ArAgingReport() {
                 })}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-stone-300 bg-stone-50">
-                <td colSpan={7} className="px-3 py-3 text-right font-semibold text-stone-900">GRAND TOTAL</td>
-                <td className="px-3 py-3 text-right tabular-nums font-bold text-stone-900">
+              <tr className="border-t-2 border-stone-700 bg-stone-50">
+                <td colSpan={7} className="px-3 py-3 text-right font-semibold text-stone-100">GRAND TOTAL</td>
+                <td className="px-3 py-3 text-right tabular-nums font-bold text-stone-100">
                   {(() => {
                     const dtlByCcy: Record<string, number> = {};
                     data.detail.forEach(d => { dtlByCcy[d.currency] = (dtlByCcy[d.currency] || 0) + d.openBalance; });

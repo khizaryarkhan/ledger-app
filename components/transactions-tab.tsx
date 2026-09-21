@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, Badge } from "@/components/ui";
 import { fmt, formatDateShort } from "@/lib/format";
 import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send, ClipboardList } from "lucide-react";
+import { tableHead } from "@/components/form-kit";
 
 type Txn = {
   id: string;
@@ -224,7 +225,7 @@ export function TransactionsTab({
       <Card padding="none">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <tr className={tableHead}>
               {onSendSelected && (
                 <th className="px-3 py-3 w-8">
                   <input

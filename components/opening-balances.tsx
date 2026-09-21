@@ -85,7 +85,7 @@ export function OpeningBalances() {
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className={controlCompact} /></div>
 
       {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
-        <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+        <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
           {groups.map(g => (
             <div key={g.cls}>
               <div className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500 bg-stone-950/40 border-b border-stone-800">{g.cls}</div>

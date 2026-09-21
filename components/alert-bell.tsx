@@ -55,7 +55,7 @@ export function AlertBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 bg-stone-900 border border-stone-700 rounded-xl shadow-2xl shadow-black/50 py-1.5 w-80 max-h-96 overflow-y-auto">
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-1.5 w-80 max-h-96 overflow-y-auto">
           <div className="px-3 pb-1.5 text-[10px] font-semibold text-stone-500 uppercase tracking-widest">Supply-chain alerts</div>
           {alerts.length === 0 ? (
             <div className="px-3 py-4 text-[12px] text-stone-500">Nothing at risk right now.</div>

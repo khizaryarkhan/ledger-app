@@ -648,7 +648,7 @@ function FlyoutGroup({ label, Icon, items, onNavigate }: {
       {open && pos && typeof document !== "undefined" && createPortal(
         <div data-theme={theme || undefined}>
           <div style={{ position: "fixed", left: pos.left, top: pos.top }} onMouseEnter={openNow} onMouseLeave={closeSoon}
-            className="z-[60] bg-stone-900 border border-stone-700 rounded-xl shadow-2xl shadow-black/50 py-2 min-w-[220px]">
+            className="z-[60] bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-2 min-w-[220px]">
             <div className="px-3 pb-1.5 text-[10px] font-semibold text-stone-500 uppercase tracking-widest">{label}</div>
             {items.map(item => {
               const Ic = item.icon;

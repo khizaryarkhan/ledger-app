@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, RefreshCw, Check, FileText, ShoppingCart, ChevronDown, ChevronRight, Layers, X, Loader, Trash2, Printer, Route } from "lucide-react";
-import { controlCompact } from "@/components/form-kit";
+import { controlCompact, tableHead } from "@/components/form-kit";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
 const META: Record<Kind, { title: string; singular: string; newType: string; icon: any; convertTo: string; invoiceVerb: string; fulfil?: string }> = {
@@ -79,11 +79,11 @@ export function TradeDocList({ kind }: { kind: Kind }) {
 
       {msg && <div className="mb-4 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[760px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="w-6"></th>
                 <th className="text-left px-3 py-2.5">Number</th>
                 <th className="text-left px-3 py-2.5">{kind === "purchase-orders" ? "Supplier" : "Customer"}</th>
@@ -215,7 +215,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
   const input = controlCompact + " text-right tabular-nums";
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 border border-stone-700 rounded-2xl w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-stone-900 border border-stone-700 rounded-lg w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-stone-800">
           <div>
             <h2 className="text-[15px] font-semibold text-white">{meta.invoiceVerb} {doc.docNumber}</h2>
@@ -233,7 +233,7 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
           {!lines ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={12} className="animate-spin" /> Loading…</div> : (
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                <tr className={tableHead}>
                   <th className="text-left py-2">Line</th>
                   <th className="text-right py-2 w-28">Remaining</th>
                   <th className="text-right py-2 w-32">{meta.invoiceVerb} now</th>

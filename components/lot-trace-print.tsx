@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { localToday } from "@/lib/format";
 
 const money = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtyFmt = (n: number) => (Math.round((n ?? 0) * 1e4) / 1e4).toLocaleString();
@@ -289,7 +290,7 @@ export function LotTracePrintSheet({ data }: { data: any }) {
           <div className="sigbox"><div className="sigline">Approved by</div></div>
         </div>
 
-        <div className="foot">Generated from {c.name ?? "the system"}'s inventory ledger — every figure traces back to a posted transaction. {new Date().toISOString().slice(0, 10)}</div>
+        <div className="foot">Generated from {c.name ?? "the system"}'s inventory ledger — every figure traces back to a posted transaction. {localToday()}</div>
       </div>
     </>
   );

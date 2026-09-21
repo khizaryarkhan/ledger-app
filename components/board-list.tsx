@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Stage, isExceptionStage, stageDotClass, stageChipClass } from "@/lib/stages";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal, Phone, Voicemail, Zap, TrendingUp, Eye, EyeOff } from "lucide-react";
 import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/lib/next-action";
 import { useSession } from "next-auth/react";
@@ -33,7 +33,7 @@ export type BoardRow = {
 };
 
 const DISPUTE_CATEGORIES = ["Wrong Amount", "Already Paid", "Goods/Service", "Duplicate", "Other"];
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localToday();
 const uniqEmails = (vals: (string | null)[]) => {
   const set = new Set<string>();
   vals.forEach(v => (v || "").split(/[,;]/).map(e => e.trim().toLowerCase()).filter(e => e.includes("@")).forEach(e => set.add(e)));
@@ -299,7 +299,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
           )}
         </span>
         {open && (
-          <div className={`absolute ${o.popoverAlign === "right" ? "right-0" : "left-6"} top-8 z-30 w-[460px] bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col`} style={{ maxHeight: "500px" }} onClick={e => e.stopPropagation()}>
+          <div className={`absolute ${o.popoverAlign === "right" ? "right-0" : "left-6"} top-8 z-30 w-[460px] bg-stone-950 rounded-lg shadow-2xl ring-1 ring-stone-700 text-left flex flex-col`} style={{ maxHeight: "500px" }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
               <div className="flex items-center gap-2">
@@ -695,7 +695,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   }, [comments]);
 
   const nextActionByInv = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localToday();
     const m: Record<string, ReturnType<typeof computeNextAction>> = {};
     rows.forEach(r => {
       m[r.inv.id] = computeNextAction({
@@ -716,7 +716,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
 
   const filteredRows = useMemo(() => {
     const has = (v: string | null, q: string) => (v ?? "").toLowerCase().includes(q.toLowerCase());
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localToday();
     return rows.filter(r => {
       if (overdueOnly && r.days <= 0) return false;
       if (cf.invoice && !has(r.inv.invoiceNumber, cf.invoice)) return false;
@@ -1681,7 +1681,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       {/* Notify Owners modal */}
       {notifyOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !notifySending && setNotifyOpen(false)}>
-          <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-stone-900 border border-stone-700 rounded-lg shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-stone-800">
               <h2 className="text-[15px] font-semibold text-white">Notify escalation owners</h2>
               <p className="text-[12px] text-stone-500 mt-0.5">Each owner gets one email with their action list and the invoice PDFs attached.</p>
@@ -1826,7 +1826,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             {label}
                             {sortCol === sort
                               ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
-                              : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                              : <ChevronsUpDown size={11} className="text-stone-600 group-hover:text-stone-400" />}
                           </button>
                         ) : label}
                         <button onClick={() => setFilterOpen(p => p === filter ? null : filter)}
@@ -1835,7 +1835,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         </button>
                       </span>
                       {filterOpen === filter && (
-                        <div className="absolute left-0 top-full mt-1 z-40 w-60 bg-stone-950 border border-stone-700 rounded-xl shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
+                        <div className="absolute left-0 top-full mt-1 z-40 w-60 bg-stone-950 border border-stone-700 rounded-lg shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
                           {/* Text filters */}
                           {["invoice", "customer", "project", "lastRef"].includes(filter) && (
                             <input autoFocus value={cf[filter] ?? ""} onChange={e => setFilter(filter, e.target.value)}
@@ -1994,7 +1994,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                       Outstanding
                       {sortCol === "outstanding"
                         ? sortDir === "asc" ? <ChevronUp size={11} className="text-emerald-400" /> : <ChevronDown size={11} className="text-emerald-400" />
-                        : <ChevronsUpDown size={11} className="text-stone-700 group-hover:text-stone-500" />}
+                        : <ChevronsUpDown size={11} className="text-stone-600 group-hover:text-stone-400" />}
                     </button>
                     <button onClick={() => setFilterOpen(p => p === "amount" ? null : "amount")}
                       className={`p-0.5 rounded hover:bg-stone-800 transition-opacity ${(cf.minAmount || cf.maxAmount) ? "text-emerald-400" : "text-stone-600 opacity-0 group-hover/th:opacity-100 focus-visible:opacity-100 hover:text-stone-300"}`}>
@@ -2002,7 +2002,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                     </button>
                   </span>
                   {filterOpen === "amount" && (
-                    <div className="absolute right-0 top-full mt-1 z-40 w-52 bg-stone-950 border border-stone-700 rounded-xl shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
+                    <div className="absolute right-0 top-full mt-1 z-40 w-52 bg-stone-950 border border-stone-700 rounded-lg shadow-2xl p-3 normal-case font-normal tracking-normal text-left space-y-2" onClick={e => e.stopPropagation()}>
                       <input type="number" autoFocus value={cf.minAmount ?? ""} onChange={e => setFilter("minAmount", e.target.value)} placeholder="Minimum (≥)" className={`${inputCls} text-right`} />
                       <input type="number" value={cf.maxAmount ?? ""} onChange={e => setFilter("maxAmount", e.target.value)} placeholder="Maximum (≤)" className={`${inputCls} text-right`} />
                       <div className="flex items-center justify-between pt-1 border-t border-stone-800">
@@ -2086,7 +2086,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           ) : null;
                         })()}
                         {contactsOpenId === custContactKey && (
-                          <div className="absolute left-0 top-10 z-40 w-80 bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left font-normal" style={{maxHeight:"480px"}} onClick={e => e.stopPropagation()}>
+                          <div className="absolute left-0 top-10 z-40 w-80 bg-stone-950 rounded-lg shadow-2xl ring-1 ring-stone-700 text-left font-normal" style={{maxHeight:"480px"}} onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
                               <div className="flex items-center gap-2">
                                 <Phone size={13} className="text-stone-400" />
@@ -2190,7 +2190,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           <button
                             onClick={e => { e.stopPropagation(); setContactsOpenId(contactsOpenId === projContactKey ? null : projContactKey); }}
                             title="View contacts for this project"
-                            className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-800 text-stone-700 hover:text-blue-400 transition-colors align-middle">
+                            className="relative inline-flex items-center justify-center ml-1.5 p-0.5 rounded hover:bg-stone-800 text-stone-400 hover:text-blue-400 transition-colors align-middle">
                             <Phone size={11} />
                             {projContactCount > 0 && (
                               <span className="absolute -top-1 -right-1 text-white text-[11px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-semibold bg-stone-700">
@@ -2220,7 +2220,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                           ) : null;
                         })()}
                         {projContactKey && contactsOpenId === projContactKey && (
-                          <div className="absolute left-0 top-9 z-40 w-80 bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left font-normal" style={{maxHeight:"480px"}} onClick={e => e.stopPropagation()}>
+                          <div className="absolute left-0 top-9 z-40 w-80 bg-stone-950 rounded-lg shadow-2xl ring-1 ring-stone-700 text-left font-normal" style={{maxHeight:"480px"}} onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800">
                               <div className="flex items-center gap-2">
                                 <Phone size={13} className="text-stone-400" />
@@ -2693,7 +2693,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         )}
                       </button>
                       {notesOpenId === inv.id && (
-                        <div className="absolute right-2 top-9 z-30 w-96 bg-stone-950 rounded-xl shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{maxHeight:"520px"}} onClick={e => e.stopPropagation()}>
+                        <div className="absolute right-2 top-9 z-30 w-96 bg-stone-950 rounded-lg shadow-2xl ring-1 ring-stone-700 text-left flex flex-col" style={{maxHeight:"520px"}} onClick={e => e.stopPropagation()}>
                           {/* Header */}
                           <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800 flex-shrink-0">
                             <div className="flex items-center gap-2">

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { CalendarRange, Check, Loader, Lock, Unlock, AlertTriangle } from "lucide-react";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, tableHead } from "@/components/form-kit";
+import { ymd } from "@/lib/format";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -19,7 +20,7 @@ function currentFyEnd(startMonth: number): string {
   if (now.getUTCMonth() + 1 < startMonth) y -= 1;
   const end = new Date(Date.UTC(y + 1, startMonth - 1, 1));
   end.setUTCDate(end.getUTCDate() - 1);
-  return end.toISOString().slice(0, 10);
+  return ymd(end);
 }
 
 function money(n: number) {
@@ -133,7 +134,7 @@ export function FinancialYearSettings() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-[13px] min-w-[480px]">
                     <thead>
-                      <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                      <tr className={tableHead}>
                         <th className="text-left py-2 pr-3">Period</th>
                         <th className="text-right py-2 px-2">Net profit → RE</th>
                         <th className="text-left py-2 px-2">Status</th>

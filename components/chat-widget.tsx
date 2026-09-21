@@ -81,7 +81,7 @@ export function ChatWidget() {
       )}
 
       {open && (
-        <div className="fixed bottom-5 right-5 z-40 w-[400px] max-h-[600px] flex flex-col bg-stone-950 rounded-2xl shadow-2xl border border-stone-800 overflow-hidden">
+        <div className="fixed bottom-5 right-5 z-40 w-[400px] max-h-[600px] flex flex-col bg-stone-950 rounded-lg shadow-2xl border border-stone-800 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-stone-900 border-b border-stone-800 shrink-0">
             <div className="flex items-center gap-2.5">
@@ -114,7 +114,7 @@ export function ChatWidget() {
                     : <Bot size={12} className="text-stone-400" />
                   }
                 </div>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+                <div className={`max-w-[80%] rounded-lg px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                   m.role === "user"
                     ? "bg-emerald-500/20 text-emerald-100 border border-emerald-500/20 rounded-tr-sm"
                     : "bg-stone-800 text-stone-200 border border-stone-700 rounded-tl-sm"
@@ -129,7 +129,7 @@ export function ChatWidget() {
                 <div className="w-6 h-6 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center shrink-0">
                   <Bot size={12} className="text-stone-400" />
                 </div>
-                <div className="bg-stone-800 border border-stone-700 rounded-2xl rounded-tl-sm px-3.5 py-2.5">
+                <div className="bg-stone-800 border border-stone-700 rounded-lg rounded-tl-sm px-3.5 py-2.5">
                   <Loader2 size={14} className="text-stone-500 animate-spin" />
                 </div>
               </div>
@@ -151,7 +151,7 @@ export function ChatWidget() {
 
           {/* Input */}
           <div className="px-3 pb-3 pt-2 border-t border-stone-800 shrink-0">
-            <div className="flex items-center gap-2 bg-stone-800 border border-stone-700 rounded-xl px-3 py-2">
+            <div className="flex items-center gap-2 bg-stone-800 border border-stone-700 rounded-lg px-3 py-2">
               <input
                 ref={inputRef}
                 value={input}

@@ -8,8 +8,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Landmark, Loader, Check, X } from "lucide-react";
-import { fmt } from "@/lib/format";
-import { controlCompact, controlInset } from "@/components/form-kit";
+import { fmt, localToday } from "@/lib/format";
+import { controlCompact, controlInset, tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -18,7 +18,7 @@ export function ReconcileConsole() {
   const [accountId, setAccountId] = useState("");
   const [view, setView] = useState<any>(null);
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
-  const [stmtDate, setStmtDate] = useState(new Date().toISOString().slice(0, 10));
+  const [stmtDate, setStmtDate] = useState(localToday());
   const [stmtBal, setStmtBal] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState(""); const [msg, setMsg] = useState("");
 
@@ -75,10 +75,10 @@ export function ReconcileConsole() {
       {accountId && view && (
         <>
           <div className="grid grid-cols-4 gap-2 mb-4">
-            <div className="rounded-xl border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Beginning (cleared)</div><div className="text-[15px] font-semibold text-stone-100 tabular-nums">{money(beginning)}</div></div>
-            <div className="rounded-xl border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Statement ending</div><input type="number" value={stmtBal} onChange={e => setStmtBal(e.target.value)} placeholder="0.00" className="bg-transparent text-[15px] font-semibold text-stone-100 tabular-nums w-full focus:outline-none" /></div>
-            <div className="rounded-xl border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Cleared balance</div><div className="text-[15px] font-semibold text-stone-100 tabular-nums">{money(clearedBalance)}</div></div>
-            <div className={`rounded-xl border p-3 ${balanced ? "border-emerald-800/50 bg-emerald-500/5" : "border-amber-800/50 bg-amber-500/5"}`}><div className="text-[10px] uppercase tracking-wide text-stone-500">Difference</div><div className={`text-[15px] font-semibold tabular-nums ${balanced ? "text-emerald-400" : "text-amber-400"}`}>{money(difference)}</div></div>
+            <div className="rounded-lg border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Beginning (cleared)</div><div className="text-[15px] font-semibold text-stone-100 tabular-nums">{money(beginning)}</div></div>
+            <div className="rounded-lg border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Statement ending</div><input type="number" value={stmtBal} onChange={e => setStmtBal(e.target.value)} placeholder="0.00" className="bg-transparent text-[15px] font-semibold text-stone-100 tabular-nums w-full focus:outline-none" /></div>
+            <div className="rounded-lg border border-stone-800 bg-stone-900 p-3"><div className="text-[10px] uppercase tracking-wide text-stone-500">Cleared balance</div><div className="text-[15px] font-semibold text-stone-100 tabular-nums">{money(clearedBalance)}</div></div>
+            <div className={`rounded-lg border p-3 ${balanced ? "border-emerald-800/50 bg-emerald-500/5" : "border-amber-800/50 bg-amber-500/5"}`}><div className="text-[10px] uppercase tracking-wide text-stone-500">Difference</div><div className={`text-[15px] font-semibold tabular-nums ${balanced ? "text-emerald-400" : "text-amber-400"}`}>{money(difference)}</div></div>
           </div>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-[12px] text-stone-400">Statement date <input type="date" value={stmtDate} onChange={e => setStmtDate(e.target.value)} className={controlCompact} /></div>
@@ -89,9 +89,9 @@ export function ReconcileConsole() {
           {err && <p className="text-[12px] text-rose-400 mb-2">{err}</p>}
           {msg && <p className="text-[12px] text-emerald-400 mb-2">{msg}</p>}
 
-          <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
+          <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
             <table className="w-full text-[13px] min-w-[560px]">
-              <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <thead><tr className={tableHead}>
                 <th className="w-10 text-center px-2 py-2.5">Clr</th><th className="text-left px-4 py-2.5">Date</th><th className="text-left px-4 py-2.5">Doc</th><th className="text-left px-4 py-2.5">Description</th><th className="text-right px-4 py-2.5">Amount</th>
               </tr></thead>
               <tbody>
@@ -112,7 +112,7 @@ export function ReconcileConsole() {
           {view.history?.length > 0 && (
             <div className="mt-6">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Past reconciliations</div>
-              <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800/60">
+              <div className="rounded-lg bg-stone-900 border border-stone-800 divide-y divide-stone-800/60">
                 {view.history.map((h: any) => (
                   <div key={h.id} className="flex items-center justify-between px-4 py-2 text-[12.5px]">
                     <span className="text-stone-300">{h.statementDate} · statement {money(h.statementBalance)}</span>

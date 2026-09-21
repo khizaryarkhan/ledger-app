@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField } from "@/components/location-picker";
 import { Plus, RefreshCw, Truck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
 
 const money = fmt.num2;
@@ -70,7 +70,7 @@ export function ShippingConsole() {
       {showNew && <ShipDrawer customers={customers} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}
       {invoicing && <InvoiceDrawer shipments={selected} onClose={() => setInvoicing(false)} onDone={() => { setInvoicing(false); setSel({}); load(); }} />}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[760px]">
             <thead>
@@ -116,7 +116,7 @@ const newKey = () => `s${keySeq++}`;
 
 function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; items: any[]; onClose: () => void; onDone: () => void }) {
   const [customerId, setCustomerId] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [currency, setCurrency] = useState("");
   const [rate, setRate] = useState("1");
   const [openSos, setOpenSos] = useState<any[]>([]);
@@ -246,7 +246,7 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
 }
 
 function InvoiceDrawer({ shipments, onClose, onDone }: { shipments: any[]; onClose: () => void; onDone: () => void }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [dueDate, setDueDate] = useState("");
   const [reference, setReference] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");

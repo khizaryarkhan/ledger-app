@@ -37,7 +37,7 @@ function Kpi({ icon: Icon, label, value, sub, tone = "stone" }: { icon: any; lab
     amber: "bg-amber-500/15 text-amber-400",
   };
   return (
-    <div className="rounded-xl bg-stone-900 border border-stone-800 p-4">
+    <div className="rounded-lg bg-stone-900 border border-stone-800 p-4">
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${toneCls[tone]}`}><Icon size={14} /></div>
         <div className="text-[11.5px] uppercase tracking-wide text-stone-500">{label}</div>
@@ -120,7 +120,7 @@ export function ExecutiveOverview() {
               sub="Cash + Receivable + Inventory − Payable" tone={data.workingCapital >= 0 ? "emerald" : "rose"} />
           </div>
 
-          <div className="mt-6 rounded-xl bg-stone-900 border border-stone-800 p-5">
+          <div className="mt-6 rounded-lg bg-stone-900 border border-stone-800 p-5">
             <h2 className="text-[13px] font-semibold text-stone-200 mb-3">Profitability</h2>
             <MarginRow label="Revenue" mtd={data.revenue.mtd} ytd={data.revenue.ytd} money={money} />
             <MarginRow label={`Gross profit  ${marginPct(data.grossProfit.ytd, data.revenue.ytd) ?? ""}`} mtd={data.grossProfit.mtd} ytd={data.grossProfit.ytd} money={money} />

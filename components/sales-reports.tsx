@@ -7,6 +7,7 @@ import Link from "next/link";
 import { RefreshCw, ShoppingCart, Truck, FileText, ArrowLeft } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -22,9 +23,9 @@ export function OpenSosReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Open Sales Orders" sub="Confirmed but not fully shipped — the value still committed to customers." icon={ShoppingCart} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className="w-full text-[13px] min-w-[640px]">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+          <thead><tr className={tableHead}>
             <th className="text-left px-4 py-2.5">SO #</th><th className="text-left px-4 py-2.5">Customer</th><th className="text-left px-4 py-2.5">Date</th><th className="text-left px-4 py-2.5">Status</th><th className="text-right px-4 py-2.5">Remaining value</th>
           </tr></thead>
           <tbody>
@@ -52,9 +53,9 @@ export function AwaitingInvoicingReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Awaiting Invoicing" sub="Goods shipped to customers but not yet invoiced — revenue still to be billed." icon={Truck} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className="w-full text-[13px] min-w-[620px]">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+          <thead><tr className={tableHead}>
             <th className="text-left px-4 py-2.5">Shipment #</th><th className="text-left px-4 py-2.5">Customer</th><th className="text-left px-4 py-2.5">Date</th><th className="text-right px-4 py-2.5">Sale value</th><th className="text-right px-4 py-2.5">Invoiced</th><th className="text-right px-4 py-2.5">Awaiting invoice</th>
           </tr></thead>
           <tbody>
@@ -83,9 +84,9 @@ export function OpenInvoicesReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Open Invoices" sub="Posted customer invoices with an unpaid Accounts Receivable balance." icon={FileText} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
         <table className="w-full text-[13px] min-w-[640px]">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+          <thead><tr className={tableHead}>
             <th className="text-left px-4 py-2.5">Invoice #</th><th className="text-left px-4 py-2.5">Customer</th><th className="text-left px-4 py-2.5">Due</th><th className="text-right px-4 py-2.5">Total</th><th className="text-right px-4 py-2.5">Open</th>
           </tr></thead>
           <tbody>

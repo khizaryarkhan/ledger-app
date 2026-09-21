@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, X, Loader, Check, Trash2, AlertTriangle, CircleDot } from "lucide-react";
 import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { localToday, ymd } from "@/lib/format";
 
 const qtyFmt = (n: any) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
@@ -39,7 +40,7 @@ export function MoConsole() {
   useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowNew(true); }, []);
 
   const list = rows ?? [];
-  const weekAhead = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); }, []);
+  const weekAhead = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return ymd(d); }, []);
   const kpis = useMemo(() => {
     const open = list.filter(m => !["Completed", "Cancelled"].includes(m.status));
     const soon = open.filter(m => m.scheduledDate && m.scheduledDate <= weekAhead);
@@ -65,7 +66,7 @@ export function MoConsole() {
 
       <div className="grid grid-cols-4 gap-2 mb-5">
         {[["Open MOs", kpis.open, "text-stone-100"], ["Scheduled ≤7 days", kpis.soon, "text-sky-400"], ["In progress", kpis.wip, "text-amber-400"], ["Completed this month", kpis.done, "text-emerald-400"]].map(([l, v, c]) => (
-          <div key={l as string} className="rounded-xl border border-stone-800 bg-stone-900 p-3">
+          <div key={l as string} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
             <div className="text-[10px] uppercase tracking-wide text-stone-500">{l}</div>
             <div className={`text-[18px] font-semibold ${c}`}>{v as number}</div>
           </div>
@@ -76,7 +77,7 @@ export function MoConsole() {
       {openId && <MoDrawer id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
 
       {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No manufacturing orders yet — plan one with New MO.</div>
+        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No manufacturing orders yet — plan one with New MO.</div>
       ) : (
         <div className="grid grid-cols-5 gap-3">
           {COLUMNS.map(col => {
@@ -110,7 +111,7 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
   const [bomId, setBomId] = useState("");
   const [bom, setBom] = useState<any>(null);          // { outputItem, outputs:[{skuId, item, qty(unitContent)}] }
   const [packQty, setPackQty] = useState<Record<string, string>>({});  // skuId -> qty
-  const [meta, setMeta] = useState<Record<string, string>>({ scheduledDate: new Date().toISOString().slice(0, 10), dueDate: "", priority: "Normal", notes: "", status: "Scheduled", salesOrderId: "" });
+  const [meta, setMeta] = useState<Record<string, string>>({ scheduledDate: localToday(), dueDate: "", priority: "Normal", notes: "", status: "Scheduled", salesOrderId: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const setM = (k: string, v: string) => setMeta(p => ({ ...p, [k]: v }));
 

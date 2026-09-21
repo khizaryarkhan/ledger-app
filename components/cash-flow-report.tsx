@@ -6,13 +6,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, TrendingUp, ArrowLeft } from "lucide-react";
 import { controlCompact } from "@/components/form-kit";
+import { localToday } from "@/lib/format";
 
 const money = (n: number) => { const v = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return n < 0 ? `(${v})` : v; };
 
 export function CashFlowReport() {
   const y = new Date().getFullYear();
   const [from, setFrom] = useState(`${y}-01-01`);
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(localToday());
   const [d, setD] = useState<any>(null);
   async function load() { setD(await fetch(`/api/accounting/cash-flow?from=${from}&to=${to}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { load(); }, [from, to]);
@@ -36,7 +37,7 @@ export function CashFlowReport() {
       <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} /> to <input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} /></div>
 
       {d === null ? <p className="text-[13px] text-stone-500">Loading…</p> : (
-        <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+        <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
           <table className="w-full text-[13px]">
             <tbody>
               <tr className="border-b border-stone-800"><td className="px-4 py-2 font-medium text-stone-200">Net income</td><td className="px-4 py-2 text-right tabular-nums text-stone-100">{money(d.netIncome)}</td></tr>

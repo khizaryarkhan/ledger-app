@@ -161,7 +161,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-stone-900 border border-stone-800 rounded-lg shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-white">

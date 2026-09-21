@@ -28,7 +28,7 @@ export function AssignedResourcesPanel({ assignableType, assignableId }: { assig
   if (!enabled) return null;
 
   return (
-    <div className="rounded-xl border border-stone-800 bg-stone-900 p-4 mb-6">
+    <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 mb-6">
       <div className="flex items-center gap-2 mb-3">
         <CalendarClock size={14} className="text-pink-400" />
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">Assigned resources</h3>

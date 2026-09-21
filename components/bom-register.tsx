@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, GitMerge, ArrowRight } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, tableHead, th } from "@/components/form-kit";
 
 const inputCls = controlInset;
 
@@ -69,11 +69,11 @@ export function BomRegister() {
 
       {showNew && <NewBomDrawer items={items} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[820px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="w-8" />
                 <th className="text-left px-4 py-2.5">BOM ID</th>
                 <th className="text-left px-4 py-2.5">Output item</th>

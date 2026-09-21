@@ -178,6 +178,16 @@ export const cell =
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
   "hover:bg-stone-900/70 hover:border-stone-700/70 focus:bg-stone-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 export const cellSelectCls = cell + " appearance-none pr-6 cursor-pointer";
+/**
+ * The header ROW of a table. Six variants of this existed across 31 tables —
+ * 10px vs 11px, tracking-wider vs 0.07em, one with no divider at all — because
+ * the type styling sits on the <tr> (a sound DRY choice: one declaration per
+ * row rather than per cell) and nothing ever named it. The <th> cells below
+ * carry only alignment and padding, which is why fixing this is 31 rows rather
+ * than the 194 cells a first count suggested.
+ */
+export const tableHead = t.micro + " border-b border-stone-800";
+
 /** Table header cell. Same values as `t.micro`, plus cell padding. */
 export const th = "text-left " + t.micro + " px-2.5 py-2.5";
 
@@ -254,7 +264,7 @@ export function Section({
 /** A quiet card surface to sit a section on (raises it off the panel). */
 export function Panel({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={`rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 ${className}`}>
+    <div className={`rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 ${className}`}>
       {children}
     </div>
   );

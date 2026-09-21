@@ -18,14 +18,14 @@ import { useSearchParams } from "next/navigation";
 import { Search, GitBranch, Truck, ShieldCheck, ShieldAlert, FileDown } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, tableHead } from "@/components/form-kit";
 
 const qty = fmt.qty;
 const money = fmt.num2;
 
 function SectionCard({ n, title, empty, children }: { n: number; title: string; empty?: string; children?: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+    <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-stone-800 flex items-center gap-2">
         <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{n}</span>
         <span className="text-[12.5px] font-semibold text-stone-200">{title}</span>
@@ -85,7 +85,7 @@ export function LotTraceabilityReport() {
       </div>
 
       {results.length > 0 && !selectedId && (
-        <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800 mb-4">
+        <div className="rounded-lg bg-stone-900 border border-stone-800 divide-y divide-stone-800 mb-4">
           {results.map(r => (
             <button key={r.id} onClick={() => setSelectedId(r.id)} className="w-full text-left px-4 py-2.5 text-[13px] hover:bg-stone-800/60 flex items-center justify-between">
               <span className="text-stone-200">{r.itemName} <span className="font-mono text-stone-400">{r.lotNo}</span></span>
@@ -100,11 +100,11 @@ export function LotTraceabilityReport() {
 
       {selectedId && (
         <div className="space-y-4">
-          {loading && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Loading…</p></div>}
-          {!loading && !data && <div className="rounded-xl bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Lot not found.</p></div>}
+          {loading && <div className="rounded-lg bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Loading…</p></div>}
+          {!loading && !data && <div className="rounded-lg bg-stone-900 border border-stone-800 p-5"><p className="text-stone-500 text-[13px]">Lot not found.</p></div>}
           {!loading && data && (
             <>
-              <div className="rounded-xl bg-stone-900 border border-stone-800 p-5">
+              <div className="rounded-lg bg-stone-900 border border-stone-800 p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-stone-500">Batch Traceability &amp; Cost Reconciliation</div>
@@ -135,7 +135,7 @@ export function LotTraceabilityReport() {
 
               <SectionCard n={1} title="Raw Material Procurement & Consumption" empty={data.rawMaterials.length === 0 ? "No purchased raw materials in this lot's ancestry — it may have been produced entirely from other manufactured/job-worked stock." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
-                  <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                  <thead><tr className={tableHead}>
                     <Th>Item</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Rate</Th><Th r>Amount</Th><Th>Source / Reference</Th>
                   </tr></thead>
                   <tbody>
@@ -167,7 +167,7 @@ export function LotTraceabilityReport() {
 
               <SectionCard n={2} title="Subcontract Processing (Job Work)" empty={data.processing.length === 0 ? "No job-work processing steps in this lot's ancestry — it may have been produced entirely in-house." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
-                  <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                  <thead><tr className={tableHead}>
                     <Th>Order ID</Th><Th>Activity / Process</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Rate</Th><Th r>Amount</Th><Th>Provider</Th><Th>Date</Th>
                   </tr></thead>
                   <tbody>
@@ -204,7 +204,7 @@ export function LotTraceabilityReport() {
 
               <SectionCard n={3} title="Cost Rollup Summary">
                 <table className="w-full text-[13px] min-w-[560px]">
-                  <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                  <thead><tr className={tableHead}>
                     <Th>Cost Element</Th><Th>Detail</Th><Th r>Amount</Th><Th r>Share</Th>
                   </tr></thead>
                   <tbody>
@@ -225,7 +225,7 @@ export function LotTraceabilityReport() {
 
               <SectionCard n={4} title="Outbound Commercial Distribution" empty={data.distribution.length === 0 ? "Not yet shipped/sold — still on hand or consumed internally only." : undefined}>
                 <table className="w-full text-[13px] min-w-[760px]">
-                  <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                  <thead><tr className={tableHead}>
                     <Th>Shipment</Th><Th>Invoice</Th><Th>Sold-To Customer</Th><Th r>Qty</Th><Th>UoM</Th><Th r>Unit Price</Th><Th r>Amount</Th><Th>Date</Th>
                   </tr></thead>
                   <tbody>
@@ -254,8 +254,8 @@ export function LotTraceabilityReport() {
 
               <div className="flex gap-8 px-1 pt-2 pb-4 text-[12px] text-stone-500">
                 <div><span className="block text-stone-600 mb-3">Prepared by</span><span className="text-stone-200 font-medium">{data.operator ?? "—"}</span></div>
-                <div><span className="block text-stone-600 mb-3">Reviewed by</span><span className="text-stone-700">—</span></div>
-                <div><span className="block text-stone-600 mb-3">Approved by</span><span className="text-stone-700">—</span></div>
+                <div><span className="block text-stone-600 mb-3">Reviewed by</span><span className="text-stone-400">—</span></div>
+                <div><span className="block text-stone-600 mb-3">Approved by</span><span className="text-stone-400">—</span></div>
               </div>
             </>
           )}

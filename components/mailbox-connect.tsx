@@ -62,7 +62,7 @@ export function MailboxConnect() {
     setToast({ ok: true, msg: "Disconnected" }); load();
   };
 
-  if (loading) return <div className="h-72 rounded-xl bg-stone-900/50 border border-stone-800 animate-pulse" />;
+  if (loading) return <div className="h-72 rounded-lg bg-stone-900/50 border border-stone-800 animate-pulse" />;
 
   return (
     <div className="max-w-lg">
@@ -79,7 +79,7 @@ export function MailboxConnect() {
       )}
       {account?.needsSetup && <div className="mb-4 rounded-lg ring-1 ring-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-300">The <span className="font-mono">admin_email_accounts</span> table isn't set up yet — your developer needs to create it in Neon first.</div>}
 
-      <div className="rounded-xl border border-stone-800 bg-stone-900/40 p-5 space-y-3">
+      <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-5 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div><label className={lbl}>Email address</label><input className={inp} value={f.emailAddress} onChange={e => set("emailAddress", e.target.value)} placeholder="you@primeaccountax.com" /></div>
           <div><label className={lbl}>Display name</label><input className={inp} value={f.fromName} onChange={e => set("fromName", e.target.value)} placeholder="Your Name" /></div>

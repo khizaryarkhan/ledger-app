@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Modal, Button, Input, Select } from "./ui";
 import { useData } from "./data-provider";
-import { today, daysFromNow } from "@/lib/format";
+import { daysFromNow, today, ymd } from "@/lib/format";
 
 // =====================
 // CREATE / EDIT CUSTOMER
@@ -59,28 +59,28 @@ export function CustomerModal({ customer, onClose }: { customer?: any; onClose: 
         <div>
           <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Basic info</div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Display name *</label><Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Atlas Logistics Ltd" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Company name</label><Input value={form.companyName} onChange={(e: any) => set("companyName", e.target.value)} placeholder="Atlas Logistics Limited" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Customer code *</label><Input value={form.code} onChange={(e: any) => set("code", e.target.value)} placeholder="ATL001" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Tax / VAT number</label><Input value={form.taxNumber} onChange={(e: any) => set("taxNumber", e.target.value)} placeholder="IE1234567T" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Display name *</label><Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Atlas Logistics Ltd" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Company name</label><Input value={form.companyName} onChange={(e: any) => set("companyName", e.target.value)} placeholder="Atlas Logistics Limited" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Customer code *</label><Input value={form.code} onChange={(e: any) => set("code", e.target.value)} placeholder="ATL001" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Tax / VAT number</label><Input value={form.taxNumber} onChange={(e: any) => set("taxNumber", e.target.value)} placeholder="IE1234567T" /></div>
           </div>
         </div>
 
         <div>
           <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Contact</div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Email</label><Input type="email" value={form.email} onChange={(e: any) => set("email", e.target.value)} placeholder="accounts@customer.com" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => set("phone", e.target.value)} placeholder="+353 1 555 0100" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Email</label><Input type="email" value={form.email} onChange={(e: any) => set("email", e.target.value)} placeholder="accounts@customer.com" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => set("phone", e.target.value)} placeholder="+353 1 555 0100" /></div>
           </div>
         </div>
 
         <div>
           <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Address</div>
           <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-3"><label className="text-[12px] font-medium text-stone-700 block mb-1">Street</label><Input value={form.addressStreet} onChange={(e: any) => set("addressStreet", e.target.value)} placeholder="123 Main Street" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">City</label><Input value={form.addressCity} onChange={(e: any) => set("addressCity", e.target.value)} placeholder="Dublin" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Postcode</label><Input value={form.addressPostcode} onChange={(e: any) => set("addressPostcode", e.target.value)} placeholder="D01 AB12" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Country</label>
+            <div className="col-span-3"><label className="text-[12px] font-medium text-stone-400 block mb-1">Street</label><Input value={form.addressStreet} onChange={(e: any) => set("addressStreet", e.target.value)} placeholder="123 Main Street" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">City</label><Input value={form.addressCity} onChange={(e: any) => set("addressCity", e.target.value)} placeholder="Dublin" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Postcode</label><Input value={form.addressPostcode} onChange={(e: any) => set("addressPostcode", e.target.value)} placeholder="D01 AB12" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Country</label>
               <Select value={form.countryId} onChange={(e: any) => set("countryId", e.target.value)} className="w-full"
                 placeholder={(countries ?? []).length ? "Select a country…" : "Add countries in Settings → Team"}
                 options={(countries ?? []).map((c: any) => ({ value: c.id, label: c.name }))} />
@@ -91,26 +91,26 @@ export function CustomerModal({ customer, onClose }: { customer?: any; onClose: 
         <div>
           <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Financial settings</div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Currency</label>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Currency</label>
               <Select value={form.currency} onChange={(e: any) => set("currency", e.target.value)} className="w-full" options={["EUR", "GBP", "USD", "CHF", "SEK", "NOK"]} />
             </div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Payment terms (days)</label><Input type="number" value={form.paymentTerms} onChange={(e: any) => set("paymentTerms", parseInt(e.target.value))} /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Credit limit</label><Input type="number" value={form.creditLimit} onChange={(e: any) => set("creditLimit", e.target.value)} placeholder="250000" /></div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Payment method</label>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Payment terms (days)</label><Input type="number" value={form.paymentTerms} onChange={(e: any) => set("paymentTerms", parseInt(e.target.value))} /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Credit limit</label><Input type="number" value={form.creditLimit} onChange={(e: any) => set("creditLimit", e.target.value)} placeholder="250000" /></div>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Payment method</label>
               <Select value={form.paymentMethod} onChange={(e: any) => set("paymentMethod", e.target.value)} className="w-full" placeholder="Select method"
                 options={["Bank Transfer", "Credit Card", "Direct Debit", "Cheque", "Other"]} />
             </div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Risk rating</label>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Risk rating</label>
               <Select value={form.riskRating} onChange={(e: any) => set("riskRating", e.target.value)} className="w-full" options={["Low", "Medium", "High"]} />
             </div>
-            <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Status</label>
+            <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Status</label>
               <Select value={form.status} onChange={(e: any) => set("status", e.target.value)} className="w-full" options={["Active", "On Hold", "Inactive"]} />
             </div>
           </div>
         </div>
 
         <div>
-          <label className="text-[12px] font-medium text-stone-700 block mb-1">Notes</label>
+          <label className="text-[12px] font-medium text-stone-400 block mb-1">Notes</label>
           <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2}
             className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" placeholder="Any notes about this customer..." />
         </div>
@@ -155,20 +155,20 @@ export function ProjectModal({ project, preCustomerId, onClose }: { project?: an
       </>}>
       <div className="p-5 space-y-4">
         {error && <div className="text-[13px] text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-md p-3">{error}</div>}
-        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Customer *</label>
+        <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Customer *</label>
           <Select value={form.customerId} onChange={(e: any) => set("customerId", e.target.value)} className="w-full" placeholder="Select customer"
             options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Project name *</label><Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Cloud Migration Phase II" /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Project code *</label><Input value={form.code} onChange={(e: any) => set("code", e.target.value)} placeholder="HTG-CM2" /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Project name *</label><Input value={form.name} onChange={(e: any) => set("name", e.target.value)} placeholder="Cloud Migration Phase II" /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Project code *</label><Input value={form.code} onChange={(e: any) => set("code", e.target.value)} placeholder="HTG-CM2" /></div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Start date</label><Input type="date" value={form.startDate} onChange={(e: any) => set("startDate", e.target.value)} /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">End date</label><Input type="date" value={form.endDate} onChange={(e: any) => set("endDate", e.target.value)} /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Projected end</label><Input type="date" value={form.projectedEndDate} onChange={(e: any) => set("projectedEndDate", e.target.value)} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Start date</label><Input type="date" value={form.startDate} onChange={(e: any) => set("startDate", e.target.value)} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">End date</label><Input type="date" value={form.endDate} onChange={(e: any) => set("endDate", e.target.value)} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Projected end</label><Input type="date" value={form.projectedEndDate} onChange={(e: any) => set("projectedEndDate", e.target.value)} /></div>
         </div>
-        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Status</label>
+        <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Status</label>
           <Select value={form.status} onChange={(e: any) => set("status", e.target.value)} className="w-full"
             options={["Pending", "Active", "In Progress", "Completed", "On Hold", "Cancelled"]} />
         </div>
@@ -221,7 +221,7 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
     if (cust) {
       const due = new Date(form.invoiceDate);
       due.setDate(due.getDate() + (cust.paymentTerms || 30));
-      set("dueDate", due.toISOString().slice(0, 10));
+      set("dueDate", ymd(due));
       set("currency", cust.currency || "EUR");
     }
     set("customerId", custId);
@@ -261,17 +261,17 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
           <div>
             <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Invoice details</div>
             <div className="space-y-3">
-              <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Customer *</label>
+              <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Customer *</label>
                 <Select value={form.customerId} onChange={(e: any) => handleCustomerChange(e.target.value)} className="w-full" placeholder="Select customer"
                   options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
               </div>
-              <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Project</label>
+              <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Project</label>
                 <Select value={form.projectId} onChange={(e: any) => set("projectId", e.target.value)} className="w-full" placeholder="Select project (optional)"
                   options={filteredProjects.map((p: any) => ({ value: p.id, label: p.name }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Invoice number *</label><Input value={form.invoiceNumber} onChange={(e: any) => set("invoiceNumber", e.target.value)} placeholder="INV-2025-0001" /></div>
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">PO number</label><Input value={form.poNumber} onChange={(e: any) => set("poNumber", e.target.value)} placeholder="PO-12345" /></div>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Invoice number *</label><Input value={form.invoiceNumber} onChange={(e: any) => set("invoiceNumber", e.target.value)} placeholder="INV-2025-0001" /></div>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">PO number</label><Input value={form.poNumber} onChange={(e: any) => set("poNumber", e.target.value)} placeholder="PO-12345" /></div>
               </div>
             </div>
           </div>
@@ -280,16 +280,16 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
             <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Dates & payment</div>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Invoice date</label><Input type="date" value={form.invoiceDate} onChange={(e: any) => set("invoiceDate", e.target.value)} /></div>
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => set("dueDate", e.target.value)} /></div>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Invoice date</label><Input type="date" value={form.invoiceDate} onChange={(e: any) => set("invoiceDate", e.target.value)} /></div>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => set("dueDate", e.target.value)} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Currency</label>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Currency</label>
                   <Select value={form.currency} onChange={(e: any) => set("currency", e.target.value)} className="w-full" options={["EUR", "GBP", "USD", "CHF"]} />
                 </div>
-                <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Tax rate (%)</label><Input type="number" value={form.taxRate} onChange={(e: any) => set("taxRate", parseFloat(e.target.value))} /></div>
+                <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Tax rate (%)</label><Input type="number" value={form.taxRate} onChange={(e: any) => set("taxRate", parseFloat(e.target.value))} /></div>
               </div>
-              <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Notes</label>
+              <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Notes</label>
                 <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2}
                   className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" />
               </div>
@@ -300,14 +300,14 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
         <div>
           <div className="text-[12px] font-semibold text-stone-500 uppercase tracking-wider mb-3">Line items</div>
           <div className="ring-1 ring-stone-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-12 gap-0 bg-stone-50 px-3 py-2 text-[11px] font-semibold text-stone-500 uppercase tracking-wider border-b border-stone-200">
+            <div className="grid grid-cols-12 gap-0 bg-stone-50 px-3 py-2 text-[11px] font-semibold text-stone-500 uppercase tracking-wider border-b border-stone-800">
               <div className="col-span-6">Description</div>
               <div className="col-span-2 text-right">Qty</div>
               <div className="col-span-2 text-right">Unit price</div>
               <div className="col-span-2 text-right">Amount</div>
             </div>
             {lines.map((line, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-stone-100 last:border-0 items-center">
+              <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-stone-800 last:border-0 items-center">
                 <div className="col-span-6">
                   <input value={line.description} onChange={(e) => updateLine(i, "description", e.target.value)}
                     className="w-full text-[13px] focus:outline-none placeholder-stone-400" placeholder="Service description..." />
@@ -329,7 +329,7 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
               </div>
             ))}
             <div className="px-3 py-2 bg-stone-50/50">
-              <button onClick={() => setLines(prev => [...prev, { ...EMPTY_LINE }])} className="text-[12px] text-stone-500 hover:text-stone-900 font-medium">+ Add line</button>
+              <button onClick={() => setLines(prev => [...prev, { ...EMPTY_LINE }])} className="text-[12px] text-stone-500 hover:text-stone-100 font-medium">+ Add line</button>
             </div>
           </div>
 
@@ -337,7 +337,7 @@ export function InvoiceModal({ onClose }: { onClose: () => void }) {
             <div className="w-64 space-y-1.5 text-[13px]">
               <div className="flex justify-between text-stone-600"><span>Subtotal</span><span className="tabular-nums">{subtotal.toLocaleString("en-IE", { minimumFractionDigits: 2 })}</span></div>
               <div className="flex justify-between text-stone-600"><span>Tax ({form.taxRate}%)</span><span className="tabular-nums">{taxAmount.toLocaleString("en-IE", { minimumFractionDigits: 2 })}</span></div>
-              <div className="flex justify-between font-semibold text-stone-900 pt-1.5 border-t border-stone-200"><span>Total ({form.currency})</span><span className="tabular-nums">{total.toLocaleString("en-IE", { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between font-semibold text-stone-100 pt-1.5 border-t border-stone-800"><span>Total ({form.currency})</span><span className="tabular-nums">{total.toLocaleString("en-IE", { minimumFractionDigits: 2 })}</span></div>
             </div>
           </div>
         </div>
@@ -407,9 +407,9 @@ export function AddContactModal({ customerId, onClose }: { customerId: string; o
             { key: "isEscalation", label: "Escalation contact — CC'd on overdue notices" },
             { key: "receivesAuto", label: "Receives automated reminders" },
           ].map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-2 text-[13px] text-stone-700 cursor-pointer">
+            <label key={key} className="flex items-center gap-2 text-[13px] text-stone-400 cursor-pointer">
               <input type="checkbox" checked={(form as any)[key]} onChange={e => set(key, e.target.checked)}
-                className="rounded border-stone-300" />
+                className="rounded border-stone-700" />
               {label}
             </label>
           ))}

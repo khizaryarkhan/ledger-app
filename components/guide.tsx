@@ -42,7 +42,7 @@ export type GuideContent = { title: string; subtitle: string; sections: GuideSec
 // whoever captures the screenshot exactly which screen/URL to grab.
 function Figure({ title, caption, where, image }: { title: string; caption?: string; where?: string; image?: string }) {
   return (
-    <figure className="my-4 rounded-xl border border-stone-800 bg-stone-900/40 overflow-hidden">
+    <figure className="my-4 rounded-lg border border-stone-800 bg-stone-900/40 overflow-hidden">
       {image ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={image} alt={title} className="w-full block" />

@@ -22,7 +22,7 @@ export function ConfigMenu() {
         <Settings size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 bg-stone-900 border border-stone-700 rounded-xl shadow-2xl shadow-black/50 py-1 min-w-[180px]">
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 py-1 min-w-[180px]">
           <Link href="/settings" onClick={() => setOpen(false)}
             className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-stone-200 hover:bg-stone-800 hover:text-white transition-colors">
             <Settings size={14} className="text-stone-500" /> Settings

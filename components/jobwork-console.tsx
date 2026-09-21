@@ -16,11 +16,11 @@
 
 import { useEffect, useState } from "react";
 import { Plus, RefreshCw, Shirt, X, Loader, Check, Trash2, PackageCheck, RotateCcw, AlertTriangle } from "lucide-react";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
-import { controlInset, fieldLabel } from "@/components/form-kit";
+import { controlInset, fieldLabel, tableHead } from "@/components/form-kit";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -102,11 +102,11 @@ export function JobWorkConsole() {
       {receiving && <ReceiveDrawer order={receiving} items={items} onClose={() => setReceiving(null)} onDone={() => { setReceiving(null); load(); }} />}
       {closing && <CloseModal order={closing} onClose={() => setClosing(null)} onDone={() => { setClosing(null); load(); }} />}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[760px]">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="px-4 py-2.5">Order</th>
                 <th className="px-4 py-2.5">Vendor</th>
                 <th className="px-4 py-2.5">Sent</th>
@@ -148,7 +148,7 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
   const [vendorId, setVendorId] = useState("");
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [expectedYieldPct, setExpectedYieldPct] = useState("");
   const [salesOrderId, setSalesOrderId] = useState("");
   const [expectedReturnDate, setExpectedReturnDate] = useState("");
@@ -267,7 +267,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
   const [qty, setQty] = useState("");
   const [materialQty, setMaterialQty] = useState("");
   const [fee, setFee] = useState("0");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -392,7 +392,7 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-stone-950 border border-stone-800 rounded-xl shadow-2xl">
+      <div className="relative w-full max-w-md bg-stone-950 border border-stone-800 rounded-lg shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
           <h2 className="text-[13px] font-semibold text-stone-100">Close {order.docNumber}</h2>
           <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>

@@ -61,7 +61,7 @@ function ThresholdSettings() {
         since material leaves custody with no offsetting document. For the others, only postings above the amount are gated.
         Admin only.
       </p>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 divide-y divide-stone-800">
         {rows === null && <div className="px-4 py-6 text-center text-stone-500 text-[13px]">Loading…</div>}
         {(rows ?? []).map(row => (
           <div key={row.entityType} className="px-4 py-3">
@@ -136,7 +136,7 @@ export function ApprovalsConsole() {
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Nothing here has posted yet — approving runs it for real; rejecting discards it. You can't approve your own request.</p>
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 divide-y divide-stone-800">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 divide-y divide-stone-800">
         {rows === null && <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>}
         {rows && rows.length === 0 && <div className="px-4 py-8 text-center text-stone-500 text-[13px]">No pending approvals.</div>}
         {(rows ?? []).map(r => (

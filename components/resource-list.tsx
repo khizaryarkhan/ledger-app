@@ -51,9 +51,9 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
       {openId && <ResourceDrawer type={type} employees={employees} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
 
       {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No {label.toLowerCase()} yet — add one.</div>
+        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No {label.toLowerCase()} yet — add one.</div>
       ) : (
-        <div className="rounded-xl border border-stone-800 overflow-hidden">
+        <div className="rounded-lg border border-stone-800 overflow-hidden">
           <table className="w-full text-[13px]">
             <thead><tr className="border-b border-stone-800 bg-stone-950/40">
               <th className={th}>Name</th><th className={th}>Category</th><th className={`${th} text-right`}>Daily capacity</th><th className={th}>Status</th>

@@ -125,7 +125,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
 
       {/* Overlay */}
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4">
-        <div className="w-full max-w-md bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="w-full max-w-md bg-stone-900 border border-stone-700 rounded-lg shadow-2xl overflow-hidden">
 
           {/* Header */}
           <div className="px-6 pt-6 pb-5 text-center border-b border-stone-800">
@@ -157,7 +157,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                 {isAwaiting ? (
                   <button
                     onClick={() => window.location.reload()}
-                    className="w-full flex items-center justify-between p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
+                    className="w-full flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
@@ -173,7 +173,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                 ) : (
                   <button
                     onClick={loadPlans}
-                    className="w-full flex items-center justify-between p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
+                    className="w-full flex items-center justify-between p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/15 hover:border-emerald-500/40 transition-all group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
@@ -191,7 +191,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                 {!access.pendingTempAccess && (
                   <button
                     onClick={() => setView("request")}
-                    className="w-full flex items-center justify-between p-4 rounded-xl border border-stone-700 hover:border-stone-600 hover:bg-stone-800/40 transition-all group"
+                    className="w-full flex items-center justify-between p-4 rounded-lg border border-stone-700 hover:border-stone-600 hover:bg-stone-800/40 transition-all group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-stone-800 flex items-center justify-center">
@@ -236,7 +236,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
                       key={plan.priceId}
                       onClick={() => handleSelectPlan(plan.priceId)}
                       disabled={!!selecting}
-                      className="w-full text-left p-4 rounded-xl border border-stone-700 bg-stone-800/40 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all disabled:opacity-50 group"
+                      className="w-full text-left p-4 rounded-lg border border-stone-700 bg-stone-800/40 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all disabled:opacity-50 group"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">

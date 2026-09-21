@@ -20,7 +20,8 @@ import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 // commit time — never a user-editable field here (see the "Receive to lot"
 // row below and lib/inventory/valuation.ts's resolveLotNo).
 const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kindOf(it?.productType).kind);
-import { Field, Section, SelectField, CellSelect, control, fieldLabel, cell, th as thCls } from "@/components/form-kit";
+import { CellSelect, Field, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
+import { localToday, ymd } from "@/lib/format";
 
 type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
@@ -57,7 +58,7 @@ const TERMS: { key: string; label: string; days: number | null }[] = [
 ];
 function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+  return ymd(d);
 }
 
 const CFG: Record<DocType, Cfg> = {
@@ -117,7 +118,7 @@ function salesOrderOptions(baseUom: string | null, itemSkus: any[]): OrderOption
   return opts;
 }
 const emptyLine = (): Line => ({ itemId: "", accountId: "", description: "", qty: "", rate: "", amount: "", taxRateId: "", classId: "", locationId: "" });
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localToday();
 const num = (s: string) => Number(s) || 0;
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -519,7 +520,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   if (done) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <div className="rounded-2xl bg-stone-900 border border-stone-800 p-8 text-center">
+        <div className="rounded-lg bg-stone-900 border border-stone-800 p-8 text-center">
           <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4"><Check size={24} className="text-emerald-400" /></div>
           <h2 className="text-[18px] font-semibold text-white">{cfg.title} posted</h2>
           <p className="text-[13px] text-stone-400 mt-1">
@@ -578,7 +579,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
             {err && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2 inline-flex items-center gap-2"><AlertTriangle size={13} /> {err}</div>}
 
           {/* Document header — aligned grid, grouped by who / details */}
-          <div className="rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 sm:p-5">
+          <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 sm:p-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-4">
               {cfg.party && (
                 <Field label={cfg.partyLabel} required={partyRequired} className="col-span-2">
@@ -714,7 +715,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                 ) : openDocs.length === 0 ? (
                   <div className="text-[12px] text-stone-500">No outstanding {noun}s — this records as an unapplied {cfg.party === "Vendor" ? "payment" : "credit"} on account.</div>
                 ) : (
-                  <div className="rounded-xl border border-stone-800 overflow-hidden">
+                  <div className="rounded-lg border border-stone-800 overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2 border-b border-stone-800 bg-stone-950/40">
                       <span className="text-[12px] font-semibold text-stone-300">Outstanding transactions</span>
                       <button type="button" onClick={clearPayment} className="text-[11px] text-stone-500 hover:text-stone-300">Clear payment</button>
@@ -722,7 +723,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                     <div className="overflow-x-auto">
                       <table className="w-full text-[13px] min-w-[640px]">
                         <thead>
-                          <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                          <tr className={tableHead}>
                             <th className="px-3 py-2 w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-emerald-600" /></th>
                             <th className="text-left px-3 py-2">Description</th>
                             <th className="text-left px-3 py-2">Due date</th>
@@ -756,7 +757,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
 
                 {/* Credits — draw down the party's unapplied payments / credit notes */}
                 {partyId && credits && credits.length > 0 && (
-                  <div className="rounded-xl border border-stone-800 overflow-hidden">
+                  <div className="rounded-lg border border-stone-800 overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2 border-b border-stone-800 bg-stone-950/40">
                       <span className="text-[12px] font-semibold text-stone-300">Credits</span>
                       <span className="text-[11px] text-stone-500">{money(availableCredit)} {cur} available</span>
@@ -764,7 +765,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                     <div className="overflow-x-auto">
                       <table className="w-full text-[13px] min-w-[640px]">
                         <thead>
-                          <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                          <tr className={tableHead}>
                             <th className="px-3 py-2 w-8"></th>
                             <th className="text-left px-3 py-2">Description</th>
                             <th className="text-left px-3 py-2">Date</th>
@@ -815,7 +816,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                   <Link href="/accounting/items" className="text-emerald-400 hover:underline">Products &amp; Services</Link> — an Item column then appears here.
                 </p>
               )}
-              <div className="rounded-xl border border-stone-800/80 bg-stone-900/40 overflow-hidden">
+              <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-[13px] min-w-[720px]">
                     <thead>
@@ -995,7 +996,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
               <p className="text-[11px] text-stone-500 -mt-1 mb-1">
                 Link this deposit to payments it physically bundles — for traceability only, it doesn&rsquo;t change either posting.
               </p>
-              <div className="rounded-xl border border-stone-800/80 bg-stone-900/40 max-h-48 overflow-y-auto divide-y divide-stone-800/50">
+              <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 max-h-48 overflow-y-auto divide-y divide-stone-800/50">
                 {availablePayments.map(p => {
                   const checked = sweptPaymentIds.includes(p.id);
                   return (
@@ -1019,14 +1020,14 @@ export function NewDocumentForm({ type }: { type: DocType }) {
               <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Internal note (optional)" className={input} />
             </Field>
             {(cfg.mode === "lineItems") && (
-              <div className="w-64 rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 text-[13px] space-y-2">
+              <div className="w-64 rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 text-[13px] space-y-2">
                 <div className="flex justify-between text-stone-400"><span>Subtotal</span><span className="tabular-nums text-stone-200">{money(totals.net)}</span></div>
                 {cfg.tax && <div className="flex justify-between text-stone-400"><span>Tax</span><span className="tabular-nums text-stone-200">{money(totals.tax)}</span></div>}
                 <div className="flex justify-between items-baseline border-t border-stone-800 pt-2 mt-1"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-[18px] font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
               </div>
             )}
             {(cfg.mode === "deposit" || cfg.mode === "payment" || cfg.mode === "transfer") && (
-              <div className="w-56 rounded-xl border border-stone-800/80 bg-stone-900/40 p-4 text-[13px]">
+              <div className="w-56 rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 text-[13px]">
                 <div className="flex justify-between items-baseline"><span className="text-stone-300 font-medium">Total</span><span className="tabular-nums text-[18px] font-semibold text-white">{money(totals.total)} <span className="text-[12px] font-normal text-stone-500">{currency || home}</span></span></div>
               </div>
             )}

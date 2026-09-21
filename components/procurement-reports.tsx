@@ -7,6 +7,7 @@ import Link from "next/link";
 import { RefreshCw, ShoppingCart, PackageCheck, FileText, ArrowLeft } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
+import { tableHead } from "@/components/form-kit";
 
 const money = fmt.num2;
 const qty = fmt.qty;
@@ -23,10 +24,10 @@ export function OpenPosReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Open Purchase Orders" sub="Ordered but not fully received — with the quantity still expected from each supplier." icon={ShoppingCart} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[640px]">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <thead><tr className={tableHead}>
               <th className="text-left px-4 py-2.5">PO #</th><th className="text-left px-4 py-2.5">Supplier</th><th className="text-left px-4 py-2.5">Date</th><th className="text-left px-4 py-2.5">Status</th><th className="text-right px-4 py-2.5">Remaining value</th>
             </tr></thead>
             <tbody>
@@ -55,10 +56,10 @@ export function ExpectedBillsReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Expected Bills" sub="Goods received but not yet billed — the open GR/IR accrual awaiting a supplier bill." icon={PackageCheck} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[620px]">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <thead><tr className={tableHead}>
               <th className="text-left px-4 py-2.5">Receipt #</th><th className="text-left px-4 py-2.5">Supplier</th><th className="text-left px-4 py-2.5">Date</th><th className="text-right px-4 py-2.5">Received</th><th className="text-right px-4 py-2.5">Billed</th><th className="text-right px-4 py-2.5">Awaiting bill</th>
             </tr></thead>
             <tbody>
@@ -88,10 +89,10 @@ export function OpenBillsReport() {
   const rows = data?.rows ?? [];
   return (
     <ReportShell title="Open Bills" sub="Posted supplier bills with an unpaid Accounts Payable balance." icon={FileText} onRefresh={load} loading={loading}>
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[640px]">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+            <thead><tr className={tableHead}>
               <th className="text-left px-4 py-2.5">Bill #</th><th className="text-left px-4 py-2.5">Supplier</th><th className="text-left px-4 py-2.5">Due</th><th className="text-right px-4 py-2.5">Total</th><th className="text-right px-4 py-2.5">Open</th>
             </tr></thead>
             <tbody>

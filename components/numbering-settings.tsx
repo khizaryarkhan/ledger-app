@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
 import { Hash, Check, Loader } from "lucide-react";
 import { formatDocNumber as preview } from "@/lib/accounting/doc-format";
-import { controlCompact } from "@/components/form-kit";
+import { controlCompact, tableHead } from "@/components/form-kit";
 
 // Per-type transaction numbering (QBO model). Each type has its own series:
 // a prefix, a next number, and zero-padding. Numbers are auto-assigned on the
@@ -53,7 +53,7 @@ export function NumberingSettings() {
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[560px]">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+              <tr className={tableHead}>
                 <th className="text-left py-2 pr-3">Type</th>
                 <th className="text-left py-2 px-2">Prefix</th>
                 <th className="text-left py-2 px-2">Next no.</th>

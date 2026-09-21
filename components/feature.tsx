@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
-import { fmt, daysOverdue, today, daysFromNow } from "@/lib/format";
+import { daysFromNow, daysOverdue, fmt, localToday, today } from "@/lib/format";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { useData } from "./data-provider";
@@ -28,7 +28,7 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
           <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Add an internal note..."
             className="w-full text-[13px] resize-none focus:outline-none placeholder-stone-400" rows={2} />
           {noteDraft && (
-            <div className="flex justify-end pt-2 border-t border-stone-100">
+            <div className="flex justify-end pt-2 border-t border-stone-800">
               <Button size="sm" onClick={() => { onAddNote(noteDraft); setNoteDraft(""); }}>Save note</Button>
             </div>
           )}
@@ -58,21 +58,21 @@ export function Timeline({ communications, onAddNote, onReply }: any) {
                   <div className="bg-white ring-1 ring-stone-200 rounded-lg p-4">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <div className="text-[13px] font-medium text-stone-900">
+                        <div className="text-[13px] font-medium text-stone-100">
                           {isNote ? `Note by ${c.sender || "User"}` : isInbound ? `From ${contact?.name || c.sender}` : `To ${contact?.name || c.recipients}`}
                         </div>
                         {!isNote && <div className="text-[11px] text-stone-500 mt-0.5">{isInbound ? c.sender : c.recipients}</div>}
                       </div>
                       <div className="text-[11px] text-stone-500">{fmt.relative(c.sentAt)}</div>
                     </div>
-                    {!isNote && c.subject && <div className="text-[13px] font-semibold text-stone-900 mb-2">{c.subject}</div>}
-                    <div className="text-[13px] text-stone-700 whitespace-pre-wrap leading-relaxed">{c.body}</div>
-                    <div className={`mt-3 pt-3 border-t border-stone-100 flex items-center ${invoice ? "justify-between" : "justify-end"}`}>
+                    {!isNote && c.subject && <div className="text-[13px] font-semibold text-stone-100 mb-2">{c.subject}</div>}
+                    <div className="text-[13px] text-stone-400 whitespace-pre-wrap leading-relaxed">{c.body}</div>
+                    <div className={`mt-3 pt-3 border-t border-stone-800 flex items-center ${invoice ? "justify-between" : "justify-end"}`}>
                       {invoice && (
                         <div className="flex items-center gap-2">
                           <Link2 size={12} className="text-stone-400" />
                           <span className="text-[11px] text-stone-500">Linked to</span>
-                          <span className="text-[11px] font-mono text-stone-700">{invoice.invoiceNumber}</span>
+                          <span className="text-[11px] font-mono text-stone-400">{invoice.invoiceNumber}</span>
                         </div>
                       )}
                       {!isNote && c.channel === "Email" && onReply && (
@@ -460,7 +460,7 @@ export function PaymentModal({ invoice, onClose }: any) {
   const { recordPayment } = useData();
   const out = invoice.total - (invoice.paid || 0);
   const [amount, setAmount] = useState(out);
-  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paidDate, setPaidDate] = useState(localToday());
   const [submitting, setSubmitting] = useState(false);
 
   const handle = async () => {
@@ -482,15 +482,15 @@ export function PaymentModal({ invoice, onClose }: any) {
       <div className="p-5 space-y-3">
         <div className="bg-stone-50 rounded-md p-3 text-[13px]">
           <div className="text-[12px] text-stone-500 mb-1">Outstanding</div>
-          <div className="text-[18px] font-semibold text-stone-900 tabular-nums">{fmt.money(out, invoice.currency)}</div>
+          <div className="text-[18px] font-semibold text-stone-100 tabular-nums">{fmt.money(out, invoice.currency)}</div>
         </div>
         <div>
-          <label className="text-[12px] font-medium text-stone-700 block mb-1">Payment amount ({invoice.currency})</label>
+          <label className="text-[12px] font-medium text-stone-400 block mb-1">Payment amount ({invoice.currency})</label>
           <Input type="number" value={amount} onChange={(e: any) => setAmount(e.target.value)} />
         </div>
         <div>
-          <label className="text-[12px] font-medium text-stone-700 block mb-1">Payment date</label>
-          <input type="date" value={paidDate} max={new Date().toISOString().slice(0, 10)}
+          <label className="text-[12px] font-medium text-stone-400 block mb-1">Payment date</label>
+          <input type="date" value={paidDate} max={localToday()}
             onChange={e => setPaidDate(e.target.value)}
             className="w-full h-9 px-3 text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none" />
         </div>
@@ -523,7 +523,7 @@ export function DisputeModal({ invoice, onClose }: any) {
       </>}>
       <div className="p-5">
         <div className="mb-3 text-[13px] text-stone-600">Marking this invoice as disputed will pause automated reminders.</div>
-        <label className="text-[12px] font-medium text-stone-700 block mb-1">Dispute reason *</label>
+        <label className="text-[12px] font-medium text-stone-400 block mb-1">Dispute reason *</label>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
           className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5"
           placeholder="Describe the dispute..." />
@@ -556,7 +556,7 @@ export function PromiseModal({ invoice, onClose }: any) {
       </>}>
       <div className="p-5">
         <div className="mb-3 text-[13px] text-stone-600">Reminders will pause until this date.</div>
-        <label className="text-[12px] font-medium text-stone-700 block mb-1">Expected payment date</label>
+        <label className="text-[12px] font-medium text-stone-400 block mb-1">Expected payment date</label>
         <Input type="date" value={date} onChange={(e: any) => setDate(e.target.value)} />
       </div>
     </Modal>
@@ -586,14 +586,14 @@ export function TaskModal({ invoiceId, customerId, onClose }: any) {
         <Button onClick={handle} disabled={!form.title || submitting}>Add task</Button>
       </>}>
       <div className="p-5 space-y-3">
-        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Title *</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
-        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Description</label>
+        <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Title *</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
+        <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Description</label>
           <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full text-[13px] rounded-md ring-1 ring-stone-200 focus:ring-2 focus:ring-stone-900 focus:outline-none p-2.5" />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => setForm({ ...form, dueDate: e.target.value })} /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Priority</label><Select value={form.priority} onChange={(e: any) => setForm({ ...form, priority: e.target.value })} options={["Low", "Medium", "High", "Urgent"]} className="w-full" /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Due date</label><Input type="date" value={form.dueDate} onChange={(e: any) => setForm({ ...form, dueDate: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Priority</label><Select value={form.priority} onChange={(e: any) => setForm({ ...form, priority: e.target.value })} options={["Low", "Medium", "High", "Urgent"]} className="w-full" /></div>
         </div>
       </div>
     </Modal>
@@ -624,14 +624,14 @@ export function AddContactModal({ customerId, projectId, onClose }: any) {
       </>}>
       <div className="p-5 space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Name *</label><Input value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} placeholder="Full name" /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Job title</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Name *</label><Input value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} placeholder="Full name" /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Job title</label><Input value={form.title} onChange={(e: any) => setForm({ ...form, title: e.target.value })} /></div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Email *</label><Input type="email" value={form.email} onChange={(e: any) => setForm({ ...form, email: e.target.value })} /></div>
-          <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Email *</label><Input type="email" value={form.email} onChange={(e: any) => setForm({ ...form, email: e.target.value })} /></div>
+          <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Phone</label><Input value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} /></div>
         </div>
-        <div><label className="text-[12px] font-medium text-stone-700 block mb-1">Contact type</label>
+        <div><label className="text-[12px] font-medium text-stone-400 block mb-1">Contact type</label>
           <Select value={form.type} onChange={(e: any) => setForm({ ...form, type: e.target.value })} options={["Billing", "Finance", "Project", "Escalation", "Legal", "Other"]} className="w-full" />
         </div>
         <div className="space-y-1.5 pt-1">
@@ -653,12 +653,12 @@ export function TasksList({ tasks, showAssignee = true }: any) {
   return (
     <Card padding="none">
       {tasks.map((t: any) => (
-        <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-stone-50">
+        <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-stone-800 last:border-0 hover:bg-stone-50">
           <button onClick={() => toggleTask(t.id, !t.completed)} className="flex-shrink-0">
             {t.completed ? <Check size={16} className="text-emerald-600" /> : <Circle size={16} className="text-stone-300 hover:text-stone-500" />}
           </button>
           <div className="flex-1 min-w-0">
-            <div className={`text-[13px] font-medium ${t.completed ? "text-stone-400 line-through" : "text-stone-900"}`}>{t.title}</div>
+            <div className={`text-[13px] font-medium ${t.completed ? "text-stone-400 line-through" : "text-stone-100"}`}>{t.title}</div>
             {t.description && <div className="text-[12px] text-stone-500 mt-0.5">{t.description}</div>}
           </div>
           {t.priority === "Urgent" && <span className="text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset bg-rose-50 text-rose-700 ring-rose-200 font-medium">Urgent</span>}
@@ -722,7 +722,7 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
     const isPaid = meta.isPaid;
     parts.push(
       <span key="pay" className="flex items-center gap-1.5">
-        <span className={`font-semibold ${isPaid ? "text-emerald-700" : "text-stone-700"}`}>
+        <span className={`font-semibold ${isPaid ? "text-emerald-700" : "text-stone-400"}`}>
           {meta.currency}{Number(meta.amount).toFixed(2)}
         </span>
         {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
@@ -753,7 +753,7 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
   if ((eventType === "email_sent" || eventType === "email_manual") && meta.subject) {
     parts.push(
       <span key="email" className="flex flex-col gap-0.5">
-        <span className="text-[12px] font-medium text-stone-800">{meta.subject}</span>
+        <span className="text-[12px] font-medium text-stone-300">{meta.subject}</span>
         {meta.to && <span className="text-[11px] text-stone-400">To: {meta.to}</span>}
       </span>
     );
@@ -1140,7 +1140,7 @@ ${senderName}`;
       {results ? (
         /* ── Results screen ── */
         <div className="p-5 space-y-4">
-          <div className={`flex items-start gap-3 p-4 ring-1 rounded-xl ${
+          <div className={`flex items-start gap-3 p-4 ring-1 rounded-lg ${
             results.sent > 0 ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"
           }`}>
             <CheckCircle size={20} className={`flex-shrink-0 mt-0.5 ${results.sent > 0 ? "text-emerald-600" : "text-rose-500"}`} />
@@ -1182,7 +1182,7 @@ ${senderName}`;
         <div className="flex gap-0 h-[600px] overflow-hidden">
 
           {/* Left pane — compose */}
-          <div className="flex-1 flex flex-col min-w-0 border-r border-stone-100">
+          <div className="flex-1 flex flex-col min-w-0 border-r border-stone-800">
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
               {/* Load from template (optional) */}
@@ -1249,7 +1249,7 @@ ${senderName}`;
                   <span className={`transition-transform ${showPlaceholders ? "rotate-180" : ""}`}>▾</span>
                 </button>
                 {showPlaceholders && (
-                  <div className="px-3 pb-3 border-t border-stone-100 space-y-1.5 pt-2">
+                  <div className="px-3 pb-3 border-t border-stone-800 space-y-1.5 pt-2">
                     {BATCH_PLACEHOLDERS.map(({ key, desc }) => (
                       <div key={key} className="flex items-start gap-2">
                         <code className="text-[11px] font-mono bg-stone-100 px-1.5 py-0.5 rounded text-stone-700 shrink-0">{key}</code>
@@ -1269,14 +1269,14 @@ ${senderName}`;
                   <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${attachPdf ? "translate-x-4" : "translate-x-0"}`} />
                 </div>
                 <div>
-                  <div className="text-[13px] font-medium text-stone-800">Attach invoice PDF</div>
+                  <div className="text-[13px] font-medium text-stone-300">Attach invoice PDF</div>
                   <div className="text-[11px] text-stone-400">Fetches each PDF from QuickBooks and attaches to the email</div>
                 </div>
               </label>
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-stone-100 flex items-center justify-between gap-3 shrink-0 bg-white">
+            <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-between gap-3 shrink-0 bg-white">
               <Button variant="ghost" onClick={onClose}>Cancel</Button>
               <div className="flex items-center gap-2">
                 <button
@@ -1324,7 +1324,7 @@ ${senderName}`;
                             ? <CheckCircle size={11} className="text-emerald-500 shrink-0" />
                             : <XCircle size={11} className="text-rose-400 shrink-0" />}
                           <span className="font-mono text-[11px] text-stone-400 shrink-0">{inv.invoiceNumber}</span>
-                          <span className="font-medium text-stone-800 truncate">{customerName}</span>
+                          <span className="font-medium text-stone-300 truncate">{customerName}</span>
                         </div>
                         {email ? (
                           <div className="mt-0.5 ml-4 text-[11px] text-stone-400 truncate">
@@ -1358,11 +1358,11 @@ ${senderName}`;
                   <div className="bg-white ring-1 ring-stone-200 rounded-lg p-3 space-y-2">
                     <div>
                       <div className="text-[10px] text-stone-400 font-medium">Subject</div>
-                      <div className="text-[12px] font-semibold text-stone-800 break-words">{previewSubject}</div>
+                      <div className="text-[12px] font-semibold text-stone-300 break-words">{previewSubject}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-stone-400 font-medium mb-0.5">Body</div>
-                      <div className="text-[11px] text-stone-700 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                      <div className="text-[11px] text-stone-400 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
                         {previewBody}
                       </div>
                     </div>

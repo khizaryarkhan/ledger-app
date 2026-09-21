@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { Plus, RefreshCw, PackageCheck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { fmt } from "@/lib/format";
+import { fmt, localToday } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
 
 const money = fmt.num2;
@@ -73,7 +73,7 @@ export function ReceivingConsole() {
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
 
-      <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px] min-w-[720px]">
             <thead>
@@ -117,7 +117,7 @@ const newKey = () => `l${keySeq++}`;
 
 function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]; items: any[]; onClose: () => void; onDone: () => void }) {
   const [supplierId, setSupplierId] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [currency, setCurrency] = useState("");
   const [rate, setRate] = useState("1");
   const [openPos, setOpenPos] = useState<any[]>([]);
@@ -278,7 +278,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
 }
 
 function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; taxes: any[]; onClose: () => void; onDone: () => void }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localToday());
   const [dueDate, setDueDate] = useState("");
   const [reference, setReference] = useState("");
   const [taxRateId, setTaxRateId] = useState("");

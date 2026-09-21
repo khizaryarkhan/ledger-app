@@ -85,7 +85,7 @@ export function CreateMenu() {
       {open && (
         <div onMouseEnter={openNow} onMouseLeave={closeSoon}
           className="absolute left-0 top-full pt-1.5 z-50">
-        <div className="bg-stone-900 border border-stone-700 rounded-xl shadow-2xl shadow-black/50 p-4 grid grid-cols-3 gap-x-8 gap-y-0.5 min-w-[560px]">
+        <div className="bg-stone-900 border border-stone-700 rounded-lg shadow-2xl shadow-black/50 p-4 grid grid-cols-3 gap-x-8 gap-y-0.5 min-w-[560px]">
           {GROUPS.map(g => (
             <div key={g.title}>
               <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider mb-2 px-2">{g.title}</div>
