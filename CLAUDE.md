@@ -610,6 +610,30 @@ than depend on it, **we stamp the button on ourselves**:
   deploy rather than one.
 - **Tailwind `content` globs must include `lib/**`** — classes defined in shared
   lib files were silently unstyled until it was added.
+- **`npm run db:verify` proves a database matches `db/schema.ts`** — run it
+  after every migration instead of trusting the migrator's ✓.
+  `scripts/verify-schema.ts` walks every table and column drizzle declares and
+  asks the database whether it really has them, at the right width and
+  nullability. It is READ-ONLY (information_schema + the drizzle journal), so
+  pointing it at production is the intended use:
+  `npm run db:verify -- --env .env.production.vercel`. It catches both documented
+  failure modes — a column the app writes that no migration ever created, and a
+  column NARROWER than the code believes (the 0088 truncation class) — neither of
+  which `tsc` or the unit suite can see. Not in CI: CI has no database.
+  It knows 0016/0017 are permanently skipped and reports them as expected, and
+  it skips nullability on VIEWS (`customers`/`ap_suppliers`), because Postgres
+  reports every view column as nullable regardless of the underlying table.
+- **`.env.production.vercel` holds the PRODUCTION connection string, and
+  `.env.local` does NOT.** Two different Neon endpoints. `.env.production.vercel`
+  leaves `DATABASE_URL` empty and puts the real string in
+  `DATABASE_URL_UNPOOLED` — which is why `npm run db:migrate` silently targets
+  the local one. As of 2026-09-22 `.env.local` was **10 migrations behind** with
+  real-looking data in it (9 orgs); production was at 0088. Never conclude
+  anything about production from a local query — verify with `db:verify` first.
+- **Known, latent, not yet fixed**: `user_organisations.user_id`/`org_id` are
+  NOT NULL in `db/schema.ts` but nullable in production. No bad data exists
+  (28 rows, 0 nulls, 0 orphans), so it is a missing constraint rather than an
+  incident, and tightening it is safe whenever a migration next touches it.
 - Test migrations/backfills on a **Neon branch** before prod. Don't run
   destructive steps (NOT NULL, deletions) until a backfill is verified on prod.
 - **`.env.local` can be many migrations behind production — verify before

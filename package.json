@@ -9,6 +9,7 @@
     "start": "next start",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:verify": "tsx scripts/verify-schema.ts",
     "db:backfill-accounts": "tsx scripts/backfill-accounts.ts",
     "db:seed-mobile-demo": "tsx scripts/seed-mobile-demo.ts",
     "db:introspect": "drizzle-kit introspect",
