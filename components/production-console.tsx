@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Factory, X, Loader, Check, Wand2, Trash2 } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 
 const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
@@ -113,6 +114,12 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
   const [rows, setRows] = useState<InputRow[]>([]);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+  const { locations } = useStockLocations();
+  // Components: blank = let FIFO span locations (pre-locations behaviour).
+  // Output: must land somewhere definite, so it defaults like a receipt does.
+  const [consumeLocationId, setConsumeLocationId] = useState("");
+  const [outputLocationId, setOutputLocationId] = useState("");
+  useEffect(() => { if (!outputLocationId && locations.length) setOutputLocationId(defaultLocationId(locations)); }, [locations]);
 
   const outputItem = items.find(i => i.id === outputItemId);
   const outputSku = outputSkus.find(s => s.id === outputSkuId);
@@ -202,7 +209,7 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
     if (!inputs.length) { setErr("Add at least one input to consume (via a BOM or below)."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/production`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bomId: bomId || null, outputItemId, outputSkuId: outputSkuId || null, qtyToProduce: Number(qty), producedDate: date, inputs }) });
+      body: JSON.stringify({ bomId: bomId || null, outputItemId, outputSkuId: outputSkuId || null, qtyToProduce: Number(qty), producedDate: date, consumeLocationId: consumeLocationId || null, outputLocationId: outputLocationId || null, inputs }) });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
     if (!r.ok) { setErr(d?.error || "Build failed."); return; }
@@ -241,6 +248,28 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
                 {outputSkus.map(s => <option key={s.id} value={s.id}>{s.skuName || s.skuCode || s.id.slice(0, 8)}{s.innerUnitPackSize ? ` · ${Number(s.innerUnitPackSize)} ${outputItem?.baseUom || ""}` : ""}</option>)}
               </select>
             </div>
+          </div>
+          {/* A build draws components from one place and delivers output to
+              another — commonly a component store and a finished-goods area.
+              issueOnly on the consume side: unreleased Quarantine material must
+              not be consumable by a build. */}
+          <div className="grid grid-cols-2 gap-3">
+            <LocationField
+              label="Consume components from"
+              value={consumeLocationId}
+              onChange={setConsumeLocationId}
+              locations={locations}
+              issueOnly
+              allowAny
+              hint="Leave as Anywhere to let FIFO pick across locations"
+            />
+            <LocationField
+              label="Deliver output to"
+              value={outputLocationId}
+              onChange={setOutputLocationId}
+              locations={locations}
+              hint="Where the finished output is placed"
+            />
           </div>
           <div>
             <label className={labelCls}>Qty to produce {outputSku ? `(${outputSku.innerPackType || "packs"})` : outputItem?.baseUom ? `(${outputItem.baseUom})` : ""}</label><input type="number" className={inputCls} value={qty} onChange={e => setQty(e.target.value)} />

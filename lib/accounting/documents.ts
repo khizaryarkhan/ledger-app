@@ -33,6 +33,7 @@ import { ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
 import { openDocsForParty, availableCreditsForParty } from "@/lib/accounting/payments";
 import { loadItemCostInfo, planIssue, commitReceipt, commitIssue, reverseInventoryByEntry, type ItemCostInfo, type IssuePlan } from "@/lib/inventory/valuation";
+import { resolveLocationId } from "@/lib/inventory/locations";
 
 export type DocLineInput = {
   accountId?: string;
@@ -71,6 +72,12 @@ export type PostDocInput = {
   termsDays?: number | null;       // if dueDate omitted, due = date + termsDays
   reference?: string | null;       // supplier bill no. / customer PO / free ref
   projectId?: string | null;       // header-level project (matches the form's single picker — never per-line)
+  /**
+   * Physical stock location for any inventory-tracked line on this document.
+   * Header-level, matching projectId's precedent — a single document posts to
+   * one place. Omitted resolves to the org default.
+   */
+  locationId?: string | null;
   lines?: DocLineInput[];
   sweptPaymentIds?: string[];      // Deposit: native Payment entry ids being swept into this deposit
 };
@@ -249,6 +256,12 @@ type InvPlan = {
   extraHomeLines: PostLine[];
   issues: { line: DocLineInput; item: ItemCostInfo; plan: IssuePlan }[];
   receipts: { line: DocLineInput; item: ItemCostInfo; unitCost: number }[];
+  /**
+   * Resolved during PLANNING, so a bad or foreign location id fails before the
+   * journal entry is posted — not afterwards, with a balanced entry already in
+   * the ledger and only the stock side left to fail.
+   */
+  locationId: string | null;
 };
 
 /** Build item map for a document's lines (costing metadata). */
@@ -262,13 +275,21 @@ async function itemMapForInput(orgId: string, input: PostDocInput): Promise<Map<
  * issues to commit. For purchases, returns the receipt lots to create.
  */
 async function planDocumentInventory(orgId: string, type: DocType, input: PostDocInput, itemMap: Map<string, ItemCostInfo>, invAssetId: string | null, invCogsId: string | null, rate: number): Promise<InvPlan> {
-  const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [] };
+  const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [], locationId: null };
   const stockLines = (input.lines ?? []).filter(l => l.itemId && itemMap.get(l.itemId)?.tracked && Math.abs(Number(l.qty) || 0) > 0);
+  if (!stockLines.length) return plan;
+
+  // A sale issues stock, so a Quarantine location is refused here; a purchase
+  // may legitimately receive INTO Quarantine pending inspection.
+  plan.locationId = await resolveLocationId(orgId, input.locationId, {
+    forIssue: SALES_STOCK.has(type),
+    label: "Stock location",
+  });
 
   if (SALES_STOCK.has(type)) {
     for (const l of stockLines) {
       const item = itemMap.get(l.itemId!)!;
-      const issue = await planIssue(orgId, item, Number(l.qty) || 0);
+      const issue = await planIssue(orgId, item, Number(l.qty) || 0, { locationId: plan.locationId });
       if (issue.totalCost <= 0) continue;
       const cogsAcct = item.cogsAccountId ?? invCogsId;
       const assetAcct = item.assetAccountId ?? invAssetId;
@@ -303,6 +324,7 @@ async function commitDocumentInventory(orgId: string, type: DocType, plan: InvPl
       productType: r.item.productType, lotNo: r.line.lotNo ?? null, expiryDate: r.line.expiryDate ?? null,
       supplierId: input.partyType === "Vendor" ? input.partyId ?? null : null,
       sourceType: "purchase", receivedDate: date, refType: type, refId, entryId, createdBy: actorId,
+      locationId: plan.locationId,
       note: r.line.description ?? null,
     }).catch(e => console.error("[inventory receipt]", e));
   }

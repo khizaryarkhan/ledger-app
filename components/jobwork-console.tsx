@@ -19,6 +19,8 @@ import { Plus, RefreshCw, Shirt, X, Loader, Check, Trash2, PackageCheck, RotateC
 import { fmt } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 
+import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
+
 const inputCls = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600";
 const labelCls = "block text-[11px] font-medium uppercase tracking-wide text-stone-500 mb-1";
 const money = fmt.num2;
@@ -153,6 +155,12 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+  const { locations } = useStockLocations();
+  // Dispatch: blank = FIFO across locations. Return: remembered on the order
+  // so the receive screen weeks later defaults to it without anyone recalling.
+  const [dispatchLocationId, setDispatchLocationId] = useState("");
+  const [receiveLocationId, setReceiveLocationId] = useState("");
+  useEffect(() => { if (!receiveLocationId && locations.length) setReceiveLocationId(defaultLocationId(locations)); }, [locations]);
 
   async function submit() {
     setBusy(true); setErr("");
@@ -163,6 +171,7 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
         vendorId: vendorId || null, vendorLabel: vendor?.name ?? null, sentItemId: itemId, sentQty: Number(qty), dispatchDate: date,
         expectedYieldPct: expectedYieldPct ? Number(expectedYieldPct) : null,
         salesOrderId: salesOrderId || null, expectedReturnDate: expectedReturnDate || null,
+        dispatchLocationId: dispatchLocationId || null, receiveLocationId: receiveLocationId || null,
         notes: notes || null,
       }),
     });
@@ -214,6 +223,24 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
             <input type="date" value={expectedReturnDate} onChange={e => setExpectedReturnDate(e.target.value)} className={inputCls} />
             <p className="text-[11px] text-stone-500 mt-1">Flagged as at-risk if the order is still open past this date.</p>
           </div>
+          {/* issueOnly on dispatch: material still in Quarantine has not been
+              accepted and must not be sent out to a subcontractor. */}
+          <LocationField
+            label="Send material from"
+            value={dispatchLocationId}
+            onChange={setDispatchLocationId}
+            locations={locations}
+            issueOnly
+            allowAny
+            hint="Leave as Anywhere to let FIFO pick across locations"
+          />
+          <LocationField
+            label="Expect it back into"
+            value={receiveLocationId}
+            onChange={setReceiveLocationId}
+            locations={locations}
+            hint="Remembered on the order — the receive screen defaults to it"
+          />
           <div><label className={labelCls}>Notes</label>
             <input value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} /></div>
         </div>
@@ -247,6 +274,11 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
   const remaining = Number(order.sentQty) - alreadyReceived;
   const receivedItem = items.find(i => i.id === itemId);
   const unitsDiffer = !!receivedItem && !!order.sentItem?.baseUom && receivedItem.baseUom !== order.sentItem.baseUom;
+  const { locations: recvLocations } = useStockLocations();
+  // Blank means "as planned at dispatch" — the server falls back to the
+  // order's own receiveLocationId before the org default, so leaving this
+  // alone does the right thing without the operator having to remember.
+  const [recvLocationId, setRecvLocationId] = useState("");
 
   async function submit() {
     setBusy(true); setErr("");
@@ -255,6 +287,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
       body: JSON.stringify({
         receivedItemId: itemId, receivedQty: Number(qty), processingFeeAmount: Number(fee) || 0, receiveDate: date,
         materialQtyConsumed: unitsDiffer && materialQty ? Number(materialQty) : null,
+        locationId: recvLocationId || null,
       }),
     });
     const d = await r.json().catch(() => ({}));
@@ -295,6 +328,18 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
             <input type="number" value={fee} onChange={e => setFee(e.target.value)} className={inputCls} /></div>
           <div><label className={labelCls}>Receive date</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></div>
+          {/* Not issueOnly: transformed goods may legitimately come back into
+              Quarantine pending inspection. Blank falls back to the return
+              location chosen at dispatch, then the org default. */}
+          <LocationField
+            label="Receive into"
+            value={recvLocationId}
+            onChange={setRecvLocationId}
+            locations={recvLocations}
+            allowAny
+            anyLabel="As planned at dispatch"
+            hint="Where the transformed goods physically land"
+          />
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>

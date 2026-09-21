@@ -1916,6 +1916,48 @@ export type ItemSupplierSku = typeof itemSupplierSkus.$inferSelect;
 // produced (BOM build) or opened. Sales/consumption relieve lots (FIFO or by
 // explicit pick), so every unit carries the exact cost it was received at.
 // =========================================================================
+// =========================================================================
+// STOCK LOCATIONS — where inventory physically sits.
+//
+// Deliberately separate from the `Location` GL dimension in ap_dimensions:
+// that one is a reporting tag on a journal line, this one is a real place with
+// stock in it. An org can have both and they need not agree.
+//
+// `parentId` is present from day one so bin-level detail (site -> rack -> bin)
+// can be added without a structural migration.
+// =========================================================================
+export const stockLocations = pgTable("stock_locations", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  code:               varchar("code", { length: 32 }).notNull(),
+  name:               varchar("name", { length: 255 }).notNull(),
+  // Store | WIP | FinishedGoods | Transit | Quarantine
+  type:               varchar("type", { length: 24 }).notNull().default("Store"),
+  parentId:           uuid("parent_id").references((): any => stockLocations.id, { onDelete: "set null" }),
+  // NULL = stock here posts to the item's own asset account (what every org
+  // does today). Set only when a location's stock must sit in a different
+  // balance-sheet account — a transfer between two locations with DIFFERENT
+  // accounts posts a real Dr/Cr, one between locations sharing an account is a
+  // movement record only.
+  inventoryAccountId: uuid("inventory_account_id"),
+  isDefault:          boolean("is_default").notNull().default(false),
+  status:             varchar("status", { length: 16 }).notNull().default("Active"),
+  address:            text("address"),
+  note:               text("note"),
+  createdAt:          timestamp("created_at").notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  // lower(code) in the migration — a duplicate code makes every picking
+  // instruction ambiguous, and "MAIN" vs "main" is not a distinction anyone on
+  // a warehouse floor intends to draw.
+  stock_locations_org_code_unique:    uniqueIndex("stock_locations_org_code_unique").on(t.orgId, t.code),
+  // Exactly one default per org: it is what every posting path resolves to when
+  // a caller names no location, so two would make that non-deterministic.
+  stock_locations_org_default_unique: uniqueIndex("stock_locations_org_default_unique").on(t.orgId).where(sql`${t.isDefault}`),
+  stock_locations_org_status_idx:     index("stock_locations_org_status_idx").on(t.orgId, t.status),
+}));
+export type StockLocation = typeof stockLocations.$inferSelect;
+
 export const inventoryLots = pgTable("inventory_lots", {
   id:            uuid("id").defaultRandom().primaryKey(),
   orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
@@ -1941,13 +1983,47 @@ export const inventoryLots = pgTable("inventory_lots", {
 }));
 export type InventoryLot = typeof inventoryLots.$inferSelect;
 
+// Where a lot's REMAINING quantity physically sits. The lot stays the cost
+// layer and the identity (FIFO order, unique lot code, genealogy); this is a
+// physical overlay on top of it. Splitting lots per location was the
+// alternative and was rejected — it multiplies lot codes, breaks the org-wide
+// unique lot number that traceability depends on, and makes FIFO ambiguous.
+//
+// A row exists only while it holds a positive quantity and is deleted at zero,
+// so this table stays proportional to live stock. History lives in
+// inventory_movements.
+//
+// INVARIANT, checked by lib/accounting/reconcile.ts:
+//   inventory_lots.remaining_qty = SUM(inventory_lot_locations.qty) per lot.
+// "No rows" counts as zero, which is why a depleted lot correctly has none.
+export const inventoryLotLocations = pgTable("inventory_lot_locations", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  lotId:      uuid("lot_id").notNull().references(() => inventoryLots.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => stockLocations.id, { onDelete: "restrict" }),
+  qty:        numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  inventory_lot_locations_lot_location_unique: uniqueIndex("inventory_lot_locations_lot_location_unique").on(t.lotId, t.locationId),
+  inventory_lot_locations_org_location_idx:    index("inventory_lot_locations_org_location_idx").on(t.orgId, t.locationId),
+}));
+export type InventoryLotLocation = typeof inventoryLotLocations.$inferSelect;
+
 export const inventoryMovements = pgTable("inventory_movements", {
   id:            uuid("id").defaultRandom().primaryKey(),
   orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
   itemId:        uuid("item_id").notNull().references(() => apItems.id, { onDelete: "cascade" }),
   skuId:         uuid("sku_id"),
   lotId:         uuid("lot_id"),
-  movementType:  varchar("movement_type", { length: 24 }).notNull(), // receipt | issue_sale | issue_production | produce | adjustment
+  movementType:  varchar("movement_type", { length: 24 }).notNull(), // receipt | issue_sale | issue_production | produce | adjustment | transfer
+  // Where the stock came FROM and went TO. A receipt carries only `to`, an
+  // issue only `from`, a transfer both. Reversal reads these back to restore
+  // quantity to the exact location it left, rather than to the org default.
+  // NULL on rows written before locations existed (migration 0087) — those are
+  // deliberately not back-filled, because the placement was never observed.
+  fromLocationId: uuid("from_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
+  toLocationId:   uuid("to_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   qty:           numeric("qty", { precision: 18, scale: 4 }).notNull(),   // signed: + into stock, - out
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }),
   totalCost:     numeric("total_cost", { precision: 18, scale: 4 }),
@@ -1963,6 +2039,56 @@ export const inventoryMovements = pgTable("inventory_movements", {
   inventory_movements_ref_idx:  index("inventory_movements_ref_idx").on(t.refType, t.refId),
 }));
 export type InventoryMovement = typeof inventoryMovements.$inferSelect;
+
+// =========================================================================
+// STOCK TRANSFERS — move stock between locations.
+//
+// A transfer changes WHERE stock is, never what it cost: no lot is created, no
+// lot balance changes, and the FIFO cost layer keeps its identity. Only the
+// placement (inventory_lot_locations) moves. The GL is touched solely when the
+// two locations map to different inventory accounts.
+// =========================================================================
+export const stockTransfers = pgTable("stock_transfers", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  transferNo:     varchar("transfer_no", { length: 32 }),
+  transferDate:   date("transfer_date").notNull(),
+  fromLocationId: uuid("from_location_id").notNull().references(() => stockLocations.id, { onDelete: "restrict" }),
+  toLocationId:   uuid("to_location_id").notNull().references(() => stockLocations.id, { onDelete: "restrict" }),
+  status:         varchar("status", { length: 16 }).notNull().default("Posted"), // Posted | Reversed
+  // NULL when both locations post to the same inventory account — the ordinary
+  // case. Nothing changed in the books, so a zero-value journal entry would be
+  // noise in the ledger rather than information.
+  entryId:        uuid("entry_id"),
+  totalCost:      numeric("total_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+  notes:          text("notes"),
+  createdBy:      uuid("created_by"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  stock_transfers_org_date_idx: index("stock_transfers_org_date_idx").on(t.orgId, t.transferDate),
+}));
+export type StockTransfer = typeof stockTransfers.$inferSelect;
+
+export const stockTransferLines = pgTable("stock_transfer_lines", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  transferId:  uuid("transfer_id").notNull().references(() => stockTransfers.id, { onDelete: "cascade" }),
+  itemId:      uuid("item_id").notNull(),
+  skuId:       uuid("sku_id"),
+  // The exact cost layer moved. A transfer is specific-identification by
+  // nature — you pick up particular boxes and carry them — so the line records
+  // which lot actually moved rather than re-deriving it later.
+  lotId:       uuid("lot_id"),
+  qty:         numeric("qty", { precision: 18, scale: 4 }).notNull().default("0"),
+  unitCost:    numeric("unit_cost", { precision: 18, scale: 6 }).notNull().default("0"),
+  amount:      numeric("amount", { precision: 18, scale: 4 }).notNull().default("0"),
+  description: text("description"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  stock_transfer_lines_transfer_idx: index("stock_transfer_lines_transfer_idx").on(t.transferId),
+}));
+export type StockTransferLine = typeof stockTransferLines.$inferSelect;
 
 // =========================================================================
 // BILL OF MATERIALS (BOM) — recipe defining what inputs produce which outputs
@@ -2022,6 +2148,11 @@ export const productionRuns = pgTable("production_runs", {
   qtyToProduce:    numeric("qty_to_produce", { precision: 18, scale: 4 }).notNull(),
   totalInputCost:  numeric("total_input_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   status:          varchar("status", { length: 16 }).notNull().default("Draft"), // Draft | Completed
+  // A build consumes from one place and delivers output to another — commonly
+  // a component store and a finished-goods area. Two columns rather than one
+  // because they are genuinely different decisions.
+  consumeLocationId: uuid("consume_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
+  outputLocationId:  uuid("output_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   entryId:         uuid("entry_id"),         // linked journal entry (Dr FP inv / Cr components)
   producedLotId:   uuid("produced_lot_id"),  // output lot created
   producedDate:    date("produced_date"),
@@ -2306,6 +2437,9 @@ export const goodsReceipts = pgTable("goods_receipts", {
   exchangeRate:  numeric("exchange_rate", { precision: 18, scale: 6 }),
   status:        varchar("status", { length: 16 }).notNull().default("Posted"), // Posted | Reversed
   entryId:       uuid("entry_id"),                                              // GL: Dr Inventory / Cr GR/IR
+  // Where the goods physically landed. NULL resolves to the org default at
+  // posting time — every receipt that predates locations has none.
+  locationId:    uuid("location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   grirTotal:     numeric("grir_total", { precision: 18, scale: 4 }).notNull().default("0"),   // home accrued
   billedAmount:  numeric("billed_amount", { precision: 18, scale: 4 }).notNull().default("0"),// home billed to date
   notes:         text("notes"),
@@ -2360,6 +2494,10 @@ export const jobWorkOrders = pgTable("job_work_orders", {
   dispatchEntryId:     uuid("dispatch_entry_id"),
   status:              varchar("status", { length: 32 }).notNull().default("Dispatched"), // Dispatched | PartiallyReceived | Closed
   salesOrderId:        uuid("sales_order_id"), // optional — the Sales Order this dispatch is for; drives the Order Production Tracker
+  // Material leaves a store on dispatch and the transformed item comes back to
+  // (usually) a different one.
+  dispatchLocationId:  uuid("dispatch_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
+  receiveLocationId:   uuid("receive_location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   expectedReturnDate:  date("expected_return_date"), // optional — set at dispatch; the supply-chain watchdog flags this order once it's still open past this date
   // "Most recent receipt" convenience pointers — kept for any existing reader,
   // but no longer the sole record of receiving once multiple tranches are
@@ -2496,6 +2634,8 @@ export const salesShipments = pgTable("sales_shipments", {
   exchangeRate:  numeric("exchange_rate", { precision: 18, scale: 6 }),
   status:        varchar("status", { length: 16 }).notNull().default("Posted"), // Posted | Reversed
   entryId:       uuid("entry_id"),                                              // GL: Dr COGS / Cr Inventory
+  // Where the goods shipped FROM. NULL resolves to the org default.
+  locationId:    uuid("location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   cogsTotal:     numeric("cogs_total", { precision: 18, scale: 4 }).notNull().default("0"),   // home cost relieved
   saleTotal:     numeric("sale_total", { precision: 18, scale: 4 }).notNull().default("0"),   // sale value shipped (for invoicing)
   invoicedAmount: numeric("invoiced_amount", { precision: 18, scale: 4 }).notNull().default("0"), // sale value invoiced to date

@@ -84,12 +84,12 @@ export function StockValuationReport() {
           ) : (
             <table className="w-full text-[13px] min-w-[720px]">
               <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">SKU</th><th className="text-left px-4 py-2.5">Lot #</th><th className="text-left px-4 py-2.5">Expiry</th>
+                <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">SKU</th><th className="text-left px-4 py-2.5">Lot #</th><th className="text-left px-4 py-2.5">Expiry</th><th className="text-left px-4 py-2.5">Where</th>
                 <th className="text-right px-4 py-2.5">Remaining</th><th className="text-right px-4 py-2.5">Unit cost</th><th className="text-right px-4 py-2.5">Value</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-                {!loading && filteredLots.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No open cost lots.</td></tr>}
+                {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
+                {!loading && filteredLots.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">No open cost lots.</td></tr>}
                 {filteredLots.map(l => (
                   <tr key={l.id} className="border-b border-stone-800/60">
                     <td className="px-4 py-2 text-stone-100">{l.itemName}</td>
@@ -100,6 +100,11 @@ export function StockValuationReport() {
                       </Link>
                     </td>
                     <td className="px-4 py-2 text-stone-400">{l.expiryDate || "—"}</td>
+                    <td className="px-4 py-2 text-[12px] text-stone-400">
+                      {!l.locations?.length ? <span className="text-stone-600">—</span>
+                        : l.locations.length === 1 ? <span title={l.locations[0].name}>{l.locations[0].code}</span>
+                        : l.locations.map((x: any) => `${x.code} ${qty(x.qty)}`).join(" · ")}
+                    </td>
                     <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{l.packs != null ? `${qty(l.packs)} ${l.packType || "packs"}` : `${qty(l.remainingQty)} ${l.baseUom || ""}`}</td>
                     <td className="px-4 py-2 text-right text-stone-300 tabular-nums font-mono">{money(l.unitCost)}</td>
                     <td className="px-4 py-2 text-right text-stone-200 tabular-nums">{money(l.value)}</td>
@@ -107,7 +112,7 @@ export function StockValuationReport() {
                 ))}
                 {!loading && filteredLots.length > 0 && (
                   <tr className="border-t border-stone-700 bg-stone-950/40 font-semibold">
-                    <td className="px-4 py-2.5 text-stone-200" colSpan={6}>Total</td>
+                    <td className="px-4 py-2.5 text-stone-200" colSpan={7}>Total</td>
                     <td className="px-4 py-2.5 text-right text-stone-100 tabular-nums">{money(lotsTotal)}</td>
                   </tr>
                 )}
@@ -148,16 +153,33 @@ export function StockStatusReport() {
           <table className="w-full text-[13px] min-w-[620px]">
             <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
               <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">Code</th>
-              <th className="text-right px-4 py-2.5">On hand</th><th className="text-right px-4 py-2.5">Expected (PO)</th><th className="text-right px-4 py-2.5">Committed (SO)</th><th className="text-right px-4 py-2.5">Available</th><th className="text-right px-4 py-2.5">Min.</th><th className="text-left px-4 py-2.5">Status</th>
+              <th className="text-right px-4 py-2.5">On hand</th><th className="text-left px-4 py-2.5">Where</th><th className="text-right px-4 py-2.5">Expected (PO)</th><th className="text-right px-4 py-2.5">Committed (SO)</th><th className="text-right px-4 py-2.5">Available</th><th className="text-right px-4 py-2.5">Min.</th><th className="text-left px-4 py-2.5">Status</th>
             </tr></thead>
             <tbody>
-              {rows === null && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Nothing to show.</td></tr>}
+              {rows === null && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
+              {rows !== null && filtered.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">Nothing to show.</td></tr>}
               {filtered.map(r => (
                 <tr key={r.id} className="border-b border-stone-800/60">
                   <td className="px-4 py-2 text-stone-100 font-medium">{r.name}</td>
                   <td className="px-4 py-2 text-stone-400 font-mono text-[12px]">{r.code || "—"}</td>
                   <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{qty(r.onHandQty)} {r.baseUom || ""}</td>
+                  {/* One location is not a split worth spelling out — show the
+                      breakdown only when the stock is genuinely in more than
+                      one place, and the single-location name otherwise. */}
+                  <td className="px-4 py-2 text-[12px] text-stone-400">
+                    {!r.byLocation?.length ? <span className="text-stone-600">—</span>
+                      : r.byLocation.length === 1 ? <span title={r.byLocation[0].name}>{r.byLocation[0].code}</span>
+                      : (
+                        <span className="inline-flex flex-wrap gap-x-2 gap-y-0.5">
+                          {r.byLocation.map((l: any) => (
+                            <span key={l.locationId} title={l.name} className="whitespace-nowrap">
+                              <span className="text-stone-500">{l.code}</span>{" "}
+                              <span className="tabular-nums text-stone-300">{qty(l.qty)}</span>
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                  </td>
                   <td className="px-4 py-2 text-right tabular-nums">{Number(r.expectedQty) > 0 ? <span className="text-cyan-400">+{qty(r.expectedQty)}</span> : <span className="text-stone-600">—</span>}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{Number(r.committedQty) > 0 ? <span className="text-amber-400">−{qty(r.committedQty)}</span> : <span className="text-stone-600">—</span>}</td>
                   <td className="px-4 py-2 text-right text-stone-200 tabular-nums">{qty(r.availableQty)}</td>

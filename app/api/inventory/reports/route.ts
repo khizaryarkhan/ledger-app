@@ -7,7 +7,7 @@
  */
 
 import { db } from "@/db";
-import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus } from "@/db/schema";
+import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations } from "@/db/schema";
 import { requireReadScope, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
@@ -31,6 +31,65 @@ async function openOrderQtyByItem(orgIds: string[], kind: "PurchaseOrder" | "Sal
   return map;
 }
 
+/**
+ * Where each item's stock physically sits, keyed by item id.
+ *
+ * One query for the whole org rather than one per item: Stock Status lists
+ * every tracked item, and a per-item round trip would be a query storm on a
+ * catalogue of any size.
+ */
+async function placementsByItem(orgIds: string[]) {
+  const rows = await db.select({
+    itemId: inventoryLots.itemId,
+    locationId: stockLocations.id,
+    code: stockLocations.code,
+    name: stockLocations.name,
+    type: stockLocations.type,
+    qty: inventoryLotLocations.qty,
+  })
+    .from(inventoryLotLocations)
+    .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotLocations.lotId))
+    .innerJoin(stockLocations, eq(stockLocations.id, inventoryLotLocations.locationId))
+    .where(inArray(inventoryLotLocations.orgId, orgIds))
+    .orderBy(asc(stockLocations.code));
+
+  const map = new Map<string, { locationId: string; code: string; name: string; type: string; qty: number }[]>();
+  for (const r of rows) {
+    const q = num(r.qty);
+    if (q <= 0) continue;
+    const list = map.get(r.itemId) ?? [];
+    const existing = list.find(l => l.locationId === r.locationId);
+    if (existing) existing.qty = Math.round((existing.qty + q) * 1e4) / 1e4;
+    else list.push({ locationId: r.locationId, code: r.code, name: r.name, type: r.type, qty: Math.round(q * 1e4) / 1e4 });
+    map.set(r.itemId, list);
+  }
+  return map;
+}
+
+/** Where each LOT sits — same reasoning, one query for the lots report. */
+async function placementsByLot(orgIds: string[]) {
+  const rows = await db.select({
+    lotId: inventoryLotLocations.lotId,
+    code: stockLocations.code,
+    name: stockLocations.name,
+    qty: inventoryLotLocations.qty,
+  })
+    .from(inventoryLotLocations)
+    .innerJoin(stockLocations, eq(stockLocations.id, inventoryLotLocations.locationId))
+    .where(inArray(inventoryLotLocations.orgId, orgIds))
+    .orderBy(asc(stockLocations.code));
+
+  const map = new Map<string, { code: string; name: string; qty: number }[]>();
+  for (const r of rows) {
+    const q = num(r.qty);
+    if (q <= 0) continue;
+    const list = map.get(r.lotId) ?? [];
+    list.push({ code: r.code, name: r.name, qty: Math.round(q * 1e4) / 1e4 });
+    map.set(r.lotId, list);
+  }
+  return map;
+}
+
 export async function GET(req: Request) {
   const { error, orgId, orgIds } = await requireReadScope();
   if (error) return error;
@@ -44,6 +103,7 @@ export async function GET(req: Request) {
   if (type === "status") {
     const expected = await openOrderQtyByItem(orgIds!, "PurchaseOrder");
     const committed = await openOrderQtyByItem(orgIds!, "SalesOrder");
+    const placements = await placementsByItem(orgIds!);
     return ok(tracked.map(i => {
       const onHand = num(i.onHandQty), min = num(i.minOhQty), exp = expected.get(i.id) ?? 0, com = committed.get(i.id) ?? 0;
       const available = onHand + exp - com;
@@ -52,6 +112,11 @@ export async function GET(req: Request) {
         onHandQty: onHand, expectedQty: Math.round(exp * 1e4) / 1e4, committedQty: Math.round(com * 1e4) / 1e4,
         availableQty: Math.round(available * 1e4) / 1e4, minOhQty: min,
         belowMin: min > 0 && available < min, out: onHand <= 0,
+        // Where the on-hand quantity actually is. Empty for an org with no
+        // locations yet, and for stock whose placement rows do not cover its
+        // lot balance — reconcile.ts reports that drift rather than this report
+        // inventing a place for it.
+        byLocation: placements.get(i.id) ?? [],
       };
     }));
   }
@@ -67,6 +132,7 @@ export async function GET(req: Request) {
     const skuIds = [...new Set(lots.map(l => l.skuId).filter(Boolean) as string[])];
     const skuRows = skuIds.length ? await db.select({ id: itemSkus.id, name: itemSkus.skuName, size: itemSkus.innerUnitPackSize, packType: itemSkus.innerPackType }).from(itemSkus).where(inArray(itemSkus.id, skuIds)) : [];
     const skuById = new Map(skuRows.map(s => [s.id, s]));
+    const lotPlacements = await placementsByLot(orgIds!);
     return ok(lots.filter(l => nameById.has(l.itemId)).map(l => {
       const meta = nameById.get(l.itemId)!;
       const sku = l.skuId ? skuById.get(l.skuId) : null;
@@ -77,6 +143,7 @@ export async function GET(req: Request) {
         skuName: sku?.name ?? null, packs: packSize > 0 ? Math.round((rem / packSize) * 1e4) / 1e4 : null, packType: sku?.packType ?? null,
         lotNo: l.lotNo, sourceType: l.sourceType, receivedDate: l.receivedDate, expiryDate: l.expiryDate,
         remainingQty: rem, unitCost: cost, value: Math.round(rem * cost * 100) / 100,
+        locations: lotPlacements.get(l.id) ?? [],
       };
     }));
   }

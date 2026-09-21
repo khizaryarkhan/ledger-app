@@ -11,7 +11,7 @@ import {
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
   Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
-  CalendarClock, Wrench
+  CalendarClock, Wrench, MapPin
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
@@ -336,6 +336,13 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/reports/stock-status", label: "Stock Status", icon: ClipboardList },
         { href: "/accounting/reports/lot-traceability", label: "Lots & Movements", icon: History },
+        // Both belong to Inventory rather than to a new "Setup" group: a
+        // location is master data about where stock lives, exactly as Products
+        // & Materials is master data about what it is, and a transfer moves
+        // stock without leaving Inventory's remit. A separate Setup group here
+        // would hold two entries and split one idea across two places.
+        { href: "/supply-chain/transfers", label: "Stock Transfers", icon: ArrowLeftRight },
+        { href: "/supply-chain/locations", label: "Locations", icon: MapPin },
         { href: "/accounting/products", label: "Products & Materials", icon: Package },
       ],
     },

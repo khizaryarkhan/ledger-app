@@ -264,3 +264,66 @@ describe("Google site verification stays reachable", () => {
     expect(re.test("/")).toBe(true);
   });
 });
+
+describe("stock placement is only ever written through one choke point", () => {
+  /**
+   * `inventory_lot_locations` says where every unit of stock physically is, and
+   * `lib/inventory/locations.ts` is the only module allowed to write it —
+   * through placeQty() and takeQty(), which are single atomic statements
+   * (neon-http has no transactions, so a read-modify-write here would lose
+   * quantity under concurrency).
+   *
+   * That file is also where the TENANCY check lives: resolveLocationId() is
+   * what proves a client-supplied location id belongs to the caller's org. A
+   * direct insert somewhere else skips both guarantees at once — it could place
+   * one tenant's stock in another tenant's warehouse, and nothing in the type
+   * system would notice.
+   *
+   * Reads are fine from anywhere; this only guards mutation.
+   */
+  const MUTATION = /\b(insert|update|delete)\s*\([^)]*inventoryLotLocations|inventoryLotLocations[^\n]*\.\s*(set|values)\s*\(/;
+  const RAW_SQL_MUTATION = /(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inventory_lot_locations/i;
+
+  const ALLOWED = ["lib/inventory/locations.ts"];
+
+  it("no module other than lib/inventory/locations.ts mutates the table", () => {
+    const offenders: string[] = [];
+    for (const dir of ["lib", "app", "components", "inngest", "scripts"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (ALLOWED.includes(rel)) continue;
+        const src = readFileSync(f, "utf8");
+        if (MUTATION.test(src) || RAW_SQL_MUTATION.test(src)) offenders.push(rel);
+      }
+    }
+    expect(
+      offenders,
+      `these write stock placement directly instead of using placeQty/takeQty in lib/inventory/locations.ts: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the choke point itself still exists and is what the rule points at", () => {
+    const src = readFileSync(join(ROOT, "lib/inventory/locations.ts"), "utf8");
+    expect(src).toMatch(/export async function placeQty/);
+    expect(src).toMatch(/export async function takeQty/);
+    expect(src).toMatch(/export async function resolveLocationId/);
+  });
+
+  it("every stock-moving module resolves its location instead of trusting the caller", () => {
+    // A path that writes a lot or a movement but never calls resolveLocationId
+    // is one that took a location id straight from a request body.
+    const MOVERS = [
+      "lib/inventory/valuation.ts",
+      "lib/inventory/receiving.ts",
+      "lib/inventory/shipping.ts",
+      "lib/inventory/production.ts",
+      "lib/inventory/jobwork.ts",
+      "lib/inventory/transfers.ts",
+      "lib/accounting/documents.ts",
+    ];
+    for (const rel of MOVERS) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      expect(src, `${rel} moves stock but never resolves a location`).toMatch(/resolveLocationId/);
+    }
+  });
+});

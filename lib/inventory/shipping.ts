@@ -16,6 +16,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, planIssue, commitIssue } from "@/lib/inventory/valuation";
+import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
@@ -33,6 +34,8 @@ export type ShipmentLineInput = {
   qtyBase: number;                 // shipped quantity in item base UoM
   saleRate?: number | null;        // sale price per base UoM (transaction currency) — for invoicing
   taxRateId?: string | null;
+  /** Ship THIS line from somewhere other than the shipment's location. */
+  locationId?: string | null;
 };
 
 export type ShipmentInput = {
@@ -42,6 +45,14 @@ export type ShipmentInput = {
   currency?: string | null;
   exchangeRate?: number | null;
   notes?: string | null;
+  /**
+   * Which location the goods ship FROM. Omitted means "wherever FIFO finds
+   * them", which is the pre-locations behaviour and still the right default for
+   * a single-site org. Naming one restricts picking to that location — and a
+   * shortfall then means "not enough HERE", which is exactly what a picker needs
+   * to be told.
+   */
+  locationId?: string | null;
   lines: ShipmentLineInput[];
 };
 
@@ -77,6 +88,14 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
   const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
 
   const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
+
+  // Resolved up front, before anything is written, and with forIssue so a
+  // Quarantine location is refused here rather than silently shipping stock
+  // that has not been released.
+  const headerLocationId = input.locationId
+    ? await resolveLocationId(orgId, input.locationId, { forIssue: true, label: "Shipping location" })
+    : null;
+
   // Item income account + list price (for the invoice) — not in the cost map.
   const extra = await db.select({ id: apItems.id, income: apItems.incomeAccountId, price: apItems.unitPrice })
     .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, rows.map(r => r.itemId))));
@@ -85,7 +104,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
   // Plan FIFO issues, build the Dr COGS / Cr Inventory entry (home currency).
   const lines: PostLine[] = [];
   let cogsTotal = 0, saleTotal = 0;
-  const commits: { r: ShipmentLineInput; qty: number; plan: any; cogsAcct: string; assetAcct: string; income: string | null; saleRate: number }[] = [];
+  const commits: { r: ShipmentLineInput; qty: number; plan: any; cogsAcct: string; assetAcct: string; income: string | null; saleRate: number; locationId: string | null }[] = [];
   for (const r of rows) {
     const item = itemMap.get(r.itemId);
     if (!item) err(`Item ${r.itemId} not found.`);
@@ -95,7 +114,13 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     if (!cogsAcct || !assetAcct) err(`No COGS / inventory account for ${item!.name}.`);
     const qty = round4(Math.abs(Number(r.qtyBase) || 0));
     if (qty <= 0) continue;
-    const plan = await planIssue(orgId, item!, qty, undefined, r.skuId ?? null);
+    const lineLocationId = r.locationId
+      ? await resolveLocationId(orgId, r.locationId, { forIssue: true, label: "Line shipping location" })
+      : headerLocationId;
+    const plan = await planIssue(orgId, item!, qty, { skuId: r.skuId ?? null, locationId: lineLocationId });
+    if (lineLocationId && plan.shortfallQty > 0) {
+      err(`${item!.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected location. Transfer stock in, or ship from where it actually is.`);
+    }
     const cost = round2(plan.totalCost);
     if (cost > 0) { lines.push({ accountId: cogsAcct!, debit: cost, description: `COGS — ${item!.name}` }); lines.push({ accountId: assetAcct!, credit: cost, description: `Inventory relief — ${item!.name}` }); cogsTotal = round2(cogsTotal + cost); }
     const ex = extraById.get(r.itemId);
@@ -107,7 +132,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     saleTotal = round2(saleTotal + qty * saleRate);
     // Income account for the eventual invoice — must NOT fall back to the asset
     // account, or revenue would post to Inventory. Left null → invoicing guards it.
-    commits.push({ r, qty, plan, cogsAcct: cogsAcct!, assetAcct: assetAcct!, income: ex?.income ?? null, saleRate });
+    commits.push({ r, qty, plan, cogsAcct: cogsAcct!, assetAcct: assetAcct!, income: ex?.income ?? null, saleRate, locationId: lineLocationId });
   }
 
   if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "shipment", saleTotal)) {
@@ -130,6 +155,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     orgId, shipmentNo, customerId: input.customerId ?? null, customerLabel,
     shipmentDate: date, currency, exchangeRate: rate.toString(), status: "Posted",
     entryId, cogsTotal: cogsTotal.toString(), saleTotal: saleTotal.toString(), invoicedAmount: "0",
+    locationId: headerLocationId,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning({ id: salesShipments.id });
   const shipmentId = shipment.id;

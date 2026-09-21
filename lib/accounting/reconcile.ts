@@ -264,6 +264,57 @@ export async function reconcileOrg(orgId: string, orgName: string): Promise<OrgR
       : `${drift.length} native invoice(s) agree`,
   });
 
+  // ── 9. every lot's placement adds up to its remaining balance ────────────
+  // The invariant behind stock locations (migration 0087): a lot is the cost
+  // layer and `inventory_lot_locations` says where that layer physically sits,
+  // so the two must agree. Drift means stock the system believes it owns but
+  // cannot point at — which makes a physical count unreconcilable and a
+  // location-scoped pick quietly wrong.
+  //
+  // "No rows" counts as zero, so a depleted lot is correctly consistent; that
+  // is what the coalesce does. Checked for EVERY org, not only native-ledger
+  // ones: a QuickBooks-backed org still runs its own warehouse here.
+  const placementDrift = await rows<{ lot_no: string | null; remaining: string; placed: string }>(sql`
+    select l.lot_no,
+           l.remaining_qty as remaining,
+           coalesce(p.placed, 0) as placed
+      from inventory_lots l
+      left join (
+        select lot_id, sum(qty) as placed
+          from inventory_lot_locations
+         where org_id = ${orgId}
+         group by lot_id
+      ) p on p.lot_id = l.id
+     where l.org_id = ${orgId}
+       and abs(l.remaining_qty - coalesce(p.placed, 0)) > 0.0001
+     order by abs(l.remaining_qty - coalesce(p.placed, 0)) desc`);
+  checks.push({
+    key: "lot_placement_balances",
+    label: "Every stock lot's location placement adds up to its remaining quantity",
+    status: placementDrift.length ? "fail" : "pass",
+    detail: placementDrift.length
+      ? `${placementDrift.length} lot(s) drift: ${placementDrift.slice(0, 5).map(d => `${d.lot_no ?? "(no lot no)"} holds ${fmt(Number(d.remaining))} but ${fmt(Number(d.placed))} is placed`).join("; ")}`
+      : "every lot is fully placed",
+  });
+
+  // ── 10. no stock is placed in another org's location ─────────────────────
+  // resolveLocationId() is the single choke point that prevents this, and it
+  // is called by every stock-moving path. This check is what proves the choke
+  // point actually holds — a cross-tenant placement would be a data breach,
+  // not merely a reporting error, so it is asserted rather than assumed.
+  const foreignPlacement = await rows<{ n: number }>(sql`
+    select count(*)::int as n
+      from inventory_lot_locations ll
+      join stock_locations s on s.id = ll.location_id
+     where ll.org_id = ${orgId} and s.org_id <> ll.org_id`);
+  const foreignCount = Number(foreignPlacement[0]?.n ?? 0);
+  checks.push({
+    key: "placement_tenancy",
+    label: "No stock is placed in another organisation's location",
+    status: foreignCount ? "fail" : "pass",
+    detail: foreignCount ? `${foreignCount} cross-tenant placement(s) — investigate immediately` : "none",
+  });
+
   return {
     orgId, orgName, usesNativeLedger, checks,
     failures: checks.filter(c => c.status === "fail").length,

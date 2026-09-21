@@ -17,6 +17,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, commitReceipt } from "@/lib/inventory/valuation";
+import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
@@ -35,6 +36,8 @@ export type ReceiptLineInput = {
   unitCost: number;                // transaction-currency cost per base UoM
   lotNo?: string | null;
   expiryDate?: string | null;
+  /** Receive THIS line somewhere other than the receipt's location (e.g. straight into Quarantine). */
+  locationId?: string | null;
 };
 
 export type ReceiptInput = {
@@ -44,6 +47,8 @@ export type ReceiptInput = {
   currency?: string | null;
   exchangeRate?: number | null;    // 1 {currency} = {rate} {home}
   notes?: string | null;
+  /** Where the goods landed. Omitted resolves to the org's default location. */
+  locationId?: string | null;
   lines: ReceiptLineInput[];
 };
 
@@ -70,11 +75,23 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
 
   const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
 
+  // Locations are resolved (and tenancy-checked) UP FRONT, before the journal
+  // entry is posted. A bad or foreign location id must fail while nothing has
+  // been written — not after a balanced entry is already in the ledger and only
+  // the stock side is left to fail.
+  const headerLocationId = await resolveLocationId(orgId, input.locationId, { label: "Receiving location" });
+  const lineLocation = new Map<number, string>();
+  for (let i = 0; i < rows.length; i++) {
+    const override = rows[i].locationId;
+    lineLocation.set(i, override ? await resolveLocationId(orgId, override, { label: "Line receiving location" }) : headerLocationId);
+  }
+
   // Build the balanced entry: Dr each item's inventory asset (home), Cr GR/IR.
   const lines: PostLine[] = [];
   let grirTotal = 0;
-  const commits: { r: ReceiptLineInput; homeUnit: number; amount: number; assetAcct: string }[] = [];
-  for (const r of rows) {
+  const commits: { r: ReceiptLineInput; homeUnit: number; amount: number; assetAcct: string; locationId: string }[] = [];
+  for (let ri = 0; ri < rows.length; ri++) {
+    const r = rows[ri];
     const item = itemMap.get(r.itemId);
     if (!item) err(`Item ${r.itemId} not found.`);
     if (!item!.tracked) err(`${item!.name} isn't an inventory-tracked item — only tracked items can be received into stock.`);
@@ -90,7 +107,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
       lines.push({ accountId: assetAcct!, debit: round2(amount), description: `Received — ${item!.name}` });
       grirTotal = round2(grirTotal + round2(amount));
     }
-    commits.push({ r, homeUnit, amount, assetAcct: assetAcct! });
+    commits.push({ r, homeUnit, amount, assetAcct: assetAcct!, locationId: lineLocation.get(ri)! });
   }
   if (!commits.length) err("Nothing to receive — check quantities.");
   if (grirTotal > 0) lines.push({ accountId: grirId!, credit: grirTotal, description: "Goods received not invoiced" });
@@ -111,6 +128,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     orgId, receiptNo, supplierId: input.supplierId ?? null, supplierLabel: input.supplierLabel ?? null,
     receiptDate: date, currency, exchangeRate: rate.toString(), status: "Posted",
     entryId: entry?.id ?? null, grirTotal: grirTotal.toString(), billedAmount: "0",
+    locationId: headerLocationId,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning({ id: goodsReceipts.id });
   const receiptId = receipt.id;
@@ -124,6 +142,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     const lotId = await commitReceipt(orgId, {
       itemId: item.id, skuId: c.r.skuId ?? null, qty, unitCost: c.homeUnit, productType: item.productType, lotNo: c.r.lotNo ?? null, expiryDate: c.r.expiryDate ?? null,
       supplierId: input.supplierId ?? null, sourceType: "purchase", receivedDate: date,
+      locationId: c.locationId,
       refType: "GoodsReceipt", refId, entryId: entry?.id ?? null, createdBy: actorId, note: c.r.description ?? null,
     }).catch(e => { console.error("[receiving lot]", e); return null; });
     await db.insert(goodsReceiptLines).values({

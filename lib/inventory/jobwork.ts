@@ -51,6 +51,7 @@ import { and, eq } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, commitReceipt, planIssue, commitIssue } from "@/lib/inventory/valuation";
+import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { round2, round6 } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
@@ -68,6 +69,13 @@ export type DispatchInput = {
   expectedYieldPct?: number | null; // optional benchmark, informational only — never enforced
   salesOrderId?: string | null; // optional — the Sales Order this dispatch is for; drives the Order Production Tracker
   expectedReturnDate?: string | null; // optional — the supplyChainWatchdog cron flags this order once it's still open past this date
+  /** Which location the material leaves from. Omitted means "wherever FIFO finds it". */
+  dispatchLocationId?: string | null;
+  /**
+   * Where the transformed item will come back to, remembered on the order so
+   * the receive screen can default to it weeks later. Overridable at receipt.
+   */
+  receiveLocationId?: string | null;
 };
 
 /** Send owned material out to a job worker. Relieves the sent item's FIFO
@@ -102,7 +110,19 @@ export async function dispatchToJobWorker(orgId: string, input: DispatchInput, a
   const assetAcct = item!.assetAccountId ?? invAssetId;
   if (!assetAcct) err(`No inventory asset account for ${item!.name}.`);
 
-  const plan = await planIssue(orgId, item!, qty);
+  // Resolved before any write. forIssue: material still in Quarantine has not
+  // been accepted and must not be sent out to a subcontractor.
+  const dispatchLocationId = input.dispatchLocationId
+    ? await resolveLocationId(orgId, input.dispatchLocationId, { forIssue: true, label: "Dispatch location" })
+    : null;
+  const receiveLocationId = input.receiveLocationId
+    ? await resolveLocationId(orgId, input.receiveLocationId, { label: "Return location" })
+    : null;
+
+  const plan = await planIssue(orgId, item!, qty, { locationId: dispatchLocationId });
+  if (dispatchLocationId && plan.shortfallQty > 0) {
+    err(`${item!.name}: only ${qty - plan.shortfallQty} of ${qty} is available at the selected dispatch location.`);
+  }
   const cost = round2(plan.totalCost);
   if (cost <= 0) err(`${item!.name} has no inventory cost on hand to send. Receive stock first.`);
 
@@ -132,6 +152,7 @@ export async function dispatchToJobWorker(orgId: string, input: DispatchInput, a
     orgId, docNumber, vendorId: input.vendorId ?? null, vendorLabel,
     sentItemId: item!.id, sentQty: qty.toString(), sentAmount: cost.toString(),
     dispatchDate: date, dispatchEntryId: entry.id, status: "Dispatched",
+    dispatchLocationId, receiveLocationId,
     expectedYieldPct: input.expectedYieldPct != null ? String(input.expectedYieldPct) : null,
     salesOrderId: input.salesOrderId || null,
     expectedReturnDate: input.expectedReturnDate || null,
@@ -150,6 +171,12 @@ export type ReceiveInput = {
   receiveDate: string;
   expiryDate?: string | null;
   notes?: string | null;
+  /**
+   * Where the transformed item lands. Omitted falls back to the return location
+   * chosen at dispatch, then to the org default — so the common case needs no
+   * decision at receipt time.
+   */
+  locationId?: string | null;
   // How much of the DISPATCHED item (in its own unit) this tranche represents
   // — required whenever the received item's unit differs from the sent
   // item's (e.g. kg of fabric in, count of garments out). Omit when sent and
@@ -188,6 +215,15 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
   const outAsset = output!.assetAccountId ?? invAssetId;
   if (!outAsset) err(`No inventory asset account for ${output!.name}.`);
 
+  // Where the transformed goods land: what this receipt says, else what was
+  // chosen when the material went out (weeks ago — the operator receiving it
+  // back should not have to remember), else the org default.
+  const receiveLocationId = await resolveLocationId(
+    orgId,
+    input.locationId ?? (jwo as any)!.receiveLocationId ?? null,
+    { label: "Return location" },
+  );
+
   const sentQty = Number(jwo!.sentQty);
   const sentAmount = Number(jwo!.sentAmount);
   const alreadyReceived = round2(Number(jwo!.receivedQty ?? 0));
@@ -219,6 +255,7 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
     itemId: output!.id, skuId: input.receivedSkuId ?? null, qty, unitCost,
     productType: output!.productType, expiryDate: input.expiryDate ?? null,
     supplierId: jwo!.vendorId ?? null, sourceType: "jobwork", receivedDate: date,
+    locationId: receiveLocationId,
     refType: "JobWorkOrder", refId: jwo!.id, entryId: entry.id, createdBy: actorId,
     note: `Job work receipt — ${jwo!.docNumber}`,
   });

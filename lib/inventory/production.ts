@@ -18,6 +18,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, planIssue, commitIssue, commitReceipt, type IssuePlan } from "@/lib/inventory/valuation";
+import { resolveLocationId } from "@/lib/inventory/locations";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { round2, round4, round6 } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
@@ -32,6 +33,10 @@ export type ProductionInput = {
   producedDate: string;            // YYYY-MM-DD
   expiryDate?: string | null;
   notes?: string | null;
+  /** Where components are drawn FROM. Omitted means "wherever FIFO finds them". */
+  consumeLocationId?: string | null;
+  /** Where finished output is delivered TO. Omitted resolves to the org default. */
+  outputLocationId?: string | null;
   inputs: { itemId: string; qty: number; skuId?: string | null; lotPicks?: { lotId: string; qty: number }[] }[];
 };
 
@@ -44,6 +49,13 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
 
   await ensureSystemAccounts(orgId);
   const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
+
+  // Resolved before any write. forIssue on the consume side so components can
+  // never be drawn out of Quarantine by a build.
+  const consumeLocationId = input.consumeLocationId
+    ? await resolveLocationId(orgId, input.consumeLocationId, { forIssue: true, label: "Component location" })
+    : null;
+  const outputLocationId = await resolveLocationId(orgId, input.outputLocationId, { label: "Output location" });
 
   const itemIds = [input.outputItemId, ...input.inputs.map(i => i.itemId)];
   const itemMap = await loadItemCostInfo(orgId, itemIds);
@@ -66,7 +78,10 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     const qty = Math.max(0, Number(inp.qty) || 0);
     if (qty <= 0) continue;
     const restrict = inp.lotPicks?.length ? inp.lotPicks.map(p => p.lotId) : undefined;
-    const plan = await planIssue(orgId, item!, qty, restrict, inp.skuId ?? null);
+    const plan = await planIssue(orgId, item!, qty, { restrictLotIds: restrict, skuId: inp.skuId ?? null, locationId: consumeLocationId });
+    if (consumeLocationId && plan.shortfallQty > 0) {
+      err(`${item!.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
+    }
     const assetAcct = item!.assetAccountId ?? invAssetId;
     if (!assetAcct) err(`No inventory asset account for input ${item!.name}.`);
     plans.push({ itemId: item!.id, skuId: inp.skuId ?? null, assetAcct: assetAcct!, plan, name: item!.name });
@@ -97,6 +112,7 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     qtyToProduce: qtyOut.toString(), totalInputCost: totalCost.toString(),
     status: "Completed", entryId: entry.id, producedDate: date,
     notes: input.notes?.trim() || null, createdBy: actorId,
+    consumeLocationId, outputLocationId,
   } as any).returning({ id: productionRuns.id });
   const runId = run[0].id;
 
@@ -130,6 +146,7 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     itemId: input.outputItemId, skuId, qty: baseQty, unitCost: baseQty > 0 ? totalCost / baseQty : 0,
     productType: output!.productType, expiryDate: input.expiryDate ?? null,
     sourceType: "production", receivedDate: date, refType: "ProductionRun", refId: entry.id, entryId: entry.id,
+    locationId: outputLocationId,
     createdBy: actorId, note: `Build ${runNo}`,
   }).catch(e => { console.error("[production output]", e); return null; });
 
@@ -193,13 +210,22 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
   const consumedIds = [...required.keys()];
   const itemMap = await loadItemCostInfo(orgId, [...consumedIds, bom!.outputItemId]);
 
+  // Resolved before any write — see buildProduction above for the reasoning.
+  const consumeLocationIdMulti = (input as any).consumeLocationId
+    ? await resolveLocationId(orgId, (input as any).consumeLocationId, { forIssue: true, label: "Component location" })
+    : null;
+  const outputLocationIdMulti = await resolveLocationId(orgId, (input as any).outputLocationId, { label: "Output location" });
+
   // Plan one FIFO issue per consumed item → blended unit cost.
   const plans = new Map<string, { plan: IssuePlan; blended: number; assetAcct: string }>();
   for (const id of consumedIds) {
     const item = itemMap.get(id); if (!item || !item.tracked) continue;
     const qty = required.get(id)!;
     if (qty <= 0) continue;
-    const plan = await planIssue(orgId, item, qty);
+    const plan = await planIssue(orgId, item, qty, { locationId: consumeLocationIdMulti });
+    if (consumeLocationIdMulti && plan.shortfallQty > 0) {
+      err(`${item.name}: only ${round4(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
+    }
     const assetAcct = item.assetAccountId ?? invAssetId;
     if (!assetAcct) err(`No inventory asset account for ${item.name}.`);
     plans.set(id, { plan, blended: plan.qty > 0 ? plan.totalCost / plan.qty : 0, assetAcct: assetAcct! });
@@ -252,6 +278,7 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
     orgId, bomId: input.bomId, runNo, outputItemId: bom!.outputItemId,
     qtyToProduce: baseTotal.toString(), totalInputCost: creditSum.toString(),
     status: "Completed", entryId: entry.id, producedDate: date, notes: input.notes?.trim() || null, createdBy: actorId,
+    consumeLocationId: consumeLocationIdMulti, outputLocationId: outputLocationIdMulti,
   } as any).returning({ id: productionRuns.id });
   const runId = run.id;
 
@@ -267,6 +294,7 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
     const lotId = await commitReceipt(orgId, {
       itemId: bom!.outputItemId, skuId: o.skuId, qty: o.baseQty, unitCost: unit,
       productType: itemMap.get(bom!.outputItemId)!.productType, sourceType: "production", receivedDate: date,
+      locationId: outputLocationIdMulti,
       refType: "ProductionRun", refId: entry.id, entryId: entry.id, createdBy: actorId, note: `Build ${runNo}`,
     }).catch(e => { console.error("[multi output]", e); return null; });
     await db.insert(productionOutputs).values({ orgId, runId, itemId: bom!.outputItemId, skuId: o.skuId, qtyPacks: o.packs.toString(), qtyBase: o.baseQty.toString(), unitCost: unit.toString(), amount: o.cost.toString(), lotId: lotId ?? null } as any).catch(() => {});

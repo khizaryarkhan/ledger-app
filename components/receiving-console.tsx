@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { Plus, RefreshCw, PackageCheck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt } from "@/lib/format";
@@ -124,6 +125,10 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
   const supplier = suppliers.find(s => s.id === supplierId);
+  const { locations } = useStockLocations();
+  const [locationId, setLocationId] = useState("");
+  // Default once the list arrives, and never overwrite a choice already made.
+  useEffect(() => { if (!locationId && locations.length) setLocationId(defaultLocationId(locations)); }, [locations]);
 
   useEffect(() => {
     const url = supplierId ? `/api/inventory/po-open?supplierId=${supplierId}` : `/api/inventory/po-open`;
@@ -174,7 +179,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
     if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ supplierId: supplierId || null, supplierLabel: supplier?.name ?? null, receiptDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, lines: payloadLines }) });
+      body: JSON.stringify({ supplierId: supplierId || null, supplierLabel: supplier?.name ?? null, receiptDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, lines: payloadLines }) });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
     if (!r.ok) { setErr(d?.error || "Could not post receipt."); return; }
@@ -196,6 +201,15 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
             <Field label="Receipt date">
               <input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} />
             </Field>
+            {/* Receiving INTO Quarantine is legitimate — goods arrive before
+                they are inspected — so this picker does not filter it out. */}
+            <LocationField
+              label="Receive into"
+              value={locationId}
+              onChange={setLocationId}
+              locations={locations}
+              hint="Where the goods physically landed"
+            />
           </div>
         </Section>
 

@@ -22,7 +22,7 @@ export type DocType =
   | "Journal" | "Invoice" | "SalesReceipt" | "Payment" | "CreditNote" | "RefundReceipt"
   | "Estimate" | "Bill" | "Expense" | "BillPayment" | "VendorCredit" | "Deposit" | "Transfer"
   | "PurchaseOrder" | "Production" | "GoodsReceipt" | "SalesOrder" | "Shipment"
-  | "Opening" | "Adjustment" | "Reconciliation" | "MO" | "JobWork"
+  | "Opening" | "Adjustment" | "Reconciliation" | "MO" | "JobWork" | "StockTransfer"
   | "LotFPWIP" | "LotSIRM";
 
 // Reserved, NON-editable system series: the global per-org backend Transaction
@@ -52,6 +52,10 @@ export const DOC_TYPES: { type: DocType; label: string; prefix: string; padding:
   { type: "Shipment",      label: "Shipments",         prefix: "SHP-",  padding: 4 },
   { type: "Opening",       label: "Opening Balances",  prefix: "OB-",   padding: 4 },
   { type: "Adjustment",    label: "Stock Adjustments", prefix: "ADJ-",  padding: 4 },
+  // Distinct from "Transfer" (TFR-), which is a BANK transfer between cash
+  // accounts. Moving stock between stores and moving money between accounts are
+  // different documents and must never share a number series.
+  { type: "StockTransfer", label: "Stock Transfers",   prefix: "STF-",  padding: 4 },
   { type: "Reconciliation",label: "Reconciliations",   prefix: "REC-",  padding: 4 },
   { type: "MO",            label: "Manufacturing Orders", prefix: "MO-", padding: 4 },
   { type: "JobWork",       label: "Job Work Orders",   prefix: "JW-",   padding: 4 },

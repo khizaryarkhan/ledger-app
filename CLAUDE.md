@@ -974,6 +974,111 @@ network at all — that is what makes it ours rather than a proxy.
     phases, designed for but not built — see the roadmap plan for the full
     picture.
 
+## Stock locations (Supply Chain completion, Phase 1, 2026-09-21)
+
+Stock is location-aware. Until migration `0087`, `inventory_lots` and
+`inventory_movements` carried NO location — `location_id` existed only on
+`journal_lines`/`trade_document_lines`, where it is a GL *reporting dimension*,
+not a place. A business with a raw store, a WIP floor and a finished-goods
+warehouse could not say where anything was.
+
+- **The lot stays the cost layer and the identity; location is a physical
+  overlay.** `inventory_lot_locations` (lot → location → qty) records where a
+  lot's remaining balance sits. Splitting lots per location was the alternative
+  and was rejected: it multiplies lot codes, breaks the org-wide unique lot
+  number that traceability depends on, and makes FIFO ordering ambiguous.
+- **The invariant**: `inventory_lots.remaining_qty` = Σ its
+  `inventory_lot_locations.qty`. "No rows" counts as zero, so a depleted lot is
+  correctly consistent. Checked by `lib/accounting/reconcile.ts`
+  (`lot_placement_balances`), alongside `placement_tenancy`, which proves no
+  org's stock sits in another org's location.
+- **`resolveLocationId()` in `lib/inventory/locations.ts` is the tenancy choke
+  point.** Every stock-moving path resolves through it, so the "does this id
+  belong to this org?" check lives in ONE place rather than in each caller —
+  same principle as `fetchQboInvoicePayInfo` for pay links. A Postgres FK proves
+  a location row exists, not whose it is. `tests/architecture.test.ts` enforces
+  both that only `locations.ts` mutates the placement table and that every mover
+  calls the resolver; both guards were proven to fail on a real violation.
+- **FIFO is decided by LOT; location only narrows what is reachable inside a
+  lot.** It never reorders the cost layers — that ordering is what makes cost
+  deterministic. Within a lot, slices are taken in location-code order so a plan
+  built twice picks the same way. `reachableSlices` is exported and unit-tested
+  (`tests/stock-locations.test.ts`) because it is the whole rule.
+- **Quarantine is never picked by FIFO.** `NON_ISSUABLE_TYPES` excludes it from
+  unscoped picking; naming it explicitly is refused by
+  `resolveLocationId({ forIssue: true })`. **A transfer deliberately does NOT
+  pass `forIssue`** — moving stock OUT of Quarantine is the release step. Note
+  the subtle trap the tests guard: the unlocated-gap calculation counts
+  Quarantine as *placed*, because computing the gap from issuable placements
+  only would report that stock as unlocated and FIFO would then draw it anyway,
+  defeating the exclusion entirely.
+- **Unlocated stock is drawn and flagged, never refused.** If a lot's placements
+  don't cover its balance, the shortfall is issued with `locationId: null` and
+  reported in `IssuePlan.unlocatedQty`. Drift is an integrity break the
+  reconciliation reports — but refusing to let physical stock leave the building
+  because a row is missing is a worse failure than the drift.
+- **`commitIssue` spills.** The lot balance comes down first, so the placement
+  must follow or the two disagree; if a concurrent write emptied the named
+  location since planning, it takes what is there and spills the rest across the
+  lot's other placements before logging loudly.
+- **A transfer changes WHERE, never WHAT IT COST.** `lib/inventory/transfers.ts`
+  does not use `commitReceipt`/`commitIssue` — both change the lot's remaining
+  balance, which would be wrong here and would also re-date the cost layer,
+  quietly corrupting FIFO order. It moves placements only. The GL is touched
+  **only** when the two locations map to different inventory accounts
+  (`stock_locations.inventory_account_id`, falling back to the item's asset
+  account); otherwise nothing changed in the books and a self-cancelling entry
+  would be noise. New `StockTransfer` doc series (`STF-`) — deliberately NOT the
+  existing `Transfer` (`TFR-`), which is a *bank* transfer.
+- **Locations are created on demand, not seeded.** Migration `0087` back-fills a
+  "MAIN" store only for orgs that already hold stock; everyone else gets one
+  from `ensureDefaultLocation()` at first use. Seeding every org would put a
+  "Main Store" in front of every Receivables-only tenant — the same mistake as
+  seeding Suspense into every chart of accounts. The race (two first-receipts,
+  no transactions) is closed by the partial unique index on
+  `(org_id) where is_default`, not by a lock.
+- **Deliberate**: an org *without* the manufacturing module that posts a
+  document containing a tracked item will still get a default location created,
+  because `lib/accounting/documents.ts` is not module-gated. That is correct —
+  its stock genuinely needs a home — and invisible to them, since the Locations
+  screen is behind the module gate.
+- Documents record their own placement: `goods_receipts.location_id`,
+  `sales_shipments.location_id`, `production_runs.consume/output_location_id`,
+  `job_work_orders.dispatch/receive_location_id`. All nullable — a NULL resolves
+  to the org default at posting time, which is what keeps every pre-existing
+  path working unchanged.
+- **Historical `inventory_movements` are NOT back-filled with a location.** A
+  NULL on an old row means "recorded before locations existed"; stamping the
+  default onto them would make the movement history assert a physical fact that
+  was never observed. Reversal of such a movement restores to the org default,
+  because the lot balance goes up and a placement must go up with it.
+- **UI**: Supply Chain → Inventory → Stock Transfers and Locations. Both sit in
+  Inventory rather than a new "Setup" group — a location is master data about
+  where stock lives exactly as Products & Materials is master data about what it
+  is, and a two-entry Setup group would split one idea across two places.
+- **One picker, four consoles.** `components/location-picker.tsx` holds
+  `useStockLocations()` + `<LocationField>`, used by Receiving, Shipping, Build
+  and Job Work. Built once for the same reason `resolveLocationId` lives in one
+  module: three copies of a control drift, and the one that drifts is the one
+  nobody is looking at. **It renders nothing when the org has fewer than two
+  active locations** — a single-site business should not be asked to choose
+  between one option, and the server resolves the default anyway. Same rule the
+  pay-link surfaces follow: hide the affordance, never show a dead one.
+  - `issueOnly` hides Quarantine on the *issue* side (ship from, consume from,
+    dispatch from). The server refuses it regardless; hiding it stops someone
+    finding out only after pressing Post.
+  - Receiving and Build-output default to the org default; Shipping, Build-consume
+    and Job-Work-dispatch default to blank = "Anywhere", which is the
+    pre-locations FIFO behaviour and still right for one site. Job Work receive
+    defaults to "As planned at dispatch", falling back to the order's own
+    `receiveLocationId`.
+- **Stock Status and the by-lot report carry a "Where" column.** Both resolve
+  placement in ONE query for the whole org (`placementsByItem`/`placementsByLot`
+  in `app/api/inventory/reports/route.ts`) — a per-item round trip would be a
+  query storm on a catalogue of any size. A single location shows its code only;
+  the quantity split is spelled out only when stock is genuinely in more than one
+  place.
+
 ## ⚠️ Migration-drift bugs found & fixed (2026-08-29)
 
 Running a from-scratch `npm run db:migrate` against a fresh database (rather

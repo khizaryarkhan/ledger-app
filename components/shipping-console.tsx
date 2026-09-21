@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useStockLocations, LocationField } from "@/components/location-picker";
 import { Plus, RefreshCw, Truck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt } from "@/lib/format";
@@ -122,6 +123,12 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
   const [lines, setLines] = useState<SLine[]>([]);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+  const { locations } = useStockLocations();
+  // Blank by default, unlike Receiving: a shipment with no location named lets
+  // FIFO span every location, which is the pre-locations behaviour and still
+  // right for a single-site org. Naming one restricts the pick to that place —
+  // and a shortfall then means "not enough HERE", which is what a picker needs.
+  const [locationId, setLocationId] = useState("");
   const customer = customers.find(c => c.id === customerId);
 
   useEffect(() => {
@@ -148,7 +155,7 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
     if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/shipping`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, lines: payloadLines }) });
+      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, lines: payloadLines }) });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
     if (!r.ok) { setErr(d?.error || "Could not post shipment."); return; }
@@ -168,6 +175,18 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
               </SelectField>
             </Field>
             <Field label="Shipment date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
+            {/* issueOnly: stock in Quarantine has not been released and must
+                not be shippable — the server refuses it, and hiding it here
+                means nobody discovers that only after pressing Post. */}
+            <LocationField
+              label="Ship from"
+              value={locationId}
+              onChange={setLocationId}
+              locations={locations}
+              issueOnly
+              allowAny
+              hint="Leave as Anywhere to let FIFO pick across locations"
+            />
           </div>
         </Section>
 
