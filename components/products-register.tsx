@@ -18,7 +18,7 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inventory/uom";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
-import { allowsPackConfiguration } from "@/lib/inventory/sourcing";
+import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, fieldLabel, th } from "@/components/form-kit";
@@ -339,71 +339,50 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
   const [rows, setRows] = useState<any[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [policy, setPolicy] = useState<string>(item.sourcingPolicy ?? "restricted");
-  const [policyErr, setPolicyErr] = useState("");
   const open = !allowsPackConfiguration(policy);
   async function load() {
     const r = await fetch(`/api/inventory/items/${item.id}`).then(x => x.json()).catch(() => null);
     setRows(r?.supplierSkus ?? []);
     if (r?.item?.sourcingPolicy) setPolicy(r.item.sourcingPolicy);
   }
-  useEffect(() => { load(); }, [item.id]);
-  async function remove(id: string) { await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" }); load(); }
-
-  async function setSourcing(next: string) {
-    setPolicyErr("");
-    const prev = policy;
-    setPolicy(next);                                  // optimistic — the switch should feel instant
-    const r = await fetch(`/api/inventory/items/${item.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourcingPolicy: next }),
-    });
-    if (!r.ok) {
-      // The server refuses to strand pack configurations. Put the switch back
-      // where it was and say why, rather than leaving the UI asserting a policy
-      // the item does not have.
-      setPolicy(prev);
-      setPolicyErr((await r.json().catch(() => ({})))?.error || "Could not change the sourcing policy.");
-      return;
-    }
-    load(); onChanged();
-  }
+  // Re-read when the policy changes from the Edit drawer, so the panel never
+  // shows the old columns for the new rule.
+  useEffect(() => { load(); }, [item.id, item.sourcingPolicy]);
+  async function remove(id: string) { await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" }); load(); onChanged(); }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Package size={14} className="text-amber-400" /> Suppliers <span className="text-stone-500 font-normal">· item base UoM {item.baseUom || "—"}</span></div>
-        {!open && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>}
+        {/* Offered under BOTH policies. On a restricted item a link is the
+            permission to buy; on an open item it is only a commercial record
+            (price, lead time, preferred) — optional, and never restrictive. */}
+        <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>
       </div>
 
-      {/* Sourcing policy sits at the head of this panel rather than among the
-          item's own fields: it is the question "who may supply this?", and this
-          is where the answer is read. */}
-      <label className="flex items-start gap-2 mb-2 px-3 py-2 rounded-lg border border-stone-800 bg-stone-900/40 cursor-pointer">
-        <input type="checkbox" checked={open} onChange={e => setSourcing(e.target.checked ? "open" : "restricted")}
-          className="mt-0.5 accent-emerald-600" />
-        <span className="text-[12px] leading-relaxed">
-          <span className="font-medium text-stone-300">Buy from any supplier</span>
-          <span className="text-stone-500"> — bought in {item.baseUom || "its base unit"}, with no pack configuration. A pack describes one named vendor's packaging, and this item has no named vendor.</span>
-        </span>
-      </label>
-      {policyErr && <div className="mb-2 text-[11px] text-rose-400">{policyErr}</div>}
+      {/* The policy itself is set in the Edit drawer with the item's other
+          properties; this line only says which rule the table below follows. */}
+      <p className="mb-2 text-[11px] text-stone-500">
+        {open
+          ? <>Bought from <span className="text-stone-300 font-medium">any supplier</span>, in {item.baseUom || "its base unit"}. Linking one is optional — it records their price, lead time and whether they are preferred.</>
+          : <>Bought only from the <span className="text-stone-300 font-medium">suppliers linked below</span>, in their units and packs.</>}
+      </p>
 
-      {open ? (
-        <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">
-          Any supplier may supply this item. Nothing to configure.
-        </div>
-      ) : (
       <div className="rounded-lg border border-stone-800 overflow-hidden">
         <table className="w-full text-[12px]">
           <thead><tr className="border-b border-stone-800">
-            <th className={th}>Supplier</th><th className={th}>Supplier UoM</th>
-            <th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th>
+            <th className={th}>Supplier</th>
+            {!open && <><th className={th}>Supplier UoM</th><th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th></>}
             <th className={`${th} text-right`}>Price</th><th className={`${th} text-right`}>Lead time</th>
-            <th className={`${th} text-right`}>Conv. factor</th><th className="w-8" />
+            {!open && <th className={`${th} text-right`}>Conv. factor</th>}<th className="w-8" />
           </tr></thead>
           <tbody>
-            {rows === null && <tr><td colSpan={8} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
-            {rows !== null && rows.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-center text-stone-500">No suppliers linked yet.</td></tr>}
+            {rows === null && <tr><td colSpan={open ? 4 : 8} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
+            {rows !== null && rows.length === 0 && (
+              <tr><td colSpan={open ? 4 : 8} className="px-3 py-4 text-center text-stone-500">
+                {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
+              </td></tr>
+            )}
             {(rows ?? []).map(s => {
               const cross = item.baseUom && s.supplierUom && needsConversionFactor(s.supplierUom, item.baseUom);
               return (
@@ -414,9 +393,11 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                       {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-stone-300 font-mono">{s.supplierUom || "—"}</td>
-                  <td className="px-3 py-2 text-stone-400 font-mono">{s.supplierSku || "—"}</td>
-                  <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: s.supplierUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
+                  {!open && <>
+                    <td className="px-3 py-2 text-stone-300 font-mono">{s.supplierUom || "—"}</td>
+                    <td className="px-3 py-2 text-stone-400 font-mono">{s.supplierSku || "—"}</td>
+                    <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: s.supplierUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
+                  </>}
                   {/* Quoted per supplier UoM, and labelled as such — the same
                       shape as the vendor's own price list, which is what makes
                       it checkable. */}
@@ -426,7 +407,7 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                       : <span className="text-stone-600">—</span>}
                   </td>
                   <td className="px-3 py-2 text-right font-mono">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
-                  <td className="px-3 py-2 text-right font-mono">{s.conversionFactor ? <span className="text-amber-300">{Number(s.conversionFactor)} {item.baseUom}/{s.supplierUom}</span> : (cross ? <span className="text-rose-400">missing</span> : <span className="text-stone-600">auto</span>)}</td>
+                  {!open && <td className="px-3 py-2 text-right font-mono">{s.conversionFactor ? <span className="text-amber-300">{Number(s.conversionFactor)} {item.baseUom}/{s.supplierUom}</span> : (cross ? <span className="text-rose-400">missing</span> : <span className="text-stone-600">auto</span>)}</td>}
                   <td className="px-3 py-2"><button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
                 </tr>
               );
@@ -434,13 +415,12 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
           </tbody>
         </table>
       </div>
-      )}
-      {adding && <SupplierSkuDrawer item={item} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); }} />}
+      {adding && <SupplierSkuDrawer item={item} open={open} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); onChanged(); }} />}
     </div>
   );
 }
 
-function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => void; onCreated: () => void }) {
+function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: any; open?: boolean; onClose: () => void; onCreated: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
   const [f, setF] = useState<Record<string, string>>({ supplierId: "", supplierUom: "", skuName: "", supplierSku: "", itemCodeBySupplier: "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "", unitPrice: "", currency: "", leadTimeDays: "", minOrderQty: "" });
@@ -455,6 +435,18 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
+    // An "any supplier" item is bought in its own base unit, so its link has
+    // no supplier UoM or packaging to ask for — the server refuses pack fields
+    // for it anyway. The link carries price, lead time and preferred only.
+    if (open) {
+      setSaving(true); setErr("");
+      const { innerUnitPackSize, innerPackType, unitsInOuterPack, outerPackType, conversionFactor, ...terms } = f;
+      const r = await fetch(`/api/inventory/supplier-skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...terms, supplierUom: item.baseUom || "", isPreferred }) });
+      setSaving(false);
+      if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
+      onCreated();
+      return;
+    }
     if (!f.supplierUom) { setErr("Choose the supplier's UoM."); return; }
     if (crossDim && !f.conversionFactor) { setErr(`Supplier UoM "${f.supplierUom}" and item base UoM "${item.baseUom}" are different measures — enter a conversion factor.`); return; }
     setSaving(true); setErr("");
@@ -466,7 +458,12 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
 
   return (
     <Drawer title="Link supplier" onClose={onClose}>
-      <p className="text-[12px] text-stone-400 mb-5">Item base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>. Record how this supplier sells and packages the material.</p>
+      <p className="text-[12px] text-stone-400 mb-5">
+        Item base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>.{" "}
+        {open
+          ? <>This item can be bought from any supplier, in {item.baseUom || "its base unit"} — record this supplier&apos;s price and lead time. Pack configuration is only for items bought from linked suppliers.</>
+          : <>Record how this supplier sells and packages the material.</>}
+      </p>
       <div className="space-y-6">
         <Section title="Supplier">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -477,27 +474,27 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
                 <option value="__add__">+ Add new supplier…</option>
               </SelectField>
             </Field>
-            <Field label="Supplier's base UoM" required><UomSelect value={f.supplierUom} onChange={v => set("supplierUom", v)} /></Field>
+            {!open && <Field label="Supplier's base UoM" required><UomSelect value={f.supplierUom} onChange={v => set("supplierUom", v)} /></Field>}
             <Field label="Supplier SKU"><input className={controlInset} value={f.supplierSku} onChange={e => set("supplierSku", e.target.value)} /></Field>
             <Field label="SKU name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName", e.target.value)} placeholder="e.g. 25kg sack" /></Field>
             <Field label="Item code by supplier"><input className={controlInset} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier", e.target.value)} /></Field>
           </div>
         </Section>
-        <Section title="Units & packaging">
+        {!open && <Section title="Units & packaging">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label={`Inner unit pack size (${f.supplierUom || "supplier UoM"})`}><input type="number" className={controlInset} value={f.innerUnitPackSize} onChange={e => set("innerUnitPackSize", e.target.value)} /></Field>
             <Field label="Inner pack type"><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
             <Field label="Units in outer pack"><input type="number" className={controlInset} value={f.unitsInOuterPack} onChange={e => set("unitsInOuterPack", e.target.value)} /></Field>
             <Field label="Outer pack type"><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
           </div>
-        </Section>
-        {preview && <div className="rounded-lg bg-amber-500/8 border border-amber-800/40 px-3 py-2 text-[12px] text-amber-300 font-mono">{preview}</div>}
+        </Section>}
+        {!open && preview && <div className="rounded-lg bg-amber-500/8 border border-amber-800/40 px-3 py-2 text-[12px] text-amber-300 font-mono">{preview}</div>}
         {/* Commercial terms — quoted in the SUPPLIER's unit, deliberately, so
             the row reads the same as the price list it is copied from. Every
             pack level's rate is derived from this one figure. */}
         <Section title="Commercial terms">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label={`Price per ${f.supplierUom || "supplier UoM"}`} hint={f.supplierUom && f.innerUnitPackSize && Number(f.innerUnitPackSize) > 0 && Number(f.unitPrice) > 0
+            <Field label={`Price per ${open ? (item.baseUom || "unit") : (f.supplierUom || "supplier UoM")}`} hint={f.supplierUom && f.innerUnitPackSize && Number(f.innerUnitPackSize) > 0 && Number(f.unitPrice) > 0
               ? `A ${f.innerPackType || "pack"} of ${f.innerUnitPackSize} costs ${fmt.num2(Number(f.unitPrice) * Number(f.innerUnitPackSize))}`
               : "As the supplier quotes it — pack prices are worked out from this."}>
               <input type="number" step="any" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} />
@@ -509,7 +506,7 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
               </SelectField>
             </Field>
             <Field label="Lead time (days)" hint="Order to delivery."><input type="number" className={controlInset} value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} /></Field>
-            <Field label={`Minimum order (${f.supplierUom || "supplier UoM"})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
+            <Field label={`Minimum order (${open ? (item.baseUom || "unit") : (f.supplierUom || "supplier UoM")})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
             <label className="col-span-2 flex items-start gap-2 cursor-pointer">
               <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="mt-0.5 accent-emerald-600" />
               <span className="text-[12px] leading-relaxed">
@@ -519,7 +516,7 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
             </label>
           </div>
         </Section>
-        {crossDim && (
+        {!open && crossDim && (
           <div className="rounded-lg bg-rose-500/8 border border-rose-800/40 px-3 py-3">
             <label className={`${labelCls} text-rose-300`}>Conversion factor required</label>
             <p className="text-[11px] text-stone-400 mb-2">Supplier uses <span className="font-mono text-stone-200">{f.supplierUom}</span> but the item is measured in <span className="font-mono text-stone-200">{item.baseUom}</span> — these are different measures. Enter how many <span className="font-mono">{item.baseUom}</span> equal one <span className="font-mono">{f.supplierUom}</span>.</p>
@@ -537,6 +534,30 @@ function SupplierSkuDrawer({ item, onClose, onCreated }: { item: any; onClose: (
   );
 }
 
+/* ----------------------------- Sourcing policy ----------------------------- */
+
+// "Who may supply this?" is a property of the ITEM (CLAUDE.md, supplier
+// sourcing), so it is set with the item's other properties in its drawer.
+// The Suppliers panel only reports which rule applies.
+function SourcingToggle({ policy, onChange, baseUom }: { policy: string; onChange: (p: string) => void; baseUom?: string | null }) {
+  const open = !allowsPackConfiguration(policy);
+  return (
+    <Section title="Purchasing" className="pt-2 border-t border-stone-800">
+      <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 px-3 py-2.5 cursor-pointer">
+        <input type="checkbox" checked={open} onChange={e => onChange(e.target.checked ? "open" : "restricted")} className="mt-0.5 accent-emerald-600" />
+        <div>
+          <div className="text-[12.5px] font-medium text-stone-200">Buy from any supplier</div>
+          <p className="text-[11px] text-stone-400 leading-relaxed">
+            {open
+              ? <>Anyone may supply it, in {baseUom || "its base unit"}, with no pack configuration. Linking a supplier is optional and only records their price and lead time.</>
+              : <>Off: it can only be bought from suppliers linked on its Suppliers panel, in their units and packs. A purchase from anyone else is refused.</>}
+          </p>
+        </div>
+      </label>
+    </Section>
+  );
+}
+
 /* ----------------------------- New item drawer ----------------------------- */
 
 function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -545,6 +566,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
   const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "" });
   const [lotTracked, setLotTracked] = useState(true);
+  const [sourcingPolicy, setSourcingPolicy] = useState<string>(defaultSourcingPolicy("FinishedProduct"));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -555,7 +577,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
 
   const meta = kindOf(f.productType);
   // Sync the lot-tracked default when the kind changes.
-  useEffect(() => { setLotTracked(meta.lotTrackedDefault); }, [f.productType]);
+  useEffect(() => { setLotTracked(meta.lotTrackedDefault); setSourcingPolicy(defaultSourcingPolicy(f.productType)); }, [f.productType]);
 
   const incomeAccts  = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
@@ -566,7 +588,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
     if (!f.name.trim()) { setErr("Item name is required."); return; }
     if (meta.tracked && !f.baseUom) { setErr("A base UoM is required for inventory-tracked items."); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked }) });
+    const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked, ...(meta.buyable ? { sourcingPolicy } : {}) }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
@@ -612,6 +634,8 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
             </div>
           </label>
         )}
+
+        {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
 
         <Section title="Accounting" className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -688,6 +712,8 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
     minOhQty: String(item.minOhQty ?? "0"), unitPrice: item.unitPrice != null ? String(item.unitPrice) : "", unitCost: item.unitCost != null ? String(item.unitCost) : "",
     incomeAccountId: item.incomeAccountId ?? "", expenseAccountId: item.expenseAccountId ?? "", assetAccountId: item.assetAccountId ?? "", cogsAccountId: item.cogsAccountId ?? "", taxRateId: item.taxRateId ?? "",
   });
+  const originalPolicy = item.sourcingPolicy ?? "restricted";
+  const [sourcingPolicy, setSourcingPolicy] = useState<string>(originalPolicy);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
   useEffect(() => {
@@ -702,7 +728,11 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
   async function save() {
     if (!f.name.trim()) { setErr("Item name is required."); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/items/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
+    // The policy is sent only when it changed: the server refuses a switch to
+    // "any supplier" while pack configurations exist, and an unrelated rename
+    // must never trip over that check.
+    const body = sourcingPolicy !== originalPolicy ? { ...f, sourcingPolicy } : f;
+    const r = await fetch(`/api/inventory/items/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onSaved();
@@ -721,6 +751,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
             <Field label="Status" className="col-span-2"><SelectField inset value={f.status} onChange={e => set("status", e.target.value)}><option>Active</option><option>Inactive</option></SelectField></Field>
           </div>
         </Section>
+        {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={item.baseUom} />}
         <Section title="Accounting" className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             {meta.sellable && <Field label="Sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}

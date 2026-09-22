@@ -60,6 +60,17 @@ export function sourcingOf(policy?: string | null): SourcingMeta {
   return p === "open" ? SOURCING_POLICIES.open : SOURCING_POLICIES.restricted;
 }
 
+/**
+ * The policy a NEW item starts with when nobody chose one. Same rule 0089
+ * applied to existing items: stock (tracked) kinds are restricted to their
+ * linked suppliers; Service and Non-Inventory are open, because
+ * pack-configuring "Consulting" is meaningless. Without this, every item
+ * created after 0089 took the column default, `restricted`, so the first
+ * Bill for a new Service item was refused.
+ */
+export const defaultSourcingPolicy = (productType?: string | null): SourcingPolicy =>
+  kindOf(productType).tracked ? "restricted" : "open";
+
 export const allowsAnySupplier = (policy?: string | null) => sourcingOf(policy).allowsAnySupplier;
 export const allowsPackConfiguration = (policy?: string | null) => sourcingOf(policy).allowsPackConfiguration;
 

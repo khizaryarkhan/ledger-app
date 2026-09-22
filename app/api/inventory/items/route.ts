@@ -8,6 +8,7 @@ import { apItems } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc } from "drizzle-orm";
 import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
+import { sourcingOf, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
@@ -48,6 +49,9 @@ export async function POST(req: Request) {
     if (!cogsAccountId) cogsAccountId = await systemAccountId(orgId!, INV_SUBTYPE.cogs);
   }
   const lotTracked = b?.lotTracked === undefined ? meta.lotTrackedDefault : !!b.lotTracked;
+  // Chosen in the New item drawer; otherwise the kind's default. Never left to
+  // the column default, which is `restricted` for every kind.
+  const sourcingPolicy = b?.sourcingPolicy ? sourcingOf(b.sourcingPolicy).policy : defaultSourcingPolicy(productType);
 
   const [row] = await db.insert(apItems).values({
     orgId: orgId!, source: "native", name,
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
     itemType: qboItemType(productType),
     unitPrice: numOrNull(b?.unitPrice) as any, unitCost: numOrNull(b?.unitCost) as any,
     incomeAccountId: s(b?.incomeAccountId, 64), expenseAccountId: s(b?.expenseAccountId, 64), taxRateId: s(b?.taxRateId, 64),
-    assetAccountId, cogsAccountId, lotTracked,
+    assetAccountId, cogsAccountId, lotTracked, sourcingPolicy,
     status: "Active",
   } as any).returning();
   return ok(row);
