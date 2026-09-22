@@ -16,18 +16,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, Package, Boxes, Layers, Pencil } from "lucide-react";
 import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inventory/uom";
+import { perSupplierUnit } from "@/lib/inventory/order-options";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
 import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, fieldLabel, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
 const inputCls = controlInset;
-const labelCls = fieldLabel;
 
 const UOM_GROUPS: { dim: string; label: string }[] = [
   { dim: "mass", label: "Mass" }, { dim: "volume", label: "Volume" },
@@ -233,22 +233,79 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   );
 }
 
-/* ----------------------------- Barcodes (GS1) ----------------------------- */
+/* ----------------------------- Packaging levels & barcodes (GS1) ----------------------------- */
 
-// One field per packaging level. Checked as you type with the same rule the
-// server enforces (lib/inventory/identifiers.ts): anything that looks like a
-// GTIN must pass its check digit, so a typo is caught here rather than on the
-// dock when the scanner finds nothing.
-function BarcodeField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+// Packaging is described LEVEL BY LEVEL, and everything about one level sits in
+// one card: what the pack is, what it contains, and its GTIN. The drawers used
+// to split that across "Units & packaging", "Commercial terms" and "Barcodes",
+// so a carton's size and the carton's barcode were three sections apart — and
+// a GTIN only means anything next to the pack it identifies (GS1: each level
+// is its own trade item). Levels nest in order, and an optional level is a
+// button until it is needed rather than a row of empty fields.
+function LevelCard({ n, title, subtitle, onRemove, children }: {
+  n: number; title: string; subtitle?: React.ReactNode; onRemove?: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="relative rounded-lg border border-stone-700/70 bg-stone-900/50 p-3">
+      <div className="flex items-start gap-2.5 mb-3">
+        <span className="mt-px w-5 h-5 shrink-0 rounded-full bg-stone-800 border border-stone-700 text-[11px] font-semibold text-stone-300 flex items-center justify-center">{n}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-semibold text-stone-100">{title}</div>
+          {subtitle && <div className="text-[11px] text-stone-500 leading-snug">{subtitle}</div>}
+        </div>
+        {onRemove && (
+          <button type="button" onClick={onRemove} title={`Remove ${title.toLowerCase()}`} className="text-stone-600 hover:text-rose-400 p-0.5"><X size={14} /></button>
+        )}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function AddLevelButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-stone-700 py-2.5 text-[12px] font-medium text-stone-400 hover:text-emerald-400 hover:border-emerald-800 transition-colors">
+      <Plus size={13} /> {label}
+    </button>
+  );
+}
+
+/** Compact GTIN input for inside a level card — validated as you type. */
+function GtinInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const c = classifyBarcode(value);
-  const hint = !value.trim() ? "GTIN (EAN-13, UPC-A, EAN-8, ITF-14) or any other barcode"
+  const hint = !value.trim() ? "Optional · EAN-13, UPC-A, EAN-8, ITF-14 or any barcode"
     : "error" in c ? <span className="text-rose-400">{c.error}</span>
-    : c.barcode?.scheme === "GTIN" ? <span className="text-emerald-400">Valid GTIN · stored as {c.barcode.code}</span>
+    : c.barcode?.scheme === "GTIN" ? <span className="text-emerald-400">Valid GTIN</span>
     : <span className="text-amber-400">Not a GS1 GTIN — kept as an internal barcode</span>;
   return (
-    <Field label={label} hint={hint}>
+    <Field label="GTIN / barcode" hint={hint}>
       <input className={`${controlInset} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder="e.g. 9501101530003" />
     </Field>
+  );
+}
+
+/** "Contains [ 12 ] Box" — the quantity input with its unit written after it, so it reads as a sentence. */
+function ContainsInput({ value, onChange, unit, placeholder }: { value: string; onChange: (v: string) => void; unit: string; placeholder?: string }) {
+  return (
+    <Field label="Contains">
+      <div className="flex items-center gap-2">
+        <input type="number" step="any" min="0" className={`${controlInset} w-28`} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+        <span className="text-[12px] text-stone-400 truncate">{unit}</span>
+      </div>
+    </Field>
+  );
+}
+
+/** "1 Carton = 12 Box = 300 kg" — the ladder read back, in the item's base unit. */
+function LadderSummary({ steps, baseUom }: { steps: { label: string; qty: number }[]; baseUom: string }) {
+  if (!steps.length) return null;
+  const top = steps[steps.length - 1];
+  const chain = [...steps].reverse().map((s, i, arr) => i === 0 ? `1 ${s.label}` : `${fmt.qty(arr[0].qty / s.qty)} ${s.label}`);
+  return (
+    <div className="rounded-lg bg-emerald-500/8 border border-emerald-800/40 px-3 py-2 text-[12px] text-emerald-300">
+      {chain.join(" = ")}{baseUom ? <> = <span className="font-semibold">{fmt.qty(top.qty)} {baseUom}</span></> : null}
+    </div>
   );
 }
 
@@ -341,16 +398,32 @@ function SkuDrawer({ item, sku, onClose, onCreated }: { item: any; sku?: any; on
     unitsInOuterPack: str(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
   });
   const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
-  // Levels this SKU actually has — same rule as the API (skuValues).
-  const levels: PackLevel[] = ["inner",
-    ...((f.unitsInAddlInnerPack || f.addlInnerPackType) ? ["addl_inner" as PackLevel] : []),
-    ...((f.unitsInOuterPack || f.outerPackType) ? ["outer" as PackLevel] : [])];
+  const [hasAddl, setHasAddl] = useState<boolean>(!!(sku?.unitsInAddlInnerPack || sku?.addlInnerPackType));
+  const [hasOuter, setHasOuter] = useState<boolean>(!!(sku?.unitsInOuterPack || sku?.outerPackType));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const preview = packConfig({ baseUom: item.baseUom || "", innerSize: Number(f.innerUnitPackSize) || null, innerType: f.innerPackType || null, unitsAddl: Number(f.unitsInAddlInnerPack) || null, addlType: f.addlInnerPackType || null, unitsOuter: Number(f.unitsInOuterPack) || null, outerType: f.outerPackType || null });
+  const setCode = (l: PackLevel, v: string) => setCodes(c => ({ ...c, [l]: v }));
+  const base = item.baseUom || "";
+
+  // Levels this SKU actually has — same rule as the API (skuValues).
+  const levels: PackLevel[] = ["inner", ...(hasAddl ? ["addl_inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
+  const innerQty = Number(f.innerUnitPackSize) || 0;
+  const addlQty = hasAddl ? (Number(f.unitsInAddlInnerPack) || 0) * innerQty : 0;
+  const outerParentQty = hasAddl ? addlQty : innerQty;
+  const outerParentLabel = hasAddl ? (f.addlInnerPackType || "multipacks") : (f.innerPackType || "units");
+  const steps = [
+    ...(f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
+    ...(hasAddl && f.addlInnerPackType && addlQty > 0 ? [{ label: f.addlInnerPackType, qty: addlQty }] : []),
+    ...(hasOuter && f.outerPackType && Number(f.unitsInOuterPack) > 0 && outerParentQty > 0 ? [{ label: f.outerPackType, qty: Number(f.unitsInOuterPack) * outerParentQty }] : []),
+  ];
+
+  function removeAddl() { setHasAddl(false); setF(p => ({ ...p, unitsInAddlInnerPack: "", addlInnerPackType: "" })); setCodes(c => ({ ...c, addl_inner: "" })); }
+  function removeOuter() { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); }
 
   async function save() {
     if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
+    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack: choose its pack type and how many it contains — or remove it."); return; }
+    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many it contains — or remove it."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
@@ -364,8 +437,8 @@ function SkuDrawer({ item, sku, onClose, onCreated }: { item: any; sku?: any; on
   }
 
   return (
-    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} onClose={onClose}>
-      <p className="text-[12px] text-stone-400 mb-5">Base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>. Define how many base units nest in each container.</p>
+    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} onClose={onClose} wide>
+      <p className="text-[12px] text-stone-400 mb-5">{item.name} · stocked in <span className="font-mono text-stone-200">{base || "no base UoM"}</span>. Describe how it is packed for sale, level by level.</p>
       <div className="space-y-6">
         <Section title="Identity">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -373,33 +446,47 @@ function SkuDrawer({ item, sku, onClose, onCreated }: { item: any; sku?: any; on
             <Field label="SKU code"><input className={controlInset} value={f.skuCode} onChange={e => set("skuCode", e.target.value)} /></Field>
           </div>
         </Section>
-        <Section title="Units & packaging">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label={`Inner unit pack size (${item.baseUom || "base"})`}><input type="number" className={controlInset} value={f.innerUnitPackSize} onChange={e => set("innerUnitPackSize", e.target.value)} placeholder="750" /></Field>
-            <Field label="Inner pack type"><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
-            <Field label="Units in addl. inner pack"><input type="number" className={controlInset} value={f.unitsInAddlInnerPack} onChange={e => set("unitsInAddlInnerPack", e.target.value)} placeholder="optional" /></Field>
-            <Field label="Addl. inner pack type"><PackTypeSelect value={f.addlInnerPackType} onChange={v => set("addlInnerPackType", v)} /></Field>
-            <Field label="Units in outer pack"><input type="number" className={controlInset} value={f.unitsInOuterPack} onChange={e => set("unitsInOuterPack", e.target.value)} placeholder="e.g. 6" /></Field>
-            <Field label="Outer pack type"><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
+
+        {/* The consumer unit is the SKU itself, so it is always there; the
+            multipack and the shipping case are optional levels above it. Each
+            level is its own GS1 trade item with its own GTIN. */}
+        <Section title="Packaging & barcodes">
+          <div className="space-y-2">
+            <LevelCard n={1} title="Consumer unit" subtitle="What a customer buys — the bottle, pouch or tin.">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Pack type"><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
+                <ContainsInput value={f.innerUnitPackSize} onChange={v => set("innerUnitPackSize", v)} unit={base || "base units"} placeholder="750" />
+                <div className="col-span-2"><GtinInput value={codes.inner ?? ""} onChange={v => setCode("inner", v)} /></div>
+              </div>
+            </LevelCard>
+
+            {hasAddl ? (
+              <LevelCard n={2} title="Multipack" subtitle={`A pack of ${f.innerPackType || "consumer units"} — e.g. a 6-pack.`} onRemove={removeAddl}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <Field label="Pack type" required><PackTypeSelect value={f.addlInnerPackType} onChange={v => set("addlInnerPackType", v)} /></Field>
+                  <ContainsInput value={f.unitsInAddlInnerPack} onChange={v => set("unitsInAddlInnerPack", v)} unit={f.innerPackType || "units"} placeholder="6" />
+                  <div className="col-span-2"><GtinInput value={codes.addl_inner ?? ""} onChange={v => setCode("addl_inner", v)} /></div>
+                </div>
+              </LevelCard>
+            ) : <AddLevelButton label="Add multipack" onClick={() => setHasAddl(true)} />}
+
+            {hasOuter ? (
+              <LevelCard n={hasAddl ? 3 : 2} title="Outer pack" subtitle={`The shipping case or carton of ${outerParentLabel}.`} onRemove={removeOuter}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <Field label="Pack type" required><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
+                  <ContainsInput value={f.unitsInOuterPack} onChange={v => set("unitsInOuterPack", v)} unit={outerParentLabel} placeholder="4" />
+                  <div className="col-span-2"><GtinInput value={codes.outer ?? ""} onChange={v => setCode("outer", v)} /></div>
+                </div>
+              </LevelCard>
+            ) : <AddLevelButton label="Add outer pack" onClick={() => setHasOuter(true)} />}
+
+            <LadderSummary steps={steps} baseUom={base} />
           </div>
+          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU, its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
         </Section>
-        {/* A GTIN identifies ONE packaging level — the bottle, the 6-pack and
-            the carton are three different trade items with three GTINs. The
-            fields follow the levels defined above. */}
-        <Section title="Barcodes (GS1)">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {levels.map(l => (
-              <BarcodeField key={l}
-                label={levelLabel(l, l === "inner" ? (f.innerPackType || f.skuName) : l === "addl_inner" ? f.addlInnerPackType : f.outerPackType)}
-                value={codes[l] ?? ""} onChange={v => setCodes(c => ({ ...c, [l]: v }))} />
-            ))}
-          </div>
-          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
-        </Section>
-        {preview && <div className="rounded-lg bg-emerald-500/8 border border-emerald-800/40 px-3 py-2 text-[12px] text-emerald-300 font-mono">{preview}</div>}
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} />
+      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={sku ? "Save changes" : "Create SKU"} />
     </Drawer>
   );
 }
@@ -503,7 +590,12 @@ function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { i
   // Stored numerics arrive as "25.0000" — show them as the number they are.
   const str = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
   const [f, setF] = useState<Record<string, string>>({
-    supplierId: link?.supplierId ?? "", supplierUom: link?.supplierUom ?? "", skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "",
+    supplierId: link?.supplierId ?? "",
+    // Defaults to the item's own unit. Links created from purchase history
+    // (0090) carry no supplier UoM, and "Select UoM…" on an edit that was
+    // never asked for it read as a broken record.
+    supplierUom: link?.supplierUom || item.baseUom || "",
+    skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "",
     itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
     innerUnitPackSize: str(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
     unitsInOuterPack: str(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
@@ -512,54 +604,68 @@ function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { i
   });
   const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
   const [codes, setCodes] = useState<Codes>(codesFromRow(link));
-  // Levels this link actually has — same rule as the API (linkValues). An
-  // "any supplier" item has no packs, so only its unit can carry a barcode.
-  const levels: PackLevel[] = ["unit",
-    ...(!open && (f.innerUnitPackSize || f.innerPackType) ? ["inner" as PackLevel] : []),
-    ...(!open && (f.unitsInOuterPack || f.outerPackType) ? ["outer" as PackLevel] : [])];
-  const endpoint = link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`;
-  const method = link ? "PATCH" : "POST";
+  const [hasInner, setHasInner] = useState<boolean>(!open && !!(link?.innerUnitPackSize || link?.innerPackType));
+  const [hasOuter, setHasOuter] = useState<boolean>(!open && !!(link?.unitsInOuterPack || link?.outerPackType));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+  const setCode = (l: PackLevel, v: string) => setCodes(c => ({ ...c, [l]: v }));
+
+  // Levels this link actually has — same rule as the API (linkValues). An
+  // "any supplier" item has no packs, so only its unit can carry a barcode.
+  const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasInner && hasOuter ? ["outer" as PackLevel] : [])];
+  const endpoint = link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`;
+  const method = link ? "PATCH" : "POST";
 
   useEffect(() => { fetch(`/api/parties/suppliers?native=1`).then(x => x.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, []);
 
-  const crossDim = item.baseUom && f.supplierUom && needsConversionFactor(f.supplierUom, item.baseUom);
-  const preview = packConfig({ baseUom: f.supplierUom || "", innerSize: Number(f.innerUnitPackSize) || null, innerType: f.innerPackType || null, unitsOuter: Number(f.unitsInOuterPack) || null, outerType: f.outerPackType || null });
+  const unit = open ? (item.baseUom || "") : f.supplierUom;
+  const crossDim = !open && item.baseUom && f.supplierUom && needsConversionFactor(f.supplierUom, item.baseUom);
+  const per = open ? 1 : (perSupplierUnit(f.supplierUom || null, item.baseUom || null, f.conversionFactor) ?? 0);
+  const innerQty = hasInner ? (Number(f.innerUnitPackSize) || 0) * per : 0;
+  const steps = [
+    ...(hasInner && f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
+    ...(hasInner && hasOuter && f.outerPackType && Number(f.unitsInOuterPack) > 0 && innerQty > 0 ? [{ label: f.outerPackType, qty: Number(f.unitsInOuterPack) * innerQty }] : []),
+  ];
+
+  function removeInner() {
+    setHasInner(false); setHasOuter(false);
+    setF(p => ({ ...p, innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "" }));
+    setCodes(c => ({ ...c, inner: "", outer: "" }));
+  }
+  function removeOuter() {
+    setHasOuter(false);
+    setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" }));
+    setCodes(c => ({ ...c, outer: "" }));
+  }
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
+    if (!open && !f.supplierUom) { setErr("Choose the unit this supplier sells in."); return; }
+    if (crossDim && !f.conversionFactor) { setErr(`${f.supplierUom} and ${item.baseUom} are different measures — enter how many ${item.baseUom} are in one ${f.supplierUom}.`); return; }
+    if (hasInner && (!f.innerPackType || !(Number(f.innerUnitPackSize) > 0))) { setErr("Inner pack: choose its pack type and how many it contains — or remove it."); return; }
+    if (hasInner && hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many inner packs it contains — or remove it."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
-    const identifiers = codesPayload(codes, levels);
-    // An "any supplier" item is bought in its own base unit, so its link has
-    // no supplier UoM or packaging to ask for — the server refuses pack fields
-    // for it anyway. The link carries price, lead time and preferred only.
-    if (open) {
-      setSaving(true); setErr("");
-      const { innerUnitPackSize, innerPackType, unitsInOuterPack, outerPackType, conversionFactor, ...terms } = f;
-      const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...terms, supplierUom: item.baseUom || "", isPreferred, identifiers }) });
-      setSaving(false);
-      if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-      onCreated();
-      return;
-    }
-    if (!f.supplierUom) { setErr("Choose the supplier's UoM."); return; }
-    if (crossDim && !f.conversionFactor) { setErr(`Supplier UoM "${f.supplierUom}" and item base UoM "${item.baseUom}" are different measures — enter a conversion factor.`); return; }
     setSaving(true); setErr("");
-    const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f, isPreferred, identifiers }) });
+    // An "any supplier" item is bought in its own base unit: the link carries
+    // no packaging (the server refuses it) — only its unit barcode and terms.
+    const packFields = open
+      ? { supplierUom: item.baseUom || "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "" }
+      : { conversionFactor: crossDim ? f.conversionFactor : "" };
+    const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: item.id, ...f, ...packFields, isPreferred, identifiers: codesPayload(codes, levels) }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
   }
 
   return (
-    <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"} onClose={onClose}>
+    <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"} onClose={onClose} wide>
       <p className="text-[12px] text-stone-400 mb-5">
-        Item base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>.{" "}
+        {item.name} · stocked in <span className="font-mono text-stone-200">{item.baseUom || "no base UoM"}</span>.{" "}
         {open
-          ? <>This item can be bought from any supplier, in {item.baseUom || "its base unit"} — record this supplier&apos;s price and lead time. Pack configuration is only for items bought from linked suppliers.</>
-          : <>Record how this supplier sells and packages the material.</>}
+          ? <>Anyone may supply this item — record this supplier&apos;s barcode, price and lead time.</>
+          : <>Describe how this supplier sells and packs it, level by level.</>}
       </p>
       <div className="space-y-6">
         <Section title="Supplier">
@@ -572,28 +678,66 @@ function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { i
                 <option value="__add__">+ Add new supplier…</option>
               </SelectField>
             </Field>
-            {!open && <Field label="Supplier's base UoM" required><UomSelect value={f.supplierUom} onChange={v => set("supplierUom", v)} /></Field>}
-            <Field label="Supplier SKU"><input className={controlInset} value={f.supplierSku} onChange={e => set("supplierSku", e.target.value)} /></Field>
-            <Field label="SKU name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName", e.target.value)} placeholder="e.g. 25kg sack" /></Field>
-            <Field label="Item code by supplier"><input className={controlInset} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier", e.target.value)} /></Field>
+            <Field label="Their product name" className="col-span-2"><input className={controlInset} value={f.skuName} onChange={e => set("skuName", e.target.value)} placeholder="As it appears on their invoice, e.g. Cotton yarn 24s — 25kg sack" /></Field>
+            <Field label="Their SKU"><input className={controlInset} value={f.supplierSku} onChange={e => set("supplierSku", e.target.value)} /></Field>
+            <Field label="Their item code"><input className={controlInset} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier", e.target.value)} /></Field>
           </div>
         </Section>
-        {!open && <Section title="Units & packaging">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label={`Inner unit pack size (${f.supplierUom || "supplier UoM"})`}><input type="number" className={controlInset} value={f.innerUnitPackSize} onChange={e => set("innerUnitPackSize", e.target.value)} /></Field>
-            <Field label="Inner pack type"><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
-            <Field label="Units in outer pack"><input type="number" className={controlInset} value={f.unitsInOuterPack} onChange={e => set("unitsInOuterPack", e.target.value)} /></Field>
-            <Field label="Outer pack type"><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
+
+        <Section title="Packaging & barcodes">
+          <div className="space-y-2">
+            <LevelCard n={1} title="Unit"
+              subtitle={open ? `Bought in the item's own unit, ${item.baseUom || "—"}.` : "The unit this supplier counts and prices in."}>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {open
+                  ? <Field label="Unit"><div className={`${controlInset} flex items-center text-stone-300 font-mono`}>{item.baseUom || "—"}</div></Field>
+                  : <Field label="Unit" required><UomSelect value={f.supplierUom} onChange={v => set("supplierUom", v)} /></Field>}
+                <GtinInput value={codes.unit ?? ""} onChange={v => setCode("unit", v)} />
+              </div>
+              {crossDim && (
+                <div className="rounded-md bg-rose-500/8 border border-rose-800/40 px-3 py-2.5">
+                  <div className="text-[12px] text-rose-300 font-medium mb-1.5">{f.supplierUom} and {item.baseUom} are different measures</div>
+                  <div className="flex items-center gap-2 text-[12px] text-stone-300">
+                    1 {f.supplierUom} =
+                    <input type="number" step="any" className={`${controlInset} w-28`} value={f.conversionFactor} onChange={e => set("conversionFactor", e.target.value)} placeholder="e.g. 0.4536" />
+                    {item.baseUom}
+                  </div>
+                </div>
+              )}
+            </LevelCard>
+
+            {!open && (hasInner ? (
+              <LevelCard n={2} title="Inner pack" subtitle={`A pack of ${unit || "units"} — a bag, box or cone.`} onRemove={removeInner}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <Field label="Pack type" required><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
+                  <ContainsInput value={f.innerUnitPackSize} onChange={v => set("innerUnitPackSize", v)} unit={unit || "units"} placeholder="25" />
+                  <div className="col-span-2"><GtinInput value={codes.inner ?? ""} onChange={v => setCode("inner", v)} /></div>
+                </div>
+              </LevelCard>
+            ) : <AddLevelButton label="Add inner pack" onClick={() => setHasInner(true)} />)}
+
+            {!open && hasInner && (hasOuter ? (
+              <LevelCard n={3} title="Outer pack" subtitle={`A case or carton of ${f.innerPackType || "inner packs"}.`} onRemove={removeOuter}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <Field label="Pack type" required><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
+                  <ContainsInput value={f.unitsInOuterPack} onChange={v => set("unitsInOuterPack", v)} unit={f.innerPackType || "inner packs"} placeholder="12" />
+                  <div className="col-span-2"><GtinInput value={codes.outer ?? ""} onChange={v => setCode("outer", v)} /></div>
+                </div>
+              </LevelCard>
+            ) : <AddLevelButton label="Add outer pack" onClick={() => setHasOuter(true)} />)}
+
+            <LadderSummary steps={steps} baseUom={item.baseUom || ""} />
           </div>
-        </Section>}
-        {!open && preview && <div className="rounded-lg bg-amber-500/8 border border-amber-800/40 px-3 py-2 text-[12px] text-amber-300 font-mono">{preview}</div>}
-        {/* Commercial terms — quoted in the SUPPLIER's unit, deliberately, so
-            the row reads the same as the price list it is copied from. Every
-            pack level's rate is derived from this one figure. */}
+          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link, its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
+        </Section>
+
+        {/* Quoted in the SUPPLIER's unit, deliberately, so the row reads the
+            same as the price list it is copied from. Every pack level's rate is
+            derived from this one figure. */}
         <Section title="Commercial terms">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label={`Price per ${open ? (item.baseUom || "unit") : (f.supplierUom || "supplier UoM")}`} hint={f.supplierUom && f.innerUnitPackSize && Number(f.innerUnitPackSize) > 0 && Number(f.unitPrice) > 0
-              ? `A ${f.innerPackType || "pack"} of ${f.innerUnitPackSize} costs ${fmt.num2(Number(f.unitPrice) * Number(f.innerUnitPackSize))}`
+            <Field label={`Price per ${unit || "unit"}`} hint={steps.length && Number(f.unitPrice) > 0 && per > 0
+              ? `${steps.map(s => `${s.label} ${fmt.num2(Number(f.unitPrice) * s.qty / per)}`).join(" · ")}`
               : "As the supplier quotes it — pack prices are worked out from this."}>
               <input type="number" step="any" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} />
             </Field>
@@ -603,44 +747,20 @@ function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { i
                 {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
               </SelectField>
             </Field>
-            <Field label="Lead time (days)" hint="Order to delivery."><input type="number" className={controlInset} value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} /></Field>
-            <Field label={`Minimum order (${open ? (item.baseUom || "unit") : (f.supplierUom || "supplier UoM")})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
-            <label className="col-span-2 flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="mt-0.5 accent-emerald-600" />
-              <span className="text-[12px] leading-relaxed">
-                <span className="font-medium text-stone-300">Preferred source</span>
-                <span className="text-stone-500"> — the default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.</span>
-              </span>
-            </label>
+            <Field label="Lead time" hint="Days from order to delivery."><input type="number" className={controlInset} value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} /></Field>
+            <Field label={`Minimum order (${unit || "unit"})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
           </div>
-        </Section>
-        {/* The supplier's barcodes, per level they sell in. Usually the
-            manufacturer's GTIN — the same number is fine on another supplier's
-            link for this item. Scanning their label will resolve to this item
-            and this packaging. */}
-        <Section title="Barcodes (GS1)">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {levels.map(l => (
-              <BarcodeField key={l}
-                label={levelLabel(l, l === "unit" ? (open ? item.baseUom : f.supplierUom) : l === "inner" ? f.innerPackType : f.outerPackType)}
-                value={codes[l] ?? ""} onChange={v => setCodes(c => ({ ...c, [l]: v }))} />
-            ))}
-          </div>
-          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packaging are fixed — price, lead time, codes and barcodes can still change.</p>}
-        </Section>
-        {!open && crossDim && (
-          <div className="rounded-lg bg-rose-500/8 border border-rose-800/40 px-3 py-3">
-            <label className={`${labelCls} text-rose-300`}>Conversion factor required</label>
-            <p className="text-[11px] text-stone-400 mb-2">Supplier uses <span className="font-mono text-stone-200">{f.supplierUom}</span> but the item is measured in <span className="font-mono text-stone-200">{item.baseUom}</span> — these are different measures. Enter how many <span className="font-mono">{item.baseUom}</span> equal one <span className="font-mono">{f.supplierUom}</span>.</p>
-            <div className="flex items-center gap-2">
-              <input type="number" className={`${controlInset} max-w-[160px]`} value={f.conversionFactor} onChange={e => set("conversionFactor", e.target.value)} placeholder="e.g. 0.4536" />
-              <span className="text-[12px] text-stone-400 font-mono">{item.baseUom} per 1 {f.supplierUom}</span>
+          <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 px-3 py-2.5 cursor-pointer">
+            <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="mt-0.5 accent-emerald-600" />
+            <div>
+              <div className="text-[12.5px] font-medium text-stone-200">Preferred supplier</div>
+              <p className="text-[11px] text-stone-400">The default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.</p>
             </div>
-          </div>
-        )}
+          </label>
+        </Section>
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} />
+      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={link ? "Save changes" : "Link supplier"} />
       {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId", row.id); setQuick(null); }} />}
     </Drawer>
   );
