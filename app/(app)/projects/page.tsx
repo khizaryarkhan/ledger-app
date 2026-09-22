@@ -3,11 +3,15 @@
 import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
-import { Card, Badge, Button, EmptyState } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 import { ProjectModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Briefcase, Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
 
 function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
@@ -90,32 +94,36 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
 }
 
 const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusColor, repGroups, regionGroups, onAssign, busy }: { p: any; isSelected: boolean; onToggle: (id: string) => void; statusColor: (s: string) => string; repGroups: AssignGroup[]; regionGroups: AssignGroup[]; onAssign: (id: string, field: "rep" | "region", value: string | null) => void; busy: boolean }) {
+  const td = "px-2 py-2";
   return (
-    <tr className={`border-b border-stone-800 hover:bg-stone-800/50 ${isSelected ? "bg-emerald-500/10" : ""}`}>
-      <td className="px-4 py-3 w-10">
-        <input type="checkbox" checked={isSelected} onChange={() => onToggle(p.id)} className="rounded border-stone-300 cursor-pointer" />
+    <tr className={listRow(isSelected)}>
+      <td className={listCheckCell}>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(p.id)} className={listCheckbox} aria-label={`Select ${p.name}`} />
       </td>
-      <td className="px-4 py-3">
-        <Link href={`/projects/${p.id}`} className="font-medium text-white hover:text-emerald-400 hover:underline block">{p.name}</Link>
+      <td className={`${td} max-w-[260px]`}>
+        <Link href={`/projects/${p.id}`} className="block truncate text-stone-200 text-[13px] font-medium hover:text-white hover:underline" title={p.name}>{p.name}</Link>
         {p.code && !p.code.startsWith("QBO-") && (
-          <div className="text-[11px] text-stone-500 font-mono mt-0.5">{p.code}</div>
+          <div className="text-[11px] text-stone-500 font-mono">{p.code}</div>
         )}
       </td>
-      <td className="px-4 py-3">
-        {p.customer && <Link href={`/customers/${p.customer.id}`} className="text-stone-300 hover:text-white hover:underline">{p.customer.name}</Link>}
+      <td className={`${td} max-w-[200px] truncate`}>
+        {p.customer
+          ? <Link href={`/customers/${p.customer.id}`} className="text-stone-400 text-[12px] hover:text-white hover:underline" title={p.customer.name}>{p.customer.name}</Link>
+          : <span className="text-stone-600">—</span>}
       </td>
-      <td className="px-4 py-3">
+      <td className={td}>
         <InlineAssign value={p.repId ?? null} tone="blue" title="Assign rep / ED-RM" busy={busy}
           groups={repGroups} onChange={v => onAssign(p.id, "rep", v)} />
       </td>
-      <td className="px-4 py-3">
+      <td className={td}>
         <InlineAssign value={p.regionId ?? null} tone="stone" title="Assign region" empty="—" busy={busy}
           groups={regionGroups} onChange={v => onAssign(p.id, "region", v)} />
       </td>
-      <td className="px-4 py-3"><Badge variant={statusColor(p.effectiveStatus) as any} size="sm">{p.effectiveStatus}</Badge></td>
-      <td className="px-4 py-3 text-right tabular-nums">{p.openCount}</td>
-      <td className="px-4 py-3 text-right font-semibold tabular-nums">{fmt.money(p.outstanding, p.customer?.currency)}</td>
-      <td className={`px-4 py-3 text-right font-semibold tabular-nums ${p.overdue > 0 ? "text-rose-600" : "text-stone-500"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
+      <td className={`${td} text-stone-500 text-[12px]`}>{p.countryName || "—"}</td>
+      <td className={td}><Badge variant={statusColor(p.effectiveStatus) as any} size="sm">{p.effectiveStatus}</Badge></td>
+      <td className={`${listNumCell} text-stone-400 text-[12px]`}>{p.openCount}</td>
+      <td className={`${listNumCell} text-[12px] ${p.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
+      <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(p.outstanding, p.customer?.currency)}</span></td>
     </tr>
   );
 });
@@ -151,8 +159,6 @@ export default function ProjectsPage() {
   }, [reclassifyProjects]);
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
-  const [repFilter, setRepFilter] = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("Active");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -183,33 +189,34 @@ export default function ProjectsPage() {
       );
     }
     if (statusFilter) res = res.filter((p: any) => p.effectiveStatus === statusFilter);
-    if (repFilter) res = res.filter((p: any) => p.repId === repFilter);
-    if (regionFilter) res = res.filter((p: any) => p.regionId === regionFilter);
     return res;
-  }, [enriched, search, statusFilter, repFilter, regionFilter]);
+  }, [enriched, search, statusFilter]);
 
-  const PROJ_COLS: ColDef[] = useMemo(() => [
-    { key: "name", label: "Project", sortValue: (r: any) => r.name, filterLabel: (r: any) => r.name },
-    { key: "customer", label: "Customer", sortValue: (r: any) => r.customer?.name ?? "", filterLabel: (r: any) => r.customer?.name ?? "(None)" },
-    { key: "repName", label: "Rep", sortValue: (r: any) => r.repName ?? "", filterLabel: (r: any) => r.repName ?? "(Unassigned)" },
-    { key: "regionName", label: "Region", sortValue: (r: any) => r.regionName ?? "", filterLabel: (r: any) => r.regionName ?? "(Unassigned)" },
-    { key: "countryName", label: "Country", sortValue: (r: any) => r.countryName ?? "", filterLabel: (r: any) => r.countryName ?? "(Unassigned)" },
-    { key: "status", label: "Status", sortValue: (r: any) => r.status ?? "", filterLabel: (r: any) => r.status ?? "" },
-    { key: "openCount", label: "Open Inv.", sortValue: (r: any) => r.openCount ?? 0, align: "right" as const, noFilter: true },
-    { key: "outstanding", label: "Outstanding", sortValue: (r: any) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
-    { key: "overdue", label: "Overdue", sortValue: (r: any) => r.overdue ?? 0, align: "right" as const, noFilter: true },
+  const PROJ_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "name",      label: "Project",  sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+    { key: "customer",  label: "Customer", sort: r => r.customer?.name, filter: { kind: "text", value: r => r.customer?.name } },
+    { key: "rep",       label: "Rep",      sort: r => r.repName, filter: { kind: "multi", value: r => r.repName } },
+    { key: "region",    label: "Region",   sort: r => r.regionName, filter: { kind: "multi", value: r => r.regionName } },
+    { key: "country",   label: "Country",  sort: r => r.countryName, filter: { kind: "multi", value: r => r.countryName } },
+    // Filters on the status the row SHOWS (effectiveStatus), not the stored one.
+    { key: "status",    label: "Status",   sort: r => r.effectiveStatus, filter: { kind: "multi", value: r => r.effectiveStatus } },
+    { key: "openCount", label: "Open inv.", sort: r => r.openCount, descFirst: true, align: "right", filter: { kind: "range", value: r => r.openCount }, sum: r => r.openCount },
+    { key: "overdue",   label: "Overdue",  sort: r => r.overdue, descFirst: true, align: "right",
+      filter: { kind: "range", value: r => r.overdue }, money: r => ({ amount: r.overdue, currency: r.customer?.currency }) },
+    { key: "outstanding", label: "Outstanding", sort: r => r.outstanding, descFirst: true, align: "right",
+      filter: { kind: "range", value: r => r.outstanding }, money: r => ({ amount: r.outstanding, currency: r.customer?.currency }) },
   ], []);
 
-  const dt = useDataTable(filtered, PROJ_COLS, { defaultSort: "outstanding", defaultDir: "desc" });
+  const lv = useListView(filtered, PROJ_COLS, { storageKey: "projects", defaultSort: "outstanding", defaultDir: "desc", summary: "outstanding" });
 
-  const PAGE_SIZE = 50;
-  const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [search, statusFilter, repFilter, regionFilter, dt.sortKey, dt.sortDir]);
-  const totalPages = Math.ceil(dt.rows.length / PAGE_SIZE);
-  const visible = useMemo(() => dt.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [dt.rows, page]);
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((p: any) => p.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
-  const allSelected = dt.rows.length > 0 && dt.rows.every((p: any) => selected.has(p.id));
-  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(dt.rows.map((p: any) => p.id)));
+  const allSelected = lv.rows.length > 0 && lv.rows.every((p: any) => selected.has(p.id));
+  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(lv.rows.map((p: any) => p.id)));
   const toggleOne = useCallback((id: string) => setSelected(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -226,61 +233,34 @@ export default function ProjectsPage() {
   };
 
   const statusColor = useCallback((s: string) => ({ "Active": "blue", "Inactive": "neutral", "On Hold": "orange", "In Progress": "purple", "Completed": "green", "Pending": "yellow", "Cancelled": "neutral" }[s] || "neutral"), []);
+  const pageFiltered = !!(search || statusFilter);
 
   return (
-    <div className="p-6 max-w-[1300px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Projects</h1>
-          <p className="text-sm text-stone-500 mt-1">{filtered.length} projects</p>
+    <ListPage>
+      <ListPageHeader title="Projects" subtitle={<>{projects.length} project{projects.length !== 1 ? "s" : ""}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search project, code, customer…"
+            className={`${control} h-8 w-56 pl-7 pr-2 text-xs`} />
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search project, code, customer…"
-              className="h-9 pl-8 pr-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 placeholder-stone-500 focus:border-emerald-500 focus:outline-none w-64"
-            />
-          </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-            className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-            <option value="">All statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-            <option value="On Hold">On Hold</option>
-          </select>
-          <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)}
-            className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-            <option value="">All reps / ED/RM</option>
-            {reps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").map((r: any) =>
-              <option key={r.id} value={r.id}>{r.name} (PM)</option>
-            )}
-            {reps.filter((r: any) => r.tier === "ed" || r.tier === "rd").map((r: any) =>
-              <option key={r.id} value={r.id}>{r.name} (ED/RM)</option>
-            )}
-          </select>
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
-            className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-            <option value="">All regions</option>
-            {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-          {(search || statusFilter !== "Active" || repFilter || regionFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter("Active"); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>
-          )}
-          <Button icon={Plus} onClick={() => setShowCreate(true)}>New project</Button>
-        </div>
-      </div>
+        {/* Rep and region moved to their column funnels. Status stays up here
+            because it defaults to Active, and a default belongs where it's seen. */}
+        <SelectField value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="w-auto h-8 text-xs">
+          <option value="">All statuses</option>
+          {["Active", "Inactive", "On Hold"].map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        {(search || statusFilter !== "Active") && (
+          <button onClick={() => { setSearch(""); setStatusFilter("Active"); }}
+            className="text-[11px] text-stone-500 hover:text-rose-400 font-medium px-1">Clear</button>
+        )}
+        <ListDivider />
+        <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New project</Button>
+      </ListPageHeader>
 
-      <div className={selected.size > 0 ? "mb-3" : "h-0 overflow-hidden"}>
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg">
-          <span className="text-sm font-medium">{selected.size} selected</span>
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
+          <span className="text-[13px] font-medium">{selected.size} selected</span>
           <div className="flex-1" />
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded"><X size={14} /></button>
           <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => setShowReclassify(true)}>Reclassify</Button>
           {!confirmDelete ? (
             <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmDelete(true)}>Delete {selected.size}</Button>
@@ -291,50 +271,24 @@ export default function ProjectsPage() {
               <Button variant="danger" size="sm" onClick={handleBulkDelete} disabled={deleting}>{deleting ? "Deleting…" : "Yes, delete"}</Button>
             </div>
           )}
+          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
         </div>
-      </div>
-
-      {dt.rows.length === 0 ? (
-        <Card>
-          <EmptyState icon={Briefcase} title="No projects found"
-            description={projects.length === 0 ? "Projects group invoices for a customer engagement." : "Try adjusting your filters."}
-            action={projects.length === 0 ? <Button icon={Plus} onClick={() => setShowCreate(true)}>New project</Button> : undefined} />
-        </Card>
-      ) : (
-        <Card padding="none">
-          <ActiveFiltersBar dt={dt} cols={PROJ_COLS} />
-          <div className="px-4 py-2.5 border-b border-stone-800 flex items-center gap-2">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-600 cursor-pointer" />
-            <span className="text-[11px] text-stone-400">Select all ({dt.rows.length})</span>
-          </div>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-800 bg-stone-900/60">
-              <th className="w-10 px-4 py-2.5"></th>
-              {PROJ_COLS.map(col => <ColHeader key={col.key} col={col} dt={dt} />)}
-            </tr></thead>
-            <tbody>
-              {visible.map((p: any) => (
-                <ProjectRow key={p.id} p={p} isSelected={selected.has(p.id)} onToggle={toggleOne} statusColor={statusColor} repGroups={repGroups} regionGroups={regionGroups} onAssign={onAssign} busy={assigningId === p.id} />
-              ))}
-            </tbody>
-          </table>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-stone-800">
-              <span className="text-xs text-stone-400">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, dt.rows.length)} of {dt.rows.length}</span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <button key={i} onClick={() => setPage(i)}
-                    className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
-                ))}
-                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
-              </div>
-            </div>
-          )}
-        </Card>
       )}
+
+      <ListToolbar lv={lv} noun="project" selected={selected.size} filtered={pageFiltered} />
+      <ListChips lv={lv} />
+
+      <ListScroll lv={lv} empty={projects.length === 0 ? "No projects yet — projects group invoices for a customer engagement." : "No projects match the current filters."}>
+        <table className={listTable}>
+          <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+          <tbody>
+            {lv.rows.map((p: any) => (
+              <ProjectRow key={p.id} p={p} isSelected={selected.has(p.id)} onToggle={toggleOne} statusColor={statusColor} repGroups={repGroups} regionGroups={regionGroups} onAssign={onAssign} busy={assigningId === p.id} />
+            ))}
+          </tbody>
+          {lv.rows.length > 0 && <ListFoot lv={lv} noun="project" selectable />}
+        </table>
+      </ListScroll>
 
       {showCreate && <ProjectModal onClose={() => setShowCreate(false)} />}
       {showReclassify && (
@@ -343,6 +297,6 @@ export default function ProjectsPage() {
           onClose={() => { setShowReclassify(false); setSelected(new Set()); }}
         />
       )}
-    </div>
+    </ListPage>
   );
 }

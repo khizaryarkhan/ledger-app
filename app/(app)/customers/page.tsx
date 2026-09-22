@@ -4,11 +4,15 @@ import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/components/data-provider";
-import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
+import { Card, Badge, Button } from "@/components/ui";
 import { CustomerModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
-import { Search, Users, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "lucide-react";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { Search, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "lucide-react";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
 
 
@@ -213,8 +217,37 @@ export default function CustomersPage() {
     if (statusFilter) res = res.filter((c: any) => c.effectiveStatus === statusFilter);
     if (repFilter) res = res.filter((c: any) => c.repId === repFilter);
     if (regionFilter) res = res.filter((c: any) => c.regionId === regionFilter);
-    return res.sort((a: any, b: any) => b.outstanding - a.outstanding);
+    return res;
   }, [enriched, search, riskFilter, statusFilter, repFilter, regionFilter]);
+
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+
+  // Column definitions — sort + funnel filter per column, board-style.
+  const CUST_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "name",        label: "Customer", sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+    { key: "code",        label: "Code",     sort: r => (r.code?.startsWith("QBO-") ? null : r.code), filter: { kind: "text", value: r => (r.code?.startsWith("QBO-") ? null : r.code) } },
+    { key: "country",     label: "Country",  sort: r => r.countryName, filter: { kind: "multi", value: r => r.countryName } },
+    { key: "rep",         label: "Rep",      sort: r => r.repName, filter: { kind: "multi", value: r => r.repName } },
+    { key: "region",      label: "Region",   sort: r => r.regionName, filter: { kind: "multi", value: r => r.regionName } },
+    { key: "risk",        label: "Risk",     sort: r => r.riskRating, filter: { kind: "multi", value: r => r.riskRating } },
+    // Filters on the status the row SHOWS (effectiveStatus). It used to filter
+    // on the stored `status`, so picking "Inactive" could hide rows labelled
+    // Inactive and keep rows labelled Active.
+    { key: "status",      label: "Status",   sort: r => r.effectiveStatus, filter: { kind: "multi", value: r => r.effectiveStatus } },
+    { key: "openCount",   label: "Open inv.", sort: r => r.openCount, descFirst: true, align: "right", filter: { kind: "range", value: r => r.openCount }, sum: r => r.openCount },
+    { key: "overdue",     label: "Overdue",  sort: r => r.overdue, descFirst: true, align: "right",
+      filter: { kind: "range", value: r => r.overdue }, money: r => ({ amount: r.overdue, currency: r.invoiceCurrency }) },
+    { key: "outstanding", label: "Outstanding", sort: r => r.outstanding, descFirst: true, align: "right",
+      filter: { kind: "range", value: r => r.outstanding }, money: r => ({ amount: r.outstanding, currency: r.invoiceCurrency }) },
+  ], []);
+  const lv = useListView(filtered, CUST_COLS, { storageKey: "customers", defaultSort: "outstanding", defaultDir: "desc", summary: "outstanding" });
+
+  // Batch actions must never silently operate on rows the user can no longer
+  // see — prune the selection when filters hide them (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((c: any) => c.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
   const toggleOne = useCallback((id: string) => setSelected(prev => {
     const next = new Set(prev);
@@ -222,14 +255,15 @@ export default function CustomersPage() {
     return next;
   }), []);
 
+  // Card view pages through the same filtered + sorted rows the list shows.
   const PAGE_SIZE = 48;
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [search, riskFilter, statusFilter, repFilter, regionFilter]);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const visible = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
+  useEffect(() => { setPage(0); }, [search, riskFilter, statusFilter, repFilter, regionFilter, lv.filters]);
+  const totalPages = Math.ceil(lv.rows.length / PAGE_SIZE);
+  const visible = useMemo(() => lv.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [lv.rows, page]);
 
-  const allSelected = filtered.length > 0 && filtered.every((c: any) => selected.has(c.id));
-  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map((c: any) => c.id)));
+  const allSelected = lv.rows.length > 0 && lv.rows.every((c: any) => selected.has(c.id));
+  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(lv.rows.map((c: any) => c.id)));
 
   const handleBulkDelete = async () => {
     setDeleting(true);
@@ -240,39 +274,55 @@ export default function CustomersPage() {
     } finally { setDeleting(false); }
   };
 
-  const hasFilters = search || riskFilter || statusFilter || repFilter || regionFilter;
-  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
-
-  // Column definitions for list view
-  const CUST_COLS: ColDef[] = [
-    { key: "name",        label: "Customer",    sortValue: (r) => r.name,        filterLabel: (r) => r.name },
-    { key: "code",        label: "Code",         sortValue: (r) => r.code,        filterLabel: (r) => r.code },
-    { key: "country",     label: "Country",      sortValue: (r) => r.countryName ?? "", filterLabel: (r) => r.countryName ?? "(None)" },
-    { key: "repName",     label: "Rep",          sortValue: (r) => r.repName ?? "", filterLabel: (r) => r.repName ?? "(Unassigned)" },
-    { key: "regionName",  label: "Region",       sortValue: (r) => r.regionName ?? "", filterLabel: (r) => r.regionName ?? "(Unassigned)" },
-    { key: "riskRating",  label: "Risk",         sortValue: (r) => r.riskRating ?? "", filterLabel: (r) => r.riskRating ?? "" },
-    { key: "status",      label: "Status",       sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
-    { key: "outstanding", label: "Outstanding",  sortValue: (r) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
-    { key: "overdue",     label: "Overdue",      sortValue: (r) => r.overdue ?? 0,     align: "right" as const, noFilter: true },
-    { key: "openCount",   label: "Open Inv.",    sortValue: (r) => r.openCount ?? 0,   align: "right" as const, noFilter: true },
-  ];
-  const dt = useDataTable(filtered, CUST_COLS, { defaultSort: "outstanding", defaultDir: "desc" });
+  const hasFilters = !!(search || riskFilter || statusFilter || repFilter || regionFilter);
+  const td = "px-2 py-2";
+  const viewBtn = (on: boolean) =>
+    `flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${on ? "bg-emerald-500 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`;
 
   return (
-    <div className="p-6 max-w-[1500px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Customers</h1>
-          <p className="text-sm text-stone-500 mt-1">{filtered.length} customers</p>
+    <ListPage>
+      <ListPageHeader title="Customers" subtitle={<>{customers.length} customer{customers.length !== 1 ? "s" : ""}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code or email…"
+            className={`${control} h-8 w-56 pl-7 pr-2 text-xs`} />
         </div>
-        <Button icon={Plus} onClick={() => setShowCreate(true)}>New customer</Button>
-      </div>
+        {/* Header filters stay because the card view has no column headers
+            to put a funnel on; the list view adds per-column filters on top. */}
+        <SelectField value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="w-auto h-8 text-xs">
+          <option value="">All statuses</option>
+          {["Active", "On Hold", "Inactive"].map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        <SelectField value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)} aria-label="Filter by risk" className="w-auto h-8 text-xs">
+          <option value="">All risk levels</option>
+          {["Low", "Medium", "High"].map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        {reps.length > 0 && (
+          <SelectField value={repFilter} onChange={(e) => setRepFilter(e.target.value)} aria-label="Filter by rep" className="w-auto h-8 text-xs">
+            <option value="">All reps</option>
+            {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </SelectField>
+        )}
+        <SelectField value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} aria-label="Filter by region" className="w-auto h-8 text-xs">
+          <option value="">All regions</option>
+          {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </SelectField>
+        {hasFilters && (
+          <button onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter(""); setRepFilter(""); setRegionFilter(""); }}
+            className="text-[11px] text-stone-500 hover:text-rose-400 font-medium px-1">Clear</button>
+        )}
+        <ListDivider />
+        <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
+          <button onClick={() => setViewMode("grid")} className={viewBtn(viewMode === "grid")}><LayoutGrid size={12} /> Cards</button>
+          <button onClick={() => setViewMode("list")} className={viewBtn(viewMode === "list")}><List size={12} /> List</button>
+        </div>
+        <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New customer</Button>
+      </ListPageHeader>
 
-      <div className={selected.size > 0 ? "mb-3" : "h-0 overflow-hidden"}>
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg">
-          <span className="text-sm font-medium">{selected.size} selected</span>
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
+          <span className="text-[13px] font-medium">{selected.size} selected</span>
           <div className="flex-1" />
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded"><X size={14} /></button>
           <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => setShowReclassify(true)}>Reclassify</Button>
           {!confirmDelete ? (
             <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmDelete(true)}>Delete {selected.size}</Button>
@@ -283,130 +333,93 @@ export default function CustomersPage() {
               <Button variant="danger" size="sm" onClick={handleBulkDelete} disabled={deleting}>{deleting ? "Deleting…" : "Yes, delete"}</Button>
             </div>
           )}
+          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
         </div>
-      </div>
+      )}
 
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search by name, code or email..." icon={Search} className="w-72" />
-        <Select value={riskFilter} onChange={(e: any) => setRiskFilter(e.target.value)} placeholder="All risk levels" options={["Low", "Medium", "High"]} />
-        <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={["Active", "On Hold", "Inactive"]} />
-        <select value={repFilter} onChange={(e: any) => setRepFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-          <option value="">All reps</option>
-          {reps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-        <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
-          className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-          style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-          <option value="">All regions</option>
-          {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-        {hasFilters && <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter(""); setRepFilter(""); setRegionFilter(""); }}>Clear</Button>}
-        {filtered.length > 0 && viewMode === "grid" && (
-          <label className="flex items-center gap-2 text-sm text-stone-600 ml-2 cursor-pointer">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300" />
+      <ListToolbar lv={lv} noun="customer" selected={selected.size} filtered={hasFilters}>
+        {viewMode === "grid" && lv.rows.length > 0 && (
+          <label className="flex items-center gap-2 text-[12px] text-stone-400 cursor-pointer">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} className={listCheckbox} />
             Select all
           </label>
         )}
-        {/* View toggle */}
-        <div className="ml-auto flex items-center gap-1 bg-stone-800 rounded-lg p-1">
-          <button onClick={() => setViewMode("list")} title="List view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
-            <List size={14} />
-          </button>
-          <button onClick={() => setViewMode("grid")} title="Card view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
-            <LayoutGrid size={14} />
-          </button>
-        </div>
-      </div>
+      </ListToolbar>
+      <ListChips lv={lv} />
 
-      {filtered.length === 0 ? (
-        <Card>
-          <EmptyState icon={Users} title="No customers found"
-            description={customers.length === 0 ? "Create your first customer or sync from QuickBooks." : "Try adjusting your filters."}
-            action={customers.length === 0 ? <Button icon={Plus} onClick={() => setShowCreate(true)}>New customer</Button> : undefined} />
-        </Card>
-      ) : viewMode === "list" ? (
-        /* ── LIST VIEW ── */
-        <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
-          <ActiveFiltersBar dt={dt} cols={CUST_COLS} />
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-3 py-2.5 w-10">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-600 cursor-pointer" />
-                  </th>
-                  {CUST_COLS.map((col) => (
-                    <ColHeader key={col.key} col={col} dt={dt} className={col.align === "right" ? "text-right" : "text-left"} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((c: any) => (
-                  <tr key={c.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${selected.has(c.id) ? "bg-emerald-500/10" : ""}`}>
-                    <td className="px-3 py-2.5 w-10">
-                      <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)}
-                        className="rounded border-stone-600 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+      {viewMode === "list" ? (
+        <ListScroll lv={lv} empty={customers.length === 0 ? "No customers yet — create one or sync from QuickBooks." : "No customers match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((c: any) => {
+                const isSel = selected.has(c.id);
+                return (
+                  <tr key={c.id} className={listRow(isSel)}>
+                    <td className={listCheckCell}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(c.id)} className={listCheckbox} aria-label={`Select ${c.name}`} />
                     </td>
-                    <td className="px-3 py-2.5 font-medium text-white">
-                      <Link href={`/customers/${c.id}`} className="hover:underline">{c.name}</Link>
+                    <td className={`${td} max-w-[240px] truncate`}>
+                      <Link href={`/customers/${c.id}`} className="text-stone-200 text-[13px] font-medium hover:text-white hover:underline" title={c.name}>{c.name}</Link>
                     </td>
-                    <td className="px-3 py-2.5 text-stone-400 font-mono text-[12px]">
-                      {c.code?.startsWith("QBO-") ? "—" : c.code}
-                    </td>
-                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">{c.countryName || "—"}</td>
-                    <td className="px-3 py-2.5">
+                    <td className={`${td} font-mono text-[12px] text-stone-500`}>{c.code?.startsWith("QBO-") ? "—" : (c.code || "—")}</td>
+                    <td className={`${td} text-stone-500 text-[12px]`}>{c.countryName || "—"}</td>
+                    <td className={td}>
                       <InlineAssign value={c.repId ?? null} tone="blue" title="Assign rep / ED-RM" busy={assigningId === c.id}
                         groups={repGroups} onChange={v => onAssign(c.id, "rep", v)} />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className={td}>
                       <InlineAssign value={c.regionId ?? null} tone="stone" title="Assign region" busy={assigningId === c.id}
                         groups={regionGroups} onChange={v => onAssign(c.id, "region", v)} />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className={td}>
                       {c.riskRating === "High" && <Badge variant="red" size="sm">High</Badge>}
                       {c.riskRating === "Medium" && <Badge variant="yellow" size="sm">Med</Badge>}
                       {c.riskRating === "Low" && <Badge variant="green" size="sm">Low</Badge>}
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className={td}>
                       <Badge variant={c.effectiveStatus === "Active" ? "green" : c.effectiveStatus === "On Hold" ? "orange" : "neutral"} size="sm">{c.effectiveStatus}</Badge>
                     </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(c.outstanding, c.invoiceCurrency)}</td>
-                    <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${c.overdue > 0 ? "text-rose-400" : "text-stone-500"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</td>
-                    <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums">{c.openCount}</td>
+                    <td className={`${listNumCell} text-stone-400 text-[12px]`}>{c.openCount}</td>
+                    <td className={`${listNumCell} text-[12px] ${c.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</td>
+                    <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(c.outstanding, c.invoiceCurrency)}</span></td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                );
+              })}
+            </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="customer" selectable />}
+          </table>
+        </ListScroll>
       ) : (
-        /* ── GRID VIEW ── */
-        <>
-        <div className="grid grid-cols-3 gap-3">
-          {visible.map((c: any) => (
-            <CustomerCard key={c.id} c={c} isSelected={selected.has(c.id)} onToggle={toggleOne} repGroups={repGroups} regionGroups={regionGroups} onAssign={onAssign} busy={assigningId === c.id} />
-          ))}
-        </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-1 mt-4">
-            <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button key={i} onClick={() => setPage(i)}
-                  className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
-              ))}
-              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
+        /* ── CARD VIEW ── */
+        <div className="flex-1 overflow-auto p-4">
+          {lv.rows.length === 0 ? (
+            <div className="text-center text-[13px] text-stone-400 py-16">
+              {customers.length === 0 ? "No customers yet — create one or sync from QuickBooks." : "No customers match the current filters."}
             </div>
-          </div>
-        )}
-        </>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {visible.map((c: any) => (
+                <CustomerCard key={c.id} c={c} isSelected={selected.has(c.id)} onToggle={toggleOne} repGroups={repGroups} regionGroups={regionGroups} onAssign={onAssign} busy={assigningId === c.id} />
+              ))}
+            </div>
+          )}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-1 mt-4">
+              <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, lv.rows.length)} of {lv.rows.length}</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <button key={i} onClick={() => setPage(i)}
+                    className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
+                  className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}
@@ -416,6 +429,6 @@ export default function CustomersPage() {
           onClose={() => { setShowReclassify(false); setSelected(new Set()); }}
         />
       )}
-    </div>
+    </ListPage>
   );
 }

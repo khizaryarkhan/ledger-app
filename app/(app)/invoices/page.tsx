@@ -1,13 +1,20 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
-import { Card, Badge, Input, Select, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
+import { Badge, Button, dueStatusBadge } from "@/components/ui";
 import { InvoiceModal } from "@/components/forms";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
-import { fmt, formatDate, daysOverdue, getDueStatus, matchesDueFilter, DUE_FILTERS, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { Search, Plus, FileText, Trash2, X, Download, Send, CalendarDays, Sheet } from "lucide-react";
+import { fmt, formatDate, daysOverdue, getDueStatus, matchesDueFilter, DUE_FILTERS, sourceLabel, sourceBadgeVariant, localToday } from "@/lib/format";
+import { Search, Plus, Trash2, X, Download, Send } from "lucide-react";
+import { DEFAULT_STAGES, resolveStageLabel, type Stage } from "@/lib/stages";
+import { SelectField, control } from "@/components/form-kit";
+import { StageLabel } from "@/components/stage-label";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  sumByCurrency, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 // ── Date period helpers ────────────────────────────────────────────────────────
 type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
@@ -34,21 +41,22 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
   // "all" and "custom" handled at call site
   return { from: new Date(2000, 0, 1), to: now };
 }
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 
 export default function InvoicesPage() {
   const { invoices, customers, projects, contacts, regions, reps, bulkDeleteInvoices, orgSettings, refresh, toast } = useData() as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [stageFilter, setStageFilter] = useState("");
-  const [customerFilter, setCustomerFilter] = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
   const [responseFilter, setResponseFilter] = useState("");
+  // Customer / region / stage used to be header selects too; they are column
+  // filters now (funnel on each header), so the header keeps only the filters
+  // a column can't express.
   const [showCreate, setShowCreate] = useState(false);
 
   // Date period filter — defaults to last month
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
+  // Local dates, never toISOString(): that is UTC and shifts the day either
+  // side of Greenwich (CLAUDE.md, "A date is a date").
+  const todayStr = localToday();
+  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })();
   const [period, setPeriod] = useState<PeriodId>("last-month");
   const [customFrom, setCustomFrom] = useState(lastMonthStart);
   const [customTo, setCustomTo]   = useState(todayStr);
@@ -60,6 +68,8 @@ export default function InvoicesPage() {
   const [bulkStageChanging, setBulkStageChanging] = useState(false);
 
   const df = orgSettings?.dateFormat || "DD MMM YYYY";
+  const stages: Stage[] = orgSettings?.stages?.length ? orgSettings.stages : DEFAULT_STAGES;
+  const today = todayStr;
 
   /** Resolve best email: billingEmail → primary contact → customer email */
   function resolveEmail(inv: any): string | null {
@@ -110,7 +120,7 @@ export default function InvoicesPage() {
 
   const handleExportExcel = () => {
     import("xlsx").then((XLSX) => {
-      const rows = dt.rows.map((inv: any) => ({
+      const rows = lv.rows.map((inv: any) => ({
         "Invoice #":      inv.invoiceNumber,
         "Customer":       inv.customer?.name ?? "",
         "Project":        inv.project?.name ?? "",
@@ -119,7 +129,7 @@ export default function InvoicesPage() {
         "Invoice Date":   inv.invoiceDate ?? "",
         "Due Date":       inv.dueDate ?? "",
         "Status":         inv.dueStatus ?? "",
-        "Stage":          inv.collectionStage ?? "",
+        "Stage":          inv.stageLabel ?? "",
         "Billing Email":  inv.resolvedEmail ?? "",
         "Currency":       inv.currency ?? "",
         "Value":          inv.total ?? 0,
@@ -132,7 +142,7 @@ export default function InvoicesPage() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Invoices");
       const period_label = PERIODS.find(p => p.id === period)?.label ?? "Custom";
-      XLSX.writeFile(wb, `Invoices_${period_label.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      XLSX.writeFile(wb, `Invoices_${period_label.replace(/\s+/g, "_")}_${localToday()}.xlsx`);
     });
   };
 
@@ -149,6 +159,8 @@ export default function InvoicesPage() {
         project,
         rep:    reps?.find((r: any) => r.id === repId) ?? null,
         region: regions?.find((r: any) => r.id === regionId) ?? null,
+        isClosed: isPaidOrClosed,
+        stageLabel: resolveStageLabel(i.collectionStage, stages),
         outstanding: isPaidOrClosed ? 0 : i.total - (i.paid || 0),
         daysOverdue: daysOverdue(i.dueDate),
         dueStatus: getDueStatus(i),
@@ -177,54 +189,48 @@ export default function InvoicesPage() {
     // matchesDueFilter, not an equality check on dueStatus: the calendar
     // windows ("Due This Week"/"Due This Month") overlap the single buckets.
     if (statusFilter) res = res.filter((i: any) => matchesDueFilter(i, statusFilter));
-    if (stageFilter) {
-      // Keep legacy aliases so old data with alternate stage names still matches
-      const STAGE_ALIASES: Record<string, string[]> = {
-        "Scheduled":   ["Scheduled", "Reminder Scheduled"],
-        "Awaiting":    ["Awaiting", "Awaiting Reply"],
-        "Promised":    ["Promised", "Promise to Pay"],
-        "In Progress": ["In Progress", "Reminder Sent", "Second Notice", "Final Notice"],
-      };
-      const aliases = STAGE_ALIASES[stageFilter] || [stageFilter];
-      res = res.filter((i: any) => aliases.includes(i.collectionStage));
-    }
-    if (customerFilter) res = res.filter((i: any) => i.customerId === customerFilter);
-    if (regionFilter) res = res.filter((i: any) => {
-      const cust = customers.find((c: any) => c.id === i.customerId);
-      if (cust?.regionId === regionFilter) return true;
-      const proj = projects.find((p: any) => p.id === i.projectId);
-      return proj?.regionId === regionFilter;
-    });
     // Customer Response Portal filters (uses cached invoice fields)
     if (responseFilter === "dispute") res = res.filter((i: any) => i.hasOpenDispute);
     if (responseFilter === "promise") res = res.filter((i: any) => !!i.promiseDate);
-    res.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     return res;
-  }, [invoices, customers, projects, contacts, reps, regions, search, statusFilter, stageFilter, customerFilter, regionFilter, responseFilter, periodFrom, periodTo]);
+  }, [invoices, customers, projects, contacts, reps, regions, stages, search, statusFilter, responseFilter, periodFrom, periodTo]);
 
-  // Column definitions for sort + filter
-  const INV_COLS: ColDef[] = [
-    { key: "invoiceNumber", label: "Invoice", sortValue: (r) => r.invoiceNumber, filterLabel: (r) => r.invoiceNumber },
-    { key: "customer",      label: "Customer", sortValue: (r) => r.customer?.name ?? "", filterLabel: (r) => r.customer?.name ?? "" },
-    { key: "project",       label: "Project",  sortValue: (r) => r.project?.name ?? "", filterLabel: (r) => r.project?.name ?? "(None)" },
-    { key: "rep",           label: "Rep",      sortValue: (r) => r.rep?.name ?? "", filterLabel: (r) => r.rep?.name ?? "(None)" },
-    { key: "region",        label: "Region",   sortValue: (r) => r.region?.name ?? "", filterLabel: (r) => r.region?.name ?? "(None)" },
-    { key: "invoiceDate",   label: "Inv. Date", sortValue: (r) => r.invoiceDate ?? "" },
-    { key: "dueDate",       label: "Due Date",  sortValue: (r) => r.dueDate ?? "" },
-    { key: "dueStatus",     label: "Status",    sortValue: (r) => r.dueStatus ?? "", filterLabel: (r) => r.dueStatus ?? "" },
-    { key: "collectionStage", label: "Stage",   sortValue: (r) => r.collectionStage ?? "", filterLabel: (r) => r.collectionStage ?? "" },
-    { key: "billingEmail",  label: "Billing Email", sortValue: (r) => r.resolvedEmail ?? "", filterLabel: (r) => r.resolvedEmail ? "Has email" : "No email", noFilter: false },
-    { key: "total",         label: "Value",      sortValue: (r) => r.total ?? 0, align: "right" as const, noFilter: true },
-    { key: "outstanding",   label: "Outstanding", sortValue: (r) => r.outstanding ?? 0, align: "right" as const, noFilter: true },
-  ];
-  const dt = useDataTable(filtered, INV_COLS);
+  // Column definitions — sort + funnel filter per column, board-style.
+  const INV_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "invoice",     label: "Invoice",   sort: r => r.invoiceNumber, filter: { kind: "text", value: r => r.invoiceNumber } },
+    { key: "customer",    label: "Customer",  sort: r => r.customer?.name, filter: { kind: "text", value: r => r.customer?.name } },
+    { key: "project",     label: "Project",   sort: r => r.project?.name, filter: { kind: "text", value: r => r.project?.name } },
+    { key: "rep",         label: "Rep",       sort: r => r.rep?.name, filter: { kind: "multi", value: r => r.rep?.name } },
+    { key: "region",      label: "Region",    sort: r => r.region?.name, filter: { kind: "multi", value: r => r.region?.name } },
+    { key: "invoiceDate", label: "Inv. date", sort: r => r.invoiceDate },
+    { key: "dueDate",     label: "Due",       sort: r => r.dueDate },
+    { key: "dueStatus",   label: "Status",    sort: r => r.dueStatus, filter: { kind: "multi", value: r => r.dueStatus } },
+    { key: "stage",       label: "Stage",     sort: r => r.stageLabel, filter: { kind: "multi", value: r => r.stageLabel } },
+    { key: "email",       label: "Billing email", sort: r => r.resolvedEmail, filter: { kind: "text", value: r => r.resolvedEmail } },
+    { key: "total",       label: "Value",     sort: r => Number(r.total ?? 0), descFirst: true, align: "right",
+      filter: { kind: "range", value: r => Number(r.total ?? 0) }, money: r => ({ amount: Number(r.total ?? 0), currency: r.currency }) },
+    { key: "outstanding", label: "Outstanding", sort: r => r.outstanding, descFirst: true, align: "right",
+      filter: { kind: "range", value: r => r.outstanding }, money: r => ({ amount: r.outstanding, currency: r.currency }) },
+  ], []);
+  const lv = useListView(filtered, INV_COLS, { storageKey: "invoices", defaultSort: "dueDate", defaultDir: "asc", summary: "outstanding" });
 
-  const allSelected = filtered.length > 0 && filtered.every((i: any) => selected.has(i.id));
+  // Batch actions must never silently operate on invoices the user can no
+  // longer see — prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visible = new Set(lv.rows.map((r: any) => r.id));
+    setSelected(prev => [...prev].some(id => !visible.has(id)) ? new Set([...prev].filter(id => visible.has(id))) : prev);
+  }, [lv.rows]);
+
+  const allSelected = lv.rows.length > 0 && lv.rows.every((i: any) => selected.has(i.id));
   const someSelected = selected.size > 0;
+  const selectedTotals = useMemo(
+    () => sumByCurrency(lv.rows.filter((r: any) => selected.has(r.id)), (r: any) => ({ amount: r.outstanding, currency: r.currency })),
+    [lv.rows, selected],
+  );
 
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set(filtered.map((i: any) => i.id)));
+    else setSelected(new Set(lv.rows.map((i: any) => i.id)));
   };
 
   const toggleOne = (id: string) => {
@@ -268,56 +274,60 @@ export default function InvoicesPage() {
     }
   };
 
-  return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Invoices</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {dt.rows.length} invoice{dt.rows.length !== 1 ? "s" : ""}
-            <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" icon={Sheet} onClick={handleExportExcel}>Export Excel</Button>
-          <Button icon={Plus} onClick={() => setShowCreate(true)}>New invoice</Button>
-        </div>
-      </div>
+  const pageFiltered = !!(search || statusFilter || responseFilter);
+  const td = "px-2 py-2";
 
-      {/* Bulk action bar */}
+  return (
+    <ListPage>
+      <ListPageHeader title="Invoices"
+        subtitle={<>{filtered.length} invoice{filtered.length !== 1 ? "s" : ""} · Invoice date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
+        {/* Search */}
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search invoice #, customer, email, PO…"
+            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
+        </div>
+        {/* Status stays a header filter: its calendar windows ("Due This Week")
+            overlap the single buckets, so it can't be a one-value column pick. */}
+        <SelectField value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="w-auto h-8 text-xs">
+          <option value="">All statuses</option>
+          {DUE_FILTERS.map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        <SelectField value={responseFilter} onChange={(e) => setResponseFilter(e.target.value)} aria-label="Filter by customer response" className="w-auto h-8 text-xs">
+          <option value="">All responses</option>
+          <option value="dispute">Open dispute</option>
+          <option value="promise">Has commitment</option>
+        </SelectField>
+        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Invoice date period" className="w-auto h-8 text-xs">
+          {PERIODS.map(p => <option key={p.id} value={p.id}>Invoice date: {p.label}</option>)}
+        </SelectField>
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
+            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
+              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
+          </>
+        )}
+        <ListDivider />
+        <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New invoice</Button>
+      </ListPageHeader>
+
+      {/* Selection bar — board layout: count + per-currency total, actions right */}
       {someSelected && (
-        <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg flex-wrap">
-          <span className="text-sm font-medium">{selected.size} selected</span>
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
+          <span className="text-[13px] font-medium">
+            {selected.size} selected · {Object.entries(selectedTotals).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || fmt.money(0)}
+          </span>
           <div className="flex-1" />
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded">
-            <X size={14} />
-          </button>
-          <select
-            value=""
-            disabled={bulkStageChanging}
-            onChange={(e) => {
-              const stage = e.target.value;
-              e.target.value = "";
-              handleBulkStageChange(stage);
-            }}
-            className="bg-stone-700 text-white text-xs rounded-md px-2.5 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-stone-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <option value="" disabled>
-              {bulkStageChanging ? "Updating…" : "Change stage…"}
-            </option>
-            {(orgSettings?.stages ?? []).map((s: any) => {
-              const key   = typeof s === "string" ? s : s.key;
-              const label = typeof s === "string" ? s : s.label;
-              return (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              );
-            })}
-          </select>
-          <Button variant="secondary" size="sm" icon={Send} onClick={() => setShowBatchEmail(true)}>
-            Send email
-          </Button>
+          <SelectField value="" disabled={bulkStageChanging} aria-label="Change stage of the selected invoices"
+            onChange={(e) => handleBulkStageChange(e.target.value)}
+            className="w-auto min-w-[150px] h-8 text-[12px]">
+            <option value="" disabled>{bulkStageChanging ? "Updating…" : "Change stage…"}</option>
+            {stages.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </SelectField>
+          <Button variant="secondary" size="sm" icon={Send} onClick={() => setShowBatchEmail(true)}>Send email</Button>
           {!confirmDelete ? (
             <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmDelete(true)}>
               Delete {selected.size} invoice{selected.size > 1 ? "s" : ""}
@@ -331,147 +341,72 @@ export default function InvoicesPage() {
               </Button>
             </div>
           )}
+          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
         </div>
       )}
 
-      <Card padding="none">
-        {/* ── Date period picker ── */}
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 text-[11px] text-stone-400 font-medium shrink-0">
-            <CalendarDays size={13} />
-            Invoice date
-          </div>
-          <div className="flex items-center gap-0.5 bg-stone-800 p-0.5 rounded-lg">
-            {PERIODS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  period === p.id ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {period === "custom" && (
-            <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-3 py-1.5">
-              <span className="text-[11px] text-stone-400 font-medium">From</span>
-              <input type="date" value={customFrom} max={customTo}
-                onChange={e => setCustomFrom(e.target.value)}
-                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
-              <span className="text-[11px] text-stone-400 font-medium ml-1">To</span>
-              <input type="date" value={customTo} min={customFrom} max={todayStr}
-                onChange={e => setCustomTo(e.target.value)}
-                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
-            </div>
-          )}
-        </div>
+      <ListToolbar lv={lv} noun="invoice" selected={selected.size} filtered={pageFiltered}>
+        <button onClick={handleExportExcel}
+          className="flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border text-stone-400 border-stone-700 hover:bg-stone-800 transition-colors">
+          <Download size={13} /> Export Excel
+        </button>
+      </ListToolbar>
+      <ListChips lv={lv} />
 
-        {/* ── Search + column filters ── */}
-        <div className="p-3 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input value={search} onChange={(e: any) => setSearch(e.target.value)} placeholder="Search invoice #, customer, email, PO..." icon={Search} className="w-72" />
-          <Select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} placeholder="All statuses" options={DUE_FILTERS} />
-          <Select value={stageFilter} onChange={(e: any) => setStageFilter(e.target.value)} placeholder="All stages"
-            options={(orgSettings?.stages ?? ["New","In Progress","Promised","Disputed","Escalated","Closed"]).map((s: any) =>
-              typeof s === "string" ? s : { value: s.key, label: s.label }
-            )} />
-          <Select value={customerFilter} onChange={(e: any) => setCustomerFilter(e.target.value)} placeholder="All customers" options={customers.map((c: any) => ({ value: c.id, label: c.name }))} />
-          <select value={regionFilter} onChange={(e: any) => setRegionFilter(e.target.value)}
-            className="h-9 px-3 pr-8 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 appearance-none"
-            style={{backgroundImage:`url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.5rem center",backgroundSize:"12px"}}>
-            <option value="">All regions</option>
-            {(regions ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-          <Select value={responseFilter} onChange={(e: any) => setResponseFilter(e.target.value)} placeholder="All responses"
-            options={[{ value: "dispute", label: "⚠ Open dispute" }, { value: "promise", label: "📅 Has promise" }]} />
-          {(search || statusFilter || stageFilter || customerFilter || regionFilter || responseFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter(""); setStageFilter(""); setCustomerFilter(""); setRegionFilter(""); setResponseFilter(""); }}>Clear</Button>
-          )}
-        </div>
-        <ActiveFiltersBar dt={dt} cols={INV_COLS} />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/60">
-                <th className="px-3 py-2.5 w-10">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-stone-300 cursor-pointer" />
-                </th>
-                {INV_COLS.map((col) => (
-                  <ColHeader key={col.key} col={col} dt={dt} className={col.align === "right" ? "text-right" : "text-left"} />
-                ))}
-                <th className="w-10 px-2 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {dt.rows.map((inv: any) => (
-                <tr key={inv.id} className={`border-b border-stone-800 hover:bg-stone-800/50 ${selected.has(inv.id) ? "bg-emerald-500/10" : ""}`}>
-                  <td className="px-3 py-2.5 w-10">
-                    <input type="checkbox" checked={selected.has(inv.id)} onChange={() => toggleOne(inv.id)}
-                      className="rounded border-stone-300 cursor-pointer" onClick={(e) => e.stopPropagation()} />
+      <ListScroll lv={lv} empty={invoices.length === 0 ? "No invoices yet — create one or import from CSV." : "No invoices match the current filters."}>
+        <table className={listTable}>
+          <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} trailing={1} />
+          <tbody>
+            {lv.rows.map((inv: any) => {
+              const isSel = selected.has(inv.id);
+              return (
+                <tr key={inv.id} className={listRow(isSel)}>
+                  <td className={listCheckCell}>
+                    <input type="checkbox" checked={isSel} onChange={() => toggleOne(inv.id)} className={listCheckbox} aria-label={`Select invoice ${inv.invoiceNumber}`} />
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-[12px]">
-                    <Link href={`/invoices/${inv.id}`} className="flex items-center gap-1.5 w-full">
-                      <span>{inv.invoiceNumber}</span>
+                  <td className={`${td} whitespace-nowrap`}>
+                    <Link href={`/invoices/${inv.id}`} className="inline-flex items-center gap-1.5 font-mono text-[12px] text-stone-400 hover:text-white hover:underline">
+                      #{inv.invoiceNumber}
                       <Badge variant={sourceBadgeVariant(inv.source)} size="sm">{sourceLabel(inv.source)}</Badge>
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 font-medium text-white">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[160px]">{inv.customer?.name}</Link>
+                  <td className={`${td} text-stone-200 text-[13px] max-w-[180px] truncate`} title={inv.customer?.name}>{inv.customer?.name ?? "—"}</td>
+                  <td className={`${td} text-stone-500 text-[12px] max-w-[150px] truncate`} title={inv.project?.name ?? ""}>{inv.project?.name ?? "—"}</td>
+                  <td className={`${td} text-stone-500 text-[12px] max-w-[120px] truncate`}>{inv.rep?.name ?? "—"}</td>
+                  <td className={`${td} text-stone-500 text-[12px] max-w-[110px] truncate`}>{inv.region?.name ?? "—"}</td>
+                  <td className={`${td} text-stone-400 text-[12px] whitespace-nowrap tabular-nums`}>{formatDate(inv.invoiceDate, df)}</td>
+                  {/* Due — date first, days-overdue on its own line, as on the board */}
+                  <td className={`${td} whitespace-nowrap tabular-nums`}>
+                    <span className="text-stone-400 text-[12px]">{formatDate(inv.dueDate, df)}</span>
+                    {!inv.isClosed && (
+                      <span className={`block text-[11px] font-medium ${inv.daysOverdue > 0 ? "text-rose-400" : "text-stone-600"}`}>
+                        {inv.daysOverdue > 0 ? `${inv.daysOverdue}d over` : "not due"}
+                      </span>
+                    )}
                   </td>
-                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[140px]">{inv.project?.name || "—"}</Link>
+                  <td className={td}><Badge variant={dueStatusBadge(inv.dueStatus)} size="sm">{inv.dueStatus}</Badge></td>
+                  <td className={td}>
+                    <StageLabel label={inv.stageLabel} stages={stages} today={today}
+                      hasOpenDispute={inv.hasOpenDispute} disputeReason={inv.disputeReason}
+                      promiseDate={inv.isClosed ? null : inv.promiseDate} escalationType={inv.escalationType} />
                   </td>
-                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[120px]">{inv.rep?.name || "—"}</Link>
+                  <td className={`${td} max-w-[200px]`} title={inv.resolvedEmail || ""}>
+                    {inv.resolvedEmail ? (() => {
+                      const addrs = inv.resolvedEmail.split(",").map((e: string) => e.trim()).filter(Boolean);
+                      return (
+                        <span className="text-[12px] text-stone-300 truncate block">
+                          {addrs[0]}
+                          {addrs.length > 1 && <span className="ml-1 text-[11px] text-blue-400 font-medium">+{addrs.length - 1}</span>}
+                        </span>
+                      );
+                    })() : <span className="text-[12px] text-stone-600 italic">no email</span>}
                   </td>
-                  <td className="px-3 py-2.5 text-stone-400 text-[12px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full truncate max-w-[110px]">{inv.region?.name || "—"}</Link>
-                  </td>
-                  <td className="px-3 py-2.5 text-stone-400 text-[12px] whitespace-nowrap">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full">{formatDate(inv.invoiceDate, df)}</Link>
-                  </td>
-                  <td className="px-3 py-2.5 text-stone-300 whitespace-nowrap">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full">
-                      {formatDate(inv.dueDate, df)}
-                      {inv.daysOverdue > 0 && <span className="ml-1 text-[11px] text-rose-600 font-medium">+{inv.daysOverdue}d</span>}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Link href={`/invoices/${inv.id}`} className="inline-flex items-center gap-1 flex-wrap">
-                      <Badge variant={dueStatusBadge(inv.dueStatus)}>{inv.dueStatus}</Badge>
-                      {inv.hasOpenDispute && <Badge variant="red" size="sm">⚠ Dispute</Badge>}
-                      {!inv.hasOpenDispute && inv.promiseDate && <Badge variant="blue" size="sm">📅 Committed</Badge>}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Link href={`/invoices/${inv.id}`}><Badge variant={stageBadge(inv.collectionStage)}>{inv.collectionStage}</Badge></Link>
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] max-w-[200px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full" title={inv.resolvedEmail || ""}>
-                      {inv.resolvedEmail ? (() => {
-                        const addrs = inv.resolvedEmail.split(",").map((e: string) => e.trim()).filter(Boolean);
-                        return (
-                          <span className="text-stone-300 truncate block">
-                            {addrs[0]}
-                            {addrs.length > 1 && (
-                              <span className="ml-1 text-[10px] text-blue-500 font-medium">+{addrs.length - 1}</span>
-                            )}
-                          </span>
-                        );
-                      })() : <span className="text-stone-300 italic">No email</span>}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums text-[13px]">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full">{fmt.money(inv.total, inv.currency)}</Link>
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums">
-                    <Link href={`/invoices/${inv.id}`} className="block w-full">{fmt.money(inv.outstanding, inv.currency)}</Link>
-                  </td>
-                  <td className="px-2 py-2.5 w-10">
+                  <td className={`${listNumCell} text-stone-400 text-[12px]`}>{fmt.money(inv.total, inv.currency)}</td>
+                  <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(inv.outstanding, inv.currency)}</span></td>
+                  <td className="px-3 py-2 text-center w-10">
                     {((inv.qboId && !inv.qboId.startsWith("CM-")) || (inv.xeroId && !inv.xeroId.startsWith("CN-"))) && (
                       <button onClick={(e) => handleDownloadPdf(e, inv)}
-                        className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
+                        className="inline-flex items-center justify-center p-1 rounded hover:bg-stone-800 text-stone-500 hover:text-stone-200 transition-colors"
                         title="Download PDF">
                         {downloadingId === inv.id
                           ? <span className="animate-spin inline-block w-3.5 h-3.5 border border-stone-400 border-t-transparent rounded-full" />
@@ -480,16 +415,12 @@ export default function InvoicesPage() {
                     )}
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <EmptyState icon={FileText} title="No invoices found"
-              description={invoices.length === 0 ? "Create your first invoice or import from CSV." : "Try adjusting your filters."}
-              action={invoices.length === 0 ? <Button icon={Plus} onClick={() => setShowCreate(true)}>New invoice</Button> : undefined} />
-          )}
-        </div>
-      </Card>
+              );
+            })}
+          </tbody>
+          {lv.rows.length > 0 && <ListFoot lv={lv} noun="invoice" selectable trailing={1} />}
+        </table>
+      </ListScroll>
 
       {showCreate && <InvoiceModal onClose={() => setShowCreate(false)} />}
       {showBatchEmail && (() => {
@@ -519,6 +450,6 @@ export default function InvoicesPage() {
           />
         );
       })()}
-    </div>
+    </ListPage>
   );
 }
