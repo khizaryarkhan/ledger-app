@@ -9,7 +9,7 @@ import { fmt, daysOverdue, getAgingBucket, daysFromNow, today, localToday, isWit
 import { ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, Circle, AlertTriangle, Mail, X, Printer } from "lucide-react";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
-import { classifyComposition } from "@/lib/receivable-composition";
+import { classifyCompositionByCurrency } from "@/lib/receivable-composition";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -392,46 +392,30 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
 // see the exact invoices behind it.
 // Classification itself lives in lib/receivable-composition.ts — shared with
 // the Collections Board, which uses the same buckets to drive its filters.
-function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
-  invoices: any[];
-  dominantCcy: string;
+/**
+ * One composition card, for ONE currency.
+ *
+ * Split out so the widget can render a card per currency: a composition is a
+ * percentage breakdown, and a percentage across two currencies is arithmetic
+ * over two different units. See classifyCompositionByCurrency.
+ */
+function CompositionCard({ comp, ccy, showCurrency, onDrill }: {
+  comp: any;
+  ccy: string;
+  showCurrency: boolean;
   onDrill: (d: { title: string; subtitle: string; color: "rose" | "amber" | "sky" | "stone" | "white"; items: any[] }) => void;
 }) {
-  const comp = useMemo(() => {
-    const open = invoices.filter((i: any) =>
-      i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
-      i.txnType !== "CreditMemo" && openBal(i) > 0
-    );
-    const items = open.map((inv: any) => ({
-      escalationType:   inv.escalationType ?? null,
-      collectionStage:  inv.collectionStage ?? null,
-      hasOpenDispute:   inv.hasOpenDispute,
-      promiseDate:      inv.promiseDate,
-      overdueDays:      daysOverdue(inv.dueDate),
-      amount:           openBal(inv),
-      ref:              inv, // original invoice — used by drill-down
-    }));
-    const result = classifyComposition(items);
-    // Unwrap `ref` back to the plain invoice objects the drill-down modal expects.
-    const unwrap = (g: typeof result.groups[number]) => ({ ...g, items: g.items.map(it => it.ref) });
-    return {
-      ...result, open,
-      groups:        result.groups.map(unwrap),
-      blockedParts:  result.blockedParts.map(unwrap),
-      workableParts: result.workableParts.map(unwrap),
-    };
-  }, [invoices]);
-
-  if (comp.total <= 0) return null;
-
   const pct = (v: number) => (v / comp.total) * 100;
+
 
   return (
     <Card padding="md" className="mb-3">
       <div className="flex items-center justify-between mb-1">
-        <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Receivable Composition</div>
+        <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">
+          Receivable Composition{showCurrency ? <span className="ml-1.5 text-stone-400">{ccy}</span> : null}
+        </div>
         <div className="text-[11px] text-stone-500">
-          What the {fmt.money(comp.total, dominantCcy)} is made of — click a segment for the invoices
+          What the {fmt.money(comp.total, ccy)} is made of — click a segment for the invoices
         </div>
       </div>
 
@@ -440,7 +424,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
         {/* Workable */}
         <div className="rounded-lg bg-stone-800/40 ring-1 ring-stone-800 px-3 py-2.5">
           <div className="text-[13px]">
-            <span className="font-semibold text-white">{fmt.money(comp.workable, dominantCcy)}</span>
+            <span className="font-semibold text-white">{fmt.money(comp.workable, ccy)}</span>
             <span className="text-stone-500"> ({pct(comp.workable).toFixed(0)}%)</span>
           </div>
           <div className="text-[11px] text-stone-500 mb-1.5">collectable through normal chasing</div>
@@ -449,7 +433,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
               <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
                 className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
                 <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
-                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, dominantCcy)}</span>
+                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, ccy)}</span>
               </button>
             ))}
           </div>
@@ -457,7 +441,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
         {/* Blocked */}
         <div className="rounded-lg bg-amber-500/5 ring-1 ring-amber-500/20 px-3 py-2.5">
           <div className="text-[13px]">
-            <span className="font-semibold text-amber-400">{fmt.money(comp.blocked, dominantCcy)}</span>
+            <span className="font-semibold text-amber-400">{fmt.money(comp.blocked, ccy)}</span>
             <span className="text-stone-500"> ({pct(comp.blocked).toFixed(0)}%)</span>
           </div>
           <div className="text-[11px] text-stone-500 mb-1.5">needs a decision or agreement first</div>
@@ -466,7 +450,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
               <button key={g.key} onClick={() => onDrill({ title: g.label, subtitle: g.description, color: g.drillColor, items: g.items })}
                 className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
                 <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
-                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, dominantCcy)}</span>
+                {g.label} <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, ccy)}</span>
               </button>
             ))}
           </div>
@@ -474,7 +458,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
         {/* Not yet due */}
         <div className="rounded-lg bg-emerald-500/5 ring-1 ring-emerald-500/20 px-3 py-2.5">
           <div className="text-[13px]">
-            <span className="font-semibold text-emerald-400">{fmt.money(comp.currentAmount, dominantCcy)}</span>
+            <span className="font-semibold text-emerald-400">{fmt.money(comp.currentAmount, ccy)}</span>
             <span className="text-stone-500"> ({pct(comp.currentAmount).toFixed(0)}%)</span>
           </div>
           <div className="text-[11px] text-stone-500">not yet due — within payment terms</div>
@@ -492,7 +476,7 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
               width: `${Math.max(pct(g.amount), 0.75)}%`,
               borderLeft: i > 0 ? "2px solid var(--seg-gap)" : undefined,
             }}
-            title={`${g.label} — ${fmt.money(g.amount, dominantCcy)} (${pct(g.amount).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
+            title={`${g.label} — ${fmt.money(g.amount, ccy)} (${pct(g.amount).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
             onClick={() => onDrill({
               title: g.label,
               subtitle: g.description,
@@ -514,13 +498,59 @@ function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
           >
             <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${g.dot}`} />
             <span className="text-[12px] text-stone-300 flex-1 min-w-0 truncate group-hover:text-white">{g.label}</span>
-            <span className="text-[12px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(g.amount, dominantCcy)}</span>
+            <span className="text-[12px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(g.amount, ccy)}</span>
             <span className="text-[11px] text-stone-500 tabular-nums w-10 text-right shrink-0">{pct(g.amount).toFixed(1)}%</span>
             <span className="text-[10px] text-stone-600 tabular-nums w-8 text-right shrink-0">{g.count}×</span>
           </button>
         ))}
       </div>
     </Card>
+  );
+}
+
+function ReceivableComposition({ invoices, dominantCcy, onDrill }: {
+  invoices: any[];
+  dominantCcy: string;
+  onDrill: (d: { title: string; subtitle: string; color: "rose" | "amber" | "sky" | "stone" | "white"; items: any[] }) => void;
+}) {
+  const comps = useMemo(() => {
+    const open = invoices.filter((i: any) =>
+      i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" &&
+      i.txnType !== "CreditMemo" && openBal(i) > 0
+    );
+    const items = open.map((inv: any) => ({
+      escalationType:   inv.escalationType ?? null,
+      collectionStage:  inv.collectionStage ?? null,
+      hasOpenDispute:   inv.hasOpenDispute,
+      promiseDate:      inv.promiseDate,
+      overdueDays:      daysOverdue(inv.dueDate),
+      amount:           openBal(inv),
+      currency:         inv.currency ?? null,
+      ref:              inv, // original invoice — used by drill-down
+    }));
+    // Per currency, never blended: adding PKR to EUR produced a total in no
+    // currency at all, and a percentage split over two different units.
+    const results = classifyCompositionByCurrency(items, dominantCcy);
+    // Unwrap `ref` back to the plain invoice objects the drill-down modal expects.
+    const unwrap = (g: any) => ({ ...g, items: g.items.map((it: any) => it.ref) });
+    return results.map(r => ({
+      ...r,
+      groups:        r.groups.map(unwrap),
+      blockedParts:  r.blockedParts.map(unwrap),
+      workableParts: r.workableParts.map(unwrap),
+    }));
+  }, [invoices, dominantCcy]);
+
+  const payable = comps.filter(c => c.total > 0);
+  if (!payable.length) return null;
+
+  return (
+    <>
+      {payable.map(c => (
+        <CompositionCard key={c.currency} comp={c} ccy={c.currency}
+          showCurrency={payable.length > 1} onDrill={onDrill} />
+      ))}
+    </>
   );
 }
 
@@ -1007,6 +1037,17 @@ export default function DashboardPage() {
     const over90Items = open.filter((i: any) => daysOverdue(i.dueDate) > 90);
     const over90 = over90Items.reduce((s: number, i: any) => s + openBal(i), 0);
     const disputedItems = open.filter((i: any) => i.hasOpenDispute);
+    // Per-currency, the same way totalByCurrency/overdueByCurrency are built
+    // above. These two cards used to print a cross-currency sum under the
+    // dominant currency's symbol, while the two cards beside them showed the
+    // currencies properly — the same row disagreeing with itself.
+    const byCcy = (rows: any[]) => rows.reduce((acc: Record<string, number>, i: any) => {
+      const c = i.currency || "EUR";
+      acc[c] = (acc[c] || 0) + openBal(i);
+      return acc;
+    }, {});
+    const over90ByCurrency = byCcy(over90Items);
+    const disputedByCurrency = byCcy(disputedItems);
     const openItems = [...open, ...activeCMs];
 
     // Proactive pipeline: due in 7-14 days, no lastFollowupDate
@@ -1031,7 +1072,7 @@ export default function DashboardPage() {
       promisedMonthItems,
       promisedAllItems: promisedAll,
       dueThisWeek, overdue, emailsSent, replies, openCount: open.length, over90, proactivePipeline,
-      openItems, over90Items, disputedItems,
+      openItems, over90Items, disputedItems, over90ByCurrency, disputedByCurrency,
     };
   }, [effectiveInvoices, invoices, customers, projects, communications]);
 
@@ -1240,7 +1281,7 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && stats.over90Items.length > 0 && setDrillDown({ title: "90+ Days Overdue", subtitle: "Escalation candidates — oldest outstanding invoices", color: "rose", items: stats.over90Items })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">90+ Days</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-3xl font-semibold text-rose-700 tracking-tight">{fmt.money(stats.over90, stats.dominantCcy)}</div>
+                  <div className="text-3xl font-semibold text-rose-700 tracking-tight"><CurrencyPills breakdown={stats.over90ByCurrency} /></div>
                   <div className="mt-2 text-[11px] text-stone-500">Escalation candidates</div>
                 </>}
               </Card>
@@ -1248,7 +1289,7 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && stats.disputedItems.length > 0 && setDrillDown({ title: "Disputed Invoices", subtitle: "In dispute — pending resolution", color: "amber", items: stats.disputedItems })}>
                 <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Disputed</div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
-                  <div className="text-3xl font-semibold text-white tracking-tight">{fmt.money(stats.disputed, stats.dominantCcy)}</div>
+                  <div className="text-3xl font-semibold text-white tracking-tight"><CurrencyPills breakdown={stats.disputedByCurrency} /></div>
                   <div className="mt-2 text-[11px] text-stone-500">Pending resolution</div>
                 </>}
               </Card>

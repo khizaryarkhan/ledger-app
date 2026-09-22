@@ -153,3 +153,42 @@ export function classifyComposition<T extends CompItem>(items: (T & { amount: nu
 
   return { total, groups: active, blocked, workable, blockedParts, workableParts, currentAmount };
 }
+
+export type CurrencyComposition<T extends CompItem> =
+  ReturnType<typeof classifyComposition<T>> & { currency: string };
+
+/**
+ * The same classification, kept strictly within one currency at a time.
+ *
+ * `classifyComposition` sums whatever it is given. That is correct for a
+ * single-currency org and WRONG the moment there are two: the Dashboard was
+ * adding PKR 884,736 to EUR 1,440 and presenting "PKR 886,176.00" — a figure
+ * in no currency at all, whose percentage split (99.8% / 0.2%) was arithmetic
+ * over two different units.
+ *
+ * Converting to a home currency was the other option and is deliberately not
+ * taken: it needs a rate per invoice at the right date, which turns a
+ * collections screen into a valuation engine and makes the number depend on
+ * when you look at it. Reporting each currency on its own terms keeps every
+ * figure one a person could check against a bank statement.
+ *
+ * Ordered by total, largest first, so the dominant currency leads. An org with
+ * one currency gets a single entry and renders exactly as it did before.
+ */
+export function classifyCompositionByCurrency<T extends CompItem>(
+  items: (T & { amount: number; currency?: string | null })[],
+  fallbackCurrency: string,
+): CurrencyComposition<T>[] {
+  const byCurrency = new Map<string, (T & { amount: number })[]>();
+  for (const it of items) {
+    // A row with no currency belongs to the org's own — absence of a code is
+    // not evidence of a foreign currency, and dropping those rows would
+    // under-report real debt.
+    const ccy = (it.currency || fallbackCurrency || "").trim().toUpperCase() || fallbackCurrency;
+    const bucket = byCurrency.get(ccy);
+    if (bucket) bucket.push(it); else byCurrency.set(ccy, [it]);
+  }
+  return [...byCurrency.entries()]
+    .map(([currency, rows]) => ({ ...classifyComposition(rows), currency }))
+    .sort((a, b) => b.total - a.total);
+}
