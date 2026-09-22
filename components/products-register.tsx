@@ -224,14 +224,16 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   );
 }
 
-/* ----------------------------- Packaging grid ----------------------------- */
+/* ----------------------------- Packaging: list + drawer ----------------------------- */
 
-// Packaging is edited IN PLACE, one table row per level — the shape of SAP's
-// "Units of measure" tab: what the level is, what it contains, what that comes
-// to in the base unit, and the level's GTIN. It replaced two rounds of side
-// drawers, which hid the hierarchy behind a click and never showed more than
-// one level's barcode next to another's. Here every level and every code of a
-// link is visible at once, and edited where it is read.
+// The list shows each supplier link / SKU on ONE line, with its packaging
+// read back in words and its barcodes counted; the pencil opens a drawer.
+// Inside the drawer, packaging is a GRID — one row per level (the shape of
+// SAP's "Units of measure" tab): what the level is, what it contains, what
+// that is in the base unit, and the level's GTIN. Two earlier drawers laid
+// packaging out as stacked fields or cards, which split a pack from its
+// barcode or showed one level at a time; the grid shows the whole hierarchy
+// and every code together, where it is edited.
 
 type Codes = Partial<Record<PackLevel, string>>;
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -246,6 +248,19 @@ const codesPayload = (codes: Codes, levels: PackLevel[]) =>
 const firstInvalid = (codes: Codes, levels: PackLevel[]) =>
   levels.map(l => ({ l, c: classifyBarcode(codes[l]) })).find(x => "error" in x.c);
 const qtyLabel = (q: number, uom: string) => (q > 0 ? `${fmt.qty(q)} ${uom}` : "—");
+
+/** One-line packaging read-back for the list: "Bag = 25 kg · Carton = 12 Bag". */
+function packLine(levels: { type?: string | null; n?: any; of: string }[]): string {
+  return levels.filter(l => l.type && Number(l.n) > 0).map(l => `${l.type} = ${fmt.qty(Number(l.n))} ${l.of}`).join(" · ");
+}
+
+/** Barcode count for the list, every code on hover. */
+function BarcodeSummary({ row }: { row: any }) {
+  const list = Object.entries(row?.identifiers ?? {}) as [string, any][];
+  if (!list.length) return <span className="text-stone-600">—</span>;
+  const title = list.map(([lvl, b]) => `${lvl}: ${showBarcode(b)}${b.scheme === "OTHER" ? " (internal)" : ""}`).join("\n");
+  return <span className="font-mono text-stone-300" title={title}>{showBarcode(list[0][1])}{list.length > 1 && <span className="text-stone-500"> +{list.length - 1}</span>}</span>;
+}
 
 function UomCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
@@ -269,12 +284,11 @@ function PackTypeCell({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-/** "[ 25 ] kg" — a quantity with its unit written after it, so the row reads as a sentence. */
+/** "[ 25 ] kg" — a quantity with its unit after it, so the row reads as a sentence.
+ *  Width sits on a wrapper: form-kit's `cell` is w-full by design. */
 function ContainsCell({ value, onChange, unit }: { value: string; onChange: (v: string) => void; unit: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      {/* Width on a wrapper: form-kit's `cell` is w-full by design, so a
-          width class on the input itself loses to it. */}
       <div className="w-20 shrink-0"><input type="number" step="any" min="0" className={`${cell} text-right tabular-nums`} value={value} onChange={e => onChange(e.target.value)} placeholder="0" /></div>
       <span className="text-[12px] text-stone-400 whitespace-nowrap">{unit}</span>
     </div>
@@ -282,17 +296,9 @@ function ContainsCell({ value, onChange, unit }: { value: string; onChange: (v: 
 }
 
 /** GTIN checked as you type, by the same rule the server enforces (classifyBarcode). */
-function GtinCell({ value, onChange, editing }: { value: string; onChange: (v: string) => void; editing: boolean }) {
+function GtinCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const c = classifyBarcode(value);
   const kind = !value.trim() ? null : "error" in c ? "bad" : c.barcode?.scheme === "GTIN" ? "gtin" : "other";
-  if (!editing) {
-    if (!value) return <span className="text-stone-600">—</span>;
-    return (
-      <span className="inline-flex items-center gap-1.5 font-mono text-stone-200">
-        {value}{kind === "other" && <span className="font-sans text-[11px] text-amber-400">internal</span>}
-      </span>
-    );
-  }
   return (
     <div>
       <div className="flex items-center gap-1.5">
@@ -307,31 +313,34 @@ function GtinCell({ value, onChange, editing }: { value: string; onChange: (v: s
 
 type GridRow = { key: string; level: React.ReactNode; contains: React.ReactNode; base: React.ReactNode; gtin: React.ReactNode; onRemove?: () => void; muted?: boolean };
 
-function PackagingTable({ rows, editing, add }: { rows: GridRow[]; editing: boolean; add?: React.ReactNode }) {
+function PackagingGrid({ rows, add, total }: { rows: GridRow[]; add?: React.ReactNode; total?: string }) {
   return (
-    <table className="w-full text-[12px]">
-      <thead><tr className="border-b border-stone-800">
-        <th className={`${th} w-8`}>#</th>
-        <th className={th}>Level</th>
-        <th className={th}>Contains</th>
-        <th className={`${th} text-right`}>= Base qty</th>
-        <th className={th}>GTIN / barcode</th>
-        {editing && <th className="w-8" />}
-      </tr></thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={r.key} className={`border-b border-stone-800/50 ${r.muted ? "text-stone-500" : ""}`}>
-            <td className="px-2.5 py-1.5 text-stone-500 tabular-nums">{i + 1}</td>
-            <td className="px-2.5 py-1.5 text-stone-200">{r.level}</td>
-            <td className="px-2.5 py-1.5 text-stone-300">{r.contains}</td>
-            <td className="px-2.5 py-1.5 text-right tabular-nums text-stone-300 whitespace-nowrap">{r.base}</td>
-            <td className="px-2.5 py-1.5">{r.gtin}</td>
-            {editing && <td className="px-2 py-1.5">{r.onRemove && <button type="button" onClick={r.onRemove} title="Remove this level" className="text-stone-600 hover:text-rose-400"><X size={13} /></button>}</td>}
-          </tr>
-        ))}
-        {editing && add && <tr><td /><td colSpan={5} className="px-2.5 py-1.5">{add}</td></tr>}
-      </tbody>
-    </table>
+    <div className="rounded-lg border border-stone-800 overflow-hidden">
+      <table className="w-full text-[12px]">
+        <thead><tr className="border-b border-stone-800 bg-stone-950/40">
+          <th className={`${th} w-8`}>#</th>
+          <th className={th}>Level</th>
+          <th className={th}>Contains</th>
+          <th className={`${th} text-right`}>= Base qty</th>
+          <th className={th}>GTIN / barcode</th>
+          <th className="w-8" />
+        </tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.key} className="border-b border-stone-800/50 align-top">
+              <td className="px-2.5 py-2 text-stone-500 tabular-nums">{i + 1}</td>
+              <td className={`px-1 py-1 w-40 ${r.muted ? "text-stone-500" : "text-stone-200"}`}>{r.level}</td>
+              <td className="px-1 py-1 text-stone-300">{r.contains}</td>
+              <td className="px-2.5 py-2 text-right tabular-nums text-stone-300 whitespace-nowrap">{r.base}</td>
+              <td className="px-1 py-1 w-56">{r.gtin}</td>
+              <td className="px-2 py-2">{r.onRemove && <button type="button" onClick={r.onRemove} title="Remove this level" className="text-stone-600 hover:text-rose-400"><X size={13} /></button>}</td>
+            </tr>
+          ))}
+          {add && <tr><td /><td colSpan={5} className="px-2.5 py-2">{add}</td></tr>}
+        </tbody>
+      </table>
+      {total && <div className="px-3 py-2 border-t border-stone-800 bg-emerald-500/5 text-[12px] text-emerald-300">{total}</div>}
+    </div>
   );
 }
 
@@ -339,18 +348,12 @@ const AddLevel = ({ label, onClick }: { label: string; onClick: () => void }) =>
   <button type="button" onClick={onClick} className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300 mr-4"><Plus size={12} /> {label}</button>
 );
 
-/** Save / Cancel strip for a block in edit mode. */
-function BlockActions({ saving, err, onCancel, onSave, saveLabel }: { saving: boolean; err: string; onCancel: () => void; onSave: () => void; saveLabel: string }) {
-  return (
-    <div className="flex items-center gap-3 px-3 py-2 border-t border-stone-800 bg-stone-900/40">
-      {err ? <p className="flex-1 text-[12px] text-rose-400">{err}</p> : <div className="flex-1" />}
-      <button type="button" onClick={onCancel} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Cancel</button>
-      <button type="button" onClick={onSave} disabled={saving}
-        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-3 py-1.5 disabled:opacity-50">
-        {saving ? <Loader size={12} className="animate-spin" /> : <Check size={12} />} {saveLabel}
-      </button>
-    </div>
-  );
+/** "1 Carton = 12 Bag = 300 kg" — the ladder read back from the top. */
+function ladderTotal(steps: { label: string; qty: number }[], base: string): string | undefined {
+  if (!steps.length || !base) return undefined;
+  const rev = [...steps].reverse();
+  const top = rev[0];
+  return [`1 ${top.label}`, ...rev.slice(1).map(s => `${fmt.qty(top.qty / s.qty)} ${s.label}`), `${fmt.qty(top.qty)} ${base}`].join(" = ");
 }
 
 const iconBtn = "p-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-800";
@@ -360,7 +363,7 @@ const iconBtn = "p-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-
 function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [skus, setSkus] = useState<any[] | null>(null);
   const [onHand, setOnHand] = useState<Record<string, { packs: number | null; value: number }>>({});
-  const [adding, setAdding] = useState(false);
+  const [drawer, setDrawer] = useState<{ sku?: any } | null>(null);
   const [err, setErr] = useState("");
   async function load() {
     const r = await fetch(`/api/inventory/items/${item.id}`).then(x => x.json()).catch(() => null);
@@ -377,39 +380,63 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     load(); onChanged();
   }
+  const base = item.baseUom || "";
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Layers size={14} className="text-emerald-400" /> Packaging SKUs <span className="text-stone-500 font-normal">· base UoM {item.baseUom || "—"}</span></div>
-        {!adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add SKU</button>}
+        <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Layers size={14} className="text-emerald-400" /> Packaging SKUs <span className="text-stone-500 font-normal">· base UoM {base || "—"}</span></div>
+        <button onClick={() => setDrawer({})} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add SKU</button>
       </div>
       {!item.baseUom && <p className="text-[12px] text-amber-400 mb-2">Set a base UoM on this item first so packaging can be expressed in it.</p>}
       {err && <p className="text-[12px] text-rose-400 mb-2">{err}</p>}
-      <div className="space-y-2">
-        {adding && <SkuBlock item={item} onDone={() => { setAdding(false); load(); onChanged(); }} onCancel={() => setAdding(false)} />}
-        {skus === null && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">Loading…</div>}
-        {skus !== null && skus.length === 0 && !adding && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">No SKUs yet.</div>}
-        {(skus ?? []).map(s => (
-          <SkuBlock key={s.id} item={item} sku={s} onHand={onHand[s.id]} onDone={() => { load(); onChanged(); }} onRemove={() => remove(s.id)} />
-        ))}
+      <div className="rounded-lg border border-stone-800 overflow-hidden">
+        <table className="w-full text-[12px]">
+          <thead><tr className="border-b border-stone-800">
+            <th className={th}>SKU</th><th className={th}>Packaging</th>
+            <th className={`${th} text-right`}>On hand</th><th className={th}>Barcodes</th><th className="w-14" />
+          </tr></thead>
+          <tbody>
+            {skus === null && <tr><td colSpan={5} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
+            {skus !== null && skus.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-stone-500">No SKUs yet.</td></tr>}
+            {(skus ?? []).map(s => {
+              const oh = onHand[s.id];
+              const inner = s.innerPackType || "unit";
+              return (
+                <tr key={s.id} className="border-b border-stone-800/50 hover:bg-stone-800/30 cursor-pointer" onClick={() => setDrawer({ sku: s })}>
+                  <td className="px-3 py-2">
+                    <div className="text-stone-200">{s.skuName || "—"}</div>
+                    {s.skuCode && <div className="font-mono text-[11px] text-stone-500">{s.skuCode}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-stone-300">{packLine([
+                    { type: s.innerPackType, n: s.innerUnitPackSize, of: base },
+                    { type: s.addlInnerPackType, n: s.unitsInAddlInnerPack, of: inner },
+                    { type: s.outerPackType, n: s.unitsInOuterPack, of: s.addlInnerPackType || inner },
+                  ]) || <span className="text-stone-600">—</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-stone-300">{oh && oh.packs != null ? `${fmt.qty(oh.packs)} ${s.innerPackType || "packs"}` : <span className="text-stone-600">0</span>}</td>
+                  <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
+                  <td className="px-3 py-2 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setDrawer({ sku: s })} className={iconBtn} title="Edit SKU"><Pencil size={13} /></button>
+                    <button onClick={() => remove(s.id)} className={`${iconBtn} hover:text-rose-400`} title="Delete SKU"><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+      {drawer && <SkuDrawer item={item} sku={drawer.sku} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); load(); onChanged(); }} />}
     </div>
   );
 }
 
-function SkuBlock({ item, sku, onHand, onDone, onCancel, onRemove }: {
-  item: any; sku?: any; onHand?: { packs: number | null; value: number };
-  onDone: () => void; onCancel?: () => void; onRemove?: () => void;
-}) {
-  const fresh = () => ({
+function SkuDrawer({ item, sku, onClose, onSaved }: { item: any; sku?: any; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState<Record<string, string>>({
     skuName: sku?.skuName ?? "", skuCode: sku?.skuCode ?? "",
     innerUnitPackSize: numStr(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
     unitsInAddlInnerPack: numStr(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
     unitsInOuterPack: numStr(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
   });
-  const [editing, setEditing] = useState(!sku);
-  const [f, setF] = useState<Record<string, string>>(fresh);
   const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
   const [hasAddl, setHasAddl] = useState(!!(sku?.unitsInAddlInnerPack || sku?.addlInnerPackType));
   const [hasOuter, setHasOuter] = useState(!!(sku?.unitsInOuterPack || sku?.outerPackType));
@@ -424,18 +451,16 @@ function SkuBlock({ item, sku, onHand, onDone, onCancel, onRemove }: {
   const addlQty = hasAddl ? (Number(f.unitsInAddlInnerPack) || 0) * innerQty : 0;
   const outerParent = hasAddl ? { qty: addlQty, label: f.addlInnerPackType || "multipack" } : { qty: innerQty, label: f.innerPackType || "unit" };
   const outerQty = hasOuter ? (Number(f.unitsInOuterPack) || 0) * outerParent.qty : 0;
-
-  function cancel() {
-    if (!sku) { onCancel?.(); return; }
-    setF(fresh()); setCodes(codesFromRow(sku));
-    setHasAddl(!!(sku.unitsInAddlInnerPack || sku.addlInnerPackType)); setHasOuter(!!(sku.unitsInOuterPack || sku.outerPackType));
-    setErr(""); setEditing(false);
-  }
+  const steps = [
+    ...(f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
+    ...(hasAddl && f.addlInnerPackType && addlQty > 0 ? [{ label: f.addlInnerPackType, qty: addlQty }] : []),
+    ...(hasOuter && f.outerPackType && outerQty > 0 ? [{ label: f.outerPackType, qty: outerQty }] : []),
+  ];
 
   async function save() {
     if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
-    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack: choose its pack type and how many it contains — or remove the row."); return; }
-    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many it contains — or remove the row."); return; }
+    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack row: choose its pack type and how many it contains — or remove the row."); return; }
+    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack row: choose its pack type and how many it contains — or remove the row."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
@@ -445,63 +470,49 @@ function SkuBlock({ item, sku, onHand, onDone, onCancel, onRemove }: {
       : await fetch(`/api/inventory/skus`, { method: "POST", headers: jsonHeaders, body });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    setEditing(false); onDone();
+    onSaved();
   }
 
   const rows: GridRow[] = [
-    { key: "base", muted: true, level: <span className="text-stone-500">{base} <span className="text-[11px]">(base unit)</span></span>, contains: "—", base: `1 ${base}`, gtin: <span className="text-stone-600">—</span> },
-    {
-      key: "inner",
-      level: editing ? <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} /> : <>{f.innerPackType || "Consumer unit"} <span className="text-[11px] text-stone-500">consumer unit</span></>,
-      contains: editing ? <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={base} /> : (innerQty ? `${fmt.qty(innerQty)} ${base}` : "—"),
-      base: qtyLabel(innerQty, base),
-      gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} editing={editing} />,
-    },
+    { key: "base", muted: true, level: <div className="px-1.5 py-1">{base} <span className="text-[11px]">(base unit)</span></div>, contains: <div className="px-1.5 py-1 text-stone-600">—</div>, base: `1 ${base}`, gtin: <div className="px-1.5 py-1 text-stone-600">—</div> },
+    { key: "inner", level: <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} />, contains: <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={base} />, base: qtyLabel(innerQty, base), gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} /> },
     ...(hasAddl ? [{
-      key: "addl",
-      level: editing ? <PackTypeCell value={f.addlInnerPackType} onChange={set("addlInnerPackType")} /> : <>{f.addlInnerPackType} <span className="text-[11px] text-stone-500">multipack</span></>,
-      contains: editing ? <ContainsCell value={f.unitsInAddlInnerPack} onChange={set("unitsInAddlInnerPack")} unit={f.innerPackType || "units"} /> : `${f.unitsInAddlInnerPack} ${f.innerPackType}`,
-      base: qtyLabel(addlQty, base),
-      gtin: <GtinCell value={codes.addl_inner ?? ""} onChange={setCode("addl_inner")} editing={editing} />,
+      key: "addl", level: <PackTypeCell value={f.addlInnerPackType} onChange={set("addlInnerPackType")} />,
+      contains: <ContainsCell value={f.unitsInAddlInnerPack} onChange={set("unitsInAddlInnerPack")} unit={f.innerPackType || "units"} />,
+      base: qtyLabel(addlQty, base), gtin: <GtinCell value={codes.addl_inner ?? ""} onChange={setCode("addl_inner")} />,
       onRemove: () => { setHasAddl(false); setF(p => ({ ...p, unitsInAddlInnerPack: "", addlInnerPackType: "" })); setCodes(c => ({ ...c, addl_inner: "" })); },
     }] : []),
     ...(hasOuter ? [{
-      key: "outer",
-      level: editing ? <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} /> : <>{f.outerPackType} <span className="text-[11px] text-stone-500">outer pack</span></>,
-      contains: editing ? <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={outerParent.label} /> : `${f.unitsInOuterPack} ${outerParent.label}`,
-      base: qtyLabel(outerQty, base),
-      gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} editing={editing} />,
+      key: "outer", level: <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} />,
+      contains: <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={outerParent.label} />,
+      base: qtyLabel(outerQty, base), gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} />,
       onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
     }] : []),
   ];
 
   return (
-    <div className={`rounded-lg border overflow-hidden ${editing ? "border-emerald-800/60" : "border-stone-800"}`}>
-      <div className="flex items-center gap-3 px-3 py-2 bg-stone-900/60 border-b border-stone-800">
-        {editing ? (
-          <div className="flex-1 grid grid-cols-[2fr_1fr] gap-2">
-            <input className={cell} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="SKU name, e.g. 750ml bottle" aria-label="SKU name" autoFocus={!sku} />
-            <input className={`${cell} font-mono`} value={f.skuCode} onChange={e => set("skuCode")(e.target.value)} placeholder="SKU code" aria-label="SKU code" />
+    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} subtitle={`${item.name} · stocked in ${item.baseUom || "no base UoM"}`} onClose={onClose} size="xl"
+      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={sku ? "Save changes" : "Create SKU"} err={err} />}>
+      <div className="space-y-6">
+        <Section title="Identity">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            <Field label="SKU name" required><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="e.g. 750ml bottle" autoFocus={!sku} /></Field>
+            <Field label="SKU code"><input className={`${controlInset} font-mono`} value={f.skuCode} onChange={e => set("skuCode")(e.target.value)} /></Field>
           </div>
-        ) : (
-          <>
-            <span className="text-[13px] font-medium text-stone-100">{sku?.skuName || "—"}</span>
-            {sku?.skuCode && <span className="font-mono text-[11px] text-stone-500">{sku.skuCode}</span>}
-            <div className="flex-1" />
-            <span className="text-[12px] text-stone-400 tabular-nums">On hand {onHand && onHand.packs != null ? `${fmt.qty(onHand.packs)} ${sku?.innerPackType || "packs"}` : "0"}</span>
-            <button onClick={() => setEditing(true)} className={iconBtn} title="Edit SKU"><Pencil size={13} /></button>
-            {onRemove && <button onClick={onRemove} className={`${iconBtn} hover:text-rose-400`} title="Delete SKU"><Trash2 size={13} /></button>}
-          </>
-        )}
+        </Section>
+        {/* Row 2 is the SKU's own consumer unit (the bottle); multipack and
+            outer pack are optional levels above it, each its own GS1 trade
+            item with its own GTIN. */}
+        <Section title="Packaging & barcodes">
+          <PackagingGrid rows={rows} total={ladderTotal(steps, base)}
+            add={(!hasAddl || !hasOuter) ? <>
+              {!hasOuter && <AddLevel label="Add outer pack" onClick={() => setHasOuter(true)} />}
+              {!hasAddl && <AddLevel label={hasOuter ? "Add multipack (between)" : "Add multipack"} onClick={() => setHasAddl(true)} />}
+            </> : undefined} />
+          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
+        </Section>
       </div>
-      <PackagingTable rows={rows} editing={editing}
-        add={(!hasAddl || !hasOuter) ? <>
-          {!hasOuter && <AddLevel label="Add outer pack" onClick={() => setHasOuter(true)} />}
-          {!hasAddl && <AddLevel label={hasOuter ? "Add multipack (between)" : "Add multipack"} onClick={() => setHasAddl(true)} />}
-        </> : undefined} />
-      {editing && <BlockActions saving={saving} err={err} onCancel={cancel} onSave={save} saveLabel={sku ? "Save" : "Create SKU"} />}
-      {editing && sku && <p className="px-3 pb-2 text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
-    </div>
+    </Drawer>
   );
 }
 
@@ -509,9 +520,8 @@ function SkuBlock({ item, sku, onHand, onDone, onCancel, onRemove }: {
 
 function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [drawer, setDrawer] = useState<{ link?: any } | null>(null);
   const [err, setErr] = useState("");
-  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [policy, setPolicy] = useState<string>(item.sourcingPolicy ?? "restricted");
   const open = !allowsPackConfiguration(policy);
   async function load() {
@@ -519,54 +529,97 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
     setRows(r?.supplierSkus ?? []);
     if (r?.item?.sourcingPolicy) setPolicy(r.item.sourcingPolicy);
   }
-  // Re-read when the policy changes from the Edit drawer, so the grid never
-  // shows the old levels for the new rule.
+  // Re-read when the policy changes from the Edit drawer, so the list never
+  // shows the old packaging for the new rule.
   useEffect(() => { load(); }, [item.id, item.sourcingPolicy]);
-  useEffect(() => { fetch(`/api/parties/suppliers?native=1`).then(x => x.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, []);
   async function remove(id: string) {
     setErr("");
     const r = await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove."); return; }
     load(); onChanged();
   }
+  const base = item.baseUom || "";
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Package size={14} className="text-amber-400" /> Suppliers <span className="text-stone-500 font-normal">· item base UoM {item.baseUom || "—"}</span></div>
+        <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Package size={14} className="text-amber-400" /> Suppliers <span className="text-stone-500 font-normal">· item base UoM {base || "—"}</span></div>
         {/* Offered under BOTH policies. On a restricted item a link is the
             permission to buy; on an open item it is only a commercial record
             (price, lead time, preferred, barcode) — optional, never restrictive. */}
-        {!adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>}
+        <button onClick={() => setDrawer({})} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>
       </div>
       {/* The policy is set in the item's Edit drawer; this line says which rule applies. */}
       <p className="mb-2 text-[11px] text-stone-500">
         {open
-          ? <>Bought from <span className="text-stone-300 font-medium">any supplier</span>, in {item.baseUom || "its base unit"}. Linking one is optional — it records their price, lead time, barcode and whether they are preferred.</>
+          ? <>Bought from <span className="text-stone-300 font-medium">any supplier</span>, in {base || "its base unit"}. Linking one is optional — it records their price, lead time, barcode and whether they are preferred.</>
           : <>Bought only from the <span className="text-stone-300 font-medium">suppliers linked below</span>, in their units and packs.</>}
       </p>
       {err && <p className="text-[12px] text-rose-400 mb-2">{err}</p>}
-      <div className="space-y-2">
-        {adding && <SupplierLinkBlock item={item} open={open} suppliers={suppliers} setSuppliers={setSuppliers} onDone={() => { setAdding(false); load(); onChanged(); }} onCancel={() => setAdding(false)} />}
-        {rows === null && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">Loading…</div>}
-        {rows !== null && rows.length === 0 && !adding && (
-          <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">
-            {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
-          </div>
-        )}
-        {(rows ?? []).map(s => (
-          <SupplierLinkBlock key={s.id} item={item} open={open} link={s} suppliers={suppliers} setSuppliers={setSuppliers} onDone={() => { load(); onChanged(); }} onRemove={() => remove(s.id)} />
-        ))}
+      <div className="rounded-lg border border-stone-800 overflow-hidden">
+        <table className="w-full text-[12px]">
+          <thead><tr className="border-b border-stone-800">
+            <th className={th}>Supplier</th>
+            {!open && <th className={th}>Unit & packaging</th>}
+            <th className={`${th} text-right`}>Price</th><th className={`${th} text-right`}>Lead time</th>
+            <th className={th}>Barcodes</th><th className="w-14" />
+          </tr></thead>
+          <tbody>
+            {rows === null && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
+            {rows !== null && rows.length === 0 && (
+              <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">
+                {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
+              </td></tr>
+            )}
+            {(rows ?? []).map(s => {
+              const unit = s.supplierUom || base;
+              const cross = base && s.supplierUom && needsConversionFactor(s.supplierUom, base);
+              return (
+                <tr key={s.id} className="border-b border-stone-800/50 hover:bg-stone-800/30 cursor-pointer" onClick={() => setDrawer({ link: s })}>
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-stone-200">{s.supplierName || "—"}</span>
+                      {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
+                    </span>
+                    {(s.skuName || s.supplierSku) && <div className="text-[11px] text-stone-500">{[s.skuName, s.supplierSku].filter(Boolean).join(" · ")}</div>}
+                  </td>
+                  {!open && (
+                    <td className="px-3 py-2 text-stone-300">
+                      <span className="font-mono">{unit || "—"}</span>
+                      {cross && (s.conversionFactor
+                        ? <span className="text-amber-300"> (1 = {numStr(s.conversionFactor)} {base})</span>
+                        : <span className="text-rose-400"> (conversion missing)</span>)}
+                      {packLine([{ type: s.innerPackType, n: s.innerUnitPackSize, of: unit }, { type: s.outerPackType, n: s.unitsInOuterPack, of: s.innerPackType || "" }]) &&
+                        <span className="text-stone-400"> · {packLine([{ type: s.innerPackType, n: s.innerUnitPackSize, of: unit }, { type: s.outerPackType, n: s.unitsInOuterPack, of: s.innerPackType || "" }])}</span>}
+                    </td>
+                  )}
+                  {/* Quoted per supplier UoM, labelled as such — the shape of the vendor's own price list. */}
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {s.unitPrice != null
+                      ? <span className="text-stone-200">{fmt.num2(Number(s.unitPrice))}<span className="text-stone-600">/{unit || "unit"}{s.currency ? ` ${s.currency}` : ""}</span></span>
+                      : <span className="text-stone-600">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
+                  <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
+                  <td className="px-3 py-2 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setDrawer({ link: s })} className={iconBtn} title="Edit supplier link"><Pencil size={13} /></button>
+                    <button onClick={() => remove(s.id)} className={`${iconBtn} hover:text-rose-400`} title="Remove supplier link"><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+      {drawer && <SupplierSkuDrawer item={item} open={open} link={drawer.link} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); load(); onChanged(); }} />}
     </div>
   );
 }
 
-function SupplierLinkBlock({ item, open, link, suppliers, setSuppliers, onDone, onCancel, onRemove }: {
-  item: any; open: boolean; link?: any; suppliers: any[]; setSuppliers: (fn: (p: any[]) => any[]) => void;
-  onDone: () => void; onCancel?: () => void; onRemove?: () => void;
-}) {
-  const fresh = () => ({
+function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; open: boolean; link?: any; onClose: () => void; onSaved: () => void }) {
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [quick, setQuick] = useState<QuickAddKind | null>(null);
+  const [f, setF] = useState<Record<string, string>>({
     supplierId: link?.supplierId ?? "",
     // Defaults to the item's own unit: links created from purchase history
     // (0090) carry no supplier UoM, and an empty unit reads as a broken record.
@@ -577,16 +630,15 @@ function SupplierLinkBlock({ item, open, link, suppliers, setSuppliers, onDone, 
     conversionFactor: numStr(link?.conversionFactor), unitPrice: numStr(link?.unitPrice), currency: link?.currency ?? "",
     leadTimeDays: numStr(link?.leadTimeDays), minOrderQty: numStr(link?.minOrderQty),
   });
-  const [editing, setEditing] = useState(!link);
-  const [f, setF] = useState<Record<string, string>>(fresh);
   const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
   const [codes, setCodes] = useState<Codes>(codesFromRow(link));
   const [hasInner, setHasInner] = useState(!open && !!(link?.innerUnitPackSize || link?.innerPackType));
   const [hasOuter, setHasOuter] = useState(!open && !!(link?.unitsInOuterPack || link?.outerPackType));
-  const [quick, setQuick] = useState<QuickAddKind | null>(null);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
   const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
+
+  useEffect(() => { fetch(`/api/parties/suppliers?native=1`).then(x => x.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, []);
 
   const base = item.baseUom || "";
   const unit = open ? base : f.supplierUom;
@@ -596,19 +648,16 @@ function SupplierLinkBlock({ item, open, link, suppliers, setSuppliers, onDone, 
   const outerQty = hasInner && hasOuter ? (Number(f.unitsInOuterPack) || 0) * innerQty : 0;
   // Levels this link actually has — same rule as the API (linkValues).
   const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasInner && hasOuter ? ["outer" as PackLevel] : [])];
-  const supplierName = link?.supplierName || suppliers.find(s => s.id === f.supplierId)?.name || "";
-
-  function cancel() {
-    if (!link) { onCancel?.(); return; }
-    setF(fresh()); setCodes(codesFromRow(link)); setIsPreferred(!!link.isPreferred);
-    setHasInner(!open && !!(link.innerUnitPackSize || link.innerPackType)); setHasOuter(!open && !!(link.unitsInOuterPack || link.outerPackType));
-    setErr(""); setEditing(false);
-  }
+  const steps = [
+    ...(hasInner && f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
+    ...(hasInner && hasOuter && f.outerPackType && outerQty > 0 ? [{ label: f.outerPackType, qty: outerQty }] : []),
+  ];
+  const price = Number(f.unitPrice);
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
-    if (!open && !f.supplierUom) { setErr("Choose the unit this supplier sells in."); return; }
-    if (crossDim && !f.conversionFactor) { setErr(`${f.supplierUom} and ${base} are different measures — enter how many ${base} are in one ${f.supplierUom}.`); return; }
+    if (!open && !f.supplierUom) { setErr("Row 1: choose the unit this supplier sells in."); return; }
+    if (crossDim && !f.conversionFactor) { setErr(`Row 1: ${f.supplierUom} and ${base} are different measures — enter how many ${base} are in one ${f.supplierUom}.`); return; }
     if (hasInner && (!f.innerPackType || !(Number(f.innerUnitPackSize) > 0))) { setErr("Row 2: choose the pack type and how many it contains — or remove the row."); return; }
     if (hasInner && hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Row 3: choose the pack type and how many it contains — or remove the row."); return; }
     const bad = firstInvalid(codes, levels);
@@ -625,108 +674,94 @@ function SupplierLinkBlock({ item, open, link, suppliers, setSuppliers, onDone, 
     });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    setEditing(false); onDone();
+    onSaved();
   }
 
   const rows: GridRow[] = [
     {
       key: "unit",
-      level: editing && !open ? <UomCell value={f.supplierUom} onChange={set("supplierUom")} /> : <>{unit || "—"} <span className="text-[11px] text-stone-500">unit</span></>,
+      level: open ? <div className="px-1.5 py-1 font-mono">{base || "—"}</div> : <UomCell value={f.supplierUom} onChange={set("supplierUom")} />,
       contains: crossDim
-        ? (editing
-            ? <div className="flex items-center gap-1.5 text-[12px] text-stone-400"><span className="whitespace-nowrap">1 {f.supplierUom} =</span><div className="w-20 shrink-0"><input type="number" step="any" className={`${cell} text-right`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" /></div>{base}</div>
-            : `1 ${f.supplierUom} = ${f.conversionFactor || "?"} ${base}`)
-        : "—",
+        ? <div className="flex items-center gap-1.5 text-[12px] text-stone-400"><span className="whitespace-nowrap">1 {f.supplierUom} =</span><div className="w-20 shrink-0"><input type="number" step="any" className={`${cell} text-right`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" /></div>{base}</div>
+        : <div className="px-1.5 py-1 text-stone-600">—</div>,
       base: qtyLabel(per, base),
-      gtin: <GtinCell value={codes.unit ?? ""} onChange={setCode("unit")} editing={editing} />,
+      gtin: <GtinCell value={codes.unit ?? ""} onChange={setCode("unit")} />,
     },
     ...(hasInner ? [{
-      key: "inner",
-      level: editing ? <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} /> : <>{f.innerPackType} <span className="text-[11px] text-stone-500">inner pack</span></>,
-      contains: editing ? <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={unit || "units"} /> : `${f.innerUnitPackSize} ${unit}`,
-      base: qtyLabel(innerQty, base),
-      gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} editing={editing} />,
+      key: "inner", level: <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} />,
+      contains: <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={unit || "units"} />,
+      base: qtyLabel(innerQty, base), gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} />,
       // Levels nest, so only the top one can go: removing the inner pack
       // would leave an outer pack defined in terms of nothing.
       onRemove: hasOuter ? undefined : () => { setHasInner(false); setF(p => ({ ...p, innerUnitPackSize: "", innerPackType: "" })); setCodes(c => ({ ...c, inner: "" })); },
     }] : []),
     ...(hasInner && hasOuter ? [{
-      key: "outer",
-      level: editing ? <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} /> : <>{f.outerPackType} <span className="text-[11px] text-stone-500">outer pack</span></>,
-      contains: editing ? <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={f.innerPackType || "inner packs"} /> : `${f.unitsInOuterPack} ${f.innerPackType}`,
-      base: qtyLabel(outerQty, base),
-      gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} editing={editing} />,
+      key: "outer", level: <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} />,
+      contains: <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={f.innerPackType || "inner packs"} />,
+      base: qtyLabel(outerQty, base), gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} />,
       onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
     }] : []),
   ];
 
-  const price = Number(f.unitPrice);
-  const termCls = "text-[12px] text-stone-400 whitespace-nowrap";
-
   return (
-    <div className={`rounded-lg border overflow-hidden ${editing ? "border-emerald-800/60" : "border-stone-800"}`}>
-      {/* Header: who, and on what terms. */}
-      {editing ? (
-        <div className="px-3 py-2.5 bg-stone-900/60 border-b border-stone-800 space-y-2">
-          <div className="grid grid-cols-[1.4fr_1.6fr_1fr_1fr] gap-2">
-            {link ? (
-              <div className="flex items-center px-2 text-[13px] font-medium text-stone-100 truncate" title="A link's supplier can't change — link the item to the other supplier instead.">{supplierName || "Supplier"}</div>
-            ) : (
-              <CellSelect value={f.supplierId} onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }} aria-label="Supplier" autoFocus>
-                <option value="">Supplier…</option>
+    <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"}
+      subtitle={`${item.name} · stocked in ${base || "no base UoM"}${open ? " · any supplier may supply it" : ""}`}
+      onClose={onClose} size="xl"
+      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={link ? "Save changes" : "Link supplier"} err={err} />}>
+      <div className="space-y-6">
+        <Section title="Supplier">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            <Field label="Supplier" required>
+              <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined}
+                onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }}>
+                <option value="">Select supplier…</option>
+                {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 <option value="__add__">+ Add new supplier…</option>
-              </CellSelect>
-            )}
-            <input className={cell} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="Their product name" aria-label="Their product name" />
-            <input className={`${cell} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} placeholder="Their SKU" aria-label="Their SKU" />
-            <input className={`${cell} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} placeholder="Their item code" aria-label="Their item code" />
+              </SelectField>
+            </Field>
+            <Field label="Their product name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="As on their invoice" /></Field>
+            <Field label="Their SKU"><input className={`${controlInset} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} /></Field>
+            <Field label="Their item code"><input className={`${controlInset} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} /></Field>
           </div>
-          {/* Price is quoted per the SUPPLIER's unit, as on their price list;
-              every pack level's rate is derived from it. */}
-          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap text-[12px] text-stone-400">
-            <label className="flex items-center gap-1.5 whitespace-nowrap">Price
-              <div className="w-24"><input type="number" step="any" className={`${cell} text-right tabular-nums`} value={f.unitPrice} onChange={e => set("unitPrice")(e.target.value)} placeholder="0.00" aria-label="Price" /></div>
-              <span>/ {unit || "unit"}</span>
-            </label>
-            <div className="w-36"><CellSelect value={f.currency} onChange={e => set("currency")(e.target.value)} aria-label="Currency">
-              <option value="">Home currency</option>
-              {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
-            </CellSelect></div>
-            <label className="flex items-center gap-1.5 whitespace-nowrap">Lead time
-              <div className="w-16"><input type="number" className={`${cell} text-right tabular-nums`} value={f.leadTimeDays} onChange={e => set("leadTimeDays")(e.target.value)} placeholder="0" aria-label="Lead time in days" /></div> days
-            </label>
-            <label className="flex items-center gap-1.5 whitespace-nowrap">Min. order
-              <div className="w-20"><input type="number" step="any" className={`${cell} text-right tabular-nums`} value={f.minOrderQty} onChange={e => set("minOrderQty")(e.target.value)} placeholder="0" aria-label="Minimum order" /></div> {unit || "unit"}
-            </label>
-            <label className="flex items-center gap-1.5 whitespace-nowrap text-stone-300 cursor-pointer" title="The default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.">
-              <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="accent-emerald-600" /> Preferred supplier
-            </label>
+        </Section>
+
+        <Section title="Packaging & barcodes">
+          <PackagingGrid rows={rows} total={ladderTotal(steps, base)}
+            add={!open && !(hasInner && hasOuter)
+              ? <AddLevel label={hasInner ? "Add outer pack" : "Add inner pack"} onClick={() => (hasInner ? setHasOuter(true) : setHasInner(true))} />
+              : undefined} />
+          {open && <p className="text-[11px] text-stone-500">Bought from any supplier, so it is ordered in {base || "its base unit"} with no pack configuration — only its barcode is recorded here.</p>}
+          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
+        </Section>
+
+        {/* Quoted in the SUPPLIER's unit, deliberately, so the row reads the
+            same as the price list it is copied from. Every pack level's rate
+            is derived from this one figure. */}
+        <Section title="Commercial terms">
+          <div className="grid grid-cols-4 gap-x-4 gap-y-4">
+            <Field label={`Price / ${unit || "unit"}`}><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.unitPrice} onChange={e => set("unitPrice")(e.target.value)} placeholder="0.00" /></Field>
+            <Field label="Currency">
+              <SelectField inset value={f.currency} onChange={e => set("currency")(e.target.value)}>
+                <option value="">Home currency</option>
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+              </SelectField>
+            </Field>
+            <Field label="Lead time (days)"><input type="number" className={`${controlInset} tabular-nums`} value={f.leadTimeDays} onChange={e => set("leadTimeDays")(e.target.value)} placeholder="0" /></Field>
+            <Field label={`Min. order (${unit || "unit"})`}><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.minOrderQty} onChange={e => set("minOrderQty")(e.target.value)} placeholder="0" /></Field>
           </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-4 px-3 py-2 bg-stone-900/60 border-b border-stone-800">
-          <span className="inline-flex items-center gap-1.5 min-w-0">
-            <span className="text-[13px] font-medium text-stone-100 truncate">{supplierName || "—"}</span>
-            {link?.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
-            {(link?.supplierSku || link?.skuName) && <span className="text-[11px] text-stone-500 truncate">{[link.skuName, link.supplierSku].filter(Boolean).join(" · ")}</span>}
-          </span>
-          <div className="flex-1" />
-          <span className={termCls}>{price > 0 ? <><span className="text-stone-200 tabular-nums">{fmt.num2(price)}</span> / {unit || "unit"}{f.currency ? ` ${f.currency}` : ""}</> : "No price"}</span>
-          <span className={termCls}>{f.leadTimeDays ? `${f.leadTimeDays}d lead` : "—"}</span>
-          {f.minOrderQty && <span className={termCls}>MOQ {fmt.qty(Number(f.minOrderQty))} {unit}</span>}
-          <button onClick={() => setEditing(true)} className={iconBtn} title="Edit supplier link"><Pencil size={13} /></button>
-          {onRemove && <button onClick={onRemove} className={`${iconBtn} hover:text-rose-400`} title="Remove supplier link"><Trash2 size={13} /></button>}
-        </div>
-      )}
-      <PackagingTable rows={rows} editing={editing}
-        add={!open && !(hasInner && hasOuter)
-          ? <AddLevel label={hasInner ? "Add outer pack" : "Add inner pack"} onClick={() => (hasInner ? setHasOuter(true) : setHasInner(true))} />
-          : undefined} />
-      {editing && <BlockActions saving={saving} err={err} onCancel={cancel} onSave={save} saveLabel={link ? "Save" : "Link supplier"} />}
-      {editing && link && !open && <p className="px-3 pb-2 text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
+          {steps.length > 0 && price > 0 && per > 0 && (
+            <p className="text-[11px] text-stone-400">Pack prices: {steps.map(s => `${s.label} ${fmt.num2(price * s.qty / per)}`).join(" · ")}</p>
+          )}
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="accent-emerald-600" />
+            <span className="text-[12.5px] text-stone-200">Preferred supplier</span>
+            <span className="text-[11px] text-stone-500">— the default for this item, and the price a purchase line starts from</span>
+          </label>
+        </Section>
+      </div>
       {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId")(row.id); setQuick(null); }} />}
-    </div>
+    </Drawer>
   );
 }
 
@@ -793,7 +828,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
   const KIND_ICON: Record<string, any> = { FinishedProduct: Layers, StockItem: Boxes, RawMaterial: Package, WorkInProgress: Layers, NonInventory: Package, Service: Layers };
 
   return (
-    <Drawer title="New item" onClose={onClose} wide>
+    <Drawer title="New item" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create item" err={err} />}>
       <div className="space-y-6">
         <Section title="Item type">
           <div className="grid grid-cols-2 gap-2">
@@ -882,9 +917,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
           </div>
           {meta.tracked && <p className="text-[11px] text-stone-500">Purchases capitalise to the inventory asset; sales & production relieve it to COGS at exact FIFO lot cost. Leave blank to use the org's system Inventory Asset / COGS accounts.</p>}
         </Section>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create item" />
       {quick && <QuickAdd kind={quick} accounts={accounts} taxes={taxes}
         onClose={() => setQuick(null)}
         onCreated={(row) => {
@@ -935,7 +968,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
   }
 
   return (
-    <Drawer title={`Edit ${item.name}`} onClose={onClose} wide>
+    <Drawer title={`Edit ${item.name}`} onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Save changes" err={err} />}>
       <div className="space-y-6">
         <div className="flex items-center gap-2"><TypeBadge t={item.productType} /><span className="text-[11px] text-stone-500">Base UoM {item.baseUom || "—"} · type &amp; base UoM lock once the item has stock</span></div>
         <Section title="Identity">
@@ -960,39 +993,51 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
             <Field label="Tax rate"><SelectField inset value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)}><option value="">Select…</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>
           </div>
         </Section>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Save changes" />
     </Drawer>
   );
 }
 
 /* ----------------------------- Drawer shell ----------------------------- */
 
-function Drawer({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+function Drawer({ title, subtitle, onClose, children, footer, wide, size }: {
+  title: string; subtitle?: string; onClose: () => void; children: React.ReactNode;
+  /** Pinned under the scrolling body, so Save is never scrolled out of reach. */
+  footer?: React.ReactNode;
+  wide?: boolean; size?: "md" | "lg" | "xl";
+}) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on);
   }, [onClose]);
+  const s = size ?? (wide ? "lg" : "md");
+  // "xl" is for the packaging grid: five columns of cells do not fit in 32rem.
+  const width = s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-black/50" />
-      <div className={`relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl ${wide ? "w-full max-w-lg" : "w-full max-w-md"}`} onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
+      <div className={`relative bg-stone-900 border-l border-stone-800 h-full w-full ${width} shadow-2xl flex flex-col`} onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-800 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-stone-100 truncate">{title}</h2>
+            {subtitle && <p className="text-[12px] text-stone-500 mt-0.5 truncate">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0"><X size={17} /></button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        {footer && <div className="shrink-0 border-t border-stone-800 px-5 py-3 bg-stone-900">{footer}</div>}
       </div>
     </div>
   );
 }
 
-function DrawerFooter({ saving, onClose, onSave, saveLabel = "Save" }: { saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string }) {
+function DrawerFooter({ saving, onClose, onSave, saveLabel = "Save", err }: { saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string; err?: string }) {
   return (
-    <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-800">
+    <div className="flex items-center gap-2">
+      {/* The error sits beside Save, where the eye already is when it fails. */}
+      {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
       <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-      <button onClick={onSave} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
+      <button onClick={onSave} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
         {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
       </button>
     </div>
