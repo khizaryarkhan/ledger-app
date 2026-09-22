@@ -39,6 +39,7 @@ import { neon } from "@neondatabase/serverless";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { isTable } from "drizzle-orm";
 import * as schema from "@/db/schema";
+import { dbIdentity, formatIdentity } from "./db-identity";
 
 // Vercel-pulled env files leave DATABASE_URL empty and put the real string in
 // DATABASE_URL_UNPOOLED, so fall through rather than reporting "not set".
@@ -103,7 +104,10 @@ function pgType(row: any) {
 }
 
 async function main() {
-  console.log(`host: ${new URL(URL_!).host}\n`);
+  // Say plainly WHICH database this is before reporting anything about it. A
+  // verification report with no subject is how two branches of one project got
+  // mistaken for each other repeatedly.
+  console.log(formatIdentity(await dbIdentity(URL_!)) + "\n");
 
   // ── 1. Migrations: journal vs what the database says it has applied ────────
   const appliedRows = await sql`select created_at from drizzle.__drizzle_migrations order by created_at`;

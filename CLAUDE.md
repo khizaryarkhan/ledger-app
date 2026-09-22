@@ -623,13 +623,30 @@ than depend on it, **we stamp the button on ourselves**:
   It knows 0016/0017 are permanently skipped and reports them as expected, and
   it skips nullability on VIEWS (`customers`/`ap_suppliers`), because Postgres
   reports every view column as nullable regardless of the underlying table.
-- **`.env.production.vercel` holds the PRODUCTION connection string, and
-  `.env.local` does NOT.** Two different Neon endpoints. `.env.production.vercel`
-  leaves `DATABASE_URL` empty and puts the real string in
-  `DATABASE_URL_UNPOOLED` — which is why `npm run db:migrate` silently targets
-  the local one. As of 2026-09-22 `.env.local` was **10 migrations behind** with
-  real-looking data in it (9 orgs); production was at 0088. Never conclude
-  anything about production from a local query — verify with `db:verify` first.
+- **There is ONE Neon project, `raspy-credit-72518363`, with TWO branches** —
+  and they are not two projects, which an earlier version of this note got
+  wrong and cost a session of confusion:
+  - `br-autumn-bird-abruo99q` / endpoint **`ep-royal-rice-abr9rxnv`** —
+    **PRODUCTION**. 6 orgs, ~18k invoices, includes **ACC (A Continuous
+    Charity)** and **Aberny**, which exist NOWHERE else. Reached by
+    `.env.production.vercel` (whose `DATABASE_URL` is a Vercel *Secret* and so
+    pulls as empty or `[SENSITIVE]` — the usable string is
+    `DATABASE_URL_UNPOOLED`).
+  - `br-snowy-feather-abkp51u5` / endpoint **`ep-ancient-math-ab44z2jn`** —
+    a stale copy, ~10 migrations behind, holding its own convincing-looking
+    data (9 orgs, an older EDC, a `Shirt - Black` with SKUs that production's
+    `T-Shirt - Black - M` never had). This is what `.env.local` points at.
+  - **Deleting the PROJECT destroys production.** Retiring the stale copy means
+    deleting the BRANCH `br-snowy-feather-abkp51u5`, never the project.
+- **`npm run db:whoami` answers "which database is this?" in one command**
+  (`scripts/db-identity.ts`). Neon exposes `neon.endpoint_id`,
+  `neon.project_id` and `neon.branch_id` as ordinary Postgres settings, so the
+  identity is readable over the same connection — no console or API key. The
+  same block heads every `db:verify` run. **Use it before drawing any
+  conclusion from a query or a screenshot**: two branches with overlapping real
+  data have already been mistaken for each other more than once, including a
+  "why did this item lose its SKUs?" investigation that turned out to be two
+  different items in two different branches.
 - **Known, latent, not yet fixed**: `user_organisations.user_id`/`org_id` are
   NOT NULL in `db/schema.ts` but nullable in production. No bad data exists
   (28 rows, 0 nulls, 0 orphans), so it is a missing constraint rather than an
