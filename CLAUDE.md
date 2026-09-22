@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0089` at `when`
-  `1789700000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0090` at `when`
+  `1789800000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1152,6 +1152,17 @@ Suppliers panel, because that is where the question is asked.
   divide evenly.
 - **A supplier price is only defaulted when its currency matches the
   document's.** Defaulting across a currency boundary silently misstates a line.
+- **Existing items were linked from purchase history, not left blocked**
+  (migration `0090`, 2026-09-22). Production had 249 tracked items and one
+  link, so `restricted` alone would have refused every purchase those orgs
+  already make. `0090` links each item to every supplier the system shows it
+  was bought from (purchase lots, goods receipts, trade-doc POs, Payables POs,
+  and synced + native bills — `ap_bill_lines.item_id` is the PROVIDER's id,
+  mapped via `external_id` for QBO and `code` for Xero, keyed on
+  `qbo_id`/`xero_id`, never `source`). Links are item + supplier only, with no
+  invented UoM or price. **An item with no purchase history gets nothing — by
+  design**: the user links the supplier before the first PO. Don't "fix" that
+  by opening such items up.
 - `is_preferred` is one-per-item via a **partial unique index**, not application
   logic — two concurrent saves can't both win and neon-http has no transaction
   to hold. Same reasoning as 0087's default-location race.
