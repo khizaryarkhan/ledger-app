@@ -11,3 +11,6 @@ node_modules
 .env*.local
 .env*
 tsconfig.tsbuildinfo
+
+# Local database exports — real customer data, never committed
+backups/
