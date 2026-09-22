@@ -1930,6 +1930,30 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
 }));
 export type ItemSupplierSku = typeof itemSupplierSkus.$inferSelect;
 
+// Barcodes per packaging level (0091). One row per code so a scan is ONE
+// indexed lookup. Owner = a sales SKU, a supplier link, or (both null) the
+// item's base unit. `code` is a GTIN normalised to 14 digits (lib/gs1.ts) or,
+// for scheme OTHER, any non-GS1 barcode as entered. Unique per owner+level+
+// scheme via an expression index in the migration (drizzle cannot declare it);
+// "one code never points at two different items" is enforced in
+// lib/inventory/identifiers-server.ts, because the SAME GTIN legitimately sits
+// on two supplier links when two distributors sell one manufacturer's item.
+export const itemIdentifiers = pgTable("item_identifiers", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  itemId:        uuid("item_id").notNull().references(() => apItems.id, { onDelete: "cascade" }),
+  itemSkuId:     uuid("item_sku_id").references(() => itemSkus.id, { onDelete: "cascade" }),
+  supplierSkuId: uuid("supplier_sku_id").references(() => itemSupplierSkus.id, { onDelete: "cascade" }),
+  scheme:        varchar("scheme", { length: 8 }).notNull().default("GTIN"),   // GTIN | OTHER
+  code:          varchar("code", { length: 48 }).notNull(),
+  packLevel:     varchar("pack_level", { length: 16 }).notNull(),              // unit | inner | addl_inner | outer
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  item_identifiers_code_idx: index("item_identifiers_code_idx").on(t.orgId, t.code),
+  item_identifiers_item_idx: index("item_identifiers_item_idx").on(t.orgId, t.itemId),
+}));
+export type ItemIdentifier = typeof itemIdentifiers.$inferSelect;
+
 // =========================================================================
 // INVENTORY — FIFO COST LOTS & MOVEMENT LEDGER
 // A "lot" is a dated FIFO cost layer created when stock is received (purchase),
@@ -1988,7 +2012,13 @@ export const inventoryLots = pgTable("inventory_lots", {
   sourceId:      uuid("source_id"),                               // journal entry / production run id
   supplierId:    uuid("supplier_id"),
   receivedDate:  date("received_date"),
-  expiryDate:    date("expiry_date"),
+  expiryDate:    date("expiry_date"),                             // GS1 AI (17)
+  // The rest of what a GS1-128 label carries (0091). supplierBatchNo is AI (10)
+  // exactly as the SUPPLIER printed it — not lotNo, which is ours and unique
+  // org-wide; two suppliers may print the same batch number.
+  supplierBatchNo: varchar("supplier_batch_no", { length: 64 }),
+  productionDate:  date("production_date"),                     // GS1 AI (11)
+  bestBeforeDate:  date("best_before_date"),                    // GS1 AI (15)
   origQty:       numeric("orig_qty", { precision: 20, scale: 6 }).notNull(),        // base UoM
   remainingQty:  numeric("remaining_qty", { precision: 20, scale: 6 }).notNull(),
   unitCost:      numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),        // cost per base UoM

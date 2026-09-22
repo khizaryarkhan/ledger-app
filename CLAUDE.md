@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0090` at `when`
-  `1789800000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0091` at `when`
+  `1789900000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1170,6 +1170,65 @@ Suppliers panel, because that is where the question is asked.
   money, now sitting beside a `numeric(18,6)` supplier price. Known, flagged,
   not yet fixed: changing them flips the Drizzle type from `number` to `string`
   and ripples through every consumer, so it wants its own commit.
+
+## Barcodes & GS1 — the foundation for labels and scanning (2026-09-22)
+
+Groundwork for printing GS1-128 labels and, later, filling receiving in from a
+mobile-camera scan. Nothing prints or scans yet; the data model and the rules
+are what this lays down.
+
+- **`item_identifiers` (migration `0091`) holds every barcode, one row per
+  code** — not columns on the SKU tables, because the one question a scanner
+  asks is "what is THIS code?", and that must be ONE indexed lookup
+  (`item_identifiers_code_idx`). Owner = a sales SKU (`item_sku_id`), a
+  supplier link (`supplier_sku_id`), or neither (the item's base unit). Pack
+  level `unit | inner | addl_inner | outer`, matching the levels the two SKU
+  tables already describe. A pallet is not a level: it is a logistic unit,
+  identified per shipment by an SSCC (AI 00), not a trade item with a GTIN.
+- **GTINs are stored normalised to 14 digits** (`lib/gs1.ts`
+  `normaliseGtin`), so an EAN-13 and the same number scanned as GTIN-14 match.
+  Non-GS1 barcodes are scheme `OTHER`, kept as entered.
+- **`classifyBarcode` (`lib/inventory/identifiers.ts`) is the one rule**, used
+  by every field and the API: anything GTIN-SHAPED (all digits, 8/12/13/14)
+  must pass its check digit or it is REFUSED — never quietly filed as OTHER,
+  where a typo would silently never match the real box.
+- **Uniqueness is per OWNER, deliberately not per org.** A GTIN is the
+  manufacturer's, not the distributor's: the same yarn bought from two
+  suppliers carries one GTIN on both links. The hard rule — one code never
+  points at two different ITEMS — is enforced in
+  `lib/inventory/identifiers-server.ts` (`prepareIdentifiers`), and a scan will
+  be disambiguated by the supplier on the receipt. Every write goes through
+  `prepareIdentifiers` (validate, no writes) then `writeIdentifiers` —
+  neon-http has no transactions, so check everything first.
+- **Supplier batch ≠ our lot number.** `inventory_lots.lot_no` is ours and
+  unique org-wide (traceability depends on it). The supplier's batch used to
+  be typed straight into it, so two suppliers both printing "2401" collided and
+  the second receipt failed — scanning would make that routine. It now has its
+  own column, `supplier_batch_no` (AI 10, not unique, indexed), beside
+  `production_date` (AI 11), `best_before_date` (AI 15) and the existing
+  `expiry_date` (AI 17). Captured on the Receiving console.
+- **`lib/gs1.ts` is pure and shared** (web, server, mobile): GTIN check digit,
+  GS1-128 element-string parse (raw with GS separators and symbology prefix,
+  or the human-readable "(01)…(17)…" form) and build (fixed-length AIs first,
+  GS only between variable ones). It REPORTS an unknown AI instead of guessing,
+  because mis-splitting one field corrupts every field after it. Dates are
+  read literally (a date is a date) with GS1's century window and DD=00 =
+  month end. `tests/gs1.test.ts` uses GS1's own reference numbers and pins the
+  build → parse round trip.
+- **SKUs and supplier links are now editable** (PATCH on
+  `/api/inventory/skus` and `/api/inventory/supplier-skus`). Once documents
+  use one, the fields that decide QUANTITY freeze (unit, pack sizes,
+  conversion factor) because they already decided how much stock those lines
+  became; names, codes, price, lead time and barcodes stay editable. A link's
+  supplier never changes — it is the link's identity.
+- `item_skus.upc` was carried into `item_identifiers` by 0091 (valid GTIN →
+  GTIN, anything else → OTHER) and is no longer read or written. Drop it in a
+  later migration.
+- **Next, not built:** label printing from a lot (GTIN + batch + expiry via
+  `buildGs1`), SSCC for pallets/shipments, GLNs on parties and locations, a
+  GS1 company prefix on the org to allocate GTINs for our own finished
+  products, serial numbers (per-unit tracking is its own feature), and the
+  mobile scan → `parseGs1` → identifier lookup → receiving line.
 
 ## Item kinds — audit findings (2026-09-21)
 

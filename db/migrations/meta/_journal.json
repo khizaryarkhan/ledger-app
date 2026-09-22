@@ -631,6 +631,13 @@
       "when": 1789800000000,
       "tag": "0090_backfill_supplier_links",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "6",
+      "when": 1789900000000,
+      "tag": "0091_item_identifiers_gs1",
+      "breakpoints": true
     }
   ]
 }

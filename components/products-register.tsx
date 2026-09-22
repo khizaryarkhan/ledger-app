@@ -19,6 +19,7 @@ import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inven
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
 import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
+import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, fieldLabel, th } from "@/components/form-kit";
@@ -232,12 +233,50 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   );
 }
 
+/* ----------------------------- Barcodes (GS1) ----------------------------- */
+
+// One field per packaging level. Checked as you type with the same rule the
+// server enforces (lib/inventory/identifiers.ts): anything that looks like a
+// GTIN must pass its check digit, so a typo is caught here rather than on the
+// dock when the scanner finds nothing.
+function BarcodeField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const c = classifyBarcode(value);
+  const hint = !value.trim() ? "GTIN (EAN-13, UPC-A, EAN-8, ITF-14) or any other barcode"
+    : "error" in c ? <span className="text-rose-400">{c.error}</span>
+    : c.barcode?.scheme === "GTIN" ? <span className="text-emerald-400">Valid GTIN · stored as {c.barcode.code}</span>
+    : <span className="text-amber-400">Not a GS1 GTIN — kept as an internal barcode</span>;
+  return (
+    <Field label={label} hint={hint}>
+      <input className={`${controlInset} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder="e.g. 9501101530003" />
+    </Field>
+  );
+}
+
+type Codes = Partial<Record<PackLevel, string>>;
+/** Stored codes → editable text, a GTIN in its shortest standard form. */
+const codesFromRow = (row: any): Codes =>
+  Object.fromEntries(Object.entries(row?.identifiers ?? {}).map(([lvl, b]: any) => [lvl, showBarcode(b)]));
+/** Every level is sent, "" for the hidden ones — so removing a pack level also removes its barcode. */
+const codesPayload = (codes: Codes, levels: PackLevel[]) =>
+  Object.fromEntries((["unit", "inner", "addl_inner", "outer"] as PackLevel[]).map(l => [l, levels.includes(l) ? (codes[l] ?? "") : ""]));
+const firstInvalid = (codes: Codes, levels: PackLevel[]) =>
+  levels.map(l => ({ l, c: classifyBarcode(codes[l]) })).find(x => "error" in x.c);
+
+/** Compact cell: first code, "+N" for the rest, all of them on hover. */
+function BarcodeSummary({ row }: { row: any }) {
+  const list = Object.entries(row?.identifiers ?? {}) as [string, any][];
+  if (!list.length) return <span className="text-stone-600">—</span>;
+  const title = list.map(([lvl, b]) => `${lvl}: ${showBarcode(b)}${b.scheme === "OTHER" ? " (internal)" : ""}`).join("\n");
+  return <span className="font-mono text-stone-300" title={title}>{showBarcode(list[0][1])}{list.length > 1 && <span className="text-stone-500"> +{list.length - 1}</span>}</span>;
+}
+
 /* ----------------------------- Finished-product SKUs ----------------------------- */
 
 function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [skus, setSkus] = useState<any[] | null>(null);
   const [onHand, setOnHand] = useState<Record<string, { packs: number | null; value: number }>>({});
   const [adding, setAdding] = useState(false);
+  const [editingSku, setEditingSku] = useState<any | null>(null);
   async function load() {
     const r = await fetch(`/api/inventory/items/${item.id}`).then(x => x.json()).catch(() => null);
     setSkus(r?.skus ?? []);
@@ -263,7 +302,7 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
         <table className="w-full text-[12px]">
           <thead><tr className="border-b border-stone-800">
             <th className={th}>SKU name</th><th className={th}>SKU code</th>
-            <th className={th}>Pack configuration</th><th className={`${th} text-right`}>On hand</th><th className={th}>UPC</th><th className="w-8" />
+            <th className={th}>Pack configuration</th><th className={`${th} text-right`}>On hand</th><th className={th}>Barcodes</th><th className="w-14" />
           </tr></thead>
           <tbody>
             {skus === null && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
@@ -276,8 +315,11 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
                 <td className="px-3 py-2 text-stone-400 font-mono">{s.skuCode || "—"}</td>
                 <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: item.baseUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsAddl: s.unitsInAddlInnerPack, addlType: s.addlInnerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-stone-300">{oh && oh.packs != null ? `${oh.packs.toLocaleString()} ${s.innerPackType || "packs"}` : <span className="text-stone-600">0</span>}</td>
-                <td className="px-3 py-2 text-stone-400 font-mono">{s.upc || "—"}</td>
-                <td className="px-3 py-2"><button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
+                <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <button onClick={() => setEditingSku(s)} className="text-stone-600 hover:text-stone-200 mr-2" title="Edit SKU"><Pencil size={13} /></button>
+                  <button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400" title="Delete SKU"><Trash2 size={13} /></button>
+                </td>
               </tr>
               );
             })}
@@ -285,27 +327,44 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
         </table>
       </div>
       {adding && <SkuDrawer item={item} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); }} />}
+      {editingSku && <SkuDrawer item={item} sku={editingSku} onClose={() => setEditingSku(null)} onCreated={() => { setEditingSku(null); load(); }} />}
     </div>
   );
 }
 
-function SkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => void; onCreated: () => void }) {
-  const [f, setF] = useState<Record<string, string>>({ skuName: "", skuCode: "", innerUnitPackSize: "", innerPackType: "", unitsInAddlInnerPack: "", addlInnerPackType: "", unitsInOuterPack: "", outerPackType: "", upc: "" });
+function SkuDrawer({ item, sku, onClose, onCreated }: { item: any; sku?: any; onClose: () => void; onCreated: () => void }) {
+  const str = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
+  const [f, setF] = useState<Record<string, string>>({
+    skuName: sku?.skuName ?? "", skuCode: sku?.skuCode ?? "",
+    innerUnitPackSize: str(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
+    unitsInAddlInnerPack: str(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
+    unitsInOuterPack: str(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
+  });
+  const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
+  // Levels this SKU actually has — same rule as the API (skuValues).
+  const levels: PackLevel[] = ["inner",
+    ...((f.unitsInAddlInnerPack || f.addlInnerPackType) ? ["addl_inner" as PackLevel] : []),
+    ...((f.unitsInOuterPack || f.outerPackType) ? ["outer" as PackLevel] : [])];
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
   const preview = packConfig({ baseUom: item.baseUom || "", innerSize: Number(f.innerUnitPackSize) || null, innerType: f.innerPackType || null, unitsAddl: Number(f.unitsInAddlInnerPack) || null, addlType: f.addlInnerPackType || null, unitsOuter: Number(f.unitsInOuterPack) || null, outerType: f.outerPackType || null });
 
   async function save() {
     if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
+    const bad = firstInvalid(codes, levels);
+    if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f }) });
+    const body = JSON.stringify({ itemId: item.id, ...f, identifiers: codesPayload(codes, levels) });
+    const r = sku
+      ? await fetch(`/api/inventory/skus?id=${sku.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body })
+      : await fetch(`/api/inventory/skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
   }
 
   return (
-    <Drawer title="New packaging SKU" onClose={onClose}>
+    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} onClose={onClose}>
       <p className="text-[12px] text-stone-400 mb-5">Base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>. Define how many base units nest in each container.</p>
       <div className="space-y-6">
         <Section title="Identity">
@@ -322,8 +381,20 @@ function SkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => voi
             <Field label="Addl. inner pack type"><PackTypeSelect value={f.addlInnerPackType} onChange={v => set("addlInnerPackType", v)} /></Field>
             <Field label="Units in outer pack"><input type="number" className={controlInset} value={f.unitsInOuterPack} onChange={e => set("unitsInOuterPack", e.target.value)} placeholder="e.g. 6" /></Field>
             <Field label="Outer pack type"><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
-            <Field label="UPC / barcode" className="col-span-2"><input className={controlInset} value={f.upc} onChange={e => set("upc", e.target.value)} /></Field>
           </div>
+        </Section>
+        {/* A GTIN identifies ONE packaging level — the bottle, the 6-pack and
+            the carton are three different trade items with three GTINs. The
+            fields follow the levels defined above. */}
+        <Section title="Barcodes (GS1)">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            {levels.map(l => (
+              <BarcodeField key={l}
+                label={levelLabel(l, l === "inner" ? (f.innerPackType || f.skuName) : l === "addl_inner" ? f.addlInnerPackType : f.outerPackType)}
+                value={codes[l] ?? ""} onChange={v => setCodes(c => ({ ...c, [l]: v }))} />
+            ))}
+          </div>
+          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
         </Section>
         {preview && <div className="rounded-lg bg-emerald-500/8 border border-emerald-800/40 px-3 py-2 text-[12px] text-emerald-300 font-mono">{preview}</div>}
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
@@ -338,6 +409,7 @@ function SkuDrawer({ item, onClose, onCreated }: { item: any; onClose: () => voi
 function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editingLink, setEditingLink] = useState<any | null>(null);
   const [policy, setPolicy] = useState<string>(item.sourcingPolicy ?? "restricted");
   const open = !allowsPackConfiguration(policy);
   async function load() {
@@ -374,12 +446,12 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
             <th className={th}>Supplier</th>
             {!open && <><th className={th}>Supplier UoM</th><th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th></>}
             <th className={`${th} text-right`}>Price</th><th className={`${th} text-right`}>Lead time</th>
-            {!open && <th className={`${th} text-right`}>Conv. factor</th>}<th className="w-8" />
+            {!open && <th className={`${th} text-right`}>Conv. factor</th>}<th className={th}>Barcodes</th><th className="w-14" />
           </tr></thead>
           <tbody>
-            {rows === null && <tr><td colSpan={open ? 4 : 8} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
+            {rows === null && <tr><td colSpan={open ? 5 : 9} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
             {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={open ? 4 : 8} className="px-3 py-4 text-center text-stone-500">
+              <tr><td colSpan={open ? 5 : 9} className="px-3 py-4 text-center text-stone-500">
                 {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
               </td></tr>
             )}
@@ -408,7 +480,11 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                   </td>
                   <td className="px-3 py-2 text-right font-mono">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
                   {!open && <td className="px-3 py-2 text-right font-mono">{s.conversionFactor ? <span className="text-amber-300">{Number(s.conversionFactor)} {item.baseUom}/{s.supplierUom}</span> : (cross ? <span className="text-rose-400">missing</span> : <span className="text-stone-600">auto</span>)}</td>}
-                  <td className="px-3 py-2"><button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
+                  <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <button onClick={() => setEditingLink(s)} className="text-stone-600 hover:text-stone-200 mr-2" title="Edit supplier link"><Pencil size={13} /></button>
+                    <button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400" title="Remove supplier link"><Trash2 size={13} /></button>
+                  </td>
                 </tr>
               );
             })}
@@ -416,15 +492,33 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
         </table>
       </div>
       {adding && <SupplierSkuDrawer item={item} open={open} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); onChanged(); }} />}
+      {editingLink && <SupplierSkuDrawer item={item} open={open} link={editingLink} onClose={() => setEditingLink(null)} onCreated={() => { setEditingLink(null); load(); onChanged(); }} />}
     </div>
   );
 }
 
-function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: any; open?: boolean; onClose: () => void; onCreated: () => void }) {
+function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { item: any; open?: boolean; link?: any; onClose: () => void; onCreated: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  const [f, setF] = useState<Record<string, string>>({ supplierId: "", supplierUom: "", skuName: "", supplierSku: "", itemCodeBySupplier: "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "", unitPrice: "", currency: "", leadTimeDays: "", minOrderQty: "" });
-  const [isPreferred, setIsPreferred] = useState(false);
+  // Stored numerics arrive as "25.0000" — show them as the number they are.
+  const str = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
+  const [f, setF] = useState<Record<string, string>>({
+    supplierId: link?.supplierId ?? "", supplierUom: link?.supplierUom ?? "", skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "",
+    itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
+    innerUnitPackSize: str(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
+    unitsInOuterPack: str(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
+    conversionFactor: str(link?.conversionFactor), unitPrice: str(link?.unitPrice), currency: link?.currency ?? "",
+    leadTimeDays: str(link?.leadTimeDays), minOrderQty: str(link?.minOrderQty),
+  });
+  const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
+  const [codes, setCodes] = useState<Codes>(codesFromRow(link));
+  // Levels this link actually has — same rule as the API (linkValues). An
+  // "any supplier" item has no packs, so only its unit can carry a barcode.
+  const levels: PackLevel[] = ["unit",
+    ...(!open && (f.innerUnitPackSize || f.innerPackType) ? ["inner" as PackLevel] : []),
+    ...(!open && (f.unitsInOuterPack || f.outerPackType) ? ["outer" as PackLevel] : [])];
+  const endpoint = link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`;
+  const method = link ? "PATCH" : "POST";
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -435,13 +529,16 @@ function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: a
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
+    const bad = firstInvalid(codes, levels);
+    if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
+    const identifiers = codesPayload(codes, levels);
     // An "any supplier" item is bought in its own base unit, so its link has
     // no supplier UoM or packaging to ask for — the server refuses pack fields
     // for it anyway. The link carries price, lead time and preferred only.
     if (open) {
       setSaving(true); setErr("");
       const { innerUnitPackSize, innerPackType, unitsInOuterPack, outerPackType, conversionFactor, ...terms } = f;
-      const r = await fetch(`/api/inventory/supplier-skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...terms, supplierUom: item.baseUom || "", isPreferred }) });
+      const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...terms, supplierUom: item.baseUom || "", isPreferred, identifiers }) });
       setSaving(false);
       if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
       onCreated();
@@ -450,14 +547,14 @@ function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: a
     if (!f.supplierUom) { setErr("Choose the supplier's UoM."); return; }
     if (crossDim && !f.conversionFactor) { setErr(`Supplier UoM "${f.supplierUom}" and item base UoM "${item.baseUom}" are different measures — enter a conversion factor.`); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/supplier-skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f, isPreferred }) });
+    const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id, ...f, isPreferred, identifiers }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
   }
 
   return (
-    <Drawer title="Link supplier" onClose={onClose}>
+    <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"} onClose={onClose}>
       <p className="text-[12px] text-stone-400 mb-5">
         Item base UoM: <span className="font-mono text-stone-200">{item.baseUom || "not set"}</span>.{" "}
         {open
@@ -468,8 +565,9 @@ function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: a
         <Section title="Supplier">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label="Supplier" required className="col-span-2">
-              <SelectField inset value={f.supplierId} onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId", e.target.value); }}>
+              <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined} onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId", e.target.value); }}>
                 <option value="">Select supplier…</option>
+                {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 <option value="__add__">+ Add new supplier…</option>
               </SelectField>
@@ -515,6 +613,20 @@ function SupplierSkuDrawer({ item, open = false, onClose, onCreated }: { item: a
               </span>
             </label>
           </div>
+        </Section>
+        {/* The supplier's barcodes, per level they sell in. Usually the
+            manufacturer's GTIN — the same number is fine on another supplier's
+            link for this item. Scanning their label will resolve to this item
+            and this packaging. */}
+        <Section title="Barcodes (GS1)">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            {levels.map(l => (
+              <BarcodeField key={l}
+                label={levelLabel(l, l === "unit" ? (open ? item.baseUom : f.supplierUom) : l === "inner" ? f.innerPackType : f.outerPackType)}
+                value={codes[l] ?? ""} onChange={v => setCodes(c => ({ ...c, [l]: v }))} />
+            ))}
+          </div>
+          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packaging are fixed — price, lead time, codes and barcodes can still change.</p>}
         </Section>
         {!open && crossDim && (
           <div className="rounded-lg bg-rose-500/8 border border-rose-800/40 px-3 py-3">

@@ -6,6 +6,7 @@
 
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
+import { identifiersForItem } from "@/lib/inventory/identifiers-server";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
@@ -43,10 +44,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     const size = skuId ? (skuSize.get(skuId) || 0) : 0;
     return { skuId, baseQty: v.qty, value: Math.round(v.value * 100) / 100, packs: size > 0 ? roundQty(v.qty / size) : null };
   });
+  // Barcodes per level, attached to their owner so each drawer can edit its own.
+  const ids = await identifiersForItem(orgId!, params.id);
+  const codesFor = (pick: (x: typeof ids[number]) => boolean) =>
+    Object.fromEntries(ids.filter(pick).map(x => [x.packLevel, { scheme: x.scheme, code: x.code }]));
   return ok({
     item,
-    skus,
-    supplierSkus: supRows.map(r => ({ ...r, supplierName: r.supplierId ? supName.get(r.supplierId) ?? null : null })),
+    skus: skus.map(r => ({ ...r, identifiers: codesFor(x => x.itemSkuId === r.id) })),
+    supplierSkus: supRows.map(r => ({ ...r, supplierName: r.supplierId ? supName.get(r.supplierId) ?? null : null, identifiers: codesFor(x => x.supplierSkuId === r.id) })),
     lots,
     movements,
     onHandBySku: onHandBySkuOut,

@@ -252,6 +252,8 @@ export type ReceiptInput = {
   // as a suggested default the caller pre-filled, overridable by the user.
   productType: string;
   lotNo?: string | null; expiryDate?: string | null; supplierId?: string | null;
+  /** GS1 lot data beside the expiry (0091). supplierBatchNo is the supplier's AI (10) as printed — never lotNo. */
+  supplierBatchNo?: string | null; productionDate?: string | null; bestBeforeDate?: string | null;
   sourceType?: "purchase" | "production" | "opening" | "adjustment" | "jobwork";
   receivedDate: string; refType: string; refId: string; entryId?: string | null;
   createdBy?: string | null; note?: string | null;
@@ -297,6 +299,8 @@ export async function commitReceipt(orgId: string, r: ReceiptInput): Promise<str
     sourceType: r.sourceType ?? "purchase", sourceId: r.entryId ?? r.refId,
     supplierId: r.supplierId ?? null,
     receivedDate: r.receivedDate, expiryDate: r.expiryDate ?? null,
+    supplierBatchNo: r.supplierBatchNo?.trim().slice(0, 64) || null,
+    productionDate: r.productionDate || null, bestBeforeDate: r.bestBeforeDate || null,
     origQty: nQty(qty), remainingQty: nQty(qty), unitCost: n6(unitCost),
     status: qty > 0 ? "Open" : "Depleted", note: r.note ?? null,
   } as any).returning({ id: inventoryLots.id });

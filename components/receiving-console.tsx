@@ -111,7 +111,7 @@ export function ReceivingConsole() {
   );
 }
 
-type RLine = { key: string; itemId: string; itemName: string; baseUom: string | null; skuId: string | null; poId: string | null; poLineId: string | null; qtyBase: string; unitCost: string; lotNo: string; expiryDate: string };
+type RLine = { key: string; itemId: string; itemName: string; baseUom: string | null; skuId: string | null; poId: string | null; poLineId: string | null; qtyBase: string; unitCost: string; lotNo: string; expiryDate: string; supplierBatchNo: string; productionDate: string; bestBeforeDate: string };
 let keySeq = 0;
 const newKey = () => `l${keySeq++}`;
 
@@ -140,7 +140,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
     if (!supplierId && po.partyId) setSupplierId(po.partyId);
     const newLines = po.lines.map((l: any) => ({
       key: newKey(), itemId: l.itemId, itemName: l.itemName, baseUom: l.baseUom, skuId: l.skuId ?? null, poId: po.id, poLineId: l.lineId,
-      qtyBase: String(l.remainingQty), unitCost: String(l.unitCostBase), lotNo: "", expiryDate: "",
+      qtyBase: String(l.remainingQty), unitCost: String(l.unitCostBase), lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "",
     }));
     setLines(ls => [...ls, ...newLines]);
     // Pre-fill a suggested lot code for each non-FP/WIP line (one peek per
@@ -153,7 +153,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
       }
     }
   }
-  function addAdhoc() { setLines(ls => [...ls, { key: newKey(), itemId: "", itemName: "", baseUom: null, skuId: null, poId: null, poLineId: null, qtyBase: "", unitCost: "", lotNo: "", expiryDate: "" }]); }
+  function addAdhoc() { setLines(ls => [...ls, { key: newKey(), itemId: "", itemName: "", baseUom: null, skuId: null, poId: null, poLineId: null, qtyBase: "", unitCost: "", lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" }]); }
   function setLine(key: string, patch: Partial<RLine>) { setLines(ls => ls.map(l => l.key === key ? { ...l, ...patch } : l)); }
   // Finished Product / Work in Progress lots are always system-generated at
   // commit time (never editable here); Stock Item / Raw Material get a
@@ -175,6 +175,7 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
     const payloadLines = lines.filter(l => l.itemId && Number(l.qtyBase) > 0).map(l => ({
       itemId: l.itemId, skuId: l.skuId, poId: l.poId, poLineId: l.poLineId, description: l.itemName,
       qtyBase: Number(l.qtyBase), unitCost: Number(l.unitCost) || 0, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null,
+      supplierBatchNo: l.supplierBatchNo || null, productionDate: l.productionDate || null, bestBeforeDate: l.bestBeforeDate || null,
     }));
     if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
     setSaving(true); setErr("");
@@ -253,6 +254,13 @@ function ReceiveDrawer({ suppliers, items, onClose, onDone }: { suppliers: any[]
                     )}
                   </Field>
                   <Field label="Expiry"><input type="date" className={`${controlInset} !h-8`} value={l.expiryDate} onChange={e => setLine(l.key, { expiryDate: e.target.value })} /></Field>
+                  {/* What a supplier's GS1-128 label carries beside the expiry. The
+                      supplier's batch is its own field: our lot no. stays unique,
+                      theirs is recorded exactly as printed so a recall quoting it
+                      can be traced. */}
+                  <Field label="Supplier batch no." hint="As printed — GS1 (10)"><input className={`${controlInset} !h-8`} value={l.supplierBatchNo} onChange={e => setLine(l.key, { supplierBatchNo: e.target.value })} /></Field>
+                  <Field label="Production date"><input type="date" className={`${controlInset} !h-8`} value={l.productionDate} onChange={e => setLine(l.key, { productionDate: e.target.value })} /></Field>
+                  <Field label="Best before"><input type="date" className={`${controlInset} !h-8`} value={l.bestBeforeDate} onChange={e => setLine(l.key, { bestBeforeDate: e.target.value })} /></Field>
                 </div>
               </div>
             ))}

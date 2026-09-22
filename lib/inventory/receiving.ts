@@ -35,7 +35,11 @@ export type ReceiptLineInput = {
   qtyBase: number;                 // received quantity in the item's base UoM
   unitCost: number;                // transaction-currency cost per base UoM
   lotNo?: string | null;
-  expiryDate?: string | null;
+  expiryDate?: string | null;                // GS1 AI (17)
+  /** The supplier's own batch as printed, GS1 AI (10) — kept apart from lotNo, which is ours and unique. */
+  supplierBatchNo?: string | null;
+  productionDate?: string | null;            // GS1 AI (11)
+  bestBeforeDate?: string | null;            // GS1 AI (15)
   /** Receive THIS line somewhere other than the receipt's location (e.g. straight into Quarantine). */
   locationId?: string | null;
 };
@@ -141,6 +145,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     const qty = roundQty(Math.abs(Number(c.r.qtyBase) || 0));
     const lotId = await commitReceipt(orgId, {
       itemId: item.id, skuId: c.r.skuId ?? null, qty, unitCost: c.homeUnit, productType: item.productType, lotNo: c.r.lotNo ?? null, expiryDate: c.r.expiryDate ?? null,
+      supplierBatchNo: c.r.supplierBatchNo ?? null, productionDate: c.r.productionDate ?? null, bestBeforeDate: c.r.bestBeforeDate ?? null,
       supplierId: input.supplierId ?? null, sourceType: "purchase", receivedDate: date,
       locationId: c.locationId,
       refType: "GoodsReceipt", refId, entryId: entry?.id ?? null, createdBy: actorId, note: c.r.description ?? null,
