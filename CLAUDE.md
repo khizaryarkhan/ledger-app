@@ -626,18 +626,25 @@ than depend on it, **we stamp the button on ourselves**:
 - **There is ONE Neon project, `raspy-credit-72518363`, with TWO branches** —
   and they are not two projects, which an earlier version of this note got
   wrong and cost a session of confusion:
-  - `br-autumn-bird-abruo99q` / endpoint **`ep-royal-rice-abr9rxnv`** —
-    **PRODUCTION**. 6 orgs, ~18k invoices, includes **ACC (A Continuous
+  - **`production`** (default) / `br-autumn-bird-abruo99q` / endpoint
+    **`ep-royal-rice-abr9rxnv`** — **PRODUCTION**. 6 orgs, ~18k invoices, includes **ACC (A Continuous
     Charity)** and **Aberny**, which exist NOWHERE else. Reached by
     `.env.production.vercel` (whose `DATABASE_URL` is a Vercel *Secret* and so
     pulls as empty or `[SENSITIVE]` — the usable string is
     `DATABASE_URL_UNPOOLED`).
-  - `br-snowy-feather-abkp51u5` / endpoint **`ep-ancient-math-ab44z2jn`** —
-    a stale copy, ~10 migrations behind, holding its own convincing-looking
+  - **`vercel-dev`** / `br-snowy-feather-abkp51u5` / endpoint
+    **`ep-ancient-math-ab44z2jn`** — a stale copy, ~10 migrations behind, holding its own convincing-looking
     data (9 orgs, an older EDC, a `Shirt - Black` with SKUs that production's
     `T-Shirt - Black - M` never had). This is what `.env.local` points at.
-  - **Deleting the PROJECT destroys production.** Retiring the stale copy means
-    deleting the BRANCH `br-snowy-feather-abkp51u5`, never the project.
+  - **Deleting the PROJECT destroys production.** `vercel-dev` is a Vercel-
+    created dev fork, so the fix for its drift is **Reset from parent**, not
+    deletion — that keeps the endpoint, so `.env.local` and the Vercel dev
+    environment keep working while the data and schema become current again.
+  - The `preview/*` branches are created by the Vercel-Neon integration and are
+    paired with per-branch `DATABASE_URL` env vars in Vercel. **Idle is not
+    abandoned**: all three of their git branches still exist, so deleting a
+    Neon branch would break the next preview deploy of that branch at
+    `db:migrate`. Let the integration retire them when the git branch goes.
 - **`npm run db:whoami` answers "which database is this?" in one command**
   (`scripts/db-identity.ts`). Neon exposes `neon.endpoint_id`,
   `neon.project_id` and `neon.branch_id` as ordinary Postgres settings, so the
