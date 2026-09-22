@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, Package, Boxes, Layers, Pencil } from "lucide-react";
-import { UOMS, PACK_TYPES, needsConversionFactor, packConfig } from "@/lib/inventory/uom";
+import { UOMS, PACK_TYPES, needsConversionFactor } from "@/lib/inventory/uom";
 import { perSupplierUnit } from "@/lib/inventory/order-options";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
@@ -23,7 +23,7 @@ import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, CellSelect, cell, controlInset, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
@@ -43,15 +43,6 @@ function UomSelect({ value, onChange, placeholder = "Select UoM…" }: { value: 
           {UOMS.filter(u => u.dimension === g.dim).map(u => <option key={u.code} value={u.code}>{u.name} ({u.code})</option>)}
         </optgroup>
       ))}
-    </SelectField>
-  );
-}
-
-function PackTypeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <SelectField inset value={value} onChange={e => onChange(e.target.value)}>
-      <option value="">Pack type…</option>
-      {PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
     </SelectField>
   );
 }
@@ -233,99 +224,136 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   );
 }
 
-/* ----------------------------- Packaging levels & barcodes (GS1) ----------------------------- */
+/* ----------------------------- Packaging grid ----------------------------- */
 
-// Packaging is described LEVEL BY LEVEL, and everything about one level sits in
-// one card: what the pack is, what it contains, and its GTIN. The drawers used
-// to split that across "Units & packaging", "Commercial terms" and "Barcodes",
-// so a carton's size and the carton's barcode were three sections apart — and
-// a GTIN only means anything next to the pack it identifies (GS1: each level
-// is its own trade item). Levels nest in order, and an optional level is a
-// button until it is needed rather than a row of empty fields.
-function LevelCard({ n, title, subtitle, onRemove, children }: {
-  n: number; title: string; subtitle?: React.ReactNode; onRemove?: () => void; children: React.ReactNode;
-}) {
-  return (
-    <div className="relative rounded-lg border border-stone-700/70 bg-stone-900/50 p-3">
-      <div className="flex items-start gap-2.5 mb-3">
-        <span className="mt-px w-5 h-5 shrink-0 rounded-full bg-stone-800 border border-stone-700 text-[11px] font-semibold text-stone-300 flex items-center justify-center">{n}</span>
-        <div className="flex-1 min-w-0">
-          <div className="text-[12.5px] font-semibold text-stone-100">{title}</div>
-          {subtitle && <div className="text-[11px] text-stone-500 leading-snug">{subtitle}</div>}
-        </div>
-        {onRemove && (
-          <button type="button" onClick={onRemove} title={`Remove ${title.toLowerCase()}`} className="text-stone-600 hover:text-rose-400 p-0.5"><X size={14} /></button>
-        )}
-      </div>
-      <div className="space-y-3">{children}</div>
-    </div>
-  );
-}
-
-function AddLevelButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-stone-700 py-2.5 text-[12px] font-medium text-stone-400 hover:text-emerald-400 hover:border-emerald-800 transition-colors">
-      <Plus size={13} /> {label}
-    </button>
-  );
-}
-
-/** Compact GTIN input for inside a level card — validated as you type. */
-function GtinInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const c = classifyBarcode(value);
-  const hint = !value.trim() ? "Optional · EAN-13, UPC-A, EAN-8, ITF-14 or any barcode"
-    : "error" in c ? <span className="text-rose-400">{c.error}</span>
-    : c.barcode?.scheme === "GTIN" ? <span className="text-emerald-400">Valid GTIN</span>
-    : <span className="text-amber-400">Not a GS1 GTIN — kept as an internal barcode</span>;
-  return (
-    <Field label="GTIN / barcode" hint={hint}>
-      <input className={`${controlInset} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder="e.g. 9501101530003" />
-    </Field>
-  );
-}
-
-/** "Contains [ 12 ] Box" — the quantity input with its unit written after it, so it reads as a sentence. */
-function ContainsInput({ value, onChange, unit, placeholder }: { value: string; onChange: (v: string) => void; unit: string; placeholder?: string }) {
-  return (
-    <Field label="Contains">
-      <div className="flex items-center gap-2">
-        <input type="number" step="any" min="0" className={`${controlInset} w-28`} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
-        <span className="text-[12px] text-stone-400 truncate">{unit}</span>
-      </div>
-    </Field>
-  );
-}
-
-/** "1 Carton = 12 Box = 300 kg" — the ladder read back, in the item's base unit. */
-function LadderSummary({ steps, baseUom }: { steps: { label: string; qty: number }[]; baseUom: string }) {
-  if (!steps.length) return null;
-  const top = steps[steps.length - 1];
-  const chain = [...steps].reverse().map((s, i, arr) => i === 0 ? `1 ${s.label}` : `${fmt.qty(arr[0].qty / s.qty)} ${s.label}`);
-  return (
-    <div className="rounded-lg bg-emerald-500/8 border border-emerald-800/40 px-3 py-2 text-[12px] text-emerald-300">
-      {chain.join(" = ")}{baseUom ? <> = <span className="font-semibold">{fmt.qty(top.qty)} {baseUom}</span></> : null}
-    </div>
-  );
-}
+// Packaging is edited IN PLACE, one table row per level — the shape of SAP's
+// "Units of measure" tab: what the level is, what it contains, what that comes
+// to in the base unit, and the level's GTIN. It replaced two rounds of side
+// drawers, which hid the hierarchy behind a click and never showed more than
+// one level's barcode next to another's. Here every level and every code of a
+// link is visible at once, and edited where it is read.
 
 type Codes = Partial<Record<PackLevel, string>>;
+const jsonHeaders = { "Content-Type": "application/json" };
+/** Stored numerics arrive as "25.0000" — show them as the number they are. */
+const numStr = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
 /** Stored codes → editable text, a GTIN in its shortest standard form. */
 const codesFromRow = (row: any): Codes =>
   Object.fromEntries(Object.entries(row?.identifiers ?? {}).map(([lvl, b]: any) => [lvl, showBarcode(b)]));
-/** Every level is sent, "" for the hidden ones — so removing a pack level also removes its barcode. */
+/** Every level is sent, "" for the absent ones — so removing a level also removes its barcode. */
 const codesPayload = (codes: Codes, levels: PackLevel[]) =>
   Object.fromEntries((["unit", "inner", "addl_inner", "outer"] as PackLevel[]).map(l => [l, levels.includes(l) ? (codes[l] ?? "") : ""]));
 const firstInvalid = (codes: Codes, levels: PackLevel[]) =>
   levels.map(l => ({ l, c: classifyBarcode(codes[l]) })).find(x => "error" in x.c);
+const qtyLabel = (q: number, uom: string) => (q > 0 ? `${fmt.qty(q)} ${uom}` : "—");
 
-/** Compact cell: first code, "+N" for the rest, all of them on hover. */
-function BarcodeSummary({ row }: { row: any }) {
-  const list = Object.entries(row?.identifiers ?? {}) as [string, any][];
-  if (!list.length) return <span className="text-stone-600">—</span>;
-  const title = list.map(([lvl, b]) => `${lvl}: ${showBarcode(b)}${b.scheme === "OTHER" ? " (internal)" : ""}`).join("\n");
-  return <span className="font-mono text-stone-300" title={title}>{showBarcode(list[0][1])}{list.length > 1 && <span className="text-stone-500"> +{list.length - 1}</span>}</span>;
+function UomCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <CellSelect value={value} onChange={e => onChange(e.target.value)} aria-label="Unit">
+      <option value="">Unit…</option>
+      {UOM_GROUPS.map(g => (
+        <optgroup key={g.dim} label={g.label}>
+          {UOMS.filter(u => u.dimension === g.dim).map(u => <option key={u.code} value={u.code}>{u.name} ({u.code})</option>)}
+        </optgroup>
+      ))}
+    </CellSelect>
+  );
 }
+
+function PackTypeCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <CellSelect value={value} onChange={e => onChange(e.target.value)} aria-label="Pack type">
+      <option value="">Pack type…</option>
+      {PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+    </CellSelect>
+  );
+}
+
+/** "[ 25 ] kg" — a quantity with its unit written after it, so the row reads as a sentence. */
+function ContainsCell({ value, onChange, unit }: { value: string; onChange: (v: string) => void; unit: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {/* Width on a wrapper: form-kit's `cell` is w-full by design, so a
+          width class on the input itself loses to it. */}
+      <div className="w-20 shrink-0"><input type="number" step="any" min="0" className={`${cell} text-right tabular-nums`} value={value} onChange={e => onChange(e.target.value)} placeholder="0" /></div>
+      <span className="text-[12px] text-stone-400 whitespace-nowrap">{unit}</span>
+    </div>
+  );
+}
+
+/** GTIN checked as you type, by the same rule the server enforces (classifyBarcode). */
+function GtinCell({ value, onChange, editing }: { value: string; onChange: (v: string) => void; editing: boolean }) {
+  const c = classifyBarcode(value);
+  const kind = !value.trim() ? null : "error" in c ? "bad" : c.barcode?.scheme === "GTIN" ? "gtin" : "other";
+  if (!editing) {
+    if (!value) return <span className="text-stone-600">—</span>;
+    return (
+      <span className="inline-flex items-center gap-1.5 font-mono text-stone-200">
+        {value}{kind === "other" && <span className="font-sans text-[11px] text-amber-400">internal</span>}
+      </span>
+    );
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <input className={`${cell} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder="GTIN or barcode" aria-label="GTIN or barcode" />
+        {kind === "gtin" && <span title="Valid GTIN" className="text-emerald-400 shrink-0"><Check size={13} /></span>}
+        {kind === "other" && <span title="Not a GS1 GTIN — kept as an internal barcode" className="text-[11px] text-amber-400 shrink-0">internal</span>}
+      </div>
+      {kind === "bad" && <div className="text-[11px] text-rose-400 px-2 pt-0.5">{(c as any).error}</div>}
+    </div>
+  );
+}
+
+type GridRow = { key: string; level: React.ReactNode; contains: React.ReactNode; base: React.ReactNode; gtin: React.ReactNode; onRemove?: () => void; muted?: boolean };
+
+function PackagingTable({ rows, editing, add }: { rows: GridRow[]; editing: boolean; add?: React.ReactNode }) {
+  return (
+    <table className="w-full text-[12px]">
+      <thead><tr className="border-b border-stone-800">
+        <th className={`${th} w-8`}>#</th>
+        <th className={th}>Level</th>
+        <th className={th}>Contains</th>
+        <th className={`${th} text-right`}>= Base qty</th>
+        <th className={th}>GTIN / barcode</th>
+        {editing && <th className="w-8" />}
+      </tr></thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={r.key} className={`border-b border-stone-800/50 ${r.muted ? "text-stone-500" : ""}`}>
+            <td className="px-2.5 py-1.5 text-stone-500 tabular-nums">{i + 1}</td>
+            <td className="px-2.5 py-1.5 text-stone-200">{r.level}</td>
+            <td className="px-2.5 py-1.5 text-stone-300">{r.contains}</td>
+            <td className="px-2.5 py-1.5 text-right tabular-nums text-stone-300 whitespace-nowrap">{r.base}</td>
+            <td className="px-2.5 py-1.5">{r.gtin}</td>
+            {editing && <td className="px-2 py-1.5">{r.onRemove && <button type="button" onClick={r.onRemove} title="Remove this level" className="text-stone-600 hover:text-rose-400"><X size={13} /></button>}</td>}
+          </tr>
+        ))}
+        {editing && add && <tr><td /><td colSpan={5} className="px-2.5 py-1.5">{add}</td></tr>}
+      </tbody>
+    </table>
+  );
+}
+
+const AddLevel = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button type="button" onClick={onClick} className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300 mr-4"><Plus size={12} /> {label}</button>
+);
+
+/** Save / Cancel strip for a block in edit mode. */
+function BlockActions({ saving, err, onCancel, onSave, saveLabel }: { saving: boolean; err: string; onCancel: () => void; onSave: () => void; saveLabel: string }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 border-t border-stone-800 bg-stone-900/40">
+      {err ? <p className="flex-1 text-[12px] text-rose-400">{err}</p> : <div className="flex-1" />}
+      <button type="button" onClick={onCancel} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Cancel</button>
+      <button type="button" onClick={onSave} disabled={saving}
+        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-3 py-1.5 disabled:opacity-50">
+        {saving ? <Loader size={12} className="animate-spin" /> : <Check size={12} />} {saveLabel}
+      </button>
+    </div>
+  );
+}
+
+const iconBtn = "p-1 rounded text-stone-500 hover:text-stone-200 hover:bg-stone-800";
 
 /* ----------------------------- Finished-product SKUs ----------------------------- */
 
@@ -333,7 +361,7 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [skus, setSkus] = useState<any[] | null>(null);
   const [onHand, setOnHand] = useState<Record<string, { packs: number | null; value: number }>>({});
   const [adding, setAdding] = useState(false);
-  const [editingSku, setEditingSku] = useState<any | null>(null);
+  const [err, setErr] = useState("");
   async function load() {
     const r = await fetch(`/api/inventory/items/${item.id}`).then(x => x.json()).catch(() => null);
     setSkus(r?.skus ?? []);
@@ -344,159 +372,146 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   useEffect(() => { load(); }, [item.id]);
 
   async function remove(id: string) {
-    await fetch(`/api/inventory/skus?id=${id}`, { method: "DELETE" });
-    load();
+    setErr("");
+    const r = await fetch(`/api/inventory/skus?id=${id}`, { method: "DELETE" });
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
+    load(); onChanged();
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Layers size={14} className="text-emerald-400" /> Packaging SKUs <span className="text-stone-500 font-normal">· base UoM {item.baseUom || "—"}</span></div>
-        <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add SKU</button>
+        {!adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add SKU</button>}
       </div>
       {!item.baseUom && <p className="text-[12px] text-amber-400 mb-2">Set a base UoM on this item first so packaging can be expressed in it.</p>}
-      <div className="rounded-lg border border-stone-800 overflow-hidden">
-        <table className="w-full text-[12px]">
-          <thead><tr className="border-b border-stone-800">
-            <th className={th}>SKU name</th><th className={th}>SKU code</th>
-            <th className={th}>Pack configuration</th><th className={`${th} text-right`}>On hand</th><th className={th}>Barcodes</th><th className="w-14" />
-          </tr></thead>
-          <tbody>
-            {skus === null && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
-            {skus !== null && skus.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-stone-500">No SKUs yet.</td></tr>}
-            {(skus ?? []).map(s => {
-              const oh = onHand[s.id];
-              return (
-              <tr key={s.id} className="border-b border-stone-800/50">
-                <td className="px-3 py-2 text-stone-200">{s.skuName || "—"}</td>
-                <td className="px-3 py-2 text-stone-400 font-mono">{s.skuCode || "—"}</td>
-                <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: item.baseUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsAddl: s.unitsInAddlInnerPack, addlType: s.addlInnerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-stone-300">{oh && oh.packs != null ? `${oh.packs.toLocaleString()} ${s.innerPackType || "packs"}` : <span className="text-stone-600">0</span>}</td>
-                <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  <button onClick={() => setEditingSku(s)} className="text-stone-600 hover:text-stone-200 mr-2" title="Edit SKU"><Pencil size={13} /></button>
-                  <button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400" title="Delete SKU"><Trash2 size={13} /></button>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {err && <p className="text-[12px] text-rose-400 mb-2">{err}</p>}
+      <div className="space-y-2">
+        {adding && <SkuBlock item={item} onDone={() => { setAdding(false); load(); onChanged(); }} onCancel={() => setAdding(false)} />}
+        {skus === null && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">Loading…</div>}
+        {skus !== null && skus.length === 0 && !adding && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">No SKUs yet.</div>}
+        {(skus ?? []).map(s => (
+          <SkuBlock key={s.id} item={item} sku={s} onHand={onHand[s.id]} onDone={() => { load(); onChanged(); }} onRemove={() => remove(s.id)} />
+        ))}
       </div>
-      {adding && <SkuDrawer item={item} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); }} />}
-      {editingSku && <SkuDrawer item={item} sku={editingSku} onClose={() => setEditingSku(null)} onCreated={() => { setEditingSku(null); load(); }} />}
     </div>
   );
 }
 
-function SkuDrawer({ item, sku, onClose, onCreated }: { item: any; sku?: any; onClose: () => void; onCreated: () => void }) {
-  const str = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
-  const [f, setF] = useState<Record<string, string>>({
+function SkuBlock({ item, sku, onHand, onDone, onCancel, onRemove }: {
+  item: any; sku?: any; onHand?: { packs: number | null; value: number };
+  onDone: () => void; onCancel?: () => void; onRemove?: () => void;
+}) {
+  const fresh = () => ({
     skuName: sku?.skuName ?? "", skuCode: sku?.skuCode ?? "",
-    innerUnitPackSize: str(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
-    unitsInAddlInnerPack: str(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
-    unitsInOuterPack: str(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
+    innerUnitPackSize: numStr(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
+    unitsInAddlInnerPack: numStr(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
+    unitsInOuterPack: numStr(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
   });
+  const [editing, setEditing] = useState(!sku);
+  const [f, setF] = useState<Record<string, string>>(fresh);
   const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
-  const [hasAddl, setHasAddl] = useState<boolean>(!!(sku?.unitsInAddlInnerPack || sku?.addlInnerPackType));
-  const [hasOuter, setHasOuter] = useState<boolean>(!!(sku?.unitsInOuterPack || sku?.outerPackType));
+  const [hasAddl, setHasAddl] = useState(!!(sku?.unitsInAddlInnerPack || sku?.addlInnerPackType));
+  const [hasOuter, setHasOuter] = useState(!!(sku?.unitsInOuterPack || sku?.outerPackType));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const setCode = (l: PackLevel, v: string) => setCodes(c => ({ ...c, [l]: v }));
-  const base = item.baseUom || "";
+  const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
+  const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
+  const base = item.baseUom || "unit";
 
   // Levels this SKU actually has — same rule as the API (skuValues).
   const levels: PackLevel[] = ["inner", ...(hasAddl ? ["addl_inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
   const innerQty = Number(f.innerUnitPackSize) || 0;
   const addlQty = hasAddl ? (Number(f.unitsInAddlInnerPack) || 0) * innerQty : 0;
-  const outerParentQty = hasAddl ? addlQty : innerQty;
-  const outerParentLabel = hasAddl ? (f.addlInnerPackType || "multipacks") : (f.innerPackType || "units");
-  const steps = [
-    ...(f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
-    ...(hasAddl && f.addlInnerPackType && addlQty > 0 ? [{ label: f.addlInnerPackType, qty: addlQty }] : []),
-    ...(hasOuter && f.outerPackType && Number(f.unitsInOuterPack) > 0 && outerParentQty > 0 ? [{ label: f.outerPackType, qty: Number(f.unitsInOuterPack) * outerParentQty }] : []),
-  ];
+  const outerParent = hasAddl ? { qty: addlQty, label: f.addlInnerPackType || "multipack" } : { qty: innerQty, label: f.innerPackType || "unit" };
+  const outerQty = hasOuter ? (Number(f.unitsInOuterPack) || 0) * outerParent.qty : 0;
 
-  function removeAddl() { setHasAddl(false); setF(p => ({ ...p, unitsInAddlInnerPack: "", addlInnerPackType: "" })); setCodes(c => ({ ...c, addl_inner: "" })); }
-  function removeOuter() { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); }
+  function cancel() {
+    if (!sku) { onCancel?.(); return; }
+    setF(fresh()); setCodes(codesFromRow(sku));
+    setHasAddl(!!(sku.unitsInAddlInnerPack || sku.addlInnerPackType)); setHasOuter(!!(sku.unitsInOuterPack || sku.outerPackType));
+    setErr(""); setEditing(false);
+  }
 
   async function save() {
     if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
-    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack: choose its pack type and how many it contains — or remove it."); return; }
-    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many it contains — or remove it."); return; }
+    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack: choose its pack type and how many it contains — or remove the row."); return; }
+    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many it contains — or remove the row."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
     const body = JSON.stringify({ itemId: item.id, ...f, identifiers: codesPayload(codes, levels) });
     const r = sku
-      ? await fetch(`/api/inventory/skus?id=${sku.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body })
-      : await fetch(`/api/inventory/skus`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      ? await fetch(`/api/inventory/skus?id=${sku.id}`, { method: "PATCH", headers: jsonHeaders, body })
+      : await fetch(`/api/inventory/skus`, { method: "POST", headers: jsonHeaders, body });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
+    setEditing(false); onDone();
   }
 
+  const rows: GridRow[] = [
+    { key: "base", muted: true, level: <span className="text-stone-500">{base} <span className="text-[11px]">(base unit)</span></span>, contains: "—", base: `1 ${base}`, gtin: <span className="text-stone-600">—</span> },
+    {
+      key: "inner",
+      level: editing ? <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} /> : <>{f.innerPackType || "Consumer unit"} <span className="text-[11px] text-stone-500">consumer unit</span></>,
+      contains: editing ? <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={base} /> : (innerQty ? `${fmt.qty(innerQty)} ${base}` : "—"),
+      base: qtyLabel(innerQty, base),
+      gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} editing={editing} />,
+    },
+    ...(hasAddl ? [{
+      key: "addl",
+      level: editing ? <PackTypeCell value={f.addlInnerPackType} onChange={set("addlInnerPackType")} /> : <>{f.addlInnerPackType} <span className="text-[11px] text-stone-500">multipack</span></>,
+      contains: editing ? <ContainsCell value={f.unitsInAddlInnerPack} onChange={set("unitsInAddlInnerPack")} unit={f.innerPackType || "units"} /> : `${f.unitsInAddlInnerPack} ${f.innerPackType}`,
+      base: qtyLabel(addlQty, base),
+      gtin: <GtinCell value={codes.addl_inner ?? ""} onChange={setCode("addl_inner")} editing={editing} />,
+      onRemove: () => { setHasAddl(false); setF(p => ({ ...p, unitsInAddlInnerPack: "", addlInnerPackType: "" })); setCodes(c => ({ ...c, addl_inner: "" })); },
+    }] : []),
+    ...(hasOuter ? [{
+      key: "outer",
+      level: editing ? <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} /> : <>{f.outerPackType} <span className="text-[11px] text-stone-500">outer pack</span></>,
+      contains: editing ? <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={outerParent.label} /> : `${f.unitsInOuterPack} ${outerParent.label}`,
+      base: qtyLabel(outerQty, base),
+      gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} editing={editing} />,
+      onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
+    }] : []),
+  ];
+
   return (
-    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} onClose={onClose} wide>
-      <p className="text-[12px] text-stone-400 mb-5">{item.name} · stocked in <span className="font-mono text-stone-200">{base || "no base UoM"}</span>. Describe how it is packed for sale, level by level.</p>
-      <div className="space-y-6">
-        <Section title="Identity">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="SKU name" required><input className={controlInset} value={f.skuName} onChange={e => set("skuName", e.target.value)} placeholder="e.g. 750ml bottle" /></Field>
-            <Field label="SKU code"><input className={controlInset} value={f.skuCode} onChange={e => set("skuCode", e.target.value)} /></Field>
+    <div className={`rounded-lg border overflow-hidden ${editing ? "border-emerald-800/60" : "border-stone-800"}`}>
+      <div className="flex items-center gap-3 px-3 py-2 bg-stone-900/60 border-b border-stone-800">
+        {editing ? (
+          <div className="flex-1 grid grid-cols-[2fr_1fr] gap-2">
+            <input className={cell} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="SKU name, e.g. 750ml bottle" aria-label="SKU name" autoFocus={!sku} />
+            <input className={`${cell} font-mono`} value={f.skuCode} onChange={e => set("skuCode")(e.target.value)} placeholder="SKU code" aria-label="SKU code" />
           </div>
-        </Section>
-
-        {/* The consumer unit is the SKU itself, so it is always there; the
-            multipack and the shipping case are optional levels above it. Each
-            level is its own GS1 trade item with its own GTIN. */}
-        <Section title="Packaging & barcodes">
-          <div className="space-y-2">
-            <LevelCard n={1} title="Consumer unit" subtitle="What a customer buys — the bottle, pouch or tin.">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Pack type"><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
-                <ContainsInput value={f.innerUnitPackSize} onChange={v => set("innerUnitPackSize", v)} unit={base || "base units"} placeholder="750" />
-                <div className="col-span-2"><GtinInput value={codes.inner ?? ""} onChange={v => setCode("inner", v)} /></div>
-              </div>
-            </LevelCard>
-
-            {hasAddl ? (
-              <LevelCard n={2} title="Multipack" subtitle={`A pack of ${f.innerPackType || "consumer units"} — e.g. a 6-pack.`} onRemove={removeAddl}>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  <Field label="Pack type" required><PackTypeSelect value={f.addlInnerPackType} onChange={v => set("addlInnerPackType", v)} /></Field>
-                  <ContainsInput value={f.unitsInAddlInnerPack} onChange={v => set("unitsInAddlInnerPack", v)} unit={f.innerPackType || "units"} placeholder="6" />
-                  <div className="col-span-2"><GtinInput value={codes.addl_inner ?? ""} onChange={v => setCode("addl_inner", v)} /></div>
-                </div>
-              </LevelCard>
-            ) : <AddLevelButton label="Add multipack" onClick={() => setHasAddl(true)} />}
-
-            {hasOuter ? (
-              <LevelCard n={hasAddl ? 3 : 2} title="Outer pack" subtitle={`The shipping case or carton of ${outerParentLabel}.`} onRemove={removeOuter}>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  <Field label="Pack type" required><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
-                  <ContainsInput value={f.unitsInOuterPack} onChange={v => set("unitsInOuterPack", v)} unit={outerParentLabel} placeholder="4" />
-                  <div className="col-span-2"><GtinInput value={codes.outer ?? ""} onChange={v => setCode("outer", v)} /></div>
-                </div>
-              </LevelCard>
-            ) : <AddLevelButton label="Add outer pack" onClick={() => setHasOuter(true)} />}
-
-            <LadderSummary steps={steps} baseUom={base} />
-          </div>
-          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU, its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
-        </Section>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
+        ) : (
+          <>
+            <span className="text-[13px] font-medium text-stone-100">{sku?.skuName || "—"}</span>
+            {sku?.skuCode && <span className="font-mono text-[11px] text-stone-500">{sku.skuCode}</span>}
+            <div className="flex-1" />
+            <span className="text-[12px] text-stone-400 tabular-nums">On hand {onHand && onHand.packs != null ? `${fmt.qty(onHand.packs)} ${sku?.innerPackType || "packs"}` : "0"}</span>
+            <button onClick={() => setEditing(true)} className={iconBtn} title="Edit SKU"><Pencil size={13} /></button>
+            {onRemove && <button onClick={onRemove} className={`${iconBtn} hover:text-rose-400`} title="Delete SKU"><Trash2 size={13} /></button>}
+          </>
+        )}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={sku ? "Save changes" : "Create SKU"} />
-    </Drawer>
+      <PackagingTable rows={rows} editing={editing}
+        add={(!hasAddl || !hasOuter) ? <>
+          {!hasOuter && <AddLevel label="Add outer pack" onClick={() => setHasOuter(true)} />}
+          {!hasAddl && <AddLevel label={hasOuter ? "Add multipack (between)" : "Add multipack"} onClick={() => setHasAddl(true)} />}
+        </> : undefined} />
+      {editing && <BlockActions saving={saving} err={err} onCancel={cancel} onSave={save} saveLabel={sku ? "Save" : "Create SKU"} />}
+      {editing && sku && <p className="px-3 pb-2 text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
+    </div>
   );
 }
 
-/* ----------------------------- Raw-material supplier SKUs ----------------------------- */
+/* ----------------------------- Supplier links ----------------------------- */
 
 function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
   const [adding, setAdding] = useState(false);
-  const [editingLink, setEditingLink] = useState<any | null>(null);
+  const [err, setErr] = useState("");
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [policy, setPolicy] = useState<string>(item.sourcingPolicy ?? "restricted");
   const open = !allowsPackConfiguration(policy);
   async function load() {
@@ -504,10 +519,16 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
     setRows(r?.supplierSkus ?? []);
     if (r?.item?.sourcingPolicy) setPolicy(r.item.sourcingPolicy);
   }
-  // Re-read when the policy changes from the Edit drawer, so the panel never
-  // shows the old columns for the new rule.
+  // Re-read when the policy changes from the Edit drawer, so the grid never
+  // shows the old levels for the new rule.
   useEffect(() => { load(); }, [item.id, item.sourcingPolicy]);
-  async function remove(id: string) { await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" }); load(); onChanged(); }
+  useEffect(() => { fetch(`/api/parties/suppliers?native=1`).then(x => x.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, []);
+  async function remove(id: string) {
+    setErr("");
+    const r = await fetch(`/api/inventory/supplier-skus?id=${id}`, { method: "DELETE" });
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not remove."); return; }
+    load(); onChanged();
+  }
 
   return (
     <div>
@@ -515,254 +536,197 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
         <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><Package size={14} className="text-amber-400" /> Suppliers <span className="text-stone-500 font-normal">· item base UoM {item.baseUom || "—"}</span></div>
         {/* Offered under BOTH policies. On a restricted item a link is the
             permission to buy; on an open item it is only a commercial record
-            (price, lead time, preferred) — optional, and never restrictive. */}
-        <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>
+            (price, lead time, preferred, barcode) — optional, never restrictive. */}
+        {!adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Link supplier</button>}
       </div>
-
-      {/* The policy itself is set in the Edit drawer with the item's other
-          properties; this line only says which rule the table below follows. */}
+      {/* The policy is set in the item's Edit drawer; this line says which rule applies. */}
       <p className="mb-2 text-[11px] text-stone-500">
         {open
-          ? <>Bought from <span className="text-stone-300 font-medium">any supplier</span>, in {item.baseUom || "its base unit"}. Linking one is optional — it records their price, lead time and whether they are preferred.</>
+          ? <>Bought from <span className="text-stone-300 font-medium">any supplier</span>, in {item.baseUom || "its base unit"}. Linking one is optional — it records their price, lead time, barcode and whether they are preferred.</>
           : <>Bought only from the <span className="text-stone-300 font-medium">suppliers linked below</span>, in their units and packs.</>}
       </p>
-
-      <div className="rounded-lg border border-stone-800 overflow-hidden">
-        <table className="w-full text-[12px]">
-          <thead><tr className="border-b border-stone-800">
-            <th className={th}>Supplier</th>
-            {!open && <><th className={th}>Supplier UoM</th><th className={th}>Supplier SKU</th><th className={th}>Pack configuration</th></>}
-            <th className={`${th} text-right`}>Price</th><th className={`${th} text-right`}>Lead time</th>
-            {!open && <th className={`${th} text-right`}>Conv. factor</th>}<th className={th}>Barcodes</th><th className="w-14" />
-          </tr></thead>
-          <tbody>
-            {rows === null && <tr><td colSpan={open ? 5 : 9} className="px-3 py-4 text-center text-stone-500">Loading…</td></tr>}
-            {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={open ? 5 : 9} className="px-3 py-4 text-center text-stone-500">
-                {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
-              </td></tr>
-            )}
-            {(rows ?? []).map(s => {
-              const cross = item.baseUom && s.supplierUom && needsConversionFactor(s.supplierUom, item.baseUom);
-              return (
-                <tr key={s.id} className="border-b border-stone-800/50">
-                  <td className="px-3 py-2 text-stone-200">
-                    <span className="inline-flex items-center gap-1.5">
-                      {s.supplierName || "—"}
-                      {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
-                    </span>
-                  </td>
-                  {!open && <>
-                    <td className="px-3 py-2 text-stone-300 font-mono">{s.supplierUom || "—"}</td>
-                    <td className="px-3 py-2 text-stone-400 font-mono">{s.supplierSku || "—"}</td>
-                    <td className="px-3 py-2 text-stone-300 font-mono text-[11px]">{packConfig({ baseUom: s.supplierUom || "", innerSize: s.innerUnitPackSize, innerType: s.innerPackType, unitsOuter: s.unitsInOuterPack, outerType: s.outerPackType }) || "—"}</td>
-                  </>}
-                  {/* Quoted per supplier UoM, and labelled as such — the same
-                      shape as the vendor's own price list, which is what makes
-                      it checkable. */}
-                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
-                    {s.unitPrice != null
-                      ? <span className="text-stone-200">{fmt.num2(Number(s.unitPrice))}<span className="text-stone-600">/{s.supplierUom || item.baseUom || "unit"}</span></span>
-                      : <span className="text-stone-600">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
-                  {!open && <td className="px-3 py-2 text-right font-mono">{s.conversionFactor ? <span className="text-amber-300">{Number(s.conversionFactor)} {item.baseUom}/{s.supplierUom}</span> : (cross ? <span className="text-rose-400">missing</span> : <span className="text-stone-600">auto</span>)}</td>}
-                  <td className="px-3 py-2"><BarcodeSummary row={s} /></td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <button onClick={() => setEditingLink(s)} className="text-stone-600 hover:text-stone-200 mr-2" title="Edit supplier link"><Pencil size={13} /></button>
-                    <button onClick={() => remove(s.id)} className="text-stone-600 hover:text-rose-400" title="Remove supplier link"><Trash2 size={13} /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {err && <p className="text-[12px] text-rose-400 mb-2">{err}</p>}
+      <div className="space-y-2">
+        {adding && <SupplierLinkBlock item={item} open={open} suppliers={suppliers} setSuppliers={setSuppliers} onDone={() => { setAdding(false); load(); onChanged(); }} onCancel={() => setAdding(false)} />}
+        {rows === null && <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">Loading…</div>}
+        {rows !== null && rows.length === 0 && !adding && (
+          <div className="rounded-lg border border-stone-800 px-3 py-4 text-center text-[12px] text-stone-500">
+            {open ? "No suppliers recorded — none needed, anyone may supply this item." : "No suppliers linked yet — link one before raising a purchase order."}
+          </div>
+        )}
+        {(rows ?? []).map(s => (
+          <SupplierLinkBlock key={s.id} item={item} open={open} link={s} suppliers={suppliers} setSuppliers={setSuppliers} onDone={() => { load(); onChanged(); }} onRemove={() => remove(s.id)} />
+        ))}
       </div>
-      {adding && <SupplierSkuDrawer item={item} open={open} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); load(); onChanged(); }} />}
-      {editingLink && <SupplierSkuDrawer item={item} open={open} link={editingLink} onClose={() => setEditingLink(null)} onCreated={() => { setEditingLink(null); load(); onChanged(); }} />}
     </div>
   );
 }
 
-function SupplierSkuDrawer({ item, open = false, link, onClose, onCreated }: { item: any; open?: boolean; link?: any; onClose: () => void; onCreated: () => void }) {
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  // Stored numerics arrive as "25.0000" — show them as the number they are.
-  const str = (v: any) => (v == null || v === "" ? "" : isNaN(Number(v)) ? String(v) : String(Number(v)));
-  const [f, setF] = useState<Record<string, string>>({
+function SupplierLinkBlock({ item, open, link, suppliers, setSuppliers, onDone, onCancel, onRemove }: {
+  item: any; open: boolean; link?: any; suppliers: any[]; setSuppliers: (fn: (p: any[]) => any[]) => void;
+  onDone: () => void; onCancel?: () => void; onRemove?: () => void;
+}) {
+  const fresh = () => ({
     supplierId: link?.supplierId ?? "",
-    // Defaults to the item's own unit. Links created from purchase history
-    // (0090) carry no supplier UoM, and "Select UoM…" on an edit that was
-    // never asked for it read as a broken record.
+    // Defaults to the item's own unit: links created from purchase history
+    // (0090) carry no supplier UoM, and an empty unit reads as a broken record.
     supplierUom: link?.supplierUom || item.baseUom || "",
-    skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "",
-    itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
-    innerUnitPackSize: str(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
-    unitsInOuterPack: str(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
-    conversionFactor: str(link?.conversionFactor), unitPrice: str(link?.unitPrice), currency: link?.currency ?? "",
-    leadTimeDays: str(link?.leadTimeDays), minOrderQty: str(link?.minOrderQty),
+    skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "", itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
+    innerUnitPackSize: numStr(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
+    unitsInOuterPack: numStr(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
+    conversionFactor: numStr(link?.conversionFactor), unitPrice: numStr(link?.unitPrice), currency: link?.currency ?? "",
+    leadTimeDays: numStr(link?.leadTimeDays), minOrderQty: numStr(link?.minOrderQty),
   });
+  const [editing, setEditing] = useState(!link);
+  const [f, setF] = useState<Record<string, string>>(fresh);
   const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
   const [codes, setCodes] = useState<Codes>(codesFromRow(link));
-  const [hasInner, setHasInner] = useState<boolean>(!open && !!(link?.innerUnitPackSize || link?.innerPackType));
-  const [hasOuter, setHasOuter] = useState<boolean>(!open && !!(link?.unitsInOuterPack || link?.outerPackType));
+  const [hasInner, setHasInner] = useState(!open && !!(link?.innerUnitPackSize || link?.innerPackType));
+  const [hasOuter, setHasOuter] = useState(!open && !!(link?.unitsInOuterPack || link?.outerPackType));
+  const [quick, setQuick] = useState<QuickAddKind | null>(null);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const setCode = (l: PackLevel, v: string) => setCodes(c => ({ ...c, [l]: v }));
+  const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
+  const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
 
-  // Levels this link actually has — same rule as the API (linkValues). An
-  // "any supplier" item has no packs, so only its unit can carry a barcode.
-  const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasInner && hasOuter ? ["outer" as PackLevel] : [])];
-  const endpoint = link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`;
-  const method = link ? "PATCH" : "POST";
-
-  useEffect(() => { fetch(`/api/parties/suppliers?native=1`).then(x => x.json()).then(r => setSuppliers(Array.isArray(r) ? r : [])).catch(() => {}); }, []);
-
-  const unit = open ? (item.baseUom || "") : f.supplierUom;
-  const crossDim = !open && item.baseUom && f.supplierUom && needsConversionFactor(f.supplierUom, item.baseUom);
-  const per = open ? 1 : (perSupplierUnit(f.supplierUom || null, item.baseUom || null, f.conversionFactor) ?? 0);
+  const base = item.baseUom || "";
+  const unit = open ? base : f.supplierUom;
+  const crossDim = !open && !!base && !!f.supplierUom && needsConversionFactor(f.supplierUom, base);
+  const per = open ? 1 : (perSupplierUnit(f.supplierUom || null, base || null, f.conversionFactor) ?? 0);
   const innerQty = hasInner ? (Number(f.innerUnitPackSize) || 0) * per : 0;
-  const steps = [
-    ...(hasInner && f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
-    ...(hasInner && hasOuter && f.outerPackType && Number(f.unitsInOuterPack) > 0 && innerQty > 0 ? [{ label: f.outerPackType, qty: Number(f.unitsInOuterPack) * innerQty }] : []),
-  ];
+  const outerQty = hasInner && hasOuter ? (Number(f.unitsInOuterPack) || 0) * innerQty : 0;
+  // Levels this link actually has — same rule as the API (linkValues).
+  const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasInner && hasOuter ? ["outer" as PackLevel] : [])];
+  const supplierName = link?.supplierName || suppliers.find(s => s.id === f.supplierId)?.name || "";
 
-  function removeInner() {
-    setHasInner(false); setHasOuter(false);
-    setF(p => ({ ...p, innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "" }));
-    setCodes(c => ({ ...c, inner: "", outer: "" }));
-  }
-  function removeOuter() {
-    setHasOuter(false);
-    setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" }));
-    setCodes(c => ({ ...c, outer: "" }));
+  function cancel() {
+    if (!link) { onCancel?.(); return; }
+    setF(fresh()); setCodes(codesFromRow(link)); setIsPreferred(!!link.isPreferred);
+    setHasInner(!open && !!(link.innerUnitPackSize || link.innerPackType)); setHasOuter(!open && !!(link.unitsInOuterPack || link.outerPackType));
+    setErr(""); setEditing(false);
   }
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
     if (!open && !f.supplierUom) { setErr("Choose the unit this supplier sells in."); return; }
-    if (crossDim && !f.conversionFactor) { setErr(`${f.supplierUom} and ${item.baseUom} are different measures — enter how many ${item.baseUom} are in one ${f.supplierUom}.`); return; }
-    if (hasInner && (!f.innerPackType || !(Number(f.innerUnitPackSize) > 0))) { setErr("Inner pack: choose its pack type and how many it contains — or remove it."); return; }
-    if (hasInner && hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: choose its pack type and how many inner packs it contains — or remove it."); return; }
+    if (crossDim && !f.conversionFactor) { setErr(`${f.supplierUom} and ${base} are different measures — enter how many ${base} are in one ${f.supplierUom}.`); return; }
+    if (hasInner && (!f.innerPackType || !(Number(f.innerUnitPackSize) > 0))) { setErr("Row 2: choose the pack type and how many it contains — or remove the row."); return; }
+    if (hasInner && hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Row 3: choose the pack type and how many it contains — or remove the row."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
-    // An "any supplier" item is bought in its own base unit: the link carries
-    // no packaging (the server refuses it) — only its unit barcode and terms.
-    const packFields = open
-      ? { supplierUom: item.baseUom || "", innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "" }
+    // An "any supplier" item is bought in its own base unit: no packaging
+    // (the server refuses it) — only its unit barcode and commercial terms.
+    const pack = open
+      ? { supplierUom: base, innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "" }
       : { conversionFactor: crossDim ? f.conversionFactor : "" };
-    const r = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: item.id, ...f, ...packFields, isPreferred, identifiers: codesPayload(codes, levels) }) });
+    const r = await fetch(link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`, {
+      method: link ? "PATCH" : "POST", headers: jsonHeaders,
+      body: JSON.stringify({ itemId: item.id, ...f, ...pack, isPreferred, identifiers: codesPayload(codes, levels) }),
+    });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
+    setEditing(false); onDone();
   }
 
+  const rows: GridRow[] = [
+    {
+      key: "unit",
+      level: editing && !open ? <UomCell value={f.supplierUom} onChange={set("supplierUom")} /> : <>{unit || "—"} <span className="text-[11px] text-stone-500">unit</span></>,
+      contains: crossDim
+        ? (editing
+            ? <div className="flex items-center gap-1.5 text-[12px] text-stone-400"><span className="whitespace-nowrap">1 {f.supplierUom} =</span><div className="w-20 shrink-0"><input type="number" step="any" className={`${cell} text-right`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" /></div>{base}</div>
+            : `1 ${f.supplierUom} = ${f.conversionFactor || "?"} ${base}`)
+        : "—",
+      base: qtyLabel(per, base),
+      gtin: <GtinCell value={codes.unit ?? ""} onChange={setCode("unit")} editing={editing} />,
+    },
+    ...(hasInner ? [{
+      key: "inner",
+      level: editing ? <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} /> : <>{f.innerPackType} <span className="text-[11px] text-stone-500">inner pack</span></>,
+      contains: editing ? <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={unit || "units"} /> : `${f.innerUnitPackSize} ${unit}`,
+      base: qtyLabel(innerQty, base),
+      gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} editing={editing} />,
+      // Levels nest, so only the top one can go: removing the inner pack
+      // would leave an outer pack defined in terms of nothing.
+      onRemove: hasOuter ? undefined : () => { setHasInner(false); setF(p => ({ ...p, innerUnitPackSize: "", innerPackType: "" })); setCodes(c => ({ ...c, inner: "" })); },
+    }] : []),
+    ...(hasInner && hasOuter ? [{
+      key: "outer",
+      level: editing ? <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} /> : <>{f.outerPackType} <span className="text-[11px] text-stone-500">outer pack</span></>,
+      contains: editing ? <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={f.innerPackType || "inner packs"} /> : `${f.unitsInOuterPack} ${f.innerPackType}`,
+      base: qtyLabel(outerQty, base),
+      gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} editing={editing} />,
+      onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
+    }] : []),
+  ];
+
+  const price = Number(f.unitPrice);
+  const termCls = "text-[12px] text-stone-400 whitespace-nowrap";
+
   return (
-    <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"} onClose={onClose} wide>
-      <p className="text-[12px] text-stone-400 mb-5">
-        {item.name} · stocked in <span className="font-mono text-stone-200">{item.baseUom || "no base UoM"}</span>.{" "}
-        {open
-          ? <>Anyone may supply this item — record this supplier&apos;s barcode, price and lead time.</>
-          : <>Describe how this supplier sells and packs it, level by level.</>}
-      </p>
-      <div className="space-y-6">
-        <Section title="Supplier">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="Supplier" required className="col-span-2">
-              <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined} onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId", e.target.value); }}>
-                <option value="">Select supplier…</option>
-                {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
+    <div className={`rounded-lg border overflow-hidden ${editing ? "border-emerald-800/60" : "border-stone-800"}`}>
+      {/* Header: who, and on what terms. */}
+      {editing ? (
+        <div className="px-3 py-2.5 bg-stone-900/60 border-b border-stone-800 space-y-2">
+          <div className="grid grid-cols-[1.4fr_1.6fr_1fr_1fr] gap-2">
+            {link ? (
+              <div className="flex items-center px-2 text-[13px] font-medium text-stone-100 truncate" title="A link's supplier can't change — link the item to the other supplier instead.">{supplierName || "Supplier"}</div>
+            ) : (
+              <CellSelect value={f.supplierId} onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }} aria-label="Supplier" autoFocus>
+                <option value="">Supplier…</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 <option value="__add__">+ Add new supplier…</option>
-              </SelectField>
-            </Field>
-            <Field label="Their product name" className="col-span-2"><input className={controlInset} value={f.skuName} onChange={e => set("skuName", e.target.value)} placeholder="As it appears on their invoice, e.g. Cotton yarn 24s — 25kg sack" /></Field>
-            <Field label="Their SKU"><input className={controlInset} value={f.supplierSku} onChange={e => set("supplierSku", e.target.value)} /></Field>
-            <Field label="Their item code"><input className={controlInset} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier", e.target.value)} /></Field>
+              </CellSelect>
+            )}
+            <input className={cell} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="Their product name" aria-label="Their product name" />
+            <input className={`${cell} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} placeholder="Their SKU" aria-label="Their SKU" />
+            <input className={`${cell} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} placeholder="Their item code" aria-label="Their item code" />
           </div>
-        </Section>
-
-        <Section title="Packaging & barcodes">
-          <div className="space-y-2">
-            <LevelCard n={1} title="Unit"
-              subtitle={open ? `Bought in the item's own unit, ${item.baseUom || "—"}.` : "The unit this supplier counts and prices in."}>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                {open
-                  ? <Field label="Unit"><div className={`${controlInset} flex items-center text-stone-300 font-mono`}>{item.baseUom || "—"}</div></Field>
-                  : <Field label="Unit" required><UomSelect value={f.supplierUom} onChange={v => set("supplierUom", v)} /></Field>}
-                <GtinInput value={codes.unit ?? ""} onChange={v => setCode("unit", v)} />
-              </div>
-              {crossDim && (
-                <div className="rounded-md bg-rose-500/8 border border-rose-800/40 px-3 py-2.5">
-                  <div className="text-[12px] text-rose-300 font-medium mb-1.5">{f.supplierUom} and {item.baseUom} are different measures</div>
-                  <div className="flex items-center gap-2 text-[12px] text-stone-300">
-                    1 {f.supplierUom} =
-                    <input type="number" step="any" className={`${controlInset} w-28`} value={f.conversionFactor} onChange={e => set("conversionFactor", e.target.value)} placeholder="e.g. 0.4536" />
-                    {item.baseUom}
-                  </div>
-                </div>
-              )}
-            </LevelCard>
-
-            {!open && (hasInner ? (
-              <LevelCard n={2} title="Inner pack" subtitle={`A pack of ${unit || "units"} — a bag, box or cone.`} onRemove={removeInner}>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  <Field label="Pack type" required><PackTypeSelect value={f.innerPackType} onChange={v => set("innerPackType", v)} /></Field>
-                  <ContainsInput value={f.innerUnitPackSize} onChange={v => set("innerUnitPackSize", v)} unit={unit || "units"} placeholder="25" />
-                  <div className="col-span-2"><GtinInput value={codes.inner ?? ""} onChange={v => setCode("inner", v)} /></div>
-                </div>
-              </LevelCard>
-            ) : <AddLevelButton label="Add inner pack" onClick={() => setHasInner(true)} />)}
-
-            {!open && hasInner && (hasOuter ? (
-              <LevelCard n={3} title="Outer pack" subtitle={`A case or carton of ${f.innerPackType || "inner packs"}.`} onRemove={removeOuter}>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  <Field label="Pack type" required><PackTypeSelect value={f.outerPackType} onChange={v => set("outerPackType", v)} /></Field>
-                  <ContainsInput value={f.unitsInOuterPack} onChange={v => set("unitsInOuterPack", v)} unit={f.innerPackType || "inner packs"} placeholder="12" />
-                  <div className="col-span-2"><GtinInput value={codes.outer ?? ""} onChange={v => setCode("outer", v)} /></div>
-                </div>
-              </LevelCard>
-            ) : <AddLevelButton label="Add outer pack" onClick={() => setHasOuter(true)} />)}
-
-            <LadderSummary steps={steps} baseUom={item.baseUom || ""} />
+          {/* Price is quoted per the SUPPLIER's unit, as on their price list;
+              every pack level's rate is derived from it. */}
+          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap text-[12px] text-stone-400">
+            <label className="flex items-center gap-1.5 whitespace-nowrap">Price
+              <div className="w-24"><input type="number" step="any" className={`${cell} text-right tabular-nums`} value={f.unitPrice} onChange={e => set("unitPrice")(e.target.value)} placeholder="0.00" aria-label="Price" /></div>
+              <span>/ {unit || "unit"}</span>
+            </label>
+            <div className="w-36"><CellSelect value={f.currency} onChange={e => set("currency")(e.target.value)} aria-label="Currency">
+              <option value="">Home currency</option>
+              {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+            </CellSelect></div>
+            <label className="flex items-center gap-1.5 whitespace-nowrap">Lead time
+              <div className="w-16"><input type="number" className={`${cell} text-right tabular-nums`} value={f.leadTimeDays} onChange={e => set("leadTimeDays")(e.target.value)} placeholder="0" aria-label="Lead time in days" /></div> days
+            </label>
+            <label className="flex items-center gap-1.5 whitespace-nowrap">Min. order
+              <div className="w-20"><input type="number" step="any" className={`${cell} text-right tabular-nums`} value={f.minOrderQty} onChange={e => set("minOrderQty")(e.target.value)} placeholder="0" aria-label="Minimum order" /></div> {unit || "unit"}
+            </label>
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-stone-300 cursor-pointer" title="The default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.">
+              <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="accent-emerald-600" /> Preferred supplier
+            </label>
           </div>
-          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link, its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
-        </Section>
-
-        {/* Quoted in the SUPPLIER's unit, deliberately, so the row reads the
-            same as the price list it is copied from. Every pack level's rate is
-            derived from this one figure. */}
-        <Section title="Commercial terms">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label={`Price per ${unit || "unit"}`} hint={steps.length && Number(f.unitPrice) > 0 && per > 0
-              ? `${steps.map(s => `${s.label} ${fmt.num2(Number(f.unitPrice) * s.qty / per)}`).join(" · ")}`
-              : "As the supplier quotes it — pack prices are worked out from this."}>
-              <input type="number" step="any" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} />
-            </Field>
-            <Field label="Currency" hint="Blank = your home currency.">
-              <SelectField inset value={f.currency} onChange={e => set("currency", e.target.value)}>
-                <option value="">Home currency</option>
-                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
-              </SelectField>
-            </Field>
-            <Field label="Lead time" hint="Days from order to delivery."><input type="number" className={controlInset} value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} /></Field>
-            <Field label={`Minimum order (${unit || "unit"})`}><input type="number" step="any" className={controlInset} value={f.minOrderQty} onChange={e => set("minOrderQty", e.target.value)} /></Field>
-          </div>
-          <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 px-3 py-2.5 cursor-pointer">
-            <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="mt-0.5 accent-emerald-600" />
-            <div>
-              <div className="text-[12.5px] font-medium text-stone-200">Preferred supplier</div>
-              <p className="text-[11px] text-stone-400">The default for this item, and the price a purchase line starts from. The first supplier linked becomes preferred automatically.</p>
-            </div>
-          </label>
-        </Section>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
-      </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={link ? "Save changes" : "Link supplier"} />
-      {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId", row.id); setQuick(null); }} />}
-    </Drawer>
+        </div>
+      ) : (
+        <div className="flex items-center gap-4 px-3 py-2 bg-stone-900/60 border-b border-stone-800">
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <span className="text-[13px] font-medium text-stone-100 truncate">{supplierName || "—"}</span>
+            {link?.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
+            {(link?.supplierSku || link?.skuName) && <span className="text-[11px] text-stone-500 truncate">{[link.skuName, link.supplierSku].filter(Boolean).join(" · ")}</span>}
+          </span>
+          <div className="flex-1" />
+          <span className={termCls}>{price > 0 ? <><span className="text-stone-200 tabular-nums">{fmt.num2(price)}</span> / {unit || "unit"}{f.currency ? ` ${f.currency}` : ""}</> : "No price"}</span>
+          <span className={termCls}>{f.leadTimeDays ? `${f.leadTimeDays}d lead` : "—"}</span>
+          {f.minOrderQty && <span className={termCls}>MOQ {fmt.qty(Number(f.minOrderQty))} {unit}</span>}
+          <button onClick={() => setEditing(true)} className={iconBtn} title="Edit supplier link"><Pencil size={13} /></button>
+          {onRemove && <button onClick={onRemove} className={`${iconBtn} hover:text-rose-400`} title="Remove supplier link"><Trash2 size={13} /></button>}
+        </div>
+      )}
+      <PackagingTable rows={rows} editing={editing}
+        add={!open && !(hasInner && hasOuter)
+          ? <AddLevel label={hasInner ? "Add outer pack" : "Add inner pack"} onClick={() => (hasInner ? setHasOuter(true) : setHasInner(true))} />
+          : undefined} />
+      {editing && <BlockActions saving={saving} err={err} onCancel={cancel} onSave={save} saveLabel={link ? "Save" : "Link supplier"} />}
+      {editing && link && !open && <p className="px-3 pb-2 text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
+      {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId")(row.id); setQuick(null); }} />}
+    </div>
   );
 }
 
