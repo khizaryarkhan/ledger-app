@@ -1906,7 +1906,8 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
   // and Postgres cannot reference a view. Tenancy is re-checked in the API.
   supplierId:         uuid("supplier_id").notNull(),
   supplierUom:        varchar("supplier_uom", { length: 16 }),
-  skuName:            varchar("sku_name", { length: 255 }),
+  skuName:            varchar("sku_name", { length: 255 }),                 // OUR name for this sourced SKU
+  supplierProductName: varchar("supplier_product_name", { length: 255 }),  // the SUPPLIER's name for it, as on their invoice (0093)
   supplierSku:        varchar("supplier_sku", { length: 64 }),
   itemCodeBySupplier: varchar("item_code_by_supplier", { length: 64 }),
   innerUnitPackSize:  numeric("inner_unit_pack_size", { precision: 14, scale: 4 }),

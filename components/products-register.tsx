@@ -23,7 +23,7 @@ import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, QtyUnitField, controlInset, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
@@ -406,7 +406,7 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                       <span className="text-stone-200">{s.supplierName || "—"}</span>
                       {s.isPreferred && <span title="Preferred source for this item" className="text-[10px] font-medium uppercase tracking-wide text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-px">Preferred</span>}
                     </span>
-                    {(s.skuName || s.supplierSku) && <div className="text-[11px] text-stone-500">{[s.skuName, s.supplierSku].filter(Boolean).join(" · ")}</div>}
+                    {(s.skuName || s.supplierProductName || s.supplierSku) && <div className="text-[11px] text-stone-500">{[s.skuName, s.supplierProductName, s.supplierSku].filter(Boolean).join(" · ")}</div>}
                   </td>
                   {!open && (
                     <td className="px-3 py-2 text-stone-300">
@@ -462,25 +462,22 @@ function Fold({ title, summary, children, defaultOpen = true }: { title: string;
   );
 }
 
-function PackTypeSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  return (
-    <SelectField inset value={value} onChange={e => onChange(e.target.value)} disabled={disabled} aria-label="Pack type">
-      <option value="">None</option>
-      {PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
-    </SelectField>
-  );
-}
-
-/** "Inner pack: [25] [bag]" — a count and a pack type side by side, with what it counts beneath. */
+/**
+ * A pack level as ONE full-width cell — "[ 500 | bucket ▾ ]": how many of the
+ * level below it holds, and what the pack is. It was a narrow number box and
+ * a narrow dropdown side by side in a third of the drawer, which cut both off.
+ */
 function PackField({ label, count, type, onCount, onType, of, disabled, disabledHint }: {
   label: string; count: string; type: string; onCount: (v: string) => void; onType: (v: string) => void; of: string; disabled?: boolean; disabledHint?: string;
 }) {
+  const hint = disabled ? disabledHint
+    : type && Number(count) > 0 ? `1 ${type} holds ${fmt.qty(Number(count))} ${of}`
+    : type || count ? `Enter how many ${of} one pack holds, and the pack type`
+    : "Optional";
   return (
-    <Field label={label} hint={disabled ? disabledHint : (type || count ? `each holds ${count || "?"} ${of}` : "optional")}>
-      <div className="flex gap-1.5">
-        <input type="number" step="any" min="0" className={`${controlInset} !w-12 shrink-0 !px-1.5 text-right tabular-nums`} value={count} onChange={e => onCount(e.target.value)} placeholder="0" disabled={disabled} aria-label={`${label} quantity`} />
-        <div className="flex-1 min-w-0"><PackTypeSelect value={type} onChange={onType} disabled={disabled} /></div>
-      </div>
+    <Field label={label} hint={hint}>
+      <QtyUnitField qty={count} onQty={onCount} unit={type} onUnit={onType} options={PACK_TYPES} unitPlaceholder="Pack type…"
+        disabled={disabled} qtyLabel={`${label} — how many ${of}`} unitLabel={`${label} — pack type`} />
     </Field>
   );
 }
@@ -570,11 +567,9 @@ function SkuDrawer({ item, sku, onClose, onSaved }: { item: any; sku?: any; onCl
         {/* The consumer unit is the SKU itself; the multipack and outer pack
             are optional levels above it, each a separate GS1 trade item. */}
         <Fold title="Packaging" summary={config}>
-          <div className="grid grid-cols-3 gap-2.5">
-            <PackField label="Consumer unit" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={base} />
-            <PackField label="Multipack" count={f.unitsInAddlInnerPack} type={f.addlInnerPackType} onCount={set("unitsInAddlInnerPack")} onType={set("addlInnerPackType")} of={f.innerPackType || "units"} />
-            <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")} of={outerParent.label} />
-          </div>
+          <PackField label="Consumer unit" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={base} />
+          <PackField label="Multipack" count={f.unitsInAddlInnerPack} type={f.addlInnerPackType} onCount={set("unitsInAddlInnerPack")} onType={set("addlInnerPackType")} of={f.innerPackType || "consumer units"} />
+          <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")} of={outerParent.label} />
           <ConfigLine text={config} empty="Enter the consumer unit to describe the packaging." />
           {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
         </Fold>
@@ -599,7 +594,8 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
     // Defaults to the item's own unit: links created from purchase history
     // (0090) carry no supplier UoM, and an empty unit reads as a broken record.
     supplierUom: link?.supplierUom || item.baseUom || "",
-    skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "", itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
+    skuName: link?.skuName ?? "", supplierProductName: link?.supplierProductName ?? "",
+    supplierSku: link?.supplierSku ?? "", itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
     innerUnitPackSize: numStr(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
     unitsInOuterPack: numStr(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
     conversionFactor: numStr(link?.conversionFactor),
@@ -623,10 +619,16 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
   const per = open ? 1 : (perSupplierUnit(f.supplierUom || null, base || null, f.conversionFactor) ?? 0);
   const innerN = Number(f.innerUnitPackSize) || 0, outerN = Number(f.unitsInOuterPack) || 0;
   const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
-  const config = ladderTotal([
-    ...(hasInner && f.innerPackType && innerN > 0 && per > 0 ? [{ label: f.innerPackType, qty: innerN * per }] : []),
-    ...(hasOuter && f.outerPackType && outerN > 0 && innerN > 0 && per > 0 ? [{ label: f.outerPackType, qty: outerN * innerN * per }] : []),
-  ], base);
+  // Counted in SUPPLIER units, then converted to the base unit when that is
+  // known. Without the conversion it still reads "1 bucket = 500 cup" — it
+  // used to go blank and say "add an inner pack" while one was right there.
+  const supplierSteps = [
+    ...(hasInner && f.innerPackType && innerN > 0 ? [{ label: f.innerPackType, qty: innerN }] : []),
+    ...(hasOuter && f.outerPackType && outerN > 0 && innerN > 0 ? [{ label: f.outerPackType, qty: outerN * innerN }] : []),
+  ];
+  const config = !supplierSteps.length ? undefined
+    : per > 0 ? ladderTotal(supplierSteps.map(x => ({ ...x, qty: x.qty * per })), base)
+    : `${ladderTotal(supplierSteps, unit || "unit")}${crossDim ? ` — enter what 1 ${f.supplierUom} is in ${base} to convert` : ""}`;
 
   // Currency is the SUPPLIER's, set on the supplier and fixed there.
   const supplier = suppliers.find(s => s.id === f.supplierId);
@@ -691,10 +693,18 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
               <option value="__add__">+ Add new supplier…</option>
             </SelectField>
           </Field>
-          <Field label="Their product name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="As on their invoice" /></Field>
+          {/* Two names, two readers: ours is what buyers search and pick; the
+              supplier's is what appears on their invoice, so a bill line can
+              be matched back to this link. */}
+          <Field label="SKU name (internal)" hint="What your team calls it — shown in pickers and on POs">
+            <input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="e.g. Cotton yarn 24s — 25 kg bag" />
+          </Field>
+          <Field label="Supplier's product name" hint="As it appears on their invoice and price list">
+            <input className={controlInset} value={f.supplierProductName} onChange={e => set("supplierProductName")(e.target.value)} />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Their SKU"><input className={`${controlInset} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} /></Field>
-            <Field label="Their item code"><input className={`${controlInset} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} /></Field>
+            <Field label="Supplier's SKU"><input className={`${controlInset} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} /></Field>
+            <Field label="Supplier's item code"><input className={`${controlInset} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} /></Field>
           </div>
         </Fold>
 
@@ -703,19 +713,22 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
             <p className="text-[12px] text-stone-400">Any supplier may supply this item, so it is bought in its own unit, <span className="font-mono text-stone-200">{base || "—"}</span>, with no pack configuration.</p>
           ) : (
             <>
-              <div className="grid grid-cols-[0.8fr_1.1fr_1.1fr] gap-2.5">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Supplier UoM" required hint="What they count and price in"><UomSelect value={f.supplierUom} onChange={set("supplierUom")} placeholder="Select…" /></Field>
-                <PackField label="Inner pack" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={unit || "units"} />
-                <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")}
-                  of={f.innerPackType || "inner packs"} disabled={!hasInner} disabledHint="Define the inner pack first" />
+                {/* Only when the two units are different MEASURES (cup vs each,
+                    lb vs kg) — then no ratio can be known without being told. */}
+                {crossDim && (
+                  <Field label={`1 ${f.supplierUom} equals`} required hint={`How many ${base} are in one ${f.supplierUom}`}>
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0" aria-label="Conversion factor" />
+                      <span className="text-[12px] text-stone-400 font-mono shrink-0">{base}</span>
+                    </div>
+                  </Field>
+                )}
               </div>
-              {crossDim && (
-                <div className="flex items-center gap-2 rounded-md bg-rose-500/8 border border-rose-800/40 px-3 py-2 text-[12px] text-stone-300">
-                  <span className="text-rose-300">Different measures:</span> 1 {f.supplierUom} =
-                  <input type="number" step="any" className={`${controlInset} !w-24 !h-8`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" />
-                  {base}
-                </div>
-              )}
+              <PackField label="Inner pack" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={unit || "units"} />
+              <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")}
+                of={f.innerPackType || "inner packs"} disabled={!hasInner} disabledHint="Define the inner pack first" />
               <ConfigLine text={config} empty={`Bought in ${unit || "units"} — add an inner pack if they sell it packed.`} />
               {link && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
             </>

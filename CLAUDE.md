@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0092` at `when`
-  `1790000000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0093` at `when`
+  `1790100000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with

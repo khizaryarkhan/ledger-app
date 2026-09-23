@@ -227,6 +227,38 @@ export function SelectField({
   );
 }
 
+// ── Quantity + unit in ONE control (inset) ────────────────────────────────
+/**
+ * "[ 500 | bucket ▾ ]" — a number and the unit it counts, drawn as one field.
+ * Two separate controls side by side read as two unrelated inputs and each
+ * gets squeezed; a quantity and its pack type are one fact. One border, one
+ * focus ring (focus-within), a hairline between the halves. Inset variant,
+ * for stone-900 drawer panels like the rest of `controlInset`.
+ */
+export function QtyUnitField({
+  qty, onQty, unit, onUnit, options, unitPlaceholder = "Select…", qtyPlaceholder = "0", disabled, qtyLabel, unitLabel,
+}: {
+  qty: string; onQty: (v: string) => void; unit: string; onUnit: (v: string) => void;
+  options: readonly string[]; unitPlaceholder?: string; qtyPlaceholder?: string; disabled?: boolean;
+  qtyLabel?: string; unitLabel?: string;
+}) {
+  return (
+    <div className={`flex items-stretch w-full h-9 rounded-lg bg-stone-950 border border-stone-700/70 overflow-hidden transition-[border-color,box-shadow] duration-150 hover:border-stone-600 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 ${disabled ? "opacity-50" : ""}`}>
+      <input type="number" step="any" min="0" value={qty} onChange={e => onQty(e.target.value)} placeholder={qtyPlaceholder} disabled={disabled} aria-label={qtyLabel}
+        className="w-28 shrink-0 bg-transparent px-3 text-right tabular-nums text-[13px] text-stone-100 placeholder:text-stone-600 outline-none disabled:cursor-not-allowed" />
+      <span className="w-px my-1.5 bg-stone-700/70" />
+      <div className="relative flex-1 min-w-0">
+        <select value={unit} onChange={e => onUnit(e.target.value)} disabled={disabled} aria-label={unitLabel}
+          className="w-full h-full appearance-none bg-transparent pl-3 pr-8 text-[13px] text-stone-100 outline-none cursor-pointer disabled:cursor-not-allowed">
+          <option value="">{unitPlaceholder}</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500" />
+      </div>
+    </div>
+  );
+}
+
 // ── Ghost cell select with a compact chevron (for line-item tables) ───────
 export function CellSelect({
   className = "", children, ...props

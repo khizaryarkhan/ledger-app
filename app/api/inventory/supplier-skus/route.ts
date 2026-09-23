@@ -62,7 +62,7 @@ function linkValues(item: ItemRow, b: any, supplierCurrency: string | null): { e
 
   const values = {
     supplierUom,
-    skuName: s(b?.skuName, 255), supplierSku: s(b?.supplierSku),
+    skuName: s(b?.skuName, 255), supplierProductName: s(b?.supplierProductName, 255), supplierSku: s(b?.supplierSku),
     itemCodeBySupplier: s(b?.itemCodeBySupplier),
     innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: s(b?.innerPackType, 32),
     unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: s(b?.outerPackType, 32),

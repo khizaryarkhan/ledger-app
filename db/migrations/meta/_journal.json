@@ -645,6 +645,13 @@
       "when": 1790000000000,
       "tag": "0092_supplier_price_basis",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "6",
+      "when": 1790100000000,
+      "tag": "0093_supplier_product_name",
+      "breakpoints": true
     }
   ]
 }
