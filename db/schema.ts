@@ -1918,8 +1918,12 @@ export const itemSupplierSkus = pgTable("item_supplier_skus", {
   // unitPrice and minOrderQty are per ONE SUPPLIER UoM: the unit the vendor
   // quotes in, so the row reads the same as their price list. A line's rate is
   // derived per pack level in lib/inventory/order-options.ts.
-  unitPrice:          numeric("unit_price", { precision: 18, scale: 6 }),
-  currency:           varchar("currency", { length: 3 }),   // null = org home currency
+  unitPrice:          numeric("unit_price", { precision: 18, scale: 6 }),   // per ONE supplier UoM — derived from quotedPrice (0092)
+  // The price exactly as the supplier quoted it, at the level it was quoted
+  // for (0092): unit | inner | outer. Every other level is derived from it.
+  quotedPrice:        numeric("quoted_price", { precision: 18, scale: 6 }),
+  priceBasis:         varchar("price_basis", { length: 12 }).notNull().default("unit"),
+  currency:           varchar("currency", { length: 3 }),   // the SUPPLIER's currency (0092); null = not set / home
   leadTimeDays:       integer("lead_time_days"),
   minOrderQty:        numeric("min_order_qty", { precision: 20, scale: 6 }),
   isPreferred:        boolean("is_preferred").notNull().default(false),

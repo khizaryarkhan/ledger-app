@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0091` at `when`
-  `1789900000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0092` at `when`
+  `1790000000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1163,6 +1163,25 @@ Suppliers panel, because that is where the question is asked.
   invented UoM or price. **An item with no purchase history gets nothing — by
   design**: the user links the supplier before the first PO. Don't "fix" that
   by opening such items up.
+- **A price is quoted AT A LEVEL, in the SUPPLIER's currency** (migration
+  `0092`). `quoted_price` + `price_basis` (`unit | inner | outer`) hold the
+  price exactly as quoted — "300 per 30-litre bottle" — and `unit_price` is
+  its per-supplier-UoM equivalent, derived on every save. The quote is KEPT,
+  not just converted, because conversion is lossy: 100 per 3-litre bottle is
+  33.333333/litre at 6dp, which multiplies back to 99.999999. PO pricing
+  (`basePriceOf` in `lib/inventory/sourcing.ts`, used by `orderOptions`) works
+  from the quote at its own level, so ordering at the quoted level returns the
+  quote exactly and ordering by the litre is the same figure divided down.
+  `tests/price-basis.test.ts` pins it. A link's `currency` is always its
+  supplier's, set server-side — never the form's; the drawer shows it
+  read-only. **A supplier's currency is set once**: `PATCH
+  /api/payables/suppliers/[id]` refuses to change a non-empty one (every
+  document and link price is in it; changing it restates them all without
+  converting a figure). `""` = not set yet, and may still be set.
+- **Item names are unique per org, case- and space-insensitive**
+  (`lib/inventory/item-name.ts`), checked on create, rename and the Accounting
+  quick-add. App-level, not an index: existing duplicates may already be in
+  the data and an index would fail to build against them.
 - `is_preferred` is one-per-item via a **partial unique index**, not application
   logic — two concurrent saves can't both win and neon-http has no transaction
   to hold. Same reasoning as 0087's default-location race.

@@ -78,6 +78,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   try {
     const data = UpdateSchema.parse(await req.json());
+    // A supplier's currency is set once. Every document, and every price on
+    // its item links, is in that currency (postDocument enforces it), so
+    // changing it afterwards would restate all of them without converting a
+    // single figure. "" means not set yet (multi-currency orgs lock it from
+    // the first document), and may still be set.
+    const current = (existing.currency ?? "").trim().toUpperCase();
+    const next = data.currency?.trim().toUpperCase();
+    // A blank means "leave it" — a form that sends every field must not be
+    // refused, or wipe the currency, just because this one is read-only.
+    if (next && current && next !== current) {
+      return bad(`This supplier's currency is ${current}, and it can't be changed once set — their documents and prices are all in ${current}. For another currency, create a separate supplier.`);
+    }
+    if (next) data.currency = next; else delete (data as any).currency;
     const [updated] = await db.update(apSuppliers)
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(apSuppliers.id, params.id), eq(apSuppliers.orgId, orgId!)))

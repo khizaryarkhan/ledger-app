@@ -90,6 +90,51 @@ export const allowsPackConfiguration = (policy?: string | null) => sourcingOf(po
  * 480 per kg, 12,000 per bag, 240,000 per pallet — one stored number, every
  * level consistent, and no level rounded before it is multiplied.
  */
+/** The packaging level a supplier price was quoted at (0092). */
+export const PRICE_BASES = ["unit", "inner", "outer"] as const;
+export type PriceBasis = typeof PRICE_BASES[number];
+type PackShape = { innerUnitPackSize?: any; unitsInOuterPack?: any };
+
+/**
+ * How many SUPPLIER units one of this level holds: unit = 1, inner = the inner
+ * pack size, outer = outer count × inner size. null when the link does not have
+ * that level — a price cannot be quoted per carton on a link with no carton.
+ */
+export function supplierUnitsIn(basis: string | null | undefined, link: PackShape): number | null {
+  const inner = Number(link.innerUnitPackSize) || 0;
+  const outer = Number(link.unitsInOuterPack) || 0;
+  if (!basis || basis === "unit") return 1;
+  if (basis === "inner") return inner > 0 ? inner : null;
+  if (basis === "outer") return inner > 0 && outer > 0 ? inner * outer : null;
+  return null;
+}
+
+/**
+ * Price per ONE supplier UoM from a price quoted at some level. A 30-litre
+ * bottle at 300 is 10 per litre. This is what `unit_price` stores; the quote
+ * itself is kept too, because the per-unit figure is lossy (see 0092).
+ */
+export function unitPriceFromQuote(quoted: any, basis: string | null | undefined, link: PackShape): number | null {
+  const q = Number(quoted);
+  const n = supplierUnitsIn(basis, link);
+  if (!isFinite(q) || q <= 0 || !n) return null;
+  return q / n;
+}
+
+/**
+ * Price per BASE unit for a link — the one figure every order unit is priced
+ * from. Taken from the quote at its own level when there is one, so ordering
+ * in the level it was quoted at gives back the quote exactly (100 per 3-litre
+ * bottle is 100 per bottle, not 99.999999), and from unit_price otherwise.
+ */
+export function basePriceOf(link: PackShape & { quotedPrice?: any; priceBasis?: string | null; unitPrice?: any }, baseUnitsPerSupplierUnit: number | null): number | null {
+  if (!baseUnitsPerSupplierUnit || baseUnitsPerSupplierUnit <= 0) return null;
+  const n = supplierUnitsIn(link.priceBasis, link);
+  const q = Number(link.quotedPrice);
+  if (isFinite(q) && q > 0 && n) return q / (n * baseUnitsPerSupplierUnit);
+  return pricePerBaseUnit(link.unitPrice, baseUnitsPerSupplierUnit);
+}
+
 export function pricePerBaseUnit(unitPrice: any, baseUnitsPerSupplierUnit: number): number | null {
   const p = Number(unitPrice);
   if (!isFinite(p) || p <= 0) return null;

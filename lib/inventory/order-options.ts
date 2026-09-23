@@ -16,7 +16,7 @@
  */
 
 import { uom } from "@/lib/inventory/uom";
-import { pricePerBaseUnit } from "@/lib/inventory/sourcing";
+import { basePriceOf } from "@/lib/inventory/sourcing";
 
 export type OrderOption = {
   label: string;
@@ -91,7 +91,10 @@ export function orderOptions(baseUom: string | null, supplierSkus: any[], suppli
   // rounded number that fails to reconcile with it.
   const pricing = pricingLink(mine);
   const perPricing = pricing ? perSupplierUnit(pricing.supplierUom, baseUom, pricing.conversionFactor) : null;
-  const basePrice = pricing && perPricing ? pricePerBaseUnit(pricing.unitPrice, perPricing) : null;
+  // From the quote at its own level (0092) — ordering by the litre from a
+  // per-bottle quote is this figure times litres; ordering by the bottle gives
+  // the quote back exactly.
+  const basePrice = pricing && perPricing ? basePriceOf(pricing, perPricing) : null;
   const ccy = (pricing?.currency as string | null) ?? null;
   const priceFor = (unitsPerOrderUnit: number) => (basePrice == null ? null : basePrice * unitsPerOrderUnit);
 

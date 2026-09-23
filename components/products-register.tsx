@@ -23,7 +23,7 @@ import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, CellSelect, cell, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
@@ -227,13 +227,11 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
 /* ----------------------------- Packaging: list + drawer ----------------------------- */
 
 // The list shows each supplier link / SKU on ONE line, with its packaging
-// read back in words and its barcodes counted; the pencil opens a drawer.
-// Inside the drawer, packaging is a GRID — one row per level (the shape of
-// SAP's "Units of measure" tab): what the level is, what it contains, what
-// that is in the base unit, and the level's GTIN. Two earlier drawers laid
-// packaging out as stacked fields or cards, which split a pack from its
-// barcode or showed one level at a time; the grid shows the whole hierarchy
-// and every code together, where it is edited.
+// read back in words and its barcodes counted; the row opens a side drawer.
+// The drawer follows the product owner's layout: foldable sections for
+// Packaging (unit | inner pack | outer pack side by side, read back as a
+// configuration line), Barcodes (one GTIN per level) and Commercial terms
+// (a price quoted AT a level, in the supplier's currency).
 
 type Codes = Partial<Record<PackLevel, string>>;
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -247,7 +245,6 @@ const codesPayload = (codes: Codes, levels: PackLevel[]) =>
   Object.fromEntries((["unit", "inner", "addl_inner", "outer"] as PackLevel[]).map(l => [l, levels.includes(l) ? (codes[l] ?? "") : ""]));
 const firstInvalid = (codes: Codes, levels: PackLevel[]) =>
   levels.map(l => ({ l, c: classifyBarcode(codes[l]) })).find(x => "error" in x.c);
-const qtyLabel = (q: number, uom: string) => (q > 0 ? `${fmt.qty(q)} ${uom}` : "—");
 
 /** One-line packaging read-back for the list: "Bag = 25 kg · Carton = 12 Bag". */
 function packLine(levels: { type?: string | null; n?: any; of: string }[]): string {
@@ -261,92 +258,6 @@ function BarcodeSummary({ row }: { row: any }) {
   const title = list.map(([lvl, b]) => `${lvl}: ${showBarcode(b)}${b.scheme === "OTHER" ? " (internal)" : ""}`).join("\n");
   return <span className="font-mono text-stone-300" title={title}>{showBarcode(list[0][1])}{list.length > 1 && <span className="text-stone-500"> +{list.length - 1}</span>}</span>;
 }
-
-function UomCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <CellSelect value={value} onChange={e => onChange(e.target.value)} aria-label="Unit">
-      <option value="">Unit…</option>
-      {UOM_GROUPS.map(g => (
-        <optgroup key={g.dim} label={g.label}>
-          {UOMS.filter(u => u.dimension === g.dim).map(u => <option key={u.code} value={u.code}>{u.name} ({u.code})</option>)}
-        </optgroup>
-      ))}
-    </CellSelect>
-  );
-}
-
-function PackTypeCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <CellSelect value={value} onChange={e => onChange(e.target.value)} aria-label="Pack type">
-      <option value="">Pack type…</option>
-      {PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
-    </CellSelect>
-  );
-}
-
-/** "[ 25 ] kg" — a quantity with its unit after it, so the row reads as a sentence.
- *  Width sits on a wrapper: form-kit's `cell` is w-full by design. */
-function ContainsCell({ value, onChange, unit }: { value: string; onChange: (v: string) => void; unit: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-20 shrink-0"><input type="number" step="any" min="0" className={`${cell} text-right tabular-nums`} value={value} onChange={e => onChange(e.target.value)} placeholder="0" /></div>
-      <span className="text-[12px] text-stone-400 whitespace-nowrap">{unit}</span>
-    </div>
-  );
-}
-
-/** GTIN checked as you type, by the same rule the server enforces (classifyBarcode). */
-function GtinCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const c = classifyBarcode(value);
-  const kind = !value.trim() ? null : "error" in c ? "bad" : c.barcode?.scheme === "GTIN" ? "gtin" : "other";
-  return (
-    <div>
-      <div className="flex items-center gap-1.5">
-        <input className={`${cell} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder="GTIN or barcode" aria-label="GTIN or barcode" />
-        {kind === "gtin" && <span title="Valid GTIN" className="text-emerald-400 shrink-0"><Check size={13} /></span>}
-        {kind === "other" && <span title="Not a GS1 GTIN — kept as an internal barcode" className="text-[11px] text-amber-400 shrink-0">internal</span>}
-      </div>
-      {kind === "bad" && <div className="text-[11px] text-rose-400 px-2 pt-0.5">{(c as any).error}</div>}
-    </div>
-  );
-}
-
-type GridRow = { key: string; level: React.ReactNode; contains: React.ReactNode; base: React.ReactNode; gtin: React.ReactNode; onRemove?: () => void; muted?: boolean };
-
-function PackagingGrid({ rows, add, total }: { rows: GridRow[]; add?: React.ReactNode; total?: string }) {
-  return (
-    <div className="rounded-lg border border-stone-800 overflow-hidden">
-      <table className="w-full text-[12px]">
-        <thead><tr className="border-b border-stone-800 bg-stone-950/40">
-          <th className={`${th} w-8`}>#</th>
-          <th className={th}>Level</th>
-          <th className={th}>Contains</th>
-          <th className={`${th} text-right`}>= Base qty</th>
-          <th className={th}>GTIN / barcode</th>
-          <th className="w-8" />
-        </tr></thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.key} className="border-b border-stone-800/50 align-top">
-              <td className="px-2.5 py-2 text-stone-500 tabular-nums">{i + 1}</td>
-              <td className={`px-1 py-1 w-40 ${r.muted ? "text-stone-500" : "text-stone-200"}`}>{r.level}</td>
-              <td className="px-1 py-1 text-stone-300">{r.contains}</td>
-              <td className="px-2.5 py-2 text-right tabular-nums text-stone-300 whitespace-nowrap">{r.base}</td>
-              <td className="px-1 py-1 w-56">{r.gtin}</td>
-              <td className="px-2 py-2">{r.onRemove && <button type="button" onClick={r.onRemove} title="Remove this level" className="text-stone-600 hover:text-rose-400"><X size={13} /></button>}</td>
-            </tr>
-          ))}
-          {add && <tr><td /><td colSpan={5} className="px-2.5 py-2">{add}</td></tr>}
-        </tbody>
-      </table>
-      {total && <div className="px-3 py-2 border-t border-stone-800 bg-emerald-500/5 text-[12px] text-emerald-300">{total}</div>}
-    </div>
-  );
-}
-
-const AddLevel = ({ label, onClick }: { label: string; onClick: () => void }) => (
-  <button type="button" onClick={onClick} className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300 mr-4"><Plus size={12} /> {label}</button>
-);
 
 /** "1 Carton = 12 Bag = 300 kg" — the ladder read back from the top. */
 function ladderTotal(steps: { label: string; qty: number }[], base: string): string | undefined {
@@ -430,92 +341,6 @@ function SkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
   );
 }
 
-function SkuDrawer({ item, sku, onClose, onSaved }: { item: any; sku?: any; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState<Record<string, string>>({
-    skuName: sku?.skuName ?? "", skuCode: sku?.skuCode ?? "",
-    innerUnitPackSize: numStr(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
-    unitsInAddlInnerPack: numStr(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
-    unitsInOuterPack: numStr(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
-  });
-  const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
-  const [hasAddl, setHasAddl] = useState(!!(sku?.unitsInAddlInnerPack || sku?.addlInnerPackType));
-  const [hasOuter, setHasOuter] = useState(!!(sku?.unitsInOuterPack || sku?.outerPackType));
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
-  const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
-  const base = item.baseUom || "unit";
-
-  // Levels this SKU actually has — same rule as the API (skuValues).
-  const levels: PackLevel[] = ["inner", ...(hasAddl ? ["addl_inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
-  const innerQty = Number(f.innerUnitPackSize) || 0;
-  const addlQty = hasAddl ? (Number(f.unitsInAddlInnerPack) || 0) * innerQty : 0;
-  const outerParent = hasAddl ? { qty: addlQty, label: f.addlInnerPackType || "multipack" } : { qty: innerQty, label: f.innerPackType || "unit" };
-  const outerQty = hasOuter ? (Number(f.unitsInOuterPack) || 0) * outerParent.qty : 0;
-  const steps = [
-    ...(f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
-    ...(hasAddl && f.addlInnerPackType && addlQty > 0 ? [{ label: f.addlInnerPackType, qty: addlQty }] : []),
-    ...(hasOuter && f.outerPackType && outerQty > 0 ? [{ label: f.outerPackType, qty: outerQty }] : []),
-  ];
-
-  async function save() {
-    if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
-    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack row: choose its pack type and how many it contains — or remove the row."); return; }
-    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack row: choose its pack type and how many it contains — or remove the row."); return; }
-    const bad = firstInvalid(codes, levels);
-    if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
-    setSaving(true); setErr("");
-    const body = JSON.stringify({ itemId: item.id, ...f, identifiers: codesPayload(codes, levels) });
-    const r = sku
-      ? await fetch(`/api/inventory/skus?id=${sku.id}`, { method: "PATCH", headers: jsonHeaders, body })
-      : await fetch(`/api/inventory/skus`, { method: "POST", headers: jsonHeaders, body });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onSaved();
-  }
-
-  const rows: GridRow[] = [
-    { key: "base", muted: true, level: <div className="px-1.5 py-1">{base} <span className="text-[11px]">(base unit)</span></div>, contains: <div className="px-1.5 py-1 text-stone-600">—</div>, base: `1 ${base}`, gtin: <div className="px-1.5 py-1 text-stone-600">—</div> },
-    { key: "inner", level: <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} />, contains: <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={base} />, base: qtyLabel(innerQty, base), gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} /> },
-    ...(hasAddl ? [{
-      key: "addl", level: <PackTypeCell value={f.addlInnerPackType} onChange={set("addlInnerPackType")} />,
-      contains: <ContainsCell value={f.unitsInAddlInnerPack} onChange={set("unitsInAddlInnerPack")} unit={f.innerPackType || "units"} />,
-      base: qtyLabel(addlQty, base), gtin: <GtinCell value={codes.addl_inner ?? ""} onChange={setCode("addl_inner")} />,
-      onRemove: () => { setHasAddl(false); setF(p => ({ ...p, unitsInAddlInnerPack: "", addlInnerPackType: "" })); setCodes(c => ({ ...c, addl_inner: "" })); },
-    }] : []),
-    ...(hasOuter ? [{
-      key: "outer", level: <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} />,
-      contains: <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={outerParent.label} />,
-      base: qtyLabel(outerQty, base), gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} />,
-      onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
-    }] : []),
-  ];
-
-  return (
-    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} subtitle={`${item.name} · stocked in ${item.baseUom || "no base UoM"}`} onClose={onClose} size="xl"
-      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={sku ? "Save changes" : "Create SKU"} err={err} />}>
-      <div className="space-y-6">
-        <Section title="Identity">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="SKU name" required><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="e.g. 750ml bottle" autoFocus={!sku} /></Field>
-            <Field label="SKU code"><input className={`${controlInset} font-mono`} value={f.skuCode} onChange={e => set("skuCode")(e.target.value)} /></Field>
-          </div>
-        </Section>
-        {/* Row 2 is the SKU's own consumer unit (the bottle); multipack and
-            outer pack are optional levels above it, each its own GS1 trade
-            item with its own GTIN. */}
-        <Section title="Packaging & barcodes">
-          <PackagingGrid rows={rows} total={ladderTotal(steps, base)}
-            add={(!hasAddl || !hasOuter) ? <>
-              {!hasOuter && <AddLevel label="Add outer pack" onClick={() => setHasOuter(true)} />}
-              {!hasAddl && <AddLevel label={hasOuter ? "Add multipack (between)" : "Add multipack"} onClick={() => setHasAddl(true)} />}
-            </> : undefined} />
-          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
-        </Section>
-      </div>
-    </Drawer>
-  );
-}
-
 /* ----------------------------- Supplier links ----------------------------- */
 
 function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => void }) {
@@ -593,10 +418,10 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
                         <span className="text-stone-400"> · {packLine([{ type: s.innerPackType, n: s.innerUnitPackSize, of: unit }, { type: s.outerPackType, n: s.unitsInOuterPack, of: s.innerPackType || "" }])}</span>}
                     </td>
                   )}
-                  {/* Quoted per supplier UoM, labelled as such — the shape of the vendor's own price list. */}
+                  {/* As quoted, at the level quoted — the shape of the vendor's own price list. */}
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    {s.unitPrice != null
-                      ? <span className="text-stone-200">{fmt.num2(Number(s.unitPrice))}<span className="text-stone-600">/{unit || "unit"}{s.currency ? ` ${s.currency}` : ""}</span></span>
+                    {(s.quotedPrice ?? s.unitPrice) != null
+                      ? <span className="text-stone-200">{fmt.num2(Number(s.quotedPrice ?? s.unitPrice))}<span className="text-stone-600">/{s.priceBasis === "inner" ? (s.innerPackType || "pack") : s.priceBasis === "outer" ? (s.outerPackType || "case") : (unit || "unit")}{s.currency ? ` ${s.currency}` : ""}</span></span>
                       : <span className="text-stone-600">—</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{s.leadTimeDays != null ? <span className="text-stone-300">{s.leadTimeDays}d</span> : <span className="text-stone-600">—</span>}</td>
@@ -616,6 +441,156 @@ function SupplierSkuEditor({ item, onChanged }: { item: any; onChanged: () => vo
   );
 }
 
+/* ----------------------------- Drawer building blocks ----------------------------- */
+
+/**
+ * A drawer section that folds away to a one-line summary. Everything starts
+ * open; folding is for the user who has finished one part and wants the next
+ * in view, and the summary means a folded section still says what it holds.
+ */
+function Fold({ title, summary, children, defaultOpen = true }: { title: string; summary?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-stone-800">
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-stone-800/40 rounded-lg">
+        <ChevronRight size={14} className={`text-stone-500 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-300">{title}</span>
+        {summary && <span className="ml-auto text-[12px] text-stone-500 truncate max-w-[60%] text-right">{summary}</span>}
+      </button>
+      {open && <div className="px-3 pb-3 pt-1 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+function PackTypeSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <SelectField inset value={value} onChange={e => onChange(e.target.value)} disabled={disabled} aria-label="Pack type">
+      <option value="">None</option>
+      {PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+    </SelectField>
+  );
+}
+
+/** "Inner pack: [25] [bag]" — a count and a pack type side by side, with what it counts beneath. */
+function PackField({ label, count, type, onCount, onType, of, disabled, disabledHint }: {
+  label: string; count: string; type: string; onCount: (v: string) => void; onType: (v: string) => void; of: string; disabled?: boolean; disabledHint?: string;
+}) {
+  return (
+    <Field label={label} hint={disabled ? disabledHint : (type || count ? `each holds ${count || "?"} ${of}` : "optional")}>
+      <div className="flex gap-1.5">
+        <input type="number" step="any" min="0" className={`${controlInset} !w-12 shrink-0 !px-1.5 text-right tabular-nums`} value={count} onChange={e => onCount(e.target.value)} placeholder="0" disabled={disabled} aria-label={`${label} quantity`} />
+        <div className="flex-1 min-w-0"><PackTypeSelect value={type} onChange={onType} disabled={disabled} /></div>
+      </div>
+    </Field>
+  );
+}
+
+/** A GTIN field checked as you type, by the same rule the server enforces (classifyBarcode). */
+function GtinField({ label, value, onChange, disabled, disabledHint }: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; disabledHint?: string }) {
+  const c = classifyBarcode(value);
+  const hint = disabled ? disabledHint
+    : !value.trim() ? "EAN-13, UPC-A, EAN-8, ITF-14 — or any other barcode"
+    : "error" in c ? <span className="text-rose-400">{c.error}</span>
+    : c.barcode?.scheme === "GTIN" ? <span className="text-emerald-400">Valid GTIN</span>
+    : <span className="text-amber-400">Not a GS1 GTIN — kept as an internal barcode</span>;
+  return (
+    <Field label={label} hint={hint}>
+      <input className={`${controlInset} font-mono`} value={value} onChange={e => onChange(e.target.value)} inputMode="numeric" placeholder={disabled ? "" : "e.g. 9501101530003"} disabled={disabled} />
+    </Field>
+  );
+}
+
+/** "1 carton = 12 bag = 300 kg" — the configuration read back from the top level down. */
+function ConfigLine({ text, empty }: { text?: string; empty: string }) {
+  return (
+    <div className={`rounded-md px-3 py-2 text-[12px] ${text ? "bg-emerald-500/8 border border-emerald-800/40 text-emerald-300" : "border border-dashed border-stone-700 text-stone-500"}`}>
+      <span className="text-[11px] uppercase tracking-wider text-stone-500 mr-2">Packaging configuration</span>{text || empty}
+    </div>
+  );
+}
+
+const codesSet = (codes: Codes, levels: PackLevel[]) => levels.filter(l => (codes[l] ?? "").trim()).length;
+
+/* ----------------------------- SKU drawer ----------------------------- */
+
+function SkuDrawer({ item, sku, onClose, onSaved }: { item: any; sku?: any; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState<Record<string, string>>({
+    skuName: sku?.skuName ?? "", skuCode: sku?.skuCode ?? "",
+    innerUnitPackSize: numStr(sku?.innerUnitPackSize), innerPackType: sku?.innerPackType ?? "",
+    unitsInAddlInnerPack: numStr(sku?.unitsInAddlInnerPack), addlInnerPackType: sku?.addlInnerPackType ?? "",
+    unitsInOuterPack: numStr(sku?.unitsInOuterPack), outerPackType: sku?.outerPackType ?? "",
+  });
+  const [codes, setCodes] = useState<Codes>(codesFromRow(sku));
+  const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
+  const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
+  const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
+  const base = item.baseUom || "unit";
+
+  // A level exists once either half of it is filled; the save check asks for both.
+  const hasAddl = !!(f.unitsInAddlInnerPack || f.addlInnerPackType);
+  const hasOuter = !!(f.unitsInOuterPack || f.outerPackType);
+  const levels: PackLevel[] = ["inner", ...(hasAddl ? ["addl_inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
+  const innerQty = Number(f.innerUnitPackSize) || 0;
+  const addlQty = hasAddl ? (Number(f.unitsInAddlInnerPack) || 0) * innerQty : 0;
+  const outerParent = hasAddl ? { qty: addlQty, label: f.addlInnerPackType || "multipack" } : { qty: innerQty, label: f.innerPackType || "unit" };
+  const outerQty = hasOuter ? (Number(f.unitsInOuterPack) || 0) * outerParent.qty : 0;
+  const config = ladderTotal([
+    ...(f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
+    ...(hasAddl && f.addlInnerPackType && addlQty > 0 ? [{ label: f.addlInnerPackType, qty: addlQty }] : []),
+    ...(hasOuter && f.outerPackType && outerQty > 0 ? [{ label: f.outerPackType, qty: outerQty }] : []),
+  ], base);
+
+  async function save() {
+    if (!f.skuName.trim()) { setErr("SKU name is required."); return; }
+    if (hasAddl && (!f.addlInnerPackType || !(Number(f.unitsInAddlInnerPack) > 0))) { setErr("Multipack: enter how many it holds and choose its pack type — or clear both."); return; }
+    if (hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Outer pack: enter how many it holds and choose its pack type — or clear both."); return; }
+    const bad = firstInvalid(codes, levels);
+    if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
+    setSaving(true); setErr("");
+    const body = JSON.stringify({ itemId: item.id, ...f, identifiers: codesPayload(codes, levels) });
+    const r = sku
+      ? await fetch(`/api/inventory/skus?id=${sku.id}`, { method: "PATCH", headers: jsonHeaders, body })
+      : await fetch(`/api/inventory/skus`, { method: "POST", headers: jsonHeaders, body });
+    setSaving(false);
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
+    onSaved();
+  }
+
+  return (
+    <Drawer title={sku ? `Edit ${sku.skuName || "SKU"}` : "New packaging SKU"} subtitle={`${item.name} · stocked in ${item.baseUom || "no base UoM"}`} onClose={onClose} wide
+      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={sku ? "Save changes" : "Create SKU"} err={err} />}>
+      <div className="space-y-3">
+        <Fold title="SKU" summary={[f.skuName, f.skuCode].filter(Boolean).join(" · ")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="SKU name" required><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="e.g. 750ml bottle" autoFocus={!sku} /></Field>
+            <Field label="SKU code"><input className={`${controlInset} font-mono`} value={f.skuCode} onChange={e => set("skuCode")(e.target.value)} /></Field>
+          </div>
+        </Fold>
+
+        {/* The consumer unit is the SKU itself; the multipack and outer pack
+            are optional levels above it, each a separate GS1 trade item. */}
+        <Fold title="Packaging" summary={config}>
+          <div className="grid grid-cols-3 gap-2.5">
+            <PackField label="Consumer unit" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={base} />
+            <PackField label="Multipack" count={f.unitsInAddlInnerPack} type={f.addlInnerPackType} onCount={set("unitsInAddlInnerPack")} onType={set("addlInnerPackType")} of={f.innerPackType || "units"} />
+            <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")} of={outerParent.label} />
+          </div>
+          <ConfigLine text={config} empty="Enter the consumer unit to describe the packaging." />
+          {sku && <p className="text-[11px] text-stone-500">Once stock or documents use this SKU its pack sizes are fixed — the name, code, pack types and barcodes can still change.</p>}
+        </Fold>
+
+        <Fold title="Barcodes" summary={`${codesSet(codes, levels)} of ${levels.length} set`}>
+          <GtinField label={`Consumer unit GTIN${f.innerPackType ? ` — ${f.innerPackType}` : ""}`} value={codes.inner ?? ""} onChange={setCode("inner")} />
+          <GtinField label={`Multipack GTIN${f.addlInnerPackType ? ` — ${f.addlInnerPackType}` : ""}`} value={codes.addl_inner ?? ""} onChange={setCode("addl_inner")} disabled={!hasAddl} disabledHint="Define a multipack under Packaging first." />
+          <GtinField label={`Outer pack GTIN${f.outerPackType ? ` — ${f.outerPackType}` : ""}`} value={codes.outer ?? ""} onChange={setCode("outer")} disabled={!hasOuter} disabledHint="Define an outer pack under Packaging first." />
+        </Fold>
+      </div>
+    </Drawer>
+  );
+}
+
+/* ----------------------------- Supplier-link drawer ----------------------------- */
+
 function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; open: boolean; link?: any; onClose: () => void; onSaved: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
@@ -627,13 +602,12 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
     skuName: link?.skuName ?? "", supplierSku: link?.supplierSku ?? "", itemCodeBySupplier: link?.itemCodeBySupplier ?? "",
     innerUnitPackSize: numStr(link?.innerUnitPackSize), innerPackType: link?.innerPackType ?? "",
     unitsInOuterPack: numStr(link?.unitsInOuterPack), outerPackType: link?.outerPackType ?? "",
-    conversionFactor: numStr(link?.conversionFactor), unitPrice: numStr(link?.unitPrice), currency: link?.currency ?? "",
+    conversionFactor: numStr(link?.conversionFactor),
+    quotedPrice: numStr(link?.quotedPrice ?? link?.unitPrice), priceBasis: link?.priceBasis || "unit",
     leadTimeDays: numStr(link?.leadTimeDays), minOrderQty: numStr(link?.minOrderQty),
   });
   const [isPreferred, setIsPreferred] = useState<boolean>(!!link?.isPreferred);
   const [codes, setCodes] = useState<Codes>(codesFromRow(link));
-  const [hasInner, setHasInner] = useState(!open && !!(link?.innerUnitPackSize || link?.innerPackType));
-  const [hasOuter, setHasOuter] = useState(!open && !!(link?.unitsInOuterPack || link?.outerPackType));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string) => (v: string) => setF(p => ({ ...p, [k]: v }));
   const setCode = (l: PackLevel) => (v: string) => setCodes(c => ({ ...c, [l]: v }));
@@ -642,123 +616,147 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
 
   const base = item.baseUom || "";
   const unit = open ? base : f.supplierUom;
+  // A level exists once either half of it is filled; the save check asks for both.
+  const hasInner = !open && !!(f.innerUnitPackSize || f.innerPackType);
+  const hasOuter = hasInner && !!(f.unitsInOuterPack || f.outerPackType);
   const crossDim = !open && !!base && !!f.supplierUom && needsConversionFactor(f.supplierUom, base);
   const per = open ? 1 : (perSupplierUnit(f.supplierUom || null, base || null, f.conversionFactor) ?? 0);
-  const innerQty = hasInner ? (Number(f.innerUnitPackSize) || 0) * per : 0;
-  const outerQty = hasInner && hasOuter ? (Number(f.unitsInOuterPack) || 0) * innerQty : 0;
-  // Levels this link actually has — same rule as the API (linkValues).
-  const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasInner && hasOuter ? ["outer" as PackLevel] : [])];
-  const steps = [
-    ...(hasInner && f.innerPackType && innerQty > 0 ? [{ label: f.innerPackType, qty: innerQty }] : []),
-    ...(hasInner && hasOuter && f.outerPackType && outerQty > 0 ? [{ label: f.outerPackType, qty: outerQty }] : []),
+  const innerN = Number(f.innerUnitPackSize) || 0, outerN = Number(f.unitsInOuterPack) || 0;
+  const levels: PackLevel[] = ["unit", ...(hasInner ? ["inner" as PackLevel] : []), ...(hasOuter ? ["outer" as PackLevel] : [])];
+  const config = ladderTotal([
+    ...(hasInner && f.innerPackType && innerN > 0 && per > 0 ? [{ label: f.innerPackType, qty: innerN * per }] : []),
+    ...(hasOuter && f.outerPackType && outerN > 0 && innerN > 0 && per > 0 ? [{ label: f.outerPackType, qty: outerN * innerN * per }] : []),
+  ], base);
+
+  // Currency is the SUPPLIER's, set on the supplier and fixed there.
+  const supplier = suppliers.find(s => s.id === f.supplierId);
+  const currency = (supplier?.currency || link?.currency || "").trim();
+
+  // Price levels on offer: the ones this link actually has.
+  const basisOpts: { v: string; label: string; units: number }[] = [
+    { v: "unit", label: unit || "unit", units: 1 },
+    ...(hasInner && innerN > 0 ? [{ v: "inner", label: f.innerPackType || "inner pack", units: innerN }] : []),
+    ...(hasOuter && innerN > 0 && outerN > 0 ? [{ v: "outer", label: f.outerPackType || "outer pack", units: innerN * outerN }] : []),
   ];
-  const price = Number(f.unitPrice);
+  const basis = basisOpts.find(o => o.v === f.priceBasis) ?? basisOpts[0];
+  const quoted = Number(f.quotedPrice);
+  // The same arithmetic a PO line uses (unitPriceFromQuote / basePriceOf):
+  // every level priced from the one figure the supplier quoted.
+  const perSupplierUnitPrice = quoted > 0 ? quoted / basis.units : 0;
+  const derived = perSupplierUnitPrice > 0 ? [
+    ...basisOpts.filter(o => o.v !== basis.v).map(o => `${fmt.num2(perSupplierUnitPrice * o.units)} / ${o.label}`),
+    ...(base && unit !== base && per > 0 ? [`${fmt.num2(perSupplierUnitPrice / per)} / ${base}`] : []),
+  ] : [];
 
   async function save() {
     if (!f.supplierId) { setErr("Choose a supplier."); return; }
-    if (!open && !f.supplierUom) { setErr("Row 1: choose the unit this supplier sells in."); return; }
-    if (crossDim && !f.conversionFactor) { setErr(`Row 1: ${f.supplierUom} and ${base} are different measures — enter how many ${base} are in one ${f.supplierUom}.`); return; }
-    if (hasInner && (!f.innerPackType || !(Number(f.innerUnitPackSize) > 0))) { setErr("Row 2: choose the pack type and how many it contains — or remove the row."); return; }
-    if (hasInner && hasOuter && (!f.outerPackType || !(Number(f.unitsInOuterPack) > 0))) { setErr("Row 3: choose the pack type and how many it contains — or remove the row."); return; }
+    if (!open && !f.supplierUom) { setErr("Packaging: choose the unit this supplier sells in."); return; }
+    if (crossDim && !f.conversionFactor) { setErr(`Packaging: ${f.supplierUom} and ${base} are different measures — enter how many ${base} are in one ${f.supplierUom}.`); return; }
+    if (hasInner && (!f.innerPackType || !(innerN > 0))) { setErr("Inner pack: enter how many it holds and choose its pack type — or clear both."); return; }
+    if (hasOuter && (!f.outerPackType || !(outerN > 0))) { setErr("Outer pack: enter how many inner packs it holds and choose its pack type — or clear both."); return; }
+    // The price was quoted per a level that is no longer defined: sending it
+    // as-is would silently re-read "300 per bottle" as "300 per litre".
+    if (quoted > 0 && !basisOpts.some(o => o.v === f.priceBasis)) { setErr("Commercial terms: the price was per a pack level that no longer exists — choose what it is per."); return; }
     const bad = firstInvalid(codes, levels);
     if (bad) { setErr(`${levelLabel(bad.l)} barcode: ${(bad.c as any).error}`); return; }
     setSaving(true); setErr("");
-    // An "any supplier" item is bought in its own base unit: no packaging
-    // (the server refuses it) — only its unit barcode and commercial terms.
+    // An "any supplier" item is bought in its own base unit: no packaging (the
+    // server refuses it) — only its barcode and terms. An outer pack is only
+    // meaningful on top of an inner one, so it is not sent without one.
     const pack = open
       ? { supplierUom: base, innerUnitPackSize: "", innerPackType: "", unitsInOuterPack: "", outerPackType: "", conversionFactor: "" }
-      : { conversionFactor: crossDim ? f.conversionFactor : "" };
+      : { conversionFactor: crossDim ? f.conversionFactor : "", ...(hasOuter ? {} : { unitsInOuterPack: "", outerPackType: "" }) };
     const r = await fetch(link ? `/api/inventory/supplier-skus?id=${link.id}` : `/api/inventory/supplier-skus`, {
       method: link ? "PATCH" : "POST", headers: jsonHeaders,
-      body: JSON.stringify({ itemId: item.id, ...f, ...pack, isPreferred, identifiers: codesPayload(codes, levels) }),
+      body: JSON.stringify({ itemId: item.id, ...f, ...pack, priceBasis: basis.v, isPreferred, identifiers: codesPayload(codes, levels) }),
     });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onSaved();
   }
 
-  const rows: GridRow[] = [
-    {
-      key: "unit",
-      level: open ? <div className="px-1.5 py-1 font-mono">{base || "—"}</div> : <UomCell value={f.supplierUom} onChange={set("supplierUom")} />,
-      contains: crossDim
-        ? <div className="flex items-center gap-1.5 text-[12px] text-stone-400"><span className="whitespace-nowrap">1 {f.supplierUom} =</span><div className="w-20 shrink-0"><input type="number" step="any" className={`${cell} text-right`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" /></div>{base}</div>
-        : <div className="px-1.5 py-1 text-stone-600">—</div>,
-      base: qtyLabel(per, base),
-      gtin: <GtinCell value={codes.unit ?? ""} onChange={setCode("unit")} />,
-    },
-    ...(hasInner ? [{
-      key: "inner", level: <PackTypeCell value={f.innerPackType} onChange={set("innerPackType")} />,
-      contains: <ContainsCell value={f.innerUnitPackSize} onChange={set("innerUnitPackSize")} unit={unit || "units"} />,
-      base: qtyLabel(innerQty, base), gtin: <GtinCell value={codes.inner ?? ""} onChange={setCode("inner")} />,
-      // Levels nest, so only the top one can go: removing the inner pack
-      // would leave an outer pack defined in terms of nothing.
-      onRemove: hasOuter ? undefined : () => { setHasInner(false); setF(p => ({ ...p, innerUnitPackSize: "", innerPackType: "" })); setCodes(c => ({ ...c, inner: "" })); },
-    }] : []),
-    ...(hasInner && hasOuter ? [{
-      key: "outer", level: <PackTypeCell value={f.outerPackType} onChange={set("outerPackType")} />,
-      contains: <ContainsCell value={f.unitsInOuterPack} onChange={set("unitsInOuterPack")} unit={f.innerPackType || "inner packs"} />,
-      base: qtyLabel(outerQty, base), gtin: <GtinCell value={codes.outer ?? ""} onChange={setCode("outer")} />,
-      onRemove: () => { setHasOuter(false); setF(p => ({ ...p, unitsInOuterPack: "", outerPackType: "" })); setCodes(c => ({ ...c, outer: "" })); },
-    }] : []),
-  ];
-
   return (
     <Drawer title={link ? `Edit ${link.supplierName || "supplier link"}` : "Link supplier"}
       subtitle={`${item.name} · stocked in ${base || "no base UoM"}${open ? " · any supplier may supply it" : ""}`}
-      onClose={onClose} size="xl"
+      onClose={onClose} wide
       footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel={link ? "Save changes" : "Link supplier"} err={err} />}>
-      <div className="space-y-6">
-        <Section title="Supplier">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            <Field label="Supplier" required>
-              <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined}
-                onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }}>
-                <option value="">Select supplier…</option>
-                {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                <option value="__add__">+ Add new supplier…</option>
-              </SelectField>
-            </Field>
-            <Field label="Their product name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="As on their invoice" /></Field>
+      <div className="space-y-3">
+        <Fold title="Supplier" summary={link?.supplierName || supplier?.name}>
+          <Field label="Supplier" required>
+            <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined}
+              onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }}>
+              <option value="">Select supplier…</option>
+              {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <option value="__add__">+ Add new supplier…</option>
+            </SelectField>
+          </Field>
+          <Field label="Their product name"><input className={controlInset} value={f.skuName} onChange={e => set("skuName")(e.target.value)} placeholder="As on their invoice" /></Field>
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Their SKU"><input className={`${controlInset} font-mono`} value={f.supplierSku} onChange={e => set("supplierSku")(e.target.value)} /></Field>
             <Field label="Their item code"><input className={`${controlInset} font-mono`} value={f.itemCodeBySupplier} onChange={e => set("itemCodeBySupplier")(e.target.value)} /></Field>
           </div>
-        </Section>
+        </Fold>
 
-        <Section title="Packaging & barcodes">
-          <PackagingGrid rows={rows} total={ladderTotal(steps, base)}
-            add={!open && !(hasInner && hasOuter)
-              ? <AddLevel label={hasInner ? "Add outer pack" : "Add inner pack"} onClick={() => (hasInner ? setHasOuter(true) : setHasInner(true))} />
-              : undefined} />
-          {open && <p className="text-[11px] text-stone-500">Bought from any supplier, so it is ordered in {base || "its base unit"} with no pack configuration — only its barcode is recorded here.</p>}
-          {link && !open && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
-        </Section>
+        <Fold title="Packaging" summary={open ? `Bought in ${base || "its base unit"}` : (config || unit)}>
+          {open ? (
+            <p className="text-[12px] text-stone-400">Any supplier may supply this item, so it is bought in its own unit, <span className="font-mono text-stone-200">{base || "—"}</span>, with no pack configuration.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[0.8fr_1.1fr_1.1fr] gap-2.5">
+                <Field label="Supplier UoM" required hint="What they count and price in"><UomSelect value={f.supplierUom} onChange={set("supplierUom")} placeholder="Select…" /></Field>
+                <PackField label="Inner pack" count={f.innerUnitPackSize} type={f.innerPackType} onCount={set("innerUnitPackSize")} onType={set("innerPackType")} of={unit || "units"} />
+                <PackField label="Outer pack" count={f.unitsInOuterPack} type={f.outerPackType} onCount={set("unitsInOuterPack")} onType={set("outerPackType")}
+                  of={f.innerPackType || "inner packs"} disabled={!hasInner} disabledHint="Define the inner pack first" />
+              </div>
+              {crossDim && (
+                <div className="flex items-center gap-2 rounded-md bg-rose-500/8 border border-rose-800/40 px-3 py-2 text-[12px] text-stone-300">
+                  <span className="text-rose-300">Different measures:</span> 1 {f.supplierUom} =
+                  <input type="number" step="any" className={`${controlInset} !w-24 !h-8`} value={f.conversionFactor} onChange={e => set("conversionFactor")(e.target.value)} placeholder="0.4536" aria-label="Conversion factor" />
+                  {base}
+                </div>
+              )}
+              <ConfigLine text={config} empty={`Bought in ${unit || "units"} — add an inner pack if they sell it packed.`} />
+              {link && <p className="text-[11px] text-stone-500">Once a purchase order uses this link its unit and packs are fixed — names, codes, barcodes and terms can still change.</p>}
+            </>
+          )}
+        </Fold>
 
-        {/* Quoted in the SUPPLIER's unit, deliberately, so the row reads the
-            same as the price list it is copied from. Every pack level's rate
-            is derived from this one figure. */}
-        <Section title="Commercial terms">
-          <div className="grid grid-cols-4 gap-x-4 gap-y-4">
-            <Field label={`Price / ${unit || "unit"}`}><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.unitPrice} onChange={e => set("unitPrice")(e.target.value)} placeholder="0.00" /></Field>
-            <Field label="Currency">
-              <SelectField inset value={f.currency} onChange={e => set("currency")(e.target.value)}>
-                <option value="">Home currency</option>
-                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+        <Fold title="Barcodes" summary={`${codesSet(codes, levels)} of ${levels.length} set`}>
+          <GtinField label={`Product level GTIN${unit ? ` — per ${unit}` : ""}`} value={codes.unit ?? ""} onChange={setCode("unit")} />
+          {!open && <>
+            <GtinField label={`Inner pack GTIN${f.innerPackType ? ` — ${f.innerPackType}` : ""}`} value={codes.inner ?? ""} onChange={setCode("inner")} disabled={!hasInner} disabledHint="Define an inner pack under Packaging first." />
+            <GtinField label={`Outer pack GTIN${f.outerPackType ? ` — ${f.outerPackType}` : ""}`} value={codes.outer ?? ""} onChange={setCode("outer")} disabled={!hasOuter} disabledHint="Define an outer pack under Packaging first." />
+          </>}
+        </Fold>
+
+        {/* Priced AT A LEVEL, exactly as the supplier quotes it (a 30-litre
+            bottle at 300), in the supplier's own currency. Every other level —
+            and ordering by the litre on a PO — is worked out from that one
+            figure (lib/inventory/order-options.ts). */}
+        <Fold title="Commercial terms" summary={quoted > 0 ? `${fmt.num2(quoted)} / ${basis.label}${currency ? ` ${currency}` : ""}${f.leadTimeDays ? ` · ${f.leadTimeDays}d lead` : ""}` : "No price"}>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-3 items-start">
+            <Field label="Price"><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.quotedPrice} onChange={e => set("quotedPrice")(e.target.value)} placeholder="0.00" /></Field>
+            <Field label="Per">
+              <SelectField inset value={basis.v} onChange={e => set("priceBasis")(e.target.value)} aria-label="Price is per">
+                {basisOpts.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
               </SelectField>
             </Field>
-            <Field label="Lead time (days)"><input type="number" className={`${controlInset} tabular-nums`} value={f.leadTimeDays} onChange={e => set("leadTimeDays")(e.target.value)} placeholder="0" /></Field>
-            <Field label={`Min. order (${unit || "unit"})`}><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.minOrderQty} onChange={e => set("minOrderQty")(e.target.value)} placeholder="0" /></Field>
+            <Field label="Currency" hint="From the supplier">
+              <div className={`${controlInset} flex items-center text-stone-300 font-mono`}>{currency || "Home"}</div>
+            </Field>
           </div>
-          {steps.length > 0 && price > 0 && per > 0 && (
-            <p className="text-[11px] text-stone-400">Pack prices: {steps.map(s => `${s.label} ${fmt.num2(price * s.qty / per)}`).join(" · ")}</p>
-          )}
+          {derived.length > 0 && <p className="text-[12px] text-stone-400">= {derived.join(" · ")}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Lead time (days)"><input type="number" className={`${controlInset} tabular-nums`} value={f.leadTimeDays} onChange={e => set("leadTimeDays")(e.target.value)} placeholder="0" /></Field>
+            <Field label={`Minimum order (${unit || "unit"})`}><input type="number" step="any" className={`${controlInset} tabular-nums`} value={f.minOrderQty} onChange={e => set("minOrderQty")(e.target.value)} placeholder="0" /></Field>
+          </div>
           <label className="flex items-center gap-2.5 cursor-pointer">
             <input type="checkbox" checked={isPreferred} onChange={e => setIsPreferred(e.target.checked)} className="accent-emerald-600" />
             <span className="text-[12.5px] text-stone-200">Preferred supplier</span>
             <span className="text-[11px] text-stone-500">— the default for this item, and the price a purchase line starts from</span>
           </label>
-        </Section>
+        </Fold>
       </div>
       {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId")(row.id); setQuick(null); }} />}
     </Drawer>

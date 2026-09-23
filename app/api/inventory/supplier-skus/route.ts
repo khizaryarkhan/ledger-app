@@ -19,7 +19,7 @@ import { itemSupplierSkus, apItems, apSuppliers } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, ne } from "drizzle-orm";
 import { needsConversionFactor } from "@/lib/inventory/uom";
-import { allowsPackConfiguration, sourcingOf, SOURCING_POLICIES } from "@/lib/inventory/sourcing";
+import { allowsPackConfiguration, sourcingOf, SOURCING_POLICIES, PRICE_BASES, supplierUnitsIn, unitPriceFromQuote } from "@/lib/inventory/sourcing";
 import { supplierSkuReferences, blockerMessage } from "@/lib/inventory/references";
 import { prepareIdentifiers, writeIdentifiers, identifierErrorMessage } from "@/lib/inventory/identifiers-server";
 import type { PackLevel } from "@/lib/inventory/identifiers";
@@ -31,7 +31,7 @@ const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null 
 type ItemRow = { id: string; baseUom: string | null; sourcingPolicy: string | null };
 
 /** Validate a link body and build its column values. Returns an error message instead of throwing. */
-function linkValues(item: ItemRow, b: any): { error: string } | { values: Record<string, any>; levels: PackLevel[] } {
+function linkValues(item: ItemRow, b: any, supplierCurrency: string | null): { error: string } | { values: Record<string, any>; levels: PackLevel[] } {
   const supplierUom = s(b?.supplierUom, 16);
   // Cross-dimension packaging (e.g. item Lt ↔ supplier Lb) requires an explicit factor.
   const factorRequired = !!(item.baseUom && supplierUom && needsConversionFactor(item.baseUom, supplierUom));
@@ -49,6 +49,17 @@ function linkValues(item: ItemRow, b: any): { error: string } | { values: Record
     return { error: `"${sourcingOf(item.sourcingPolicy).label}" items are bought in their base unit — remove the pack configuration, or set the item to "${SOURCING_POLICIES.restricted.label}".` };
   }
 
+  const pack = { innerUnitPackSize: numOrNull(b?.innerUnitPackSize), unitsInOuterPack: numOrNull(b?.unitsInOuterPack) };
+  // Price is quoted at a LEVEL (0092): per unit, per inner pack or per outer
+  // pack, exactly as the supplier quotes it. Accepts the old per-unit
+  // `unitPrice` from callers that have not moved over.
+  const priceBasis = PRICE_BASES.includes(b?.priceBasis) ? b.priceBasis : "unit";
+  const quoted = numOrNull(b?.quotedPrice ?? b?.unitPrice);
+  if (quoted && !supplierUnitsIn(priceBasis, pack)) {
+    return { error: `The price is quoted per ${priceBasis === "inner" ? "inner pack" : "outer pack"}, but this link has no ${priceBasis === "inner" ? "inner pack" : "outer pack"} — define it, or quote the price per ${supplierUom || item.baseUom || "unit"}.` };
+  }
+  const unitPrice = quoted ? unitPriceFromQuote(quoted, priceBasis, pack) : null;
+
   const values = {
     supplierUom,
     skuName: s(b?.skuName, 255), supplierSku: s(b?.supplierSku),
@@ -56,9 +67,13 @@ function linkValues(item: ItemRow, b: any): { error: string } | { values: Record
     innerUnitPackSize: numOrNull(b?.innerUnitPackSize), innerPackType: s(b?.innerPackType, 32),
     unitsInOuterPack: numOrNull(b?.unitsInOuterPack), outerPackType: s(b?.outerPackType, 32),
     conversionFactor: factor,
-    // Commercial terms, quoted per one supplier UoM (see 0089).
-    unitPrice: numOrNull(b?.unitPrice),
-    currency: s(b?.currency, 3)?.toUpperCase() ?? null,
+    // Commercial terms: the quote as given, at its level; unitPrice is its per-supplier-UoM equivalent.
+    quotedPrice: quoted, priceBasis,
+    unitPrice: unitPrice == null ? null : unitPrice.toFixed(6),
+    // The SUPPLIER's currency, never the form's: every document for this
+    // supplier must be in it (postDocument), so a link priced in another
+    // currency would be a price no order could use.
+    currency: supplierCurrency,
     leadTimeDays: b?.leadTimeDays == null || b.leadTimeDays === "" ? null : Math.max(0, Math.round(Number(b.leadTimeDays))) || null,
     minOrderQty: numOrNull(b?.minOrderQty),
   };
@@ -118,11 +133,11 @@ export async function POST(req: Request) {
   // Postgres FK is impossible here — ap_suppliers is a view (see 0079).
   const supplierId = s(b?.supplierId, 64);
   if (!supplierId) return bad("A supplier is required to link an item.");
-  const [supplier] = await db.select({ id: apSuppliers.id }).from(apSuppliers)
+  const [supplier] = await db.select({ id: apSuppliers.id, currency: apSuppliers.currency }).from(apSuppliers)
     .where(and(eq(apSuppliers.id, supplierId), eq(apSuppliers.orgId, orgId!))).limit(1);
   if (!supplier) return bad("Supplier not found", 404);
 
-  const v = linkValues(item, b);
+  const v = linkValues(item, b, supplier.currency?.trim() || null);
   if ("error" in v) return bad(v.error);
   // Barcodes are validated BEFORE anything is written (no transactions).
   let ids;
@@ -163,7 +178,9 @@ export async function PATCH(req: Request) {
     return bad("A link's supplier can't be changed — link the item to the other supplier instead, then remove this one.");
   }
 
-  const v = linkValues(item, b);
+  const [supplier] = await db.select({ currency: apSuppliers.currency }).from(apSuppliers)
+    .where(and(eq(apSuppliers.id, existing.supplierId), eq(apSuppliers.orgId, orgId!))).limit(1);
+  const v = linkValues(item, b, supplier?.currency?.trim() || null);
   if ("error" in v) return bad(v.error);
 
   // Once an order line uses this link, its unit and packs decided how much

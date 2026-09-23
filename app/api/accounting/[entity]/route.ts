@@ -10,6 +10,7 @@
  */
 
 import { db } from "@/db";
+import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { apAccounts, apItems, apTaxRates, apDimensions } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc } from "drizzle-orm";
@@ -116,9 +117,8 @@ export async function POST(req: Request, { params }: { params: { entity: string 
 
     if (params.entity === "items") {
       const d = ItemSchema.parse(body);
-      const [dup] = await db.select({ id: apItems.id }).from(apItems)
-        .where(and(eq(apItems.orgId, orgId!), eq(apItems.name, d.name))).limit(1);
-      if (dup) return bad("An item with this name already exists");
+      // Same rule as the Products register: case- and space-insensitive.
+      if (await itemNameTaken(orgId!, d.name)) return bad(duplicateNameMessage(d.name), 409);
       const [created] = await db.insert(apItems).values({
         orgId: orgId!, source: "native",
         name: d.name, itemType: d.itemType, code: d.code ?? null,

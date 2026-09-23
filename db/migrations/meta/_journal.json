@@ -638,6 +638,13 @@
       "when": 1789900000000,
       "tag": "0091_item_identifiers_gs1",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "6",
+      "when": 1790000000000,
+      "tag": "0092_supplier_price_basis",
+      "breakpoints": true
     }
   ]
 }

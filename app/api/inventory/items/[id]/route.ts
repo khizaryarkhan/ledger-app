@@ -7,6 +7,7 @@
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { identifiersForItem } from "@/lib/inventory/identifiers-server";
+import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
@@ -73,7 +74,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (await itemHasStockHistory(orgId!, params.id)) return bad("This item already has stock movements — its base UoM and type are locked. Create a new item instead.", 409);
   }
   const set: Record<string, any> = { updatedAt: new Date() };
-  if (b.name !== undefined) set.name = s(b.name);
+  if (b.name !== undefined) {
+    set.name = s(b.name);
+    if (!set.name) return bad("Item name is required");
+    // Only when the name CHANGES: the edit drawer always sends it, and an item
+    // that already shares a name (from before this rule, or from a QBO sync)
+    // must stay editable rather than be locked out of every other change.
+    const renamed = set.name.trim().toLowerCase() !== String(existing.name ?? "").trim().toLowerCase();
+    if (renamed && await itemNameTaken(orgId!, set.name, params.id)) return bad(duplicateNameMessage(set.name), 409);
+  }
   if (b.category !== undefined) set.category = s(b.category, 128);
   if (b.baseUom !== undefined) set.baseUom = s(b.baseUom, 16);
   if (b.code !== undefined) set.code = s(b.code, 64);
