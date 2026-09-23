@@ -10,6 +10,7 @@ import {
   Sparkles, Users, Calendar, Trash2, Heart, CornerUpLeft, X, CalendarCheck,
 } from "lucide-react";
 import { fmt, formatDateShort } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 const STATUS = [...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => s.key);
 const STATUS_LABEL = Object.fromEntries([...PIPELINE_STAGES, ...OFF_PIPELINE].map(s => [s.key, s.label])) as Record<string, string>;
@@ -217,15 +218,19 @@ export default function LeadWorkspace() {
 
       {/* Log call / SMS modal */}
       {logKind && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-stone-900 rounded-xl w-full max-w-sm ring-1 ring-stone-800">
-            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-              <h2 className="font-semibold text-white flex items-center gap-2">
-                {logKind === "call" ? <><Phone size={15} /> Log call</> : <><MessageSquare size={15} /> Log SMS</>}
-              </h2>
-              <button onClick={() => setLogKind(null)} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        <Drawer
+          title={logKind === "call" ? "Log call" : "Log SMS"}
+          onClose={() => setLogKind(null)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setLogKind(null)} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200">Cancel</button>
+              <button onClick={submitLog} disabled={logSaving} className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">
+                {logSaving ? "Saving…" : "Save"}
+              </button>
             </div>
-            <div className="p-5 space-y-3">
+          }
+        >
+            <div className="space-y-3">
               <div>
                 <label className="text-xs text-stone-400 block mb-1.5">Outcome</label>
                 <select value={logOutcome} onChange={e => setLogOutcome(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200">
@@ -245,14 +250,7 @@ export default function LeadWorkspace() {
                 <input value={logFollowup} onChange={e => setLogFollowup(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="e.g. Call back Friday" />
               </div>
             </div>
-            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-              <button onClick={() => setLogKind(null)} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200">Cancel</button>
-              <button onClick={submitLog} disabled={logSaving} className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">
-                {logSaving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* Won → customer banner */}
@@ -468,27 +466,30 @@ function EmailReader({ email, onClose, onReply }: { email: any; onClose: () => v
     }
   }, [email.uid]);
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl flex flex-col" style={{ maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-3.5 border-b border-stone-800">
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">{email.subject || "(no subject)"}</h2>
-            <button onClick={onClose} className="text-stone-500 hover:text-stone-300 shrink-0"><X size={18} /></button>
-          </div>
-          <p className="text-[12px] text-stone-400 mt-1.5">{email.direction === "in" ? "From" : "To"} <span className="text-stone-300">{email.who}</span> · {email.at ? new Date(email.at).toLocaleString() : ""}</p>
-          {full?.cc && <p className="text-[12px] text-stone-500">Cc {full.cc}</p>}
+    <Drawer
+      size="xl"
+      title={email.subject || "(no subject)"}
+      subtitle={
+          <>
+            {email.direction === "in" ? "From" : "To"} <span className="text-stone-300">{email.who}</span> · {email.at ? new Date(email.at).toLocaleString() : ""}
+            {full?.cc && <span className="block">Cc {full.cc}</span>}
+          </>
+      }
+      onClose={onClose}
+      pad={false}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={() => onReply(false)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><CornerUpLeft size={13} /> Reply</button>
+          <button onClick={() => onReply(true)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><Users size={13} /> Reply all</button>
         </div>
-        <div className="flex-1 overflow-auto">
+      }
+    >
+        <div>
           {loading ? <div className="flex items-center justify-center py-16"><Loader size={18} className="animate-spin text-stone-600" /></div>
             : full?.html ? <div className="bg-white"><iframe title="email" sandbox="" srcDoc={full.html} className="w-full border-0" style={{ height: "50vh" }} /></div>
             : <pre className="p-5 text-[13px] text-stone-300 whitespace-pre-wrap font-sans">{full?.text || email.preview || "(no preview available — open in Mail to read the full message)"}</pre>}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-stone-800">
-          <button onClick={() => onReply(false)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><CornerUpLeft size={13} /> Reply</button>
-          <button onClick={() => onReply(true)} className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-stone-700 text-stone-200 hover:bg-stone-800"><Users size={13} /> Reply all</button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -516,13 +517,18 @@ function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-800">
-          <h2 className="text-sm font-semibold text-white">New email</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
+    <Drawer
+      size="xl"
+      title="New email"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
+          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
         </div>
-        <div className="p-4 space-y-2">
+      }
+    >
+        <div className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-stone-500 w-10 shrink-0">To</span>
             <input className={inp} value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@email.com" />
@@ -538,12 +544,7 @@ function ComposeModal({ leadId, initial, onClose, onSent, onToast }: any) {
           <textarea className={`${inp} resize-none`} rows={9} value={body} onChange={e => setBody(e.target.value)} placeholder="Write your message…" />
           <p className="text-[11px] text-emerald-400/80">Sends from your connected mailbox.</p>
         </div>
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-stone-800">
-          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
-          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
