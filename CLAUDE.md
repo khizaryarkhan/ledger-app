@@ -146,6 +146,43 @@ reached the paying client, not around coverage.
   drifted into inconsistency before. The New Document form + all inventory
   drawers (Receiving/Shipping/Products/BOM/MO) are already on it.
 
+## A form opens in a SIDE DRAWER (2026-09-23)
+
+**Decision: the drawer is the norm, the centred dialog is the exception.**
+`components/form-kit.tsx` exports `Drawer` + `DrawerFooter`; import them.
+
+Why, beyond consistency: the list you came from stays visible behind it, a long
+form has full height to use, and the primary action is **pinned** under the
+scrolling body. That last part is not taste — the Send Invoices dialog shipped
+with "Send 228 invoices" below the fold, because the whole box was
+`max-h-[90vh] overflow-auto` and the footer scrolled with everything else.
+
+- **Put the primary action in `footer`, never at the end of `children`.** That
+  is the entire point of the drawer; a footer inside the scroll area is the
+  defect above, rebuilt.
+- **`DrawerFooter`** gives the standard Cancel + primary pair, with `err`
+  (shown beside the button, where the eye already is), `pendingMsg` (work
+  already committed — the only action left is Done), and `extra` (a
+  left-aligned secondary action such as Delete, kept away from the primary).
+- **The one thing that stays a centred dialog**: a short yes/no confirmation
+  with no form in it ("Delete this?"). A three-line confirm in a full-height
+  side panel is worse, and none of the drawer's justifications apply to it.
+- **`Drawer` was defined SEVEN times** — once each in bom-register,
+  resource-list, resource-board, shipping-console, products-register,
+  mo-console and receiving-console — before it moved here, and the copies had
+  already drifted: `wide` meant `max-w-md` in one file, `max-w-lg` in another
+  and `max-w-2xl` in a third, and exactly ONE of the seven had the pinned
+  footer. The other six rendered their footer inside the scroll area, so every
+  one of those Save buttons could scroll out of reach on a long form. They all
+  import the shared one now and all six gained the pin.
+- `tests/architecture.test.ts` enforces both that nothing defines a private
+  `Drawer`/`DrawerFooter` and that the shared one keeps the body as the only
+  scroller. Proven to fail on a real violation, not merely to pass.
+- **Still centred, not yet converted**: ~38 dialogs across admin, settings,
+  customers, projects, trade-doc-list and board-list. Convert them as they are
+  touched, or in a deliberate sweep — not silently, since each needs its
+  primary action moved into `footer` to actually gain anything.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,

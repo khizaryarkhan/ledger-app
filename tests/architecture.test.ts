@@ -956,3 +956,33 @@ describe("quantities keep the decimals the database now holds", () => {
     ).toEqual([]);
   });
 });
+
+describe("a form opens in the shared side drawer, not a private copy of one", () => {
+  // A drawer keeps the list visible behind it, gives a long form room, and —
+  // the part that is not taste — PINS the primary action instead of letting it
+  // scroll off the bottom. The Send Invoices dialog shipped with "Send 228
+  // invoices" below the fold for exactly that reason.
+  //
+  // `Drawer` was defined SEVEN times, once per console, before it moved to
+  // form-kit, and the copies had already drifted: `wide` meant max-w-md in one
+  // file, max-w-lg in another and max-w-2xl in a third, and one of the seven
+  // had the pinned footer the other six lacked. This guard is what stops an
+  // eighth appearing.
+  const files = [...sourceFiles("components"), ...sourceFiles("app")]
+    .filter(f => !f.endsWith("components/form-kit.tsx"));
+
+  it("nothing defines its own Drawer or DrawerFooter", () => {
+    const offenders = files.filter(f =>
+      /^\s*(export\s+)?function\s+Drawer(Footer)?\s*\(/m.test(readFileSync(f, "utf8")));
+    expect(offenders.map(f => relative(ROOT, f))).toEqual([]);
+  });
+
+  it("form-kit's Drawer pins the footer below the scrolling body", () => {
+    // If the body stops being the only scroller, or the footer moves inside it,
+    // the pinning is gone and the original defect is back.
+    const src = readFileSync(join(ROOT, "components/form-kit.tsx"), "utf8");
+    const drawer = src.slice(src.indexOf("export function Drawer("));
+    expect(drawer).toMatch(/flex-1 overflow-y-auto/);        // body scrolls
+    expect(drawer).toMatch(/footer && <div className="shrink-0/); // footer does not
+  });
+});

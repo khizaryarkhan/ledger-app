@@ -12,7 +12,7 @@ import { useStockLocations, LocationField } from "@/components/location-picker";
 import { Plus, RefreshCw, Truck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -164,7 +164,7 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
   }
 
   return (
-    <Drawer title="Ship stock" onClose={onClose} wide>
+    <Drawer title="Ship stock" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={pendingMsg ? onDone : onClose} onSave={save} saveLabel="Post shipment" pendingMsg={pendingMsg} />}>
       <div className="space-y-5">
         <Section title="Customer & date">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -240,8 +240,7 @@ function ShipDrawer({ customers, items, onClose, onDone }: { customers: any[]; i
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
         {pendingMsg && <p className="text-[12px] text-amber-400 bg-amber-950/30 border border-amber-900 rounded-lg px-3 py-2">{pendingMsg}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={pendingMsg ? onDone : onClose} onSave={save} saveLabel="Post shipment" pendingMsg={pendingMsg} />
-    </Drawer>
+      </Drawer>
   );
 }
 
@@ -262,7 +261,7 @@ function InvoiceDrawer({ shipments, onClose, onDone }: { shipments: any[]; onClo
   }
 
   return (
-    <Drawer title="Invoice shipments" onClose={onClose}>
+    <Drawer title="Invoice shipments" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create invoice" />}>
       <p className="text-[12px] text-stone-400 mb-4">Invoicing {shipments.length} shipment{shipments.length > 1 ? "s" : ""} for <span className="text-stone-200">{shipments[0]?.customerLabel || "customer"}</span>. Posts Dr A/R / Cr Revenue (COGS already recognised at shipment).</p>
       <div className="space-y-5">
         <Section title="Invoice details">
@@ -275,44 +274,8 @@ function InvoiceDrawer({ shipments, onClose, onDone }: { shipments: any[]; onClo
         <div className="rounded-lg bg-stone-800/50 border border-stone-700 px-4 py-2.5 text-[12px] text-stone-300">Revenue to invoice → <span className="font-semibold text-stone-100">{money(total)}</span></div>
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create invoice" />
-    </Drawer>
+      </Drawer>
   );
 }
 
-function Drawer({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on);
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className={`relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl w-full ${wide ? "max-w-2xl" : "max-w-md"}`} onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
 
-function DrawerFooter({ saving, onClose, onSave, saveLabel = "Save", pendingMsg }: { saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string; pendingMsg?: string }) {
-  if (pendingMsg) {
-    return (
-      <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-800">
-        <button onClick={onClose} className="text-[13px] font-semibold bg-stone-800 text-stone-200 rounded-lg px-4 py-2 hover:bg-stone-700">Done</button>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-800">
-      <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-      <button onClick={onSave} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-        {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
-      </button>
-    </div>
-  );
-}

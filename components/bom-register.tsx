@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, GitMerge, ArrowRight } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
-import { Field, Section, SelectField, controlInset, tableHead, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, tableHead, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 const inputCls = controlInset;
 
@@ -236,7 +236,7 @@ function IngredientDrawer({ bom, items, onClose, onCreated }: { bom: any; items:
     onCreated();
   }
   return (
-    <Drawer title="Add ingredient" onClose={onClose}>
+    <Drawer title="Add ingredient" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} />}>
       <div className="grid grid-cols-2 gap-x-4 gap-y-4">
         <Field label="Ingredient / material" required className="col-span-2">
           <SelectField inset value={f.itemId} onChange={e => { const it = items.find(x => x.id === e.target.value); set("itemId", e.target.value); if (it) set("uom", it.baseUom || ""); }}>
@@ -252,8 +252,7 @@ function IngredientDrawer({ bom, items, onClose, onCreated }: { bom: any; items:
         </Field>
         {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} />
-    </Drawer>
+      </Drawer>
   );
 }
 
@@ -274,7 +273,7 @@ function OutputPackDrawer({ bom, outputSkus, baseUom, onClose, onCreated }: { bo
     onCreated();
   }
   return (
-    <Drawer title="Add output pack" onClose={onClose}>
+    <Drawer title="Add output pack" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add pack" />}>
       <div className="space-y-5">
         <p className="text-[12px] text-stone-400">A packaged variant of the finished product. All packs share the same ingredients — they differ only by packaging.</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -291,8 +290,7 @@ function OutputPackDrawer({ bom, outputSkus, baseUom, onClose, onCreated }: { bo
           {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
         </div>
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add pack" />
-    </Drawer>
+      </Drawer>
   );
 }
 
@@ -311,7 +309,7 @@ function PackagingDrawer({ bom, output, items, onClose, onCreated }: { bom: any;
     onCreated();
   }
   return (
-    <Drawer title={`Packaging for ${output.item?.name ?? "pack"}`} onClose={onClose}>
+    <Drawer title={`Packaging for ${output.item?.name ?? "pack"}`} onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add packaging" />}>
       <div className="space-y-5">
         <p className="text-[12px] text-stone-400">A material consumed per pack of this SKU — bags, boxes, labels, etc.</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -330,8 +328,7 @@ function PackagingDrawer({ bom, output, items, onClose, onCreated }: { bom: any;
           {err && <p className="col-span-2 text-[12px] text-rose-400">{err}</p>}
         </div>
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add packaging" />
-    </Drawer>
+      </Drawer>
   );
 }
 
@@ -358,7 +355,7 @@ function NewBomDrawer({ items, onClose, onCreated }: { items: any[]; onClose: ()
   }
 
   return (
-    <Drawer title="New Bill of Materials" onClose={onClose} wide>
+    <Drawer title="New Bill of Materials" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create BOM" />}>
       <div className="space-y-6">
         <Section title="Identity">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -414,39 +411,10 @@ function NewBomDrawer({ items, onClose, onCreated }: { items: any[]; onClose: ()
         <p className="text-[11px] text-stone-500">After creating the BOM, expand its row to add the output and input items that make up the recipe.</p>
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
-      <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create BOM" />
-    </Drawer>
+      </Drawer>
   );
 }
 
 /* ----------------------------- Drawer shell ----------------------------- */
 
-function Drawer({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on);
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className={`relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl w-full ${wide ? "max-w-lg" : "max-w-md"}`} onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
 
-function DrawerFooter({ saving, onClose, onSave, saveLabel = "Save" }: { saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string }) {
-  return (
-    <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-800">
-      <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-      <button onClick={onSave} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-        {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
-      </button>
-    </div>
-  );
-}

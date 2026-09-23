@@ -16,8 +16,8 @@
  * feature components; compose from here so every form stays consistent.
  */
 
-import { ReactNode, SelectHTMLAttributes } from "react";
-import { ChevronDown } from "lucide-react";
+import { ReactNode, SelectHTMLAttributes, useEffect } from "react";
+import { ChevronDown, X, Check, Loader } from "lucide-react";
 
 // ── Typography ────────────────────────────────────────────────────────────
 /**
@@ -310,6 +310,114 @@ export function Panel({ className = "", children }: { className?: string; childr
   return (
     <div className={`rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 ${className}`}>
       {children}
+    </div>
+  );
+}
+
+// ── Side drawer ───────────────────────────────────────────────────────────
+/**
+ * THE way this app opens a form. A drawer, not a centred dialog.
+ *
+ * Why a drawer: the list you came from stays visible behind it, so you keep
+ * your place; it is full height, so a long form has room; and the primary
+ * action is PINNED under the scrolling body rather than floating at the end of
+ * the content, where on a long form it ends up below the fold. That last point
+ * is not a preference — it was a real defect on the Send Invoices dialog,
+ * where "Send 228 invoices" sat off-screen.
+ *
+ * This was defined SEVEN times, once per console, before it lived here, and
+ * the copies had already drifted: `wide` meant max-w-md in one file, max-w-lg
+ * in another and max-w-2xl in a third, and exactly one of the seven had the
+ * pinned footer. Import it; do not write an eighth.
+ * `tests/architecture.test.ts` enforces that.
+ *
+ * The one thing that is NOT a drawer: a short yes/no confirmation with no form
+ * in it ("Delete this?"). A three-line confirm in a full-height side panel is
+ * worse than a centred box, and the drawer's whole justification — room for a
+ * long form, a pinned action, context behind — buys it nothing.
+ */
+export function Drawer({
+  title, subtitle, onClose, children, footer, wide, size,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  /** Pinned under the scrolling body, so the primary action is never scrolled
+   *  out of reach. Use it — that is the point of the drawer. */
+  footer?: ReactNode;
+  /** Legacy alias for size="lg". Prefer `size`. */
+  wide?: boolean;
+  size?: "md" | "lg" | "xl";
+}) {
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [onClose]);
+  const s = size ?? (wide ? "lg" : "md");
+  // "xl" is for grids — five columns of cells do not fit in 32rem.
+  const width = s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`relative bg-stone-900 border-l border-stone-800 h-full w-full ${width} shadow-2xl flex flex-col`}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-800 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-stone-100 truncate">{title}</h2>
+            {subtitle && <div className="text-[12px] text-stone-500 mt-0.5">{subtitle}</div>}
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0"><X size={17} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        {footer && <div className="shrink-0 border-t border-stone-800 px-5 py-3 bg-stone-900">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Standard Cancel + primary pair for `Drawer`'s `footer` slot. Carries no
+ *  margins or top border of its own — the slot supplies both. */
+export function DrawerFooter({
+  saving, onClose, onSave, saveLabel = "Save", err, pendingMsg, saveDisabled, icon, extra,
+}: {
+  saving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  saveLabel?: string;
+  /** Shown beside the primary button, where the eye already is when it fails. */
+  err?: string | null;
+  /** Work already committed: the form is spent, so the only action is Done. */
+  pendingMsg?: string;
+  saveDisabled?: boolean;
+  icon?: ReactNode;
+  /** Left-aligned slot for a secondary action (Delete), kept away from the
+   *  primary button so it cannot be hit by accident. */
+  extra?: ReactNode;
+}) {
+  if (pendingMsg) {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-[12px] text-stone-400 leading-snug">{pendingMsg}</p>
+        <button onClick={onClose} className="text-[13px] font-semibold bg-stone-800 text-stone-200 rounded-lg px-4 py-2 hover:bg-stone-700">Done</button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {extra}
+      {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
+      <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
+      <button onClick={onSave} disabled={saving || saveDisabled}
+        className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
+        {saving ? <Loader size={14} className="animate-spin" /> : (icon ?? <Check size={14} />)} {saveLabel}
+      </button>
     </div>
   );
 }

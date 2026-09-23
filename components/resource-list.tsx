@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { Plus, RefreshCw, Users, Wrench, X, Loader, Check, Trash2 } from "lucide-react";
-import { Field, Section, SelectField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [rows, setRows] = useState<any[] | null>(null);
@@ -116,7 +116,11 @@ function ResourceDrawer({ type, employees, id, onClose, onSaved }: { type: "pers
   }
 
   return (
-    <Drawer title={isEdit ? "Edit " + (type === "person" ? "person" : "equipment") : "New " + (type === "person" ? "person" : "equipment")} onClose={onClose}>
+    <Drawer title={isEdit ? "Edit " + (type === "person" ? "person" : "equipment") : "New " + (type === "person" ? "person" : "equipment")} onClose={onClose}
+      footer={loading ? null : (
+        <DrawerFooter saving={saving} onClose={onClose} onSave={save} err={err}
+          extra={isEdit ? <button onClick={del} className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete"><Trash2 size={14} /></button> : undefined} />
+      )}>
       {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-6">
           <Section title="Details">
@@ -149,32 +153,9 @@ function ResourceDrawer({ type, employees, id, onClose, onSaved }: { type: "pers
               </Field>
             </div>
           </Section>
-          {err && <p className="text-[12px] text-rose-400">{err}</p>}
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-800">
-            {isEdit && <button onClick={del} className="mr-auto p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete"><Trash2 size={14} /></button>}
-            <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-            <button onClick={save} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-              {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Save
-            </button>
-          </div>
         </div>
       )}
     </Drawer>
   );
 }
 
-function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => { const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on); }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl w-full max-w-lg" onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}

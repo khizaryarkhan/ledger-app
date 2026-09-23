@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw, AlertTriangle, X, Loader, Check } from "lucide-react";
-import { Field, Section, SelectField, controlInset } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { localToday, ymd } from "@/lib/format";
 
 const ASSIGNABLE_LABEL: Record<string, string> = { project: "Project", manufacturing_order: "Manufacturing Order", job_work_order: "Job Work Order" };
@@ -133,7 +133,8 @@ function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCr
   }
 
   return (
-    <Drawer title="New assignment" onClose={onClose}>
+    <Drawer title="New assignment" onClose={onClose}
+      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create assignment" err={err} />}>
       <div className="space-y-6">
         <Section title="Book">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -170,30 +171,8 @@ function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCr
             </Field>
           </div>
         </Section>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
-      </div>
-      <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-stone-800">
-        <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-        <button onClick={save} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-          {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Create assignment
-        </button>
       </div>
     </Drawer>
   );
 }
 
-function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => { const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on); }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl w-full max-w-lg" onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}

@@ -23,7 +23,7 @@ import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, QtyUnitField, controlInset, th } from "@/components/form-kit";
+import { Field, Section, SelectField, QtyUnitField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 type ProductType = ItemKind;
 
@@ -1011,46 +1011,4 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
 
 /* ----------------------------- Drawer shell ----------------------------- */
 
-function Drawer({ title, subtitle, onClose, children, footer, wide, size }: {
-  title: string; subtitle?: string; onClose: () => void; children: React.ReactNode;
-  /** Pinned under the scrolling body, so Save is never scrolled out of reach. */
-  footer?: React.ReactNode;
-  wide?: boolean; size?: "md" | "lg" | "xl";
-}) {
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", on); return () => window.removeEventListener("keydown", on);
-  }, [onClose]);
-  const s = size ?? (wide ? "lg" : "md");
-  // "xl" is for the packaging grid: five columns of cells do not fit in 32rem.
-  const width = s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className={`relative bg-stone-900 border-l border-stone-800 h-full w-full ${width} shadow-2xl flex flex-col`} onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-800 shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-stone-100 truncate">{title}</h2>
-            {subtitle && <p className="text-[12px] text-stone-500 mt-0.5 truncate">{subtitle}</p>}
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0"><X size={17} /></button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
-        {footer && <div className="shrink-0 border-t border-stone-800 px-5 py-3 bg-stone-900">{footer}</div>}
-      </div>
-    </div>
-  );
-}
 
-function DrawerFooter({ saving, onClose, onSave, saveLabel = "Save", err }: { saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string; err?: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      {/* The error sits beside Save, where the eye already is when it fails. */}
-      {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
-      <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-      <button onClick={onSave} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
-        {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
-      </button>
-    </div>
-  );
-}

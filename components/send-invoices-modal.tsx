@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { Drawer } from "@/components/form-kit";
 import { Send, X, AlertTriangle, FileText } from "lucide-react";
 import { genEmailRef } from "@/lib/email-ref";
 import {
@@ -160,24 +161,46 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
   const inputCls = "w-full mt-1 text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-800 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-stone-900 border border-stone-800 rounded-lg shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-white">
-              Send {rows.length} invoice{rows.length !== 1 ? "s" : ""}
-              {willSplit && <span className="text-stone-400 font-normal"> · {sendable.length} recipients</span>}
-            </h3>
-            <div className="text-[11px] text-stone-400 mt-0.5">
-              {willSplit
-                ? <>Reference: <span className="font-mono text-emerald-400">one per email (auto)</span></>
-                : <>Email reference: <span className="font-mono text-emerald-400">{baseRef}</span></>}
-            </div>
-          </div>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+    /* A drawer, not a centred dialog. This is a long form — merge choices, the
+       recipient list, CC, template, subject, body, attachments — and in the
+       dialog the whole box scrolled, so "Send 228 invoices", the one action
+       that matters, sat below the fold. The drawer pins it. */
+    <Drawer
+      size="lg"
+      onClose={onClose}
+      title={`Send ${rows.length} invoice${rows.length !== 1 ? "s" : ""}${willSplit ? ` \u00b7 ${sendable.length} recipients` : ""}`}
+      subtitle={willSplit
+        ? <>Reference: <span className="font-mono text-emerald-400">one per email (auto)</span></>
+        : <>Email reference: <span className="font-mono text-emerald-400">{baseRef}</span></>}
+      footer={
+        <div className="flex items-center gap-2 w-full">
+            {/* Spacer so Cancel/Send stay right-aligned when there is no job
+                link yet — the link itself carries mr-auto once it appears. */}
+            {!queuedJobId && <div className="flex-1" />}
+            {queuedJobId && (
+              // The job is on the server now — this tab is only watching it. Say
+              // where the record lives, in case the user closes the tab or the
+              // run outlasts their attention.
+              <a href={`/batch/history?op=send&job=${queuedJobId}`} target="_blank" rel="noopener"
+                 className="mr-auto text-[12px] font-medium text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
+                View in Email History
+              </a>
+            )}
+            <button onClick={onClose} className="px-4 py-2 text-[13px] font-medium text-stone-400 hover:text-stone-200">Cancel</button>
+            <button onClick={send} disabled={sending || sendable.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-[13px] font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              {sending && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+              <Send size={14} />
+              {sending
+                // A 224-email run takes minutes; a bare "Sending…" leaves no way
+                // to tell progress from a hang.
+                ? (multiGroup ? `Sending ${sentCount} of ${totalToSend || sendable.length}…` : "Sending…")
+                : multiGroup ? `Send ${sendable.length} emails` : "Send email"}
+            </button>
         </div>
-
-        <div className="p-5 space-y-3">
+      }
+    >
+        <div className="space-y-3">
           {/* What is about to happen — stated plainly, because the count can
               be large and the old wording ("separate emails per domain") was
               describing something that was not safe. */}
@@ -322,29 +345,6 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
           <p className="text-[11px] text-stone-500">Sent in the standard branded format with an invoice table. The text above is the intro message.</p>
         </div>
 
-        <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-end gap-2">
-          {queuedJobId && (
-            // The job is on the server now — this tab is only watching it. Say
-            // where the record lives, in case the user closes the tab or the
-            // run outlasts their attention.
-            <a href={`/batch/history?op=send&job=${queuedJobId}`} target="_blank" rel="noopener"
-               className="mr-auto text-[12px] font-medium text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
-              View in Email History
-            </a>
-          )}
-          <button onClick={onClose} className="px-4 py-2 text-[13px] font-medium text-stone-400 hover:text-stone-200">Cancel</button>
-          <button onClick={send} disabled={sending || sendable.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-[13px] font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-            {sending && <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-            <Send size={14} />
-            {sending
-              // A 224-email run takes minutes; a bare "Sending…" leaves no way
-              // to tell progress from a hang.
-              ? (multiGroup ? `Sending ${sentCount} of ${totalToSend || sendable.length}…` : "Sending…")
-              : multiGroup ? `Send ${sendable.length} emails` : "Send email"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
