@@ -756,6 +756,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (cf.lastSent === "cutoff" && cf.lastSentBefore && r.lastSent && r.lastSent.slice(0, 10) > cf.lastSentBefore) return false;
       if (cf.lastRef && !has(r.lastRef, cf.lastRef)) return false;
       if (cf.bucket && !multiVals("bucket").has(bucketOf(r.days))) return false;
+      // Days-overdue range. The ageing buckets answer "which band"; this
+      // answers "everything past N days", which is the question actually asked
+      // on a call ("show me anyone more than 20 days late") and which no
+      // combination of fixed buckets can express.
+      if (cf.minDays && r.days < Number(cf.minDays)) return false;
+      if (cf.maxDays && r.days > Number(cf.maxDays)) return false;
       if (cf.minAmount && r.bal < Number(cf.minAmount)) return false;
       if (cf.maxAmount && r.bal > Number(cf.maxAmount)) return false;
       if (cf.action && !multiVals("action").has(nextActionByInv[r.inv.id]?.type ?? "none")) return false;
@@ -865,6 +871,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     else if (cf.lastSent) chips.push({ key: "lastSent", label: cf.lastSent === "not-today" ? "Not sent today" : cf.lastSent === "never" ? "Never sent" : "Sent" });
     if (cf.lastRef) chips.push({ key: "lastRef", label: `Ref ~ "${cf.lastRef}"` });
     if (cf.bucket) chips.push({ key: "bucket", label: `Aging: ${[...multiVals("bucket")].map(b => BUCKETS.find(x => x.key === b)?.label ?? b).join(", ")}` });
+    if (cf.minDays || cf.maxDays) chips.push({
+      key: "days",
+      label: cf.minDays && cf.maxDays ? `Overdue ${cf.minDays}–${cf.maxDays}d`
+           : cf.minDays ? `Overdue ${cf.minDays}d+`
+           : `Overdue up to ${cf.maxDays}d`,
+    });
     if (cf.minAmount || cf.maxAmount) chips.push({ key: "amount", label: `Amount ${cf.minAmount ? `≥ ${cf.minAmount}` : ""}${cf.minAmount && cf.maxAmount ? " " : ""}${cf.maxAmount ? `≤ ${cf.maxAmount}` : ""}` });
     if (cf.action) { const vals = [...multiVals("action")]; chips.push({ key: "action", label: `Action: ${vals.map(v => NEXT_ACTION_FILTERS.find(f => f.key === v)?.label ?? v).join(", ")}` }); }
     return chips;
@@ -875,6 +887,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       if (key === "stage") { delete n.stage; delete n.stageMode; }
       else if (key === "lastSent") { delete n.lastSent; delete n.lastSentBefore; }
       else if (key === "amount") { delete n.minAmount; delete n.maxAmount; }
+      else if (key === "days") { delete n.minDays; delete n.maxDays; }
       else delete n[key];
       return n;
     });
@@ -1815,7 +1828,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                   const active =
                     filter === "stage"    ? !!(cf.stage || cf.owner || cf.escType || cf.escTypeState || cf.commitment) :
                     filter === "lastSent" ? !!(cf.lastSent || cf.lastRef) :
-                    filter === "bucket"   ? (!!cf.bucket || overdueOnly) :
+                    filter === "bucket"   ? (!!cf.bucket || overdueOnly || !!cf.minDays || !!cf.maxDays) :
                     filter === "email"    ? !!(cf.email || cf.emailText) :
                     !!cf[filter];
                   return (
@@ -1970,6 +1983,37 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                 <input type="checkbox" checked={overdueOnly} onChange={() => setOverdueOnly(v => !v)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
                                 Overdue only
                               </label>
+                              {/* Focus on an arbitrary age. Same two-input shape
+                                  as the Outstanding column's min/max, because
+                                  it is the same kind of question. */}
+                              <div className="pb-1.5 mb-1.5 border-b border-stone-800 space-y-1.5">
+                                <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Days overdue</div>
+                                <div className="flex items-center gap-1.5">
+                                  <input type="number" min={0} value={cf.minDays ?? ""}
+                                    onChange={e => setFilter("minDays", e.target.value)}
+                                    placeholder="From" aria-label="Overdue at least this many days"
+                                    className={`${inputCls} text-right`} />
+                                  <span className="text-[11px] text-stone-600 shrink-0">to</span>
+                                  <input type="number" min={0} value={cf.maxDays ?? ""}
+                                    onChange={e => setFilter("maxDays", e.target.value)}
+                                    placeholder="Any" aria-label="Overdue at most this many days"
+                                    className={`${inputCls} text-right`} />
+                                </div>
+                                {/* The common asks, one tap. Typing 30 and
+                                    typing nothing must mean the same thing, so
+                                    a preset just fills the same field. */}
+                                <div className="flex items-center gap-1">
+                                  {[15, 30, 60, 90].map(n => (
+                                    <button key={n} onClick={() => setFilter("minDays", String(n))}
+                                      className={`text-[11px] rounded px-1.5 py-0.5 border transition-colors ${
+                                        cf.minDays === String(n)
+                                          ? "border-emerald-700 bg-emerald-500/15 text-emerald-300"
+                                          : "border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-600"}`}>
+                                      {n}d+
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                               {BUCKETS.map(b => (
                                 <label key={b.key} className="flex items-center gap-2 text-[12px] text-stone-300 cursor-pointer hover:text-white">
                                   <input type="checkbox" checked={multiVals("bucket").has(b.key)} onChange={() => toggleMulti("bucket", b.key)} className="rounded border-stone-600 accent-emerald-600 cursor-pointer" />
@@ -1979,7 +2023,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                             </div>
                           )}
                           <div className="flex items-center justify-between pt-1 border-t border-stone-800">
-                            <button onClick={() => { clearChip(filter === "bucket" ? "bucket" : filter); if (filter === "stage") { clearChip("owner"); clearChip("escType"); clearChip("escTypeState"); clearChip("commitment"); } if (filter === "lastSent") { clearChip("lastRef"); clearChip("lastSentBefore"); } }}
+                            <button onClick={() => { clearChip(filter === "bucket" ? "bucket" : filter); if (filter === "bucket") { clearChip("days"); setOverdueOnly(false); } if (filter === "stage") { clearChip("owner"); clearChip("escType"); clearChip("escTypeState"); clearChip("commitment"); } if (filter === "lastSent") { clearChip("lastRef"); clearChip("lastSentBefore"); } }}
                               className="text-[11px] text-stone-500 hover:text-rose-400">Clear</button>
                             <button onClick={() => setFilterOpen(null)} className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Done</button>
                           </div>
