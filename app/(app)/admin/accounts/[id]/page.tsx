@@ -9,6 +9,7 @@ import {
   Plus, X, Trash2, MessageCircle, CalendarCheck, Activity, Zap, AlertCircle, TrendingUp, XCircle,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 const QUOTE_STATUS: Record<string, string> = {
   draft: "bg-stone-700 text-stone-300", sent: "bg-sky-500/15 text-sky-300",
@@ -320,13 +321,20 @@ export default function Account360Page() {
 
       {/* Compose modal — Note / Task / Email */}
       {compose && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-stone-900 rounded-xl w-full max-w-md ring-1 ring-stone-800">
-            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-              <h2 className="font-semibold text-white capitalize">{compose === "email" ? "Send email" : compose === "task" ? "New task" : "Add note"}</h2>
-              <button onClick={closeCompose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        <Drawer
+          title={compose === "email" ? "Send email" : compose === "task" ? "New task" : "Add note"}
+          onClose={closeCompose}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={closeCompose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+              <button onClick={compose === "note" ? postNote : compose === "task" ? postTask : sendEmail} disabled={acting}
+                className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">
+                {acting ? <Loader size={14} className="animate-spin" /> : null}{compose === "email" ? "Send" : compose === "task" ? "Add task" : "Save note"}
+              </button>
             </div>
-            <div className="p-5 space-y-3">
+          }
+        >
+            <div className="space-y-3">
               {compose === "note" && (
                 <textarea autoFocus value={noteText} onChange={e => setNoteText(e.target.value)} rows={4} placeholder="Log a note about this company…"
                   className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
@@ -348,26 +356,22 @@ export default function Account360Page() {
                   className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500" />
               </>)}
             </div>
-            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-              <button onClick={closeCompose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-              <button onClick={compose === "note" ? postNote : compose === "task" ? postTask : sendEmail} disabled={acting}
-                className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">
-                {acting ? <Loader size={14} className="animate-spin" /> : null}{compose === "email" ? "Send" : compose === "task" ? "Add task" : "Save note"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* Log-touch modal */}
       {logKind && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-stone-900 rounded-xl w-full max-w-sm ring-1 ring-stone-800">
-            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-              <h2 className="font-semibold text-white flex items-center gap-2">{logKind === "call" ? <><Phone size={15} /> Log call</> : <><MessageCircle size={15} className="text-emerald-400" /> Log WhatsApp</>}</h2>
-              <button onClick={() => setLogKind(null)} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        <Drawer
+          title={logKind === "call" ? "Log call" : "Log WhatsApp"}
+          onClose={() => setLogKind(null)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setLogKind(null)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+              <button onClick={submitLog} disabled={logSaving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">{logSaving ? "Saving…" : "Log it"}</button>
             </div>
-            <div className="p-5 space-y-3">
+          }
+        >
+            <div className="space-y-3">
               <div>
                 <label className="text-xs text-stone-400 block mb-1.5">Outcome</label>
                 <select value={logOutcome} onChange={e => setLogOutcome(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200">
@@ -378,12 +382,7 @@ export default function Account360Page() {
               <div><label className="text-xs text-stone-400 block mb-1.5">Note</label><textarea value={logNote} onChange={e => setLogNote(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="What happened…" /></div>
               <div><label className="text-xs text-stone-400 block mb-1.5">Follow-up task (optional)</label><input value={logFollowup} onChange={e => setLogFollowup(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200" placeholder="e.g. Call back Friday" /></div>
             </div>
-            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-              <button onClick={() => setLogKind(null)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-              <button onClick={submitLog} disabled={logSaving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60">{logSaving ? "Saving…" : "Log it"}</button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       <div className="grid lg:grid-cols-3 gap-4">

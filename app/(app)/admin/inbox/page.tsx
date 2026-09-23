@@ -6,6 +6,7 @@ import {
   Mail, RefreshCw, Loader, X, Send, PenSquare, Plug, Paperclip,
   Inbox as InboxIcon, SendHorizontal, Settings as SettingsIcon, Reply, AlertTriangle,
 } from "lucide-react";
+import { Drawer } from "@/components/form-kit";
 
 type Account = {
   connected: boolean; needsSetup?: boolean;
@@ -183,20 +184,23 @@ function Compose({ initial, onClose, onSent, onToast }: {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 rounded-xl w-full max-w-2xl ring-1 ring-stone-800 shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-800"><h2 className="text-sm font-semibold text-white">New message</h2><button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button></div>
-        <div className="p-4 space-y-2.5">
+    <Drawer
+      size="xl"
+      title="New message"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
+          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
+        </div>
+      }
+    >
+        <div className="space-y-2.5">
           <input className={inp} value={to} onChange={e => setTo(e.target.value)} placeholder="To" />
           <input className={inp} value={cc} onChange={e => setCc(e.target.value)} placeholder="Cc (optional)" />
           <input className={inp} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" />
           <textarea className={`${inp} resize-none`} rows={11} value={body} onChange={e => setBody(e.target.value)} placeholder="Write your message…" />
         </div>
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-stone-800">
-          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Discard</button>
-          <button onClick={send} disabled={sending} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{sending ? <Loader size={13} className="animate-spin" /> : <Send size={13} />} Send</button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

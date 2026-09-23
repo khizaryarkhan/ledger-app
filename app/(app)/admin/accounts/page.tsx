@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader, X, FileText, CreditCard, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 type WonRow = { accountId: string; ref: string; name: string; email: string | null; organisationId: string | null; owner: string | null; leadId: string | null; value: number | null; currency: string };
 type FailRow = { accountId: string; ref: string; name: string; organisationId: string | null; owner: string | null; planName: string | null; subStatus: string | null; lastPaymentStatus: string | null };
@@ -170,12 +171,18 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
 
   const inp = "w-full px-3 py-2 text-sm rounded-lg bg-stone-800 border border-stone-700 text-stone-200 focus:outline-none focus:border-emerald-500";
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-md ring-1 ring-stone-800">
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div><h2 className="font-semibold text-white">Bill {row.name}</h2><p className="text-[11px] text-stone-500 mt-0.5">Creating this moves them to Customers.</p></div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+    <Drawer
+      title={`Bill ${row.name}`}
+      subtitle="Creating this moves them to Customers."
+      onClose={onClose}
+      pad={false}
+      footer={result ? undefined : (
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+          <button onClick={submit} disabled={saving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />} Create & send</button>
         </div>
+      )}
+    >
         {result ? (
           <div className="p-5 space-y-3">
             <div className={`text-sm px-3 py-2 rounded ring-1 ${result.emailSent ? "text-emerald-400 bg-emerald-500/10 ring-emerald-500/30" : "text-amber-400 bg-amber-500/10 ring-amber-500/30"}`}>
@@ -233,13 +240,6 @@ function CreateInvoice({ row, onClose, onDone }: { row: WonRow; onClose: () => v
           )}
         </div>
         )}
-        {!result && (
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-          <button onClick={onClose} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-          <button onClick={submit} disabled={saving} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={14} className="animate-spin" /> : <FileText size={14} />} Create & send</button>
-        </div>
-        )}
-      </div>
-    </div>
+    </Drawer>
   );
 }

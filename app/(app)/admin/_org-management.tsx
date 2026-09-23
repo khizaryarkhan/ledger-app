@@ -4,7 +4,8 @@
 // so org create/edit/delete lives in one place — the single source of truth.
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Button, Badge, Input } from "@/components/ui";
+import { Button, Badge, Input, Modal } from "@/components/ui";
+import { Drawer } from "@/components/form-kit";
 import { Plus, Check, X, Eye, EyeOff, AlertTriangle, XCircle, Clock, CheckCircle2, Pencil, Loader2, Trash2, Copy, CheckCheck, ArrowUpRight } from "lucide-react";
 import { fmt } from "@/lib/format";
 
@@ -207,13 +208,19 @@ export function CreateOrgModal({ onClose, onCreated }: any) {
   const canSubmit = !saving && !!form.name && !!form.slug && emailValid && (emailExists || (!!form.adminPassword && !!form.adminName));
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-stone-800">
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <h2 className="font-semibold text-white">Create new organisation</h2>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+    <Drawer
+      title="Create new organisation"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
+            {saving ? "Creating…" : "Create organisation"}
+          </Button>
         </div>
-        <div className="p-5 space-y-3">
+      }
+    >
+        <div className="space-y-3">
           {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
           <div>
             <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-1">Organisation name</label>
@@ -260,14 +267,7 @@ export function CreateOrgModal({ onClose, onCreated }: any) {
             </div>
           </div>
         </div>
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
-            {saving ? "Creating…" : "Create organisation"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -400,17 +400,20 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-xl shadow-xl ring-1 ring-stone-800 flex flex-col max-h-[90vh]">
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="font-semibold text-white">Edit organisation</h2>
-            <p className="text-xs text-stone-500 mt-0.5 font-mono">/{org.slug}</p>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+    <Drawer
+      size="xl"
+      title="Edit organisation"
+      subtitle={<span className="font-mono">/{org.slug}</span>}
+      onClose={onClose}
+      pad={false}
+      footer={
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
-
-        <div className="overflow-y-auto flex-1">
+      }
+    >
+        {/* No scroller of its own — the drawer body is the only one. */}
+        <div>
           <div className="p-5 space-y-3">
             {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
             <div>
@@ -619,11 +622,7 @@ export function EditOrgModal({ org, onClose, onSaved }: { org: any; onClose: () 
           </div>
         </div>
 
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end shrink-0">
-          <Button variant="secondary" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -650,17 +649,21 @@ export function DeleteOrgModal({ org, onClose, onDeleted }: { org: any; onClose:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-rose-500/30">
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-rose-500/15 flex items-center justify-center">
-              <AlertTriangle size={15} className="text-rose-400" />
-            </div>
-            <h2 className="font-semibold text-white">Delete organisation</h2>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
-        </div>
+    // Destructive yes/no confirmation — stays centred, per the rule, but on the
+    // shared Modal rather than its own box.
+    <Modal center open onClose={onClose} title="Delete organisation" size="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <button
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            className="h-9 px-4 text-sm font-semibold rounded-lg transition-colors bg-rose-600 hover:bg-rose-500 disabled:bg-stone-700 disabled:text-stone-500 text-white"
+          >
+            {deleting ? "Deleting…" : "Delete permanently"}
+          </button>
+        </>
+      }>
         <div className="p-5 space-y-4">
           <div className="bg-rose-500/10 ring-1 ring-rose-500/30 rounded-lg px-4 py-3 text-sm text-rose-300 space-y-1">
             <p className="font-semibold">This action is permanent and cannot be undone.</p>
@@ -679,17 +682,6 @@ export function DeleteOrgModal({ org, onClose, onDeleted }: { org: any; onClose:
           </div>
           {error && <div className="text-sm text-rose-400 bg-rose-500/10 px-3 py-2 rounded ring-1 ring-rose-500/30">{error}</div>}
         </div>
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <button
-            onClick={handleDelete}
-            disabled={!canDelete || deleting}
-            className="h-9 px-4 text-sm font-semibold rounded-lg transition-colors bg-rose-600 hover:bg-rose-500 disabled:bg-stone-700 disabled:text-stone-500 text-white"
-          >
-            {deleting ? "Deleting…" : "Delete permanently"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Users, Plus, X, Eye, EyeOff, Loader2, ShieldCheck, Shield, UserX, UserCheck } from "lucide-react";
+import { Drawer } from "@/components/form-kit";
 
 // ── Add Admin Modal ────────────────────────────────────────────────────────
 function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u: any) => void }) {
@@ -31,21 +32,23 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
   const canSubmit = !saving && !!form.name.trim() && !!form.email.trim() && form.password.length >= 8;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-stone-900 rounded-xl w-full max-w-md shadow-xl ring-1 ring-stone-800">
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-              <ShieldCheck size={13} className="text-emerald-400" />
-            </div>
-            <h2 className="font-semibold text-white text-sm">Add admin user</h2>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white">
-            <X size={15} />
+    <Drawer
+      title="Add admin user"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={!canSubmit}
+            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
+            {saving && <Loader2 size={11} className="animate-spin" />}
+            Add admin
           </button>
         </div>
-
-        <div className="p-5 space-y-3">
+      }
+    >
+        <div className="space-y-3">
           {error && (
             <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{error}</div>
           )}
@@ -84,19 +87,7 @@ function AddAdminModal({ onClose, onSaved }: { onClose: () => void; onSaved: (u:
             Ask them to change their password after first login.
           </div>
         </div>
-
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-          <button onClick={onClose} className="h-8 px-3 text-xs rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSubmit} disabled={!canSubmit}
-            className="h-8 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 disabled:text-stone-500 text-white transition-colors flex items-center gap-1.5">
-            {saving && <Loader2 size={11} className="animate-spin" />}
-            Add admin
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 

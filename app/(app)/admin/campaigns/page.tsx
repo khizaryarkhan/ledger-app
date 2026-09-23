@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Megaphone, Plus, X, Loader, TrendingUp } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 type Campaign = {
   id: string; name: string; channel: string; utmKey: string | null; status: string;
@@ -102,13 +103,17 @@ export default function CampaignsPage() {
       )}
 
       {showNew && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-stone-900 rounded-xl w-full max-w-md ring-1 ring-stone-800">
-            <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-              <h2 className="font-semibold text-white">New campaign</h2>
-              <button onClick={() => setShowNew(false)} className="p-1 hover:bg-stone-800 rounded text-stone-400 hover:text-white"><X size={16} /></button>
+        <Drawer
+          title="New campaign"
+          onClose={() => setShowNew(false)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowNew(false)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
+              <button onClick={create} disabled={saving || !form.name.trim()} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={13} className="animate-spin" /> : <TrendingUp size={13} />} Create</button>
             </div>
-            <div className="p-5 space-y-3">
+          }
+        >
+            <div className="space-y-3">
               <div><label className="text-xs text-stone-400 block mb-1.5">Name</label><input className={inp} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Spring Google Ads" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-xs text-stone-400 block mb-1.5">Channel</label>
@@ -120,12 +125,7 @@ export default function CampaignsPage() {
               </div>
               <div><label className="text-xs text-stone-400 block mb-1.5">UTM key (matches utm_campaign / utm_source)</label><input className={`${inp} font-mono`} value={form.utmKey} onChange={e => setForm(f => ({ ...f, utmKey: e.target.value }))} placeholder="spring_ads" /></div>
             </div>
-            <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-              <button onClick={() => setShowNew(false)} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-300 hover:bg-stone-800">Cancel</button>
-              <button onClick={create} disabled={saving || !form.name.trim()} className="h-9 px-4 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1.5">{saving ? <Loader size={13} className="animate-spin" /> : <TrendingUp size={13} />} Create</button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
     </div>
   );

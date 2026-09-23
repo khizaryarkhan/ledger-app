@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Package, Plus, Loader, X, Trash2, Pencil } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 type Item = { id: string; name: string; description: string | null; unitAmount: number; currency: string; taxRate: number | null; active: boolean };
 
@@ -109,10 +110,17 @@ function ItemModal({ item, onClose, onSaved, onToast }: { item: Item | null; onC
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 rounded-xl w-full max-w-md ring-1 ring-stone-800 shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800"><h2 className="text-sm font-semibold text-white">{item ? "Edit item" : "New item"}</h2><button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button></div>
-        <div className="p-5 space-y-3">
+    <Drawer
+      title={item ? "Edit item" : "New item"}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
+          <button onClick={save} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {item ? "Save" : "Create item"}</button>
+        </div>
+      }
+    >
+        <div className="space-y-3">
           <div><label className={lbl}>Name</label><input className={inp} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. AR Automation — Pro" autoFocus /></div>
           <div><label className={lbl}>Description</label><textarea className={`${inp} resize-none`} rows={2} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional — shown on the invoice line" /></div>
           <div className="grid grid-cols-3 gap-2">
@@ -122,11 +130,6 @@ function ItemModal({ item, onClose, onSaved, onToast }: { item: Item | null; onC
           </div>
           <label className="flex items-center gap-2 text-[12px] text-stone-300"><input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} className="accent-emerald-500" /> Active (available to add to invoices)</label>
         </div>
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-stone-800">
-          <button onClick={onClose} className="h-9 px-4 text-xs font-medium rounded-lg text-stone-400 hover:bg-stone-800">Cancel</button>
-          <button onClick={save} disabled={saving} className="h-9 px-4 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white flex items-center gap-1.5">{saving && <Loader size={13} className="animate-spin" />} {item ? "Save" : "Create item"}</button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
