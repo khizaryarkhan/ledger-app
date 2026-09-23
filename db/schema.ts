@@ -2454,10 +2454,16 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   itemId:      uuid("item_id"),
   description: text("description"),
   qty:         numeric("qty", { precision: 16, scale: 6 }),
-  rate:        numeric("rate", { precision: 14, scale: 4 }),
+  rate:        numeric("rate", { precision: 18, scale: 6 }),              // per ORDER unit (0094 widened from 14,4)
   amount:         numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
   taxRateId:      uuid("tax_rate_id"),
   taxAmount:      numeric("tax_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  // The price as entered, per a possibly different unit than the order unit
+  // ("5 cartons at 2.00 per metre"); rate is derived from it (0094).
+  priceLevel:        varchar("price_level", { length: 12 }),
+  priceUom:          varchar("price_uom", { length: 16 }),
+  unitsPerPriceUnit: numeric("units_per_price_unit", { precision: 18, scale: 6 }),
+  priceInput:        numeric("price_input", { precision: 18, scale: 6 }),
   invoicedAmount: numeric("invoiced_amount", { precision: 14, scale: 2 }).notNull().default("0"), // net already invoiced/billed
   // Ordering unit: qty/rate are entered at this pack level; unitsPerOrderUnit
   // converts one order unit into the item's base UoM for stock/receiving.

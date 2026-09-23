@@ -143,3 +143,26 @@ export function salesOrderOptions(baseUom: string | null, itemSkus: any[]): Orde
   }
   return opts;
 }
+
+/**
+ * A document line's quantity in the item's BASE unit. A line ordered by the
+ * carton carries qty 5 and unitsPerOrderUnit 600 (m per carton); stock is
+ * counted in metres, so the lot must receive 3,000 — not 5, at 600× the cost
+ * per metre. A line with no order unit (every caller before pack-level
+ * ordering on Bills) is already in base units, so it converts by 1.
+ */
+export function baseQtyOfLine(l: { qty?: any; unitsPerOrderUnit?: any }): number {
+  const q = Math.abs(Number(l.qty) || 0);
+  const upo = Number(l.unitsPerOrderUnit);
+  return q * (isFinite(upo) && upo > 0 ? upo : 1);
+}
+
+/**
+ * The rate per ORDER unit from a price entered per some other unit on the
+ * same line — "5 cartons at 2.00 per metre" is 1,200.00 per carton. Both are
+ * expressed through the base unit, so any pair of levels converts.
+ */
+export function ratePerOrderUnit(price: number, unitsPerOrderUnit: number, unitsPerPriceUnit: number): number {
+  if (!(unitsPerPriceUnit > 0) || !(unitsPerOrderUnit > 0)) return price;
+  return price * unitsPerOrderUnit / unitsPerPriceUnit;
+}

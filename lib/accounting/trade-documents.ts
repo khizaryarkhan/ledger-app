@@ -19,6 +19,7 @@ import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
 import { LedgerValidationError } from "@/lib/ledger";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
+import { roundQty } from "@/lib/inventory/round";
 
 export type TradeKind = "Estimate" | "PurchaseOrder" | "SalesOrder";
 
@@ -28,6 +29,8 @@ export type TradeLineInput = {
   // Pack-level ordering: qty/rate are at this level; unitsPerOrderUnit converts
   // one order unit to the item's base UoM (for receiving & stock).
   orderUom?: string | null; packLevel?: string | null; unitsPerOrderUnit?: number | null; supplierSkuId?: string | null; skuId?: string | null;
+  // The price as entered, per a possibly different unit (0094). rate is per ORDER unit.
+  priceLevel?: string | null; priceUom?: string | null; unitsPerPriceUnit?: number | null; priceInput?: number | null;
   classId?: string | null; locationId?: string | null;   // dimensions carried from the order form
 };
 export type TradeDocInput = {
@@ -95,7 +98,9 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   try {
     await db.insert(tradeDocumentLines).values(raw.map((l, i) => {
       const upo = l.unitsPerOrderUnit != null && Number(l.unitsPerOrderUnit) > 0 ? Number(l.unitsPerOrderUnit) : 1;
-      const orderedBase = round2((Number(l.qty) || 0) * upo);
+      // A QUANTITY: 6dp like every quantity column (CLAUDE.md, 0088) — this
+      // was round2, which stored 3 × 0.33333 kg bags as 1.00 kg on order.
+      const orderedBase = roundQty((Number(l.qty) || 0) * upo);
       return {
         orgId, documentId: doc.id, lineNo: i + 1,
         accountId: l.accountId ?? null, itemId: l.itemId ?? null, description: l.description ?? null,
@@ -103,6 +108,9 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
         amount: priced[i].net.toFixed(2), taxRateId: l.taxRateId ?? null, taxAmount: priced[i].tax.toFixed(2),
         orderUom: l.orderUom ?? null, packLevel: l.packLevel ?? null,
         unitsPerOrderUnit: String(upo), supplierSkuId: l.supplierSkuId ?? null, skuId: l.skuId ?? null,
+        priceLevel: l.priceLevel ?? null, priceUom: l.priceUom ?? null,
+        unitsPerPriceUnit: l.unitsPerPriceUnit != null && Number(l.unitsPerPriceUnit) > 0 ? String(l.unitsPerPriceUnit) : null,
+        priceInput: l.priceInput != null && isFinite(Number(l.priceInput)) ? String(l.priceInput) : null,
         classId: l.classId ?? null, locationId: l.locationId ?? null,
         orderedBaseQty: String(orderedBase),
       };

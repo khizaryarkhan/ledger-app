@@ -10,19 +10,19 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText } from "lucide-react";
+import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
-import { orderOptions, salesOrderOptions, type OrderOption } from "@/lib/inventory/order-options";
+import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
 import { sourcingViolations, SOURCING_ENFORCED_TYPES, allowsAnySupplier } from "@/lib/inventory/sourcing";
 
 // Finished Product / Work in Progress lots are always system-generated at
 // commit time — never a user-editable field here (see the "Receive to lot"
 // row below and lib/inventory/valuation.ts's resolveLotNo).
 const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kindOf(it?.productType).kind);
-import { CellSelect, Field, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
-import { localToday, ymd } from "@/lib/format";
+import { CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
+import { localToday, ymd, fmt } from "@/lib/format";
 
 type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
@@ -79,9 +79,58 @@ const CFG: Record<DocType, Cfg> = {
   SalesOrder:    { title: "Sales order",     mode: "lineItems", side: "sales",    party: "Customer", partyLabel: "Customer", tax: true, lineMode: "both", trade: "sales-orders",    dateLabel2: "Delivery date", submit: "Save sales order",    blurb: "A confirmed customer order — no ledger impact until you ship & invoice it." },
 };
 
-type Line = { itemId: string; accountId: string; accountOverride?: boolean; description: string; qty: string; rate: string; amount: string; taxRateId: string; classId: string; locationId: string; lotNo?: string; expiryDate?: string; orderUom?: string; packLevel?: string; unitsPerOrderUnit?: number; supplierSkuId?: string; skuId?: string };
+type Line = {
+  itemId: string; accountId: string; accountOverride?: boolean; description: string; qty: string; rate: string; amount: string; taxRateId: string; classId: string; locationId: string; lotNo?: string; expiryDate?: string; orderUom?: string; packLevel?: string; unitsPerOrderUnit?: number; supplierSkuId?: string; skuId?: string;
+  /** Which section a line sits in on a split (PO / Bill) form. Absent = infer from itemId. */
+  kind?: "item" | "account";
+  // The price as entered, per a unit that may differ from the order unit
+  // ("5 cartons at 2.00 per metre"). `rate` is derived from it — always per
+  // ORDER unit, so qty × rate = amount everywhere downstream.
+  priceLevel?: string; priceUom?: string; unitsPerPriceUnit?: number; priceInput?: string;
+};
 
-const emptyLine = (): Line => ({ itemId: "", accountId: "", description: "", qty: "", rate: "", amount: "", taxRateId: "", classId: "", locationId: "" });
+const emptyLine = (kind?: "item" | "account"): Line => ({ itemId: "", accountId: "", description: "", qty: "", rate: "", amount: "", taxRateId: "", classId: "", locationId: "", ...(kind ? { kind } : {}) });
+const lineKind = (l: Line): "item" | "account" => l.kind ?? (l.itemId ? "item" : "account");
+/**
+ * Purchase Order and Bill split lines into ITEMS (ordered and priced in the
+ * supplier's packaging from Products & Services) and ACCOUNTS (plain Chart of
+ * Accounts amounts). Every other document keeps the single mixed table.
+ */
+const SPLIT_TYPES = new Set<DocType>(["PurchaseOrder", "Bill"]);
+const fmtQty = (n: number) => fmt.qty(n);
+
+/** A foldable section with a one-line summary, for the Items / Accounts split. */
+function FoldSection({ title, hint, summary, open, onToggle, children }: { title: string; hint?: string; summary?: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 overflow-hidden">
+      <button type="button" onClick={onToggle} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-stone-900/70 border-b border-stone-800/60">
+        <ChevronRight size={14} className={`text-stone-500 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-300">{title}</span>
+        {hint && <span className="text-[11px] text-stone-500">· {hint}</span>}
+        {summary && <span className="ml-auto text-[12px] text-stone-500 tabular-nums">{summary}</span>}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+/** How a supplier SKU is named in the picker: ours first, then theirs. */
+const skuLabel = (s: any) => s.skuName || s.supplierProductName || s.supplierSku || [s.innerPackType, s.outerPackType].filter(Boolean).join(" / ") || "Default";
+
+/** "1 carton = 12 roll = 600 m" — the SKU's packaging from Products & Services, read back. */
+function packConfigText(link: any, baseUom: string): string {
+  const per = perSupplierUnit(link.supplierUom || null, baseUom || null, link.conversionFactor) ?? 0;
+  const inner = Number(link.innerUnitPackSize) || 0, outer = Number(link.unitsInOuterPack) || 0;
+  const q = (n: number) => fmt.qty(n);
+  if (inner > 0 && outer > 0 && link.innerPackType && link.outerPackType) {
+    return `1 ${link.outerPackType} = ${q(outer)} ${link.innerPackType}${per ? ` = ${q(outer * inner * per)} ${baseUom}` : ""}`;
+  }
+  if (inner > 0 && link.innerPackType) return `1 ${link.innerPackType} = ${q(inner)} ${link.supplierUom || baseUom}${per && link.supplierUom !== baseUom ? ` = ${q(inner * per)} ${baseUom}` : ""}`;
+  if (link.supplierUom && link.supplierUom !== baseUom && per) return `1 ${link.supplierUom} = ${q(per)} ${baseUom}`;
+  return "";
+}
+/** A unit's short name for the Qty / Rate pickers: "m", "roll", "carton". */
+const unitName = (o: OrderOption, baseU: string) => (o.packLevel === "base" ? (o.orderUom || baseU || "unit") : (o.orderUom || o.packLevel));
 const todayStr = () => localToday();
 const num = (s: string) => Number(s) || 0;
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -127,7 +176,10 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   const [amountTouched, setAmountTouched] = useState(false);
   const [currency, setCurrency] = useState("");
   const [rate, setRate] = useState("1");
-  const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()]);
+  const split = SPLIT_TYPES.has(type);
+  const [lines, setLines] = useState<Line[]>(split ? [emptyLine("item")] : [emptyLine(), emptyLine()]);
+  const [itemsOpen, setItemsOpen] = useState(true);
+  const [acctsOpen, setAcctsOpen] = useState(false);
   const [availablePayments, setAvailablePayments] = useState<any[]>([]);
   const [sweptPaymentIds, setSweptPaymentIds] = useState<string[]>([]);
 
@@ -176,7 +228,17 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           qty: l.qty != null ? String(l.qty) : "", rate: l.rate != null ? String(l.rate) : "",
           amount: l.amount != null ? String(l.amount) : "", taxRateId: l.taxRateId ?? "", classId: l.classId ?? "", locationId: l.locationId ?? "",
           lotNo: l.lotNo ?? undefined, expiryDate: l.expiryDate ?? undefined,
+          // The order unit MUST come back with the line: without it, a
+          // reopened "5 cartons" would re-post as 5 base units.
+          orderUom: l.orderUom ?? undefined, packLevel: l.packLevel ?? undefined,
+          unitsPerOrderUnit: l.unitsPerOrderUnit != null ? Number(l.unitsPerOrderUnit) : undefined,
+          supplierSkuId: l.supplierSkuId ?? undefined,
+          priceLevel: l.priceLevel ?? undefined, priceUom: l.priceUom ?? undefined,
+          unitsPerPriceUnit: l.unitsPerPriceUnit != null ? Number(l.unitsPerPriceUnit) : undefined,
+          priceInput: l.priceInput != null ? String(l.priceInput) : (l.rate != null ? String(l.rate) : undefined),
+          kind: l.itemId ? "item" : "account",
         })));
+        if (p.lines.some((l: any) => !l.itemId)) setAcctsOpen(true);
       }
     }).catch(() => {});
   }, [type]);
@@ -266,9 +328,16 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     // Done here rather than in the fetch effect so that loading a saved
     // document (which sets partyId once, from its own data) keeps its lines.
     if (cfg.side === "purchase" && id !== partyId) {
-      setLines(ls => ls.map(l => (l.supplierSkuId
-        ? { ...l, supplierSkuId: "", packLevel: "base", unitsPerOrderUnit: 1, orderUom: items.find(x => x.id === l.itemId)?.baseUom || "" }
-        : l)));
+      setLines(ls => ls.map(l => {
+        if (!l.supplierSkuId) return l;
+        const baseU = items.find(x => x.id === l.itemId)?.baseUom || "";
+        // The entered price was per the old supplier's unit; restate it per
+        // base unit so the line keeps the same money, not the same number.
+        const p = Number(l.priceInput), uppu = l.unitsPerPriceUnit || 1;
+        return { ...l, supplierSkuId: "", packLevel: "base", unitsPerOrderUnit: 1, orderUom: baseU,
+          priceLevel: "base", priceUom: baseU, unitsPerPriceUnit: 1,
+          priceInput: l.priceInput && isFinite(p) ? String(Math.round((p / uppu) * 1e6) / 1e6) : l.priceInput };
+      }));
     }
     setPartyId(id);
     if (mcEnabled) {
@@ -391,7 +460,87 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     return orderOptions(it?.baseUom ?? null, (supplierLinks ?? []).filter((s: any) => s.itemId === it?.id), partyId);
   }
 
+  // ── Split-form (PO / Bill) item lines ─────────────────────────────────────
+  /** This supplier's SKUs (links) for one item. */
+  function linksFor(itemId: string): any[] { return (supplierLinks ?? []).filter((s: any) => s.itemId === itemId); }
+  /** The units a line can be ordered or priced in: the base unit plus the chosen SKU's levels. */
+  function unitOpts(l: Line): OrderOption[] {
+    const it = items.find(x => x.id === l.itemId);
+    const link = l.supplierSkuId ? linksFor(l.itemId).find((x: any) => x.id === l.supplierSkuId) : null;
+    return orderOptions(it?.baseUom ?? null, link ? [link] : [], partyId);
+  }
+  /**
+   * Re-derive a split line's rate and amount from what the buyer entered.
+   * rate = price converted from the PRICE unit to the ORDER unit (both via the
+   * base unit), amount = qty × rate. Computed from the entered price directly
+   * rather than from a rounded rate, so "5 cartons at 2.00/m" is exactly 6,000.
+   */
+  function recalc(i: number, patch: Partial<Line>) {
+    setLines(ls => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const m = { ...l, ...patch };
+      const upo = m.unitsPerOrderUnit || 1, uppu = m.unitsPerPriceUnit || upo;
+      const p = Number(m.priceInput);
+      if (m.priceInput != null && m.priceInput !== "" && isFinite(p)) {
+        const r = ratePerOrderUnit(p, upo, uppu);
+        m.rate = String(Math.round(r * 1e6) / 1e6);
+        const q = num(m.qty);
+        m.amount = q ? String(Math.round(q * p * upo / uppu * 100) / 100) : "";
+      } else { m.rate = ""; m.amount = ""; }
+      return m;
+    }));
+  }
+  /**
+   * Put a supplier SKU on a line: order and price in the level the supplier
+   * QUOTES in (a price captured "per bottle" opens as "per bottle"), with that
+   * price filled in. No SKU → the item's base unit and its purchase cost.
+   */
+  function setLineSku(i: number, it: any, linkId: string | null) {
+    const link = linkId ? linksFor(it.id).find((x: any) => x.id === linkId) ?? null : null;
+    const opts = orderOptions(it.baseUom ?? null, link ? [link] : [], partyId);
+    const unitLevel = !link ? "base"
+      : link.priceBasis === "inner" ? "inner" : link.priceBasis === "outer" ? "outer"
+      : (opts.some(o => o.packLevel === "supplier") ? "supplier" : "base");
+    const o = opts.find(x => x.packLevel === unitLevel) ?? opts[0];
+    const quoted = supplierRate(o);
+    const fallback = !link && it.unitCost != null && it.unitCost !== "" ? Number(it.unitCost) : null;
+    const price = quoted ?? fallback;
+    recalc(i, {
+      supplierSkuId: link?.id ?? "", orderUom: o.orderUom, packLevel: o.packLevel, unitsPerOrderUnit: o.unitsPerOrderUnit,
+      priceLevel: o.packLevel, priceUom: o.orderUom, unitsPerPriceUnit: o.unitsPerOrderUnit,
+      priceInput: price != null && isFinite(price) ? String(Math.round(price * 1e6) / 1e6) : "",
+    });
+  }
+  function onSku(i: number, linkId: string) {
+    const it = items.find(x => x.id === lines[i].itemId);
+    if (it) setLineSku(i, it, linkId || null);
+  }
+  function onQtyUnit(i: number, level: string) {
+    const o = unitOpts(lines[i]).find(x => x.packLevel === level);
+    if (o) recalc(i, { orderUom: o.orderUom, packLevel: o.packLevel, unitsPerOrderUnit: o.unitsPerOrderUnit });
+  }
+  /** Changing what the price is PER restates it in the new unit — the same money. */
+  function onPriceUnit(i: number, level: string) {
+    const l = lines[i];
+    const o = unitOpts(l).find(x => x.packLevel === level);
+    if (!o) return;
+    const p = Number(l.priceInput), old = l.unitsPerPriceUnit || l.unitsPerOrderUnit || 1;
+    const next = l.priceInput && isFinite(p) ? String(Math.round(p * o.unitsPerOrderUnit / old * 1e6) / 1e6) : l.priceInput;
+    recalc(i, { priceLevel: o.packLevel, priceUom: o.orderUom, unitsPerPriceUnit: o.unitsPerOrderUnit, priceInput: next });
+  }
+
   function applyItem(i: number, it: any) {
+    if (split) {
+      const acct = itemAccountId(it);
+      setLine(i, { itemId: it.id, kind: "item", accountId: acct || lines[i].accountId, taxRateId: it.taxRateId || lines[i].taxRateId, description: it.name || lines[i].description, lotNo: "" });
+      // The supplier's preferred SKU for this item, else their first.
+      const ls = linksFor(it.id);
+      setLineSku(i, it, (ls.find((x: any) => x.isPreferred) ?? ls[0])?.id ?? null);
+      if (it.lotTracked && !isFPWIP(it) && !cfg.trade) {
+        fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).then(s => { if (s?.code) setLine(i, { lotNo: s.code }); }).catch(() => {});
+      }
+      return;
+    }
     const acct = itemAccountId(it);
     // What this supplier charges beats the item-level unit cost, which is one
     // figure shared across every vendor and so cannot be right for more than
@@ -540,7 +689,8 @@ export function NewDocumentForm({ type }: { type: DocType }) {
       if (cfg.mode === "lineItems" || cfg.mode === "deposit") {
         payload.lines = lines
           .filter(l => l.accountId && num(l.amount) !== 0)
-          .map(l => ({ accountId: l.accountId, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null }));
+          .map(l => ({ accountId: l.accountId, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
+            priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
       }
 
       let url = `/api/documents/${type}`;
@@ -560,7 +710,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
 
   function reset() {
     setDone(null); setErr(""); setMemo(""); setPartyId(""); setBankAccountId(""); setToBankAccountId(""); setAmount(""); setOpenDocs(null); setAlloc({}); setCredits(null); setCreditAlloc({}); setPaymentMethod(""); setAmountTouched(false);
-    setLines([emptyLine(), emptyLine()]); setDate(todayStr()); setExpiryDate(""); setCurrency(home); setRate("1");
+    setLines(split ? [emptyLine("item")] : [emptyLine(), emptyLine()]); setAcctsOpen(false); setDate(todayStr()); setExpiryDate(""); setCurrency(home); setRate("1");
     setReference(""); setTermsKey("net30"); setDueDate(addDays(todayStr(), 30));
     fetch(`/api/numbering?peek=${type}`).then(r => r.json()).then(n => n?.docNumber && setDocNumber(n.docNumber)).catch(() => {});
   }
@@ -858,8 +1008,220 @@ export function NewDocumentForm({ type }: { type: DocType }) {
             );
           })()}
 
+          {/* Purchase Order / Bill: ITEMS and ACCOUNTS as two sections. An item
+              line is ordered and priced in the supplier's own packaging, as
+              defined in Products & Services; an account line is a plain
+              Chart-of-Accounts amount (freight, a service, a one-off). */}
+          {split && cfg.mode === "lineItems" && (() => {
+            const itemIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "item");
+            const acctIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "account");
+            const sumOf = (xs: { l: Line }[]) => money(Math.round(xs.reduce((s, x) => s + num(x.l.amount), 0) * 100) / 100);
+            const delBtn = (i: number) => (
+              <button onClick={() => setLines(ls => ls.filter((_, idx) => idx !== i))} title="Remove line" className="p-1 rounded-md text-stone-600 opacity-0 group-hover:opacity-100 hover:bg-stone-800 hover:text-rose-400 transition"><Trash2 size={14} /></button>
+            );
+            const taxCell = (l: Line, i: number) => (
+              <td className="px-1.5 py-1 align-top">
+                <CellSelect value={l.taxRateId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "tax", lineIndex: i }) : setLine(i, { taxRateId: e.target.value })}>
+                  <option value="">No tax</option>
+                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>)}
+                  <option value={ADD}>+ Add new tax rate…</option>
+                </CellSelect>
+              </td>
+            );
+            const dimCells = (l: Line, i: number) => (<>
+              {showDims && classes.length > 0 && (
+                <td className="px-1.5 py-1 align-top">
+                  <CellSelect value={l.classId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "class", lineIndex: i }) : setLine(i, { classId: e.target.value })}>
+                    <option value="">—</option>
+                    {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value={ADD}>+ Add new class…</option>
+                  </CellSelect>
+                </td>
+              )}
+              {showDims && locations.length > 0 && (
+                <td className="px-1.5 py-1 align-top">
+                  <CellSelect value={l.locationId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "location", lineIndex: i }) : setLine(i, { locationId: e.target.value })}>
+                    <option value="">—</option>
+                    {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value={ADD}>+ Add new location…</option>
+                  </CellSelect>
+                </td>
+              )}
+            </>);
+            const dimHeads = (<>
+              {showDims && classes.length > 0 && <th className={`${thCls} w-32`}>Class</th>}
+              {showDims && locations.length > 0 && <th className={`${thCls} w-32`}>Location</th>}
+            </>);
+            return (
+              <div className="space-y-3">
+                {/* ── ITEMS ───────────────────────────────────────────────── */}
+                <FoldSection title="Items" open={itemsOpen} onToggle={() => setItemsOpen(o => !o)}
+                  summary={`${itemIdx.filter(x => x.l.itemId).length} line${itemIdx.filter(x => x.l.itemId).length === 1 ? "" : "s"} · ${sumOf(itemIdx)}`}>
+                  <div className="overflow-x-auto">
+                    {/* Item gets a guaranteed width: every other column is fixed, so
+                        without a minimum it is the one squeezed to nothing. */}
+                    <table className="w-full text-[13px] min-w-[1160px]">
+                      <thead>
+                        <tr className="border-b border-stone-800 bg-stone-900/60">
+                          <th className={`${thCls} w-8 !text-center`}>#</th>
+                          <th className={`${thCls} min-w-[200px]`}>Item</th>
+                          <th className={`${thCls} w-40`}>SKU</th>
+                          <th className={`${thCls} w-40`}>Pack configuration</th>
+                          <th className={`${thCls} w-44`}>Qty</th>
+                          <th className={`${thCls} w-48`}>Rate</th>
+                          <th className={`${thCls} !text-right w-24`}>Amount</th>
+                          {cfg.tax && <th className={`${thCls} w-28`}>Tax</th>}
+                          {dimHeads}
+                          <th className="w-9"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemIdx.map(({ l, i }, n) => {
+                          const it = l.itemId ? items.find(x => x.id === l.itemId) : null;
+                          const baseU = it?.baseUom || "";
+                          const links = l.itemId ? linksFor(l.itemId) : [];
+                          const link = links.find((x: any) => x.id === l.supplierSkuId) ?? null;
+                          const opts = l.itemId ? unitOpts(l) : [];
+                          const unitChoices = opts.map(o => ({ value: o.packLevel, label: unitName(o, baseU) }));
+                          const priceChoices = opts.map(o => ({ value: o.packLevel, label: `per ${unitName(o, baseU)}` }));
+                          const showLot = !cfg.trade && !!it?.lotTracked;
+                          return (
+                            <Fragment key={i}>
+                              <tr className={`group transition-colors hover:bg-stone-900/50 ${showLot ? "" : "border-b border-stone-800/50"}`}>
+                                <td className="px-2 py-2 text-center text-stone-600 text-[11px] tabular-nums align-top">{n + 1}</td>
+                                <td className="px-1.5 py-1 align-top">
+                                  <CellSelect value={l.itemId} onChange={e => onItem(i, e.target.value)}>
+                                    <option value="">Select item…</option>
+                                    {/* An item already on the line stays selectable even when the
+                                        narrowing would hide it — reopening must not blank a line. */}
+                                    {(visibleItems.some(x => x.id === l.itemId) || !l.itemId
+                                      ? visibleItems
+                                      : [...visibleItems, items.find(x => x.id === l.itemId)].filter(Boolean)
+                                    ).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                                    <option value={ADD}>+ Add new item…</option>
+                                  </CellSelect>
+                                  {l.itemId && <input value={l.description} onChange={e => setLine(i, { description: e.target.value })} placeholder="Description" className={`${cell} !h-7 !text-[12px] text-stone-400 mt-0.5`} />}
+                                </td>
+                                <td className="px-1.5 py-1 align-top">
+                                  {!l.itemId ? <div className="px-2 py-1.5 text-stone-600">—</div>
+                                    : links.length === 0
+                                      ? <div className="px-2 py-1.5 text-[12px] text-stone-500" title="This supplier has no SKU for the item, so it is ordered in the item's base unit.">No SKU · base unit</div>
+                                      : (
+                                        <CellSelect value={l.supplierSkuId ?? ""} onChange={e => onSku(i, e.target.value)} aria-label="Supplier SKU">
+                                          {links.map((s: any) => <option key={s.id} value={s.id}>{skuLabel(s)}{s.isPreferred && links.length > 1 ? " ★" : ""}</option>)}
+                                        </CellSelect>
+                                      )}
+                                </td>
+                                <td className="px-2.5 py-2 align-top text-[12px] text-stone-400">{link ? (packConfigText(link, baseU) || "—") : (l.itemId ? (baseU || "—") : "—")}</td>
+                                <td className="px-1.5 py-1 align-top">
+                                  {l.itemId
+                                    ? <QtyUnitField variant="cell" qty={l.qty} onQty={v => recalc(i, { qty: v })} unit={l.packLevel || "base"} onUnit={v => onQtyUnit(i, v)} options={unitChoices} unitPlaceholder={null} qtyWidth="w-16" qtyLabel="Quantity" unitLabel="Order in" />
+                                    : <div className="px-2 py-1.5 text-stone-600">—</div>}
+                                  {l.itemId && (l.unitsPerOrderUnit ?? 1) !== 1 && num(l.qty) > 0 && <div className="px-2 pt-0.5 text-[11px] text-stone-500 tabular-nums">= {fmtQty(num(l.qty) * (l.unitsPerOrderUnit ?? 1))} {baseU}</div>}
+                                </td>
+                                <td className="px-1.5 py-1 align-top">
+                                  {l.itemId
+                                    ? <QtyUnitField variant="cell" qty={l.priceInput ?? ""} onQty={v => recalc(i, { priceInput: v })} unit={l.priceLevel || "base"} onUnit={v => onPriceUnit(i, v)} options={priceChoices} unitPlaceholder={null} qtyPlaceholder="0.00" qtyWidth="w-20" qtyLabel="Rate" unitLabel="Rate per" />
+                                    : <div className="px-2 py-1.5 text-stone-600">—</div>}
+                                  {l.itemId && l.priceLevel && l.priceLevel !== l.packLevel && num(l.rate) > 0 && <div className="px-2 pt-0.5 text-[11px] text-stone-500 tabular-nums">= {money(num(l.rate))} per {l.orderUom || baseU}</div>}
+                                </td>
+                                <td className="px-2.5 py-2 align-top text-right tabular-nums font-medium text-stone-200">{num(l.amount) ? money(num(l.amount)) : <span className="text-stone-600">—</span>}</td>
+                                {cfg.tax && taxCell(l, i)}
+                                {dimCells(l, i)}
+                                <td className="px-1 py-1 text-center align-top">{itemIdx.length > 1 && delBtn(i)}</td>
+                              </tr>
+                              {showLot && (
+                                <tr className="border-b border-stone-800/50">
+                                  <td></td>
+                                  <td colSpan={20} className="px-2 pb-2 pt-0">
+                                    <div className="flex items-center gap-2 flex-wrap text-[11px] text-stone-500">
+                                      <span className="uppercase tracking-wide text-emerald-500/70 font-medium">Receive to lot</span>
+                                      {isFPWIP(it) ? (
+                                        <input value="assigned automatically" disabled className={`${cell} !w-40 opacity-60`} />
+                                      ) : (
+                                        <input value={l.lotNo ?? ""} onChange={e => setLine(i, { lotNo: e.target.value })} placeholder="Lot / batch no." className={`${cell} !w-40`} />
+                                      )}
+                                      <span className="text-stone-600">expiry</span>
+                                      <input type="date" value={l.expiryDate ?? ""} onChange={e => setLine(i, { expiryDate: e.target.value })} className={`${cell} !w-40`} />
+                                      <span className="text-stone-600">— creates a FIFO cost lot for {it?.name}</span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="border-t border-stone-800/70 px-2 py-1.5 flex items-center justify-between gap-3">
+                    <button onClick={() => setLines(ls => [...ls, emptyLine("item")])} className="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-400 hover:text-emerald-400 px-2 py-1 rounded-md hover:bg-stone-800/60 transition">
+                      <Plus size={13} /> Add item
+                    </button>
+                    {(hiddenItemCount > 0 || showAllItems) && (
+                      <div className="text-[11px] text-stone-500 pr-1">
+                        {showAllItems
+                          ? <>Showing all {items.length} items. </>
+                          : <>Showing {visibleItems.length} of {items.length} items{selectedParty ? <> for {selectedParty.name}</> : null}. </>}
+                        <button onClick={() => setShowAllItems(v => !v)} className="font-medium text-stone-400 hover:text-emerald-400 underline underline-offset-2 transition">
+                          {showAllItems ? "Show linked only" : "Show all items"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </FoldSection>
+
+                {/* ── ACCOUNTS (Chart of Accounts) ────────────────────────── */}
+                <FoldSection title="Accounts" hint="Chart of Accounts" open={acctsOpen} onToggle={() => setAcctsOpen(o => !o)}
+                  summary={acctIdx.length ? `${acctIdx.length} line${acctIdx.length === 1 ? "" : "s"} · ${sumOf(acctIdx)}` : "None"}>
+                  {acctIdx.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[13px] min-w-[720px]">
+                        <thead>
+                          <tr className="border-b border-stone-800 bg-stone-900/60">
+                            <th className={`${thCls} w-8 !text-center`}>#</th>
+                            <th className={`${thCls} w-72`}>Account</th>
+                            <th className={thCls}>Description</th>
+                            <th className={`${thCls} !text-right w-32`}>Amount</th>
+                            {cfg.tax && <th className={`${thCls} w-32`}>Tax</th>}
+                            {dimHeads}
+                            <th className="w-9"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {acctIdx.map(({ l, i }, n) => (
+                            <tr key={i} className="group border-b border-stone-800/50 hover:bg-stone-900/50">
+                              <td className="px-2 py-2 text-center text-stone-600 text-[11px] tabular-nums">{n + 1}</td>
+                              <td className="px-1.5 py-1">
+                                <CellSelect value={l.accountId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "account-expense", lineIndex: i }) : setLine(i, { accountId: e.target.value })}>
+                                  <option value="">Select account…</option>
+                                  {lineAccounts.map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
+                                  <option value={ADD}>+ Add new account…</option>
+                                </CellSelect>
+                              </td>
+                              <td className="px-1.5 py-1"><input value={l.description} onChange={e => setLine(i, { description: e.target.value })} placeholder="—" className={cell} /></td>
+                              <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.amount} onChange={e => setLine(i, { amount: e.target.value })} className={`${cell} text-right tabular-nums font-medium`} /></td>
+                              {cfg.tax && taxCell(l, i)}
+                              {dimCells(l, i)}
+                              <td className="px-1 py-1 text-center">{delBtn(i)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div className={`${acctIdx.length ? "border-t border-stone-800/70" : ""} px-2 py-1.5`}>
+                    <button onClick={() => { setLines(ls => [...ls, emptyLine("account")]); setAcctsOpen(true); }} className="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-400 hover:text-emerald-400 px-2 py-1 rounded-md hover:bg-stone-800/60 transition">
+                      <Plus size={13} /> Add account line
+                    </button>
+                  </div>
+                </FoldSection>
+              </div>
+            );
+          })()}
+
           {/* Line items / deposit lines */}
-          {(cfg.mode === "lineItems" || cfg.mode === "deposit") && (
+          {!split && (cfg.mode === "lineItems" || cfg.mode === "deposit") && (
             <Section title={cfg.mode === "deposit" ? "Sources" : "Line items"}>
               {(cfg.lineMode === "item" || cfg.lineMode === "both") && items.length === 0 && (
                 <p className="text-[11px] text-stone-500">

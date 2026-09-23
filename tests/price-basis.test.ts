@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { supplierUnitsIn, unitPriceFromQuote, basePriceOf } from "@/lib/inventory/sourcing";
-import { orderOptions } from "@/lib/inventory/order-options";
+import { orderOptions, baseQtyOfLine, ratePerOrderUnit } from "@/lib/inventory/order-options";
 
 // A supplier price is quoted AT a packaging level (0092) and every other level
 // — including ordering by the litre on a PO — is derived from that one figure.
@@ -44,5 +44,23 @@ describe("price basis", () => {
   it("still prices a link that predates 0092 (unit price only)", () => {
     const link = { id: "l1", supplierId: "s1", supplierUom: "kg", unitPrice: "480", isPreferred: true };
     expect(orderOptions("kg", [link], "s1")[0].unitPrice).toBe(480);
+  });
+});
+
+
+// A Bill line ordered by the carton must put BASE units into stock. Before
+// this, posting took qty as-is: "5 cartons" of 600 m received 5 m, at 600×
+// the real cost per metre.
+describe("pack-level lines", () => {
+  it("counts a pack-level line in base units for stock", () => {
+    expect(baseQtyOfLine({ qty: 5, unitsPerOrderUnit: 600 })).toBe(3000);
+    expect(baseQtyOfLine({ qty: 5 })).toBe(5);                        // no order unit = already base
+    expect(baseQtyOfLine({ qty: -2, unitsPerOrderUnit: 25 })).toBe(50); // a credit's sign is the caller's
+  });
+
+  it("prices 5 cartons at 2.00 per metre as 1,200 per carton", () => {
+    expect(ratePerOrderUnit(2, 600, 1)).toBe(1200);
+    expect(ratePerOrderUnit(300, 1, 30)).toBe(10);     // per-bottle price, ordered by the litre
+    expect(ratePerOrderUnit(300, 30, 30)).toBe(300);   // same unit both sides
   });
 });

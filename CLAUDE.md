@@ -588,8 +588,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0093` at `when`
-  `1790100000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0094` at `when`
+  `1790200000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1178,6 +1178,23 @@ Suppliers panel, because that is where the question is asked.
   /api/payables/suppliers/[id]` refuses to change a non-empty one (every
   document and link price is in it; changing it restates them all without
   converting a figure). `""` = not set yet, and may still be set.
+- **Purchase Order and Bill lines are split into ITEMS and ACCOUNTS**
+  (`SPLIT_TYPES` in `components/new-document-form.tsx`; every other document
+  keeps the single mixed table). An item line picks the supplier's SKU, shows
+  its pack configuration, and takes Qty as [number | unit] and Rate as
+  [number | per-unit] — the two units may differ ("5 cartons at 2.00 per m").
+  `rate` stays per ORDER unit, derived by `ratePerOrderUnit`, so qty × rate =
+  amount for every reader downstream; the entered price and its unit are kept
+  (`price_input`, `price_level`, `units_per_price_unit` on trade lines, 0094;
+  in `sourcePayload` for a Bill) so a reopened document shows what was typed.
+  The SKU's saved price fills in at the level it was quoted.
+- **A Bill line's quantity is converted to BASE units before it becomes
+  stock** (`baseQtyOfLine`, used by `postDocument`'s inventory plan). Before
+  this, posting took qty as-is, so a Bill of "5 cartons" of 600 m would have
+  received 5 m at 600× the cost per metre. The edit loader must bring
+  `unitsPerOrderUnit` back with each line, or a reopened pack-level Bill would
+  re-post in base units. PO `ordered_base_qty` was also rounded to 2dp
+  (`round2`) — now `roundQty`, like every quantity.
 - **Item names are unique per org, case- and space-insensitive**
   (`lib/inventory/item-name.ts`), checked on create, rename and the Accounting
   quick-add. App-level, not an index: existing duplicates may already be in

@@ -34,6 +34,7 @@ import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
 import { openDocsForParty, availableCreditsForParty } from "@/lib/accounting/payments";
 import { loadItemCostInfo, planIssue, commitReceipt, commitIssue, reverseInventoryByEntry, type ItemCostInfo, type IssuePlan } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
+import { baseQtyOfLine } from "@/lib/inventory/order-options";
 
 export type DocLineInput = {
   accountId?: string;
@@ -50,6 +51,13 @@ export type DocLineInput = {
   locationId?: string | null;
   lotNo?: string | null;           // purchase receipts: supplier lot/batch no.
   expiryDate?: string | null;      // purchase receipts: lot expiry
+  // Pack-level entry (PO / Bill): qty and rate are per ORDER unit, and
+  // unitsPerOrderUnit converts to the item's base unit — stock is always
+  // counted in base units (baseQtyOfLine). Absent = already base.
+  orderUom?: string | null; packLevel?: string | null; unitsPerOrderUnit?: number | null; supplierSkuId?: string | null;
+  // The price as the buyer entered it, per a possibly different unit, kept
+  // so a reopened document shows what was typed. rate is derived from it.
+  priceLevel?: string | null; priceUom?: string | null; unitsPerPriceUnit?: number | null; priceInput?: number | null;
 };
 
 export type PostDocInput = {
@@ -289,7 +297,7 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
   if (SALES_STOCK.has(type)) {
     for (const l of stockLines) {
       const item = itemMap.get(l.itemId!)!;
-      const issue = await planIssue(orgId, item, Number(l.qty) || 0, { locationId: plan.locationId });
+      const issue = await planIssue(orgId, item, baseQtyOfLine(l), { locationId: plan.locationId });
       if (issue.totalCost <= 0) continue;
       const cogsAcct = item.cogsAccountId ?? invCogsId;
       const assetAcct = item.assetAccountId ?? invAssetId;
@@ -306,7 +314,9 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
       // an inventory asset account — matches buildSalesPurchaseLines' fallback.
       const assetAcct = item.assetAccountId ?? invAssetId;
       if (!assetAcct) continue;
-      const qty = Math.abs(Number(l.qty) || 0);
+      // In BASE units: a line of 5 cartons is 3,000 m of stock, and the cost
+      // per metre is the line amount over 3,000 — not over 5.
+      const qty = baseQtyOfLine(l);
       // Store the lot cost in HOME currency to match the home-currency GL debit
       // (l.amount is transaction currency; rate converts to home).
       const unitCost = qty > 0 ? (round2(l.amount) * rate) / qty : 0;
@@ -320,7 +330,7 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
 async function commitDocumentInventory(orgId: string, type: DocType, plan: InvPlan, entryId: string, refId: string, date: string, input: PostDocInput, actorId: string | null) {
   for (const r of plan.receipts) {
     await commitReceipt(orgId, {
-      itemId: r.item.id, qty: Math.abs(Number(r.line.qty) || 0), unitCost: r.unitCost,
+      itemId: r.item.id, qty: baseQtyOfLine(r.line), unitCost: r.unitCost,
       productType: r.item.productType, lotNo: r.line.lotNo ?? null, expiryDate: r.line.expiryDate ?? null,
       supplierId: input.partyType === "Vendor" ? input.partyId ?? null : null,
       sourceType: "purchase", receivedDate: date, refType: type, refId, entryId, createdBy: actorId,
