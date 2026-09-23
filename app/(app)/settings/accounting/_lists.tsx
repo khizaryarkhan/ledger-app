@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent, Tags, Sparkles } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
+import { Drawer } from "@/components/form-kit";
 
 // ── QBO taxonomy ────────────────────────────────────────────────────────────
 const ACCOUNT_TYPES: Record<string, string[]> = {
@@ -467,17 +468,25 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
 
       {/* ── Create / Edit modal ── */}
       {editRec !== null && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !saving && setEditRec(null)}>
-          <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-stone-800 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-white">
-                {editRec === "new" ? "New" : "Edit"} {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
-              </h2>
-              {isSyncedEdit && (
-                <span className="flex items-center gap-1 text-[11px] text-amber-400"><Lock size={11} /> Synced — read-only</span>
+        <Drawer
+          title={`${editRec === "new" ? "New" : "Edit"} ${tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}`}
+          subtitle={isSyncedEdit
+            ? <span className="flex items-center gap-1 text-amber-400"><Lock size={11} /> Synced — read-only</span>
+            : undefined}
+          onClose={() => { if (!saving) setEditRec(null); }}
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setEditRec(null)} disabled={saving} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
+              {!isSyncedEdit && (
+                <button onClick={save} disabled={saving || !(form.name ?? "").trim() || (tab === "tax-rates" && form.rate === "")}
+                  className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                  {saving ? "Saving…" : editRec === "new" ? "Create" : "Save changes"}
+                </button>
               )}
             </div>
-            <div className="p-5 space-y-4">
+          }
+        >
+            <div className="space-y-4">
               {errMsg && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2">{errMsg}</div>}
 
               <div>
@@ -606,17 +615,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                 </>
               )}
             </div>
-            <div className="p-5 border-t border-stone-800 flex items-center justify-end gap-2">
-              <button onClick={() => setEditRec(null)} disabled={saving} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
-              {!isSyncedEdit && (
-                <button onClick={save} disabled={saving || !(form.name ?? "").trim() || (tab === "tax-rates" && form.rate === "")}
-                  className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
-                  {saving ? "Saving…" : editRec === "new" ? "Create" : "Save changes"}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
     </div>
   );

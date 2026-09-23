@@ -19,7 +19,7 @@ import {
   FileText,
   X,
 } from "lucide-react";
-import { Card, Badge, Button } from "@/components/ui";
+import { Card, Badge, Button, Modal } from "@/components/ui";
 import { fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -131,14 +131,19 @@ function RejectModal({
   loading: boolean;
 }) {
   const [reason, setReason] = useState("");
-  if (!open) return null;
+  // A yes/no decision carrying one reason — the documented exception that stays
+  // a centred confirmation, on the shared Modal rather than its own box.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-2xl w-full max-w-md">
-        <div className="px-5 py-4 border-b border-stone-800">
-          <h3 className="text-base font-semibold text-white">Reject Purchase Order</h3>
-        </div>
-        <div className="p-5">
+    <Modal center open={open} onClose={onClose} title="Reject Purchase Order" size="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button variant="danger" onClick={() => onConfirm(reason)} disabled={loading || !reason.trim()}>
+            {loading ? <><Loader2 size={13} className="animate-spin" /> Rejecting…</> : "Reject"}
+          </Button>
+        </>
+      }>
+      <div className="p-5">
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -146,15 +151,8 @@ function RejectModal({
             placeholder="Reason for rejection…"
             className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none resize-none"
           />
-        </div>
-        <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button variant="danger" onClick={() => onConfirm(reason)} disabled={loading || !reason.trim()}>
-            {loading ? <><Loader2 size={13} className="animate-spin" /> Rejecting…</> : "Reject"}
-          </Button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Undo2, Scale, BookOpen } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
+import { Drawer } from "@/components/form-kit";
 
 type Line = {
   accountId: string; description: string; debit: string; credit: string;
@@ -375,12 +376,25 @@ export default function JournalPage() {
 
       {/* ══ New entry modal ══ */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !posting && setShowNew(false)}>
-          <div className="bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-stone-800">
-              <h2 className="text-base font-semibold text-white">New journal entry</h2>
+        <Drawer
+          size="2xl"
+          title="New journal entry"
+          onClose={() => { if (!posting) setShowNew(false); }}
+          // The whole box used to scroll, footer included, so on an entry with
+          // more than a handful of lines "Post entry" — and the balanced/off-by
+          // figure that tells you whether pressing it is even valid — sat below
+          // the fold. Both are pinned now.
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setShowNew(false)} disabled={posting} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
+              <button onClick={post} disabled={posting || !canPost}
+                className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
+                {posting ? "Posting…" : "Post entry"}
+              </button>
             </div>
-            <div className="p-5 space-y-4">
+          }
+        >
+            <div className="space-y-4">
               {errMsg && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2">{errMsg}</div>}
               <div className="flex gap-3 flex-wrap">
                 <div className="w-40">
@@ -508,15 +522,7 @@ export default function JournalPage() {
                 </div>
               </div>
             </div>
-            <div className="p-5 border-t border-stone-800 flex items-center justify-end gap-2">
-              <button onClick={() => setShowNew(false)} disabled={posting} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
-              <button onClick={post} disabled={posting || !canPost}
-                className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
-                {posting ? "Posting…" : "Post entry"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
     </div>
   );

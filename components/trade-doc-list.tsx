@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, RefreshCw, Check, FileText, ShoppingCart, ChevronDown, ChevronRight, Layers, X, Loader, Trash2, Printer, Route } from "lucide-react";
-import { controlCompact, tableHead } from "@/components/form-kit";
+import { controlCompact, tableHead, Drawer } from "@/components/form-kit";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
 const META: Record<Kind, { title: string; singular: string; newType: string; icon: any; convertTo: string; invoiceVerb: string; fulfil?: string }> = {
@@ -214,16 +214,26 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
 
   const input = controlCompact + " text-right tabular-nums";
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-stone-900 border border-stone-700 rounded-lg w-full max-w-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-stone-800">
-          <div>
-            <h2 className="text-[15px] font-semibold text-white">{meta.invoiceVerb} {doc.docNumber}</h2>
-            <p className="text-[12px] text-stone-500">Choose how much of each line to {meta.convertTo === "invoice" ? "invoice" : "bill"} now — the rest stays open for later.</p>
+    <Drawer
+      size="xl"
+      onClose={onClose}
+      title={`${meta.invoiceVerb} ${doc.docNumber}`}
+      subtitle={`Choose how much of each line to ${meta.convertTo === "invoice" ? "invoice" : "bill"} now — the rest stays open for later.`}
+      // The running total belongs beside the action, not under the last line:
+      // on a document with many lines it is the figure you are deciding on, so
+      // it stays in view while the table scrolls.
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[13px] text-stone-300">This {meta.convertTo}: <span className="font-semibold text-white tabular-nums">{money(total)}</span> <span className="text-stone-600 text-[11px]">(before tax)</span></div>
+          <div className="flex items-center gap-3">
+            <button onClick={onClose} className="text-[13px] text-stone-500 hover:text-stone-300">Cancel</button>
+            <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+              {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Create {meta.convertTo}
+            </button>
           </div>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-300"><X size={18} /></button>
         </div>
-        <div className="p-5">
+      }
+    >
           {err && <div className="mb-3 text-[12px] text-rose-400">{err}</div>}
           <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">
             Quick fill:
@@ -250,17 +260,6 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
               </tbody>
             </table>
           )}
-          <div className="flex items-center justify-between mt-4">
-            <div className="text-[13px] text-stone-300">This {meta.convertTo}: <span className="font-semibold text-white tabular-nums">{money(total)}</span> <span className="text-stone-600 text-[11px]">(before tax)</span></div>
-            <div className="flex items-center gap-3">
-              <button onClick={onClose} className="text-[13px] text-stone-500 hover:text-stone-300">Cancel</button>
-              <button onClick={submit} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-                {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Create {meta.convertTo}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

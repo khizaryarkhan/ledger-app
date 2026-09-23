@@ -7,7 +7,7 @@ import { Badge, Button } from "@/components/ui";
 import { ProjectModal } from "@/components/forms";
 import { fmt, daysOverdue } from "@/lib/format";
 import { Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
-import { SelectField, control } from "@/components/form-kit";
+import { SelectField, control, Drawer } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -40,11 +40,19 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-xl w-full max-w-sm p-6">
-        <h2 className="text-base font-semibold text-white mb-1">Reclassify projects</h2>
-        <p className="text-sm text-stone-400 mb-4">Make changes to all <strong>{ids.length}</strong> selected project{ids.length > 1 ? "s" : ""}.</p>
-
+    <Drawer
+      onClose={onClose}
+      title="Reclassify projects"
+      subtitle={<>Make changes to all <strong className="text-stone-300">{ids.length}</strong> selected project{ids.length > 1 ? "s" : ""}.</>}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
+            {saving ? "Applying…" : "Apply"}
+          </Button>
+        </div>
+      }
+    >
         <div className="space-y-3">
           <div>
             <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Rep / ED/RM to</label>
@@ -82,14 +90,7 @@ function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void 
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
-            {saving ? "Applying…" : "Apply"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 

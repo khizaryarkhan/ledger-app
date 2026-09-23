@@ -8,7 +8,8 @@ import {
   PauseCircle, PlayCircle, CreditCard, Eye, CheckCheck, CloudUpload,
   MessageSquare, FileText, X, Plus, Send,
 } from "lucide-react";
-import { Card, Badge, Button } from "@/components/ui";
+import { Card, Badge, Button, Modal } from "@/components/ui";
+import { Drawer } from "@/components/form-kit";
 import { fmt, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -129,13 +130,20 @@ function RaiseQueryModal({ open, onClose, onSubmit, loading }: {
   const [message, setMessage] = useState("");
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
-          <h3 className="text-base font-semibold text-white">Raise Supplier Query</h3>
-          <button onClick={onClose} className="p-1 rounded text-stone-500 hover:text-white hover:bg-stone-800"><X size={16} /></button>
+    <Drawer
+      onClose={onClose}
+      title="Raise Supplier Query"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <button onClick={() => onSubmit(subject, message)} disabled={loading || !subject.trim()}
+            className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Raise Query
+          </button>
         </div>
-        <div className="p-5 space-y-4">
+      }
+    >
+        <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-stone-400 mb-1.5">Subject</label>
             <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Query subject…"
@@ -147,15 +155,7 @@ function RaiseQueryModal({ open, onClose, onSubmit, loading }: {
               className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none resize-none" />
           </div>
         </div>
-        <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
-          <button onClick={() => onSubmit(subject, message)} disabled={loading || !subject.trim()}
-            className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
-            {loading ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Raise Query
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -166,26 +166,25 @@ function ReasonModal({ open, onClose, onConfirm, loading, title, confirmLabel, c
   loading: boolean; title: string; confirmLabel: string; confirmClass: string;
 }) {
   const [reason, setReason] = useState("");
-  if (!open) return null;
+  // Reject/Hold is a yes/no decision carrying one reason, not a form — the
+  // documented exception that stays a centred confirmation. It uses the shared
+  // Modal so there is no fourth hand-rolled box.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-stone-900 border border-stone-800 rounded-xl shadow-2xl w-full max-w-md">
-        <div className="px-5 py-4 border-b border-stone-800">
-          <h3 className="text-base font-semibold text-white">{title}</h3>
-        </div>
-        <div className="p-5">
-          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder="Reason…"
-            className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none resize-none" />
-        </div>
-        <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2">
+    <Modal center open={open} onClose={onClose} title={title} size="sm"
+      footer={
+        <>
           <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
           <button onClick={() => onConfirm(reason)} disabled={loading || !reason.trim()}
             className={`inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md text-white disabled:opacity-50 ${confirmClass}`}>
             {loading ? <Loader2 size={13} className="animate-spin" /> : confirmLabel}
           </button>
-        </div>
+        </>
+      }>
+      <div className="p-5">
+        <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder="Reason…"
+          className="w-full px-3 py-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-white placeholder-stone-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none resize-none" />
       </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -8,6 +8,7 @@ import {
   ChevronDown, Clock, AlertTriangle, ExternalLink, Upload, CheckCircle2,
 } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
+import { Drawer } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { formatDateShort } from "@/lib/format";
 
@@ -231,13 +232,15 @@ function SendApprovalModal({
   const totalAmt = bills!.reduce((s, b) => s + (b.total ?? 0), 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-stone-800 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-white">Send for Approval</h3>
-            <div className="text-[11px] text-stone-400 mt-0.5">
+    // Was a max-h-[90vh] overflow-auto box with the footer inside it, so on a
+    // batch the "Send for Approval" button scrolled away below an eight-row
+    // message box. The drawer scrolls the body only and pins the action.
+    <Drawer
+      size="lg"
+      onClose={onClose}
+      title="Send for Approval"
+      subtitle={
+            <>
               {isBatch ? (
                 <>
                   <span className="font-semibold text-violet-400">{bills!.length} bills</span>
@@ -252,13 +255,25 @@ function SendApprovalModal({
                   {primary.supplierName && <><span className="mx-1.5 text-stone-600">·</span><span>{primary.supplierName}</span></>}
                 </>
               )}
-            </div>
-          </div>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+            </>
+      }
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
+          <button
+            onClick={send}
+            disabled={sending || !to.trim()}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-lg hover:bg-violet-700 disabled:opacity-50"
+          >
+            {sending
+              ? <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              : <Send size={14} />}
+            {sending ? "Sending…" : "Send for Approval"}
+          </button>
         </div>
-
-        {/* Fields */}
-        <div className="p-5 space-y-3">
+      }
+    >
+        <div className="space-y-3">
           <div>
             <label className="text-[11px] font-medium text-stone-400">To</label>
             <input
@@ -313,23 +328,7 @@ function SendApprovalModal({
 
           {error && <p className="text-xs text-rose-400">{error}</p>}
         </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-stone-800 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-stone-400 hover:text-stone-200">Cancel</button>
-          <button
-            onClick={send}
-            disabled={sending || !to.trim()}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-lg hover:bg-violet-700 disabled:opacity-50"
-          >
-            {sending
-              ? <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              : <Send size={14} />}
-            {sending ? "Sending…" : "Send for Approval"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
