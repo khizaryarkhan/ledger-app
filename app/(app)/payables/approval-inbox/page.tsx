@@ -106,6 +106,9 @@ function ConfirmModal({ open, action, item, onClose, onConfirm }: ConfirmModalPr
       onClose={onClose}
       title={isApprove ? "Confirm Approval" : "Confirm Rejection"}
       size="sm"
+      // A yes/no decision on one document — the documented exception to the
+      // drawer, since none of a drawer's reasons apply to three lines of text.
+      center
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={loading}>

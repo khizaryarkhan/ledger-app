@@ -337,7 +337,7 @@ export function Panel({ className = "", children }: { className?: string; childr
  * long form, a pinned action, context behind — buys it nothing.
  */
 export function Drawer({
-  title, subtitle, onClose, children, footer, wide, size,
+  title, subtitle, onClose, children, footer, wide, size, pad = true,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -348,7 +348,10 @@ export function Drawer({
   footer?: ReactNode;
   /** Legacy alias for size="lg". Prefer `size`. */
   wide?: boolean;
-  size?: "md" | "lg" | "xl";
+  size?: "md" | "lg" | "xl" | "2xl";
+  /** Body padding, on by default. Set false when the caller's content brings
+   *  its own padding — otherwise it is padded twice. */
+  pad?: boolean;
 }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -356,8 +359,10 @@ export function Drawer({
     return () => window.removeEventListener("keydown", on);
   }, [onClose]);
   const s = size ?? (wide ? "lg" : "md");
-  // "xl" is for grids — five columns of cells do not fit in 32rem.
-  const width = s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
+  // "xl" is for grids — five columns of cells do not fit in 32rem. "2xl" is
+  // for the few panels that are genuinely a table (a plan comparison, an
+  // invoice list); anything wider stops being a side panel.
+  const width = s === "2xl" ? "max-w-4xl" : s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-black/50" />
@@ -375,7 +380,7 @@ export function Drawer({
           </div>
           <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0"><X size={17} /></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className={`flex-1 overflow-y-auto${pad ? " p-5" : ""}`}>{children}</div>
         {footer && <div className="shrink-0 border-t border-stone-800 px-5 py-3 bg-stone-900">{footer}</div>}
       </div>
     </div>

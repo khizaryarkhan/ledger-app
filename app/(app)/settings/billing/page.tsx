@@ -48,7 +48,7 @@ function planLabel(sub: any) {
 function CancelModal({ open, onClose, onSubmit, loading }: any) {
   const [reason, setReason] = useState("");
   return (
-    <Modal open={open} onClose={onClose} title="Cancel Subscription"
+    <Modal open={open} onClose={onClose} title="Cancel Subscription" center
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Keep my subscription</Button>
@@ -89,7 +89,7 @@ function CancelModal({ open, onClose, onSubmit, loading }: any) {
 
 function ReactivateModal({ open, onClose, onConfirm, loading }: any) {
   return (
-    <Modal open={open} onClose={onClose} title="Reactivate Subscription"
+    <Modal open={open} onClose={onClose} title="Reactivate Subscription" center
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

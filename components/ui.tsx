@@ -3,7 +3,7 @@
 import { useEffect, ReactNode } from "react";
 import Link from "next/link";
 import { X, Check, AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
-import { t } from "@/components/form-kit";
+import { t, Drawer } from "@/components/form-kit";
 
 /**
  * Standard wrapper for a single accounting report page — back-link to the
@@ -105,20 +105,52 @@ export const Card = ({ children, className = "", padding = "md", ...rest }: any)
   return <div className={`bg-stone-900 rounded-lg border border-stone-800 ${pad[padding]} ${className}`} {...rest}>{children}</div>;
 };
 
-export const Modal = ({ open, onClose, title, children, size = "md", footer }: any) => {
+/**
+ * A form opens in a SIDE DRAWER. `Modal` keeps its name and its props only so
+ * that ~30 call sites did not each have to be rewritten — it renders
+ * form-kit's `Drawer`, which is the single implementation of this chrome.
+ *
+ * `center` is the documented exception and nothing else: a short yes/no
+ * confirmation with no form in it ("Delete this?"). A three-line confirm in a
+ * full-height side panel is worse, and none of the drawer's justifications —
+ * keeping the list behind it visible, giving a long form full height, pinning
+ * the primary action — apply to it.
+ *
+ * Sizes map onto the drawer's, which top out narrower on purpose: a panel
+ * wider than max-w-4xl has stopped being a side panel.
+ */
+export const Modal = ({ open, onClose, title, subtitle, children, size = "md", footer, center }: any) => {
   if (!open) return null;
-  const sizes: Record<string, string> = { sm: "max-w-md", md: "max-w-2xl", lg: "max-w-4xl", xl: "max-w-6xl" };
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-stone-900 border border-stone-800 rounded-lg shadow-2xl w-full ${sizes[size]} max-h-[92vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
-          <h3 className={t.heading}>{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-md text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors"><X size={18} /></button>
+  if (center) {
+    const sizes: Record<string, string> = { sm: "max-w-md", md: "max-w-2xl", lg: "max-w-4xl", xl: "max-w-6xl" };
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+        <div className={`bg-stone-900 border border-stone-800 rounded-lg shadow-2xl w-full ${sizes[size]} max-h-[92vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800">
+            <h3 className={t.heading}>{title}</h3>
+            <button onClick={onClose} className="p-1 rounded-md text-stone-500 hover:text-stone-200 hover:bg-stone-800 transition-colors"><X size={18} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto">{children}</div>
+          {footer && <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2 bg-stone-950/50 rounded-b-lg">{footer}</div>}
         </div>
-        <div className="flex-1 overflow-y-auto">{children}</div>
-        {footer && <div className="px-5 py-3.5 border-t border-stone-800 flex items-center justify-end gap-2 bg-stone-950/50 rounded-b-lg">{footer}</div>}
       </div>
-    </div>
+    );
+  }
+  const drawerSize = ({ sm: "md", md: "xl", lg: "2xl", xl: "2xl" } as Record<string, any>)[size] ?? "lg";
+  return (
+    <Drawer
+      title={title}
+      subtitle={subtitle}
+      onClose={onClose}
+      size={drawerSize}
+      // Every existing call site's children already carry their own px-5/py-5.
+      pad={false}
+      // The old footer slot was a right-aligned flex row; call sites pass bare
+      // <Button>s and rely on it, so the row moves with them.
+      footer={footer && <div className="flex items-center justify-end gap-2">{footer}</div>}
+    >
+      {children}
+    </Drawer>
   );
 };
 

@@ -1091,6 +1091,8 @@ export default function CustomersPage() {
       {deleteTarget && (
         <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteConfirmName(""); }}
           title="Delete organisation"
+          // Destructive yes/no confirmation, not a form: stays centred.
+          center
           footer={
             <>
               <Button variant="secondary" onClick={() => { setDeleteTarget(null); setDeleteConfirmName(""); }}>Cancel</Button>
