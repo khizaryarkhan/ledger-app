@@ -21,6 +21,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { controlInset, fieldLabel, tableHead } from "@/components/form-kit";
+import { Modal } from "@/components/ui";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -389,14 +390,19 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
     onDone();
   }
 
+  // A confirmation, not a form — it has no inputs at all, just the yield figures
+  // you are agreeing to write off. That is the documented exception to the
+  // drawer, so it stays centred, on the shared Modal rather than its own box.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-stone-950 border border-stone-800 rounded-lg shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-[13px] font-semibold text-stone-100">Close {order.docNumber}</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
-        </div>
+    <Modal center open onClose={onClose} title={`Close ${order.docNumber}`} size="sm"
+      footer={
+        <>
+          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+            {busy ? <Loader size={14} className="animate-spin" /> : <PackageCheck size={15} />} Close order
+          </button>
+        </>
+      }>
         <div className="p-5 space-y-3">
           {err && <div className="text-[12px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{err}</div>}
           <p className="text-[13px] text-stone-300">Declares no more receipts are expected against this dispatch. Whatever gap remains between sent and received is written off as its own line — never folded into the received item's cost.</p>
@@ -417,13 +423,6 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
             </div>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
-          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || receipts === null} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-            {busy ? <Loader size={14} className="animate-spin" /> : <PackageCheck size={15} />} Close order
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

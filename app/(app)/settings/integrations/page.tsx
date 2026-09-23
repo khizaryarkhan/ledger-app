@@ -11,6 +11,7 @@ import {
   CheckCircle, XCircle, Clock, Database, Archive,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 // ─── Xero logo (inline SVG) ────────────────────────────────────────────────
 function XeroLogo({ size = 16 }: { size?: number }) {
@@ -1334,24 +1335,25 @@ export default function IntegrationsSettingsPage() {
 
       {/* ── Sage instructions modal ── */}
       {sageInstructionsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-
-            {/* Header */}
-            <div className="px-6 pt-6 pb-4 border-b border-stone-800 flex items-start justify-between shrink-0">
-              <div>
-                <h2 className="text-base font-semibold text-white">Sage Intacct — Setup Guide</h2>
-                <p className="text-[13px] text-stone-400 mt-1">
-                  Complete these steps in your Sage Intacct account before connecting.
-                </p>
-              </div>
-              <button onClick={() => setSageInstructionsOpen(false)} className="text-stone-500 hover:text-white transition-colors ml-4 mt-0.5">
-                ✕
+        <Drawer
+          size="lg"
+          title="Sage Intacct — Setup Guide"
+          subtitle="Complete these steps in your Sage Intacct account before connecting."
+          onClose={() => setSageInstructionsOpen(false)}
+          footer={
+            <div className="flex items-center justify-between">
+              <button onClick={() => setSageInstructionsOpen(false)} className="text-sm text-stone-500 hover:text-stone-300 transition-colors">
+                Close
               </button>
+              <Button onClick={() => { setSageInstructionsOpen(false); setSageConnectOpen(true); setSageConnectError(null); }}>
+                <Database size={14} />
+                <span className="ml-1.5">Connect Sage Intacct</span>
+              </Button>
             </div>
-
+          }
+        >
             {/* Steps */}
-            <div className="overflow-y-auto px-6 py-5 space-y-5">
+            <div className="space-y-5">
 
               {/* Step 1 */}
               <div className="flex gap-4">
@@ -1468,33 +1470,40 @@ export default function IntegrationsSettingsPage() {
                 <strong>Estimated setup time: ~10 minutes.</strong> You only need to do this once. All credentials are encrypted at rest and never shared.
               </div>
             </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-stone-800 flex items-center justify-between shrink-0">
-              <button onClick={() => setSageInstructionsOpen(false)} className="text-sm text-stone-500 hover:text-stone-300 transition-colors">
-                Close
-              </button>
-              <Button onClick={() => { setSageInstructionsOpen(false); setSageConnectOpen(true); setSageConnectError(null); }}>
-                <Database size={14} />
-                <span className="ml-1.5">Connect Sage Intacct</span>
-              </Button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* ── Sage connect modal ── */}
       {sageConnectOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 pt-6 pb-4 border-b border-stone-800">
-              <h2 className="text-base font-semibold text-white">Connect Sage Intacct</h2>
-              <p className="text-[13px] text-stone-400 mt-1">
-                Enter your Sage Intacct Web Services credentials. Use a dedicated API user.
-              </p>
+        <Drawer
+          title="Connect Sage Intacct"
+          subtitle="Enter your Sage Intacct Web Services credentials. Use a dedicated API user."
+          onClose={() => setSageConnectOpen(false)}
+          // The submit button lives in the pinned footer, outside the <form>,
+          // so it carries form="sage-connect" — the HTML association that keeps
+          // the inputs' `required` validation and Enter-to-submit working.
+          footer={
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setSageConnectOpen(false)}
+                className="flex-1 py-2 rounded-lg border border-stone-700 text-sm text-stone-400 hover:text-white hover:border-stone-500 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="sage-connect"
+                disabled={sageConnecting}
+                className="flex-1 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {sageConnecting && <Loader size={13} className="animate-spin" />}
+                {sageConnecting ? "Verifying…" : "Connect"}
+              </button>
             </div>
-
-            <form onSubmit={handleSageConnect} className="px-6 py-5 space-y-4">
+          }
+        >
+            <form id="sage-connect" onSubmit={handleSageConnect} className="space-y-4">
               {sageConnectError && (
                 <div className="px-3 py-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 leading-relaxed">
                   {sageConnectError}
@@ -1529,26 +1538,8 @@ export default function IntegrationsSettingsPage() {
                 in your Sage subscription settings.
               </div>
 
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSageConnectOpen(false)}
-                  className="flex-1 py-2 rounded-lg border border-stone-700 text-sm text-stone-400 hover:text-white hover:border-stone-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={sageConnecting}
-                  className="flex-1 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {sageConnecting && <Loader size={13} className="animate-spin" />}
-                  {sageConnecting ? "Verifying…" : "Connect"}
-                </button>
-              </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* Data Tools */}

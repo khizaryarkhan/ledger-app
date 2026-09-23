@@ -10,6 +10,7 @@ import {
   FileText, Plus, Pencil, Trash2, X, ChevronDown,
 } from "lucide-react";
 import { fmt } from "@/lib/format";
+import { Drawer } from "@/components/form-kit";
 
 // ─────────────────────────────────────────────
 // REMINDER PROGRAMME TAB
@@ -1290,19 +1291,29 @@ function EmailTemplates() {
 
       {/* ── Editor modal ── */}
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800">
-              <h2 className="text-base font-semibold text-white">
-                {isNew ? "New email template" : "Edit template"}
-              </h2>
-              <button onClick={closeEditor} className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-stone-800 text-stone-500 hover:text-stone-300">
-                <X size={16} />
+        <Drawer
+          size="xl"
+          title={isNew ? "New email template" : "Edit template"}
+          onClose={closeEditor}
+          // A template is a long form — name, stage, subject, a body editor and
+          // the schedule block. In the old box the whole thing scrolled, Save
+          // included.
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={closeEditor} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-400 hover:bg-stone-800 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="h-9 px-5 text-sm font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white disabled:opacity-50 transition-colors"
+              >
+                {saving ? "Saving…" : isNew ? "Create template" : "Save changes"}
               </button>
             </div>
-
-            <div className="px-6 py-5 space-y-4">
+          }
+        >
+            <div className="space-y-4">
               {/* Template name */}
               <div>
                 <label className="block text-[12px] font-semibold text-stone-400 mb-1">Template name</label>
@@ -1437,22 +1448,7 @@ function EmailTemplates() {
                 })()}
               </div>
             </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-stone-800">
-              <button onClick={closeEditor} className="h-9 px-4 text-sm rounded-lg border border-stone-700 text-stone-400 hover:bg-stone-800 transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="h-9 px-5 text-sm font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white disabled:opacity-50 transition-colors"
-              >
-                {saving ? "Saving…" : isNew ? "Create template" : "Save changes"}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
     </div>
   );
