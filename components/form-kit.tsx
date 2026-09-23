@@ -337,7 +337,7 @@ export function Panel({ className = "", children }: { className?: string; childr
  * long form, a pinned action, context behind — buys it nothing.
  */
 export function Drawer({
-  title, subtitle, onClose, children, footer, wide, size, pad = true,
+  title, subtitle, onClose, children, footer, wide, size, pad = true, elevated,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -352,6 +352,10 @@ export function Drawer({
   /** Body padding, on by default. Set false when the caller's content brings
    *  its own padding — otherwise it is padded twice. */
   pad?: boolean;
+  /** Sits above another drawer. Quick-add opens from inside the New Document
+   *  form, so at the same z-index whichever rendered last would win — which is
+   *  not a thing to leave to DOM order. */
+  elevated?: boolean;
 }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -364,7 +368,7 @@ export function Drawer({
   // invoice list); anything wider stops being a side panel.
   const width = s === "2xl" ? "max-w-4xl" : s === "xl" ? "max-w-3xl" : s === "lg" ? "max-w-lg" : "max-w-md";
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
+    <div className={`fixed inset-0 ${elevated ? "z-[60]" : "z-50"} flex justify-end`} onMouseDown={onClose}>
       <div className="absolute inset-0 bg-black/50" />
       <div
         role="dialog"

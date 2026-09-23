@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { EntityPicker, useBatchEntities } from "../_components/entity-picker";
 import { pollBatchJob } from "../_components/poll-job";
+import { Modal } from "@/components/ui";
 import { Trash2, Loader2, Search, AlertTriangle, ArrowLeft } from "lucide-react";
 
 interface Match { id: string; syncToken: string; docNumber: string; date: string; createTime?: string | null; name: string; amount: number | null; }
@@ -216,21 +217,23 @@ function DeleteInner() {
       )}
 
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setConfirm(false)}>
-          <div className="bg-stone-900 border border-stone-700 rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-3">
-              <AlertTriangle size={22} className="text-rose-400" />
-              <h3 className="text-lg font-semibold text-stone-100">Delete {selected.size} record{selected.size === 1 ? "" : "s"}?</h3>
-            </div>
-            <p className="text-sm text-stone-400 mb-5">This permanently removes the selected {meta?.label.toLowerCase()} from QuickBooks. This cannot be undone.</p>
-            <div className="flex justify-end gap-2">
+        // A destructive yes/no with no form in it — the documented exception
+        // that stays centred, on the shared Modal rather than its own box.
+        <Modal center open onClose={() => setConfirm(false)} size="sm"
+          title={`Delete ${selected.size} record${selected.size === 1 ? "" : "s"}?`}
+          footer={
+            <>
               <button onClick={() => setConfirm(false)} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">Cancel</button>
               <button onClick={commit} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium disabled:opacity-50">
                 {busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />} Delete permanently
               </button>
-            </div>
+            </>
+          }>
+          <div className="px-5 py-5 flex items-start gap-3">
+            <AlertTriangle size={22} className="text-rose-400 shrink-0" />
+            <p className="text-sm text-stone-400">This permanently removes the selected {meta?.label.toLowerCase()} from QuickBooks. This cannot be undone.</p>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

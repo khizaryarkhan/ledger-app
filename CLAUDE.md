@@ -175,13 +175,40 @@ with "Send 228 invoices" below the fold, because the whole box was
   footer. The other six rendered their footer inside the scroll area, so every
   one of those Save buttons could scroll out of reach on a long form. They all
   import the shared one now and all six gained the pin.
-- `tests/architecture.test.ts` enforces both that nothing defines a private
-  `Drawer`/`DrawerFooter` and that the shared one keeps the body as the only
-  scroller. Proven to fail on a real violation, not merely to pass.
-- **Still centred, not yet converted**: ~38 dialogs across admin, settings,
-  customers, projects, trade-doc-list and board-list. Convert them as they are
-  touched, or in a deliberate sweep — not silently, since each needs its
-  primary action moved into `footer` to actually gain anything.
+- **The sweep is DONE (2026-09-23) — every dialog in the app is now one of two
+  shared components.** `components/ui.tsx`'s **`Modal` renders form-kit's
+  `Drawer`**; it keeps its name and props only so its ~37 call sites did not
+  each need rewriting. `Modal`'s sizes map onto the drawer's, which top out
+  narrower on purpose (its old `xl`, max-w-6xl, lands at the drawer's `2xl`,
+  max-w-4xl). **`center` is `Modal`'s only opt-out and means exactly one
+  thing**: a short yes/no confirmation with no form in it. Roughly 45
+  hand-rolled boxes across admin, settings, payables, leads, batch,
+  trade-doc-list, board-list and the inventory consoles were converted at the
+  same time. `Drawer` also gained `pad` (off when the caller's content brings
+  its own padding), `size="2xl"` (for a panel that is genuinely a table) and
+  `elevated` (z-[60], for quick-add, which opens from inside the New Document
+  form — at the same z-index, DOM order would decide which wins).
+- **What is deliberately NOT a drawer**, so don't "fix" these on sight: the two
+  command palettes (`global-search.tsx`, admin's `_command-palette.tsx`) belong
+  under the cursor; `subscription-gate.tsx` blocks the whole app rather than
+  asking anything; two one-line "sent" acknowledgements have no form and no
+  title bar; and `new-document-form.tsx` plus `accounting/transactions/[id]`
+  are near-full-width document *sheets* (max-w-[1320px]/[1000px]), a different
+  shape from a side panel. Each is named in the guards' allowlist with its
+  reason — add to that list only with a reason of the same kind.
+- `tests/architecture.test.ts` enforces four things: nothing defines a private
+  `Drawer`/`DrawerFooter`, the shared one keeps the body as the only scroller,
+  **no file builds its own centred dialog**, and **no file builds its own side
+  panel**. The last two were the real gap — a private `function Drawer` was
+  only the loudest way to get a second implementation; an inline `fixed
+  inset-0` overlay was the quiet one, and that is how ~45 of them accumulated.
+  All four are proven to fail on a real violation, not merely to pass.
+- **Two things to preserve when converting a dialog**, both learned here: a
+  submit button moved out of a `<form>` into `footer` needs `form="<id>"` or it
+  silently stops submitting and stops honouring `required` (Sage connect); and
+  a two-phase dialog (send → sent, import → imported) should resolve `footer`
+  to `undefined` once the work is committed, leaving the result panel its own
+  Done, rather than a live Send under something already sent.
 
 ## Module information architecture (Phase 1a, 2026-09-06)
 

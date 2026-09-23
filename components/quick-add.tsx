@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { X, Loader, Check } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, Drawer } from "@/components/form-kit";
 
 export type QuickAddKind =
   | "customer" | "supplier" | "item"
@@ -80,14 +80,17 @@ export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCre
   const input = controlInset;
 
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-[420px] h-full bg-stone-900 border-l border-stone-800 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 shrink-0">
-          <h2 className="text-[15px] font-semibold text-white">{meta.title}</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+    // Opens from inside the New Document form, so it has to sit above it.
+    <Drawer title={meta.title} onClose={onClose} elevated
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+          <button onClick={save} disabled={saving || !f.name.trim()} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
+            {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Add {meta.noun}
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      }>
+        <div className="space-y-4">
           {err && <div className="text-[12px] text-rose-400">{err}</div>}
           <div><label className={label}>{kind === "customer" || kind === "supplier" ? "Display name *" : kind === "item" ? "Item name *" : "Name *"}</label>
             <input autoFocus value={f.name} onChange={e => set("name", e.target.value)} className={input} /></div>
@@ -123,13 +126,6 @@ export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCre
             <div><label className={label}>Rate % *</label><input type="number" step="0.01" value={f.rate} onChange={e => set("rate", e.target.value)} className={input} /></div>
           )}
         </div>
-        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-stone-800 shrink-0">
-          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={save} disabled={saving || !f.name.trim()} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
-            {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Add {meta.noun}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

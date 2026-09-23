@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { X, Loader, Check, AlertTriangle, Users, Building2, Contact } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
-import { controlInset } from "@/components/form-kit";
+import { controlInset, Drawer } from "@/components/form-kit";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; noun: string; icon: any }> = {
@@ -84,20 +84,16 @@ export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyT
   const Icon = meta.icon;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-[480px] h-full bg-stone-900 border-l border-stone-800 shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Icon size={17} className="text-teal-400" /></div>
-            <h2 className="text-[15px] font-semibold text-white">{editing ? `Edit ${meta.noun}` : meta.title}</h2>
-          </div>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+    <Drawer size="lg" title={editing ? `Edit ${meta.noun}` : meta.title} onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+          <button onClick={save} disabled={saving || !f.name.trim()} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
+            {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editing ? "Save changes" : `Save ${meta.noun}`}
+          </button>
         </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      }>
+        <div className="space-y-4">
           {err && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2 inline-flex items-center gap-2"><AlertTriangle size={13} /> {err}</div>}
 
           {mc && (
@@ -162,15 +158,6 @@ export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyT
             </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-stone-800 shrink-0">
-          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={save} disabled={saving || !f.name.trim()} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
-            {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editing ? "Save changes" : `Save ${meta.noun}`}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

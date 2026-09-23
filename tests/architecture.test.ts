@@ -985,4 +985,51 @@ describe("a form opens in the shared side drawer, not a private copy of one", ()
     expect(drawer).toMatch(/flex-1 overflow-y-auto/);        // body scrolls
     expect(drawer).toMatch(/footer && <div className="shrink-0/); // footer does not
   });
+
+  // Defining a private `Drawer` function is only the loudest way to get a
+  // second implementation. The quieter one is an inline `fixed inset-0 …`
+  // overlay, which is how ~40 dialogs came to exist with their own widths,
+  // their own close behaviour and — in most of them — a footer inside the
+  // scroll area. Both shapes are now named, and both live in exactly one file.
+  const OVERLAY = /fixed inset-0[^"`]*/g;
+
+  /** Files allowed to render a centred overlay by hand, and why. */
+  const CENTRED_OK: Record<string, string> = {
+    "components/ui.tsx": "the shared Modal's `center` branch — this IS the implementation",
+    "components/global-search.tsx": "a command palette, not a dialog: it belongs under the cursor",
+    "app/(app)/admin/_command-palette.tsx": "same — a command palette",
+    "components/subscription-gate.tsx": "a blocking gate over the whole app, not a form",
+    "app/(app)/admin/leads/page.tsx": "a one-line 'batch email sent' acknowledgement with no title bar",
+  };
+
+  /** Files allowed to render a side panel by hand, and why. */
+  const PANEL_OK: Record<string, string> = {
+    "components/form-kit.tsx": "the shared Drawer — this IS the implementation",
+    "components/new-document-form.tsx": "a near-full-width document sheet (max-w-[1320px]), not a side panel",
+    "app/(app)/accounting/transactions/[id]/page.tsx": "same — a full-width document sheet",
+    "app/(app)/admin/_page-guide.tsx": "admin-only help content, no form and no action to pin",
+  };
+
+  const overlaysIn = (f: string, match: (cls: string) => boolean) =>
+    (readFileSync(f, "utf8").match(OVERLAY) ?? []).filter(match);
+
+  it("no component builds its own centred dialog", () => {
+    const offenders = [...sourceFiles("components"), ...sourceFiles("app")]
+      .map(f => relative(ROOT, f))
+      .filter(rel => !(rel in CENTRED_OK))
+      .filter(rel => overlaysIn(join(ROOT, rel),
+        c => c.includes("items-center") && c.includes("justify-center")).length > 0);
+    expect(
+      offenders,
+      "a form belongs in form-kit's Drawer; a short yes/no confirm belongs in ui.tsx's <Modal center>",
+    ).toEqual([]);
+  });
+
+  it("no component builds its own side panel", () => {
+    const offenders = [...sourceFiles("components"), ...sourceFiles("app")]
+      .map(f => relative(ROOT, f))
+      .filter(rel => !(rel in PANEL_OK))
+      .filter(rel => overlaysIn(join(ROOT, rel), c => c.includes("justify-end")).length > 0);
+    expect(offenders, "use form-kit's Drawer").toEqual([]);
+  });
 });

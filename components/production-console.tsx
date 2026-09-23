@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Factory, X, Loader, Check, Wand2, Trash2 } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
-import { controlCompact, controlInset, fieldLabel, tableHead } from "@/components/form-kit";
+import { controlCompact, controlInset, fieldLabel, tableHead, Drawer, DrawerFooter } from "@/components/form-kit";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -219,14 +219,23 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="relative bg-stone-900 border-l border-stone-800 h-full overflow-y-auto shadow-2xl w-full max-w-xl" onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-800 sticky top-0 bg-stone-900 z-10">
-          <h2 className="text-[15px] font-semibold text-stone-100">New production build</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-800 text-stone-500"><X size={17} /></button>
-        </div>
-        <div className="p-5 space-y-4">
+    // The whole panel used to scroll with a sticky header and a sticky footer
+    // holding it together. The shared drawer scrolls the body only, so neither
+    // needs to be sticky and the footer cannot drift out from under the body.
+    <Drawer size="xl" title="New production build" onClose={onClose}
+      footer={
+        <DrawerFooter
+          saving={saving}
+          // Once the build is queued for approval the only button is Done, and
+          // Done must reload the list — onClose alone would leave the console
+          // showing a state that has moved on.
+          onClose={pendingMsg ? onDone : onClose}
+          onSave={save}
+          saveLabel="Run build"
+          pendingMsg={pendingMsg || undefined}
+        />
+      }>
+        <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>From BOM (optional)</label>
               <select className={inputCls} value={bomId} onChange={e => onBom(e.target.value)}>
@@ -321,19 +330,6 @@ function BuildDrawer({ boms, items, onClose, onDone }: { boms: any[]; items: any
           {err && <p className="text-[12px] text-rose-400">{err}</p>}
           {pendingMsg && <p className="text-[12px] text-amber-400 bg-amber-950/30 border border-amber-900 rounded-lg px-3 py-2">{pendingMsg}</p>}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-stone-800 sticky bottom-0 bg-stone-900">
-          {pendingMsg ? (
-            <button onClick={onDone} className="text-[13px] font-semibold bg-stone-800 text-stone-200 rounded-lg px-4 py-2 hover:bg-stone-700">Done</button>
-          ) : (
-            <>
-              <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Cancel</button>
-              <button onClick={save} disabled={saving} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-                {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Run build
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }

@@ -20,7 +20,7 @@ import { fmt, localToday } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
-import { controlInset, fieldLabel, tableHead } from "@/components/form-kit";
+import { controlInset, fieldLabel, tableHead, Drawer } from "@/components/form-kit";
 import { Modal } from "@/components/ui";
 
 const inputCls = controlInset;
@@ -185,14 +185,22 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative h-full w-full sm:w-[440px] bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-[13px] font-semibold text-stone-100">Send to job worker</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+    <Drawer title="Send to job worker" onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          {pendingMsg ? (
+            <button onClick={onDone} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-semibold">Done</button>
+          ) : (
+            <>
+              <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+                {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Dispatch
+              </button>
+            </>
+          )}
         </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      }>
+        <div className="space-y-4">
           {err && <div className="text-[12px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{err}</div>}
           {pendingMsg && <div className="text-[12px] text-amber-400 bg-amber-950/30 border border-amber-900 rounded-lg px-3 py-2">{pendingMsg}</div>}
           <div><label className={labelCls}>Job worker (vendor)</label>
@@ -246,20 +254,7 @@ function DispatchDrawer({ vendors, items, salesOrders, onClose, onDone }: { vend
           <div><label className={labelCls}>Notes</label>
             <input value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} /></div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
-          {pendingMsg ? (
-            <button onClick={onDone} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-semibold">Done</button>
-          ) : (
-            <>
-              <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-              <button onClick={submit} disabled={busy || !vendorId || !itemId || !qty} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-                {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Dispatch
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -299,14 +294,16 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative h-full w-full sm:w-[440px] bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800">
-          <h2 className="text-[13px] font-semibold text-stone-100">Receive from {order.vendorLabel}</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-200"><X size={18} /></button>
+    <Drawer title={`Receive from ${order.vendorLabel}`} onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+            {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Post receipt
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      }>
+        <div className="space-y-4">
           {err && <div className="text-[12px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{err}</div>}
           <p className="text-[12px] text-stone-500">
             Sent: {qtyFmt(Number(order.sentQty))} {order.sentItem?.name} · carried cost {money(Number(order.sentAmount))}
@@ -343,14 +340,7 @@ function ReceiveDrawer({ order, items, onClose, onDone }: { order: any; items: a
             hint="Where the transformed goods physically land"
           />
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-800">
-          <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={submit} disabled={busy || !itemId || !qty || (unitsDiffer && !materialQty)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-            {busy ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Post receipt
-          </button>
-        </div>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 
