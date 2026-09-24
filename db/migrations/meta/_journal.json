@@ -666,6 +666,13 @@
       "when": 1790300000000,
       "tag": "0095_inventory_posting_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1790400000000,
+      "tag": "0096_prune_sibling_role_mappings",
+      "breakpoints": true
     }
   ]
 }

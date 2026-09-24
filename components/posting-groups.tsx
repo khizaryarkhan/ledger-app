@@ -17,7 +17,7 @@ import { ListPage, ListPageHeader } from "@/components/list-view";
 import { Button, Modal, Toast } from "@/components/ui";
 import { Drawer, DrawerFooter, Field, SelectField, controlInset, control, t } from "@/components/form-kit";
 import {
-  ACCOUNT_ROLES, ROLES, ROLE_SECTIONS, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES,
+  ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, groupRoleSections,
   allowedTypesFor, roleAccountError, type AccountRole, type GroupType,
 } from "@/lib/accounting/account-roles";
 import { fmt, localToday } from "@/lib/format";
@@ -151,27 +151,27 @@ export function PostingGroups() {
                 <div>
                   <div className={t.heading}>{group.name}</div>
                   <div className={t.hint}>
-                    {GROUP_TYPE_META[group.groupType].label} items post their stock to <b className="text-stone-300">{ROLES[GROUP_TYPE_META[group.groupType].inventoryRole].label}</b>,
-                    {" "}sales to <b className="text-stone-300">{ROLES[GROUP_TYPE_META[group.groupType].salesRole].label}</b> and cost of sales to <b className="text-stone-300">{ROLES[GROUP_TYPE_META[group.groupType].cogsRole].label}</b>.
+                    {GROUP_TYPE_META[group.groupType].label} group · {group.itemCount} item{group.itemCount === 1 ? "" : "s"}
+                    {group.isDefault ? ` · every ${GROUP_TYPE_META[group.groupType].label.toLowerCase()} item without a group of its own posts here` : ""}
                   </div>
                 </div>
               </div>
               <table className="w-full text-[13px]">
                 <tbody>
-                  {ROLE_SECTIONS.map(section => {
-                    const roles = ACCOUNT_ROLES.filter(r => ROLES[r].section === section);
+                  {groupRoleSections(group.groupType).map(section => {
                     return [
-                      <tr key={section}><td colSpan={2} className={`${t.micro} px-4 pt-4 pb-1.5`}>{section}</td></tr>,
-                      ...roles.map(r => {
+                      <tr key={section.title}><td colSpan={2} className="px-4 pt-5 pb-1.5">
+                        <div className={t.micro}>{section.title}</div>
+                        <div className={`${t.hint} mt-0.5`}>{section.desc}</div>
+                      </td></tr>,
+                      ...section.roles.map(({ role: r, label }) => {
                         const value = draft[r] ?? group.roles[r] ?? "";
-                        const used = r === GROUP_TYPE_META[group.groupType].inventoryRole || r === GROUP_TYPE_META[group.groupType].salesRole || r === GROUP_TYPE_META[group.groupType].cogsRole;
                         const bad = value ? roleAccountError(r, byId.get(value) as any) : null;
                         return (
                           <tr key={r} className="border-t border-stone-800/60">
                             <td className="px-4 py-2 align-top w-[42%]">
                               <div className="flex items-center gap-1.5">
-                                <span className={t.bodyStrong}>{ROLES[r].label}</span>
-                                {used && <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400/90 bg-emerald-500/10 rounded px-1.5 py-px">this group</span>}
+                                <span className={t.bodyStrong}>{label}</span>
                                 {(INVENTORY_ROLES as readonly string[]).includes(r) && <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-400 bg-stone-800 rounded px-1.5 py-px">control</span>}
                               </div>
                               <div className={t.hint}>{ROLES[r].purpose} · {allowedTypesFor(r).join(" / ")}</div>

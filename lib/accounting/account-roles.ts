@@ -70,7 +70,6 @@ export const ROLES: Record<AccountRole, RoleMeta> = {
   INVENTORY_WRITEDOWN:     { role: "INVENTORY_WRITEDOWN",     section: "Adjustments",   kind: "cost_of_sales",     label: "Inventory write-downs",     purpose: "Write-down to net realisable value, expiry, damage",        defaultName: "Inventory Write-downs" },
 };
 
-export const ROLE_SECTIONS: RoleMeta["section"][] = ["Inventory", "Purchasing", "Sales", "Cost of sales", "Production", "Adjustments"];
 
 /**
  * The four stock roles. Accounts mapped to them are CONTROL accounts: their
@@ -145,9 +144,80 @@ export const TRADING_DEFAULT_NAMES: Partial<Record<AccountRole, string>> = {
 export const defaultAccountName = (role: AccountRole, groupType: GroupType): string =>
   (groupType === "TRADING" ? TRADING_DEFAULT_NAMES[role] : undefined) ?? ROLES[role].defaultName;
 
-/** Roles still unmapped in a group's role → account map. */
-export function missingRoles(map: Partial<Record<string, string | null | undefined>>): AccountRole[] {
-  return ACCOUNT_ROLES.filter(r => !map[r]);
+/**
+ * The three roles that DIFFER by group type — stock, sales and cost of sales.
+ * Each group uses exactly one of each; the others belong to sibling groups.
+ */
+const GOODS_ROLES: readonly AccountRole[] = [
+  "RM_INVENTORY", "WIP_STOCK", "FG_INVENTORY",
+  "SALES_FG", "SALES_SURPLUS",
+  "COGS_FG", "COGS_SURPLUS",
+];
+
+/**
+ * The roles a group of this type actually posts through: its OWN stock, sales
+ * and cost-of-sales role, plus every role that is not goods-specific (GRNI,
+ * WIP open orders, variances, returns, adjustments). A Raw Materials group
+ * never reads "Finished goods inventory" — only a finished-goods item does,
+ * through its own group — so asking for it there was a question with no effect.
+ */
+export function rolesForGroupType(t: GroupType): AccountRole[] {
+  const m = GROUP_TYPE_META[t];
+  const own = new Set<AccountRole>([m.inventoryRole, m.salesRole, m.cogsRole]);
+  return ACCOUNT_ROLES.filter(r => !GOODS_ROLES.includes(r) || own.has(r));
+}
+
+/** Is this role one a group of this type uses? */
+export const isRoleForGroupType = (role: AccountRole, t: GroupType) => rolesForGroupType(t).includes(role);
+
+/**
+ * How a group's accounts are laid out on the mapping screen. The group's own
+ * three goods accounts come first under neutral names ("Stock account"), since
+ * what they are called depends only on the group; the shared roles follow,
+ * grouped by the process that posts to them. Exhaustive: every role the group
+ * uses appears exactly once (pinned in tests/account-roles.test.ts).
+ */
+export type RoleSection = { title: string; desc: string; roles: { role: AccountRole; label: string }[] };
+
+export function groupRoleSections(t: GroupType): RoleSection[] {
+  const m = GROUP_TYPE_META[t];
+  const kind = m.label.toLowerCase();
+  return [
+    { title: "This group's accounts", desc: `Where ${kind} stock is held, and where its sales and cost of sales go.`, roles: [
+      { role: m.inventoryRole, label: "Stock account" },
+      { role: m.salesRole,     label: "Sales account" },
+      { role: m.cogsRole,      label: "Cost of sales account" },
+    ] },
+    { title: "Purchasing", desc: "Receipts awaiting the supplier's bill, and price differences on it.", roles: [
+      { role: "GRNI",                    label: ROLES.GRNI.label },
+      { role: "PURCHASE_PRICE_VARIANCE", label: ROLES.PURCHASE_PRICE_VARIANCE.label },
+    ] },
+    { title: "Production & job work", desc: "Value inside open orders, what is charged into them, and what is left when they close.", roles: [
+      { role: "WIP_OPEN_ORDERS",     label: ROLES.WIP_OPEN_ORDERS.label },
+      { role: "LABOUR_ABSORBED",     label: ROLES.LABOUR_ABSORBED.label },
+      { role: "OVERHEAD_ABSORBED",   label: ROLES.OVERHEAD_ABSORBED.label },
+      { role: "PRODUCTION_VARIANCE", label: ROLES.PRODUCTION_VARIANCE.label },
+      { role: "SCRAP_LOSS",          label: ROLES.SCRAP_LOSS.label },
+    ] },
+    { title: "Returns & other sales", desc: "Customer returns, and sales of scrap and offcuts.", roles: [
+      { role: "SALES_RETURNS", label: ROLES.SALES_RETURNS.label },
+      { role: "SCRAP_SALES",   label: ROLES.SCRAP_SALES.label },
+    ] },
+    { title: "Stock adjustments", desc: "Count differences and write-downs of stock on hand.", roles: [
+      { role: "INVENTORY_ADJUSTMENT", label: ROLES.INVENTORY_ADJUSTMENT.label },
+      { role: "INVENTORY_WRITEDOWN",  label: ROLES.INVENTORY_WRITEDOWN.label },
+    ] },
+  ];
+}
+
+/**
+ * Roles still unmapped in a group's map — the block's input. With a group
+ * type, only the roles that type uses count: an unmapped "Finished goods
+ * inventory" on a Raw Materials group blocks nothing, because nothing reads it.
+ */
+export function missingRoles(map: Partial<Record<string, string | null | undefined>>, groupType?: GroupType): AccountRole[] {
+  const roles = groupType ? rolesForGroupType(groupType) : [...ACCOUNT_ROLES];
+  return roles.filter(r => !map[r]);
 }
 
 /**

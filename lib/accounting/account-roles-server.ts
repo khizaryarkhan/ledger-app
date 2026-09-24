@@ -17,7 +17,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { LedgerValidationError, postJournalEntry } from "@/lib/ledger";
 import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, INVENTORIES_HEADER, MAPPING_PATH,
-  TEMPLATE_VERSION, TRADING_DEFAULT_NAMES, defaultAccountName, groupTypeForKind, isGroupType, missingRoles,
+  TEMPLATE_VERSION, TRADING_DEFAULT_NAMES, defaultAccountName, groupTypeForKind, isGroupType, missingRoles, rolesForGroupType, isRoleForGroupType,
   roleAccountError, roleForOverride, type AccountRole, type GroupType, type OverrideField,
 } from "./account-roles";
 
@@ -180,7 +180,7 @@ export async function provisionInventoryAccounting(orgId: string, opts: { withAc
   const have = new Set(existing.map(m => `${m.groupId}|${m.role}`));
   const inserts: { orgId: string; groupId: string; role: string; accountId: string }[] = [];
   for (const [t, gid] of defaults) {
-    for (const role of ACCOUNT_ROLES) {
+    for (const role of rolesForGroupType(t)) {           // only what this group type posts through
       if (have.has(`${gid}|${role}`)) continue;
       const acct = byKey.get(key(role, defaultAccountName(role, t)));
       if (acct && !acct.startsWith("dry:")) inserts.push({ orgId, groupId: gid, role, accountId: acct });
@@ -220,7 +220,10 @@ export async function loadGroupMaps(orgId: string): Promise<GroupMap[]> {
   const maps = await db.select().from(postingGroupAccounts).where(eq(postingGroupAccounts.orgId, orgId));
   return groups.filter(g => isGroupType(g.groupType)).map(g => ({
     id: g.id, name: g.name, groupType: g.groupType as GroupType, isDefault: g.isDefault,
-    roles: Object.fromEntries(maps.filter(m => m.groupId === g.id).map(m => [m.role, m.accountId])) as GroupMap["roles"],
+    // Only the roles this group type posts through. A mapping for a sibling's
+    // goods role ("Finished goods inventory" on a Raw Materials group) would be
+    // read by nothing, but counted as a use by remap and "in use" checks.
+    roles: Object.fromEntries(maps.filter(m => m.groupId === g.id && isRoleForGroupType(m.role as AccountRole, g.groupType as GroupType)).map(m => [m.role, m.accountId])) as GroupMap["roles"],
   }));
 }
 
@@ -274,7 +277,7 @@ export async function resolveItemAccounts(orgId: string, items: ItemRow[], opts?
     out.set(it.id, {
       postingGroupId: g?.id ?? null, groupType: t, groupName: g?.name ?? null, roles,
       assetAccountId: roles[m.inventoryRole] ?? null, cogsAccountId: roles[m.cogsRole] ?? null, incomeAccountId: roles[m.salesRole] ?? null,
-      unmapped: missingRoles(roles), ignoredOverrides: ignored,
+      unmapped: missingRoles(roles, t), ignoredOverrides: ignored,
     });
   }
   return out;
@@ -542,7 +545,7 @@ export async function createPostingGroup(orgId: string, name: string, groupType:
   if (groups.some(g => g.name.trim().toLowerCase() === clean.toLowerCase())) return { error: `A posting group called "${clean}" already exists.` };
   const [row] = await db.insert(inventoryPostingGroups).values({ orgId, name: clean, groupType, isDefault: false }).returning({ id: inventoryPostingGroups.id });
   const base = groups.find(g => g.isDefault && g.groupType === groupType);
-  const copy = Object.entries(base?.roles ?? {}).filter(([, a]) => a).map(([role, accountId]) => ({ orgId, groupId: row.id, role, accountId: accountId! }));
+  const copy = Object.entries(base?.roles ?? {}).filter(([r, a]) => a && isRoleForGroupType(r as AccountRole, groupType)).map(([role, accountId]) => ({ orgId, groupId: row.id, role, accountId: accountId! }));
   if (copy.length) await db.insert(postingGroupAccounts).values(copy);
   return { id: row.id };
 }
@@ -573,6 +576,7 @@ export async function updateGroupMapping(orgId: string, groupId: string, u: Mapp
   const changes: RemapChange[] = [];
   for (const [role, accountId] of Object.entries(u.roles)) {
     if (!(ACCOUNT_ROLES as readonly string[]).includes(role)) return { error: `Unknown role ${role}.` };
+    if (!isRoleForGroupType(role as AccountRole, g.groupType)) return { error: `${ROLES[role as AccountRole].label} is not used by a ${GROUP_TYPE_META[g.groupType].label.toLowerCase()} group.` };
     if (!accountId) return { error: `${ROLES[role as AccountRole].label} needs an account — a role can't be left unmapped once set.` };
     const why = byId.has(accountId) ? roleAccountError(role as AccountRole, byId.get(accountId)!) : "That account doesn't exist in this organisation.";
     if (why) return { error: why };

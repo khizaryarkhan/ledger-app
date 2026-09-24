@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, TRADING_DEFAULT_NAMES,
   allowedTypesFor, roleAccountError, groupTypeForKind, missingRoles, defaultAccountName, roleForOverride,
+  rolesForGroupType, groupRoleSections,
 } from "@/lib/accounting/account-roles";
 import { ITEM_KIND_LIST } from "@/lib/inventory/item-kinds";
 import { ACCOUNT_TYPE_NAMES } from "@/lib/accounting/account-types";
@@ -90,5 +91,38 @@ describe("posting groups", () => {
     const all = Object.fromEntries(ACCOUNT_ROLES.map(r => [r, "a"]));
     expect(missingRoles(all)).toEqual([]);
     expect(missingRoles({ ...all, GRNI: null })).toEqual(["GRNI"]);
+  });
+
+  // The reported confusion: a Raw Materials group showed (and required)
+  // "Finished goods inventory" — a row nothing reads for a raw material.
+  it("a group uses only its own stock, sales and COGS role — never a sibling's", () => {
+    for (const t of GROUP_TYPES) {
+      const m = GROUP_TYPE_META[t];
+      const used = rolesForGroupType(t);
+      expect(used).toHaveLength(14);
+      for (const r of [m.inventoryRole, m.salesRole, m.cogsRole]) expect(used).toContain(r);
+      for (const other of GROUP_TYPES) {
+        const o = GROUP_TYPE_META[other];
+        if (o.inventoryRole !== m.inventoryRole) expect(used).not.toContain(o.inventoryRole);
+        if (o.salesRole !== m.salesRole) expect(used).not.toContain(o.salesRole);
+      }
+    }
+    expect(rolesForGroupType("RM")).not.toContain("FG_INVENTORY");
+    expect(rolesForGroupType("RM")).not.toContain("WIP_STOCK");
+  });
+
+  it("an unmapped sibling role does not block a group", () => {
+    const rm = Object.fromEntries(rolesForGroupType("RM").map(r => [r, "a"]));
+    expect(missingRoles(rm, "RM")).toEqual([]);
+    expect(missingRoles(rm)).toEqual(expect.arrayContaining(["FG_INVENTORY", "WIP_STOCK", "SALES_FG", "COGS_FG"]));
+  });
+
+  it("the screen's sections show every role a group uses exactly once, and nothing else", () => {
+    for (const t of GROUP_TYPES) {
+      const shown = groupRoleSections(t).flatMap(s => s.roles.map(r => r.role));
+      expect(new Set(shown).size).toBe(shown.length);
+      expect([...shown].sort()).toEqual([...rolesForGroupType(t)].sort());
+      expect(groupRoleSections(t)[0].roles.map(r => r.label)).toEqual(["Stock account", "Sales account", "Cost of sales account"]);
+    }
   });
 });

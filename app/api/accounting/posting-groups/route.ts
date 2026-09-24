@@ -33,7 +33,7 @@ export async function GET() {
     canEdit: ADMIN.includes(role!),
     groups: groups
       .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name))
-      .map(g => ({ ...g, itemCount: counts.get(g.id) ?? 0, missing: missingRoles(g.roles) })),
+      .map(g => ({ ...g, itemCount: counts.get(g.id) ?? 0, missing: missingRoles(g.roles, g.groupType) })),
     accounts: accts.sort((a, b) => (a.code ?? "~").localeCompare(b.code ?? "~") || a.name.localeCompare(b.name)),
   });
 }
