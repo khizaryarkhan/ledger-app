@@ -27,7 +27,7 @@
 import { db } from "@/db";
 import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
-import { postJournalEntry, validateEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
+import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import type { DocType } from "@/lib/accounting/numbering";
 import { ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
@@ -117,10 +117,12 @@ async function controlAccounts(orgId: string) {
   const ar = bySub("AccountsReceivable") ?? byType("Accounts Receivable");
   const ap = bySub("AccountsPayable") ?? byType("Accounts Payable");
   const tax = bySub("SalesTaxPayable");
-  const invAsset = bySub("Inventory");
-  const invCogs = bySub("SuppliesMaterialsCogs") ?? byType("Cost of Goods Sold");
   const fx = bySub("ExchangeGainOrLoss");
-  return { arId: ar?.id ?? null, apId: ap?.id ?? null, taxId: tax?.id ?? null, invAssetId: invAsset?.id ?? null, invCogsId: invCogs?.id ?? null, fxId: fx?.id ?? null };
+  // No inventory or COGS account here any more: those are ROLES, resolved per
+  // item through its posting group (loadItemCostInfo). Guessing one by subtype
+  // picked whichever account happened to match first — COGS could land on
+  // Inventory Adjustments, which shares its type.
+  return { arId: ar?.id ?? null, apId: ap?.id ?? null, taxId: tax?.id ?? null, fxId: fx?.id ?? null };
 }
 
 /** Compute per-line tax from the tax-rate master (server-trusted). */
@@ -152,7 +154,7 @@ export const EDIT_PAYLOAD_TYPES = new Set<DocType>([...EDITABLE_TYPES, ...PAYMEN
  * input. Shared by create (postDocument) and edit (updateDocument) so both
  * apply identical accounting rules. Returns transaction-currency lines.
  */
-async function buildSalesPurchaseLines(orgId: string, type: DocType, input: PostDocInput, arId: string | null, apId: string | null, taxId: string | null, itemMap?: Map<string, ItemCostInfo>, invAssetId?: string | null): Promise<PostLine[]> {
+async function buildSalesPurchaseLines(orgId: string, type: DocType, input: PostDocInput, arId: string | null, apId: string | null, taxId: string | null, itemMap?: Map<string, ItemCostInfo>): Promise<PostLine[]> {
   const lines: PostLine[] = [];
   const name = (extra: Partial<PostLine>): Partial<PostLine> =>
     input.partyType && (input.partyId || input.partyLabel)
@@ -175,6 +177,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   // silently sending a different account — a real chart sometimes needs one
   // item posted somewhere else for a single document.
   const isSale = type === "Invoice" || type === "SalesReceipt" || type === "CreditNote" || type === "RefundReceipt";
+  const isReturn = type === "CreditNote" || type === "RefundReceipt";
   const accountFor = (l: DocLineInput): string | undefined => {
     const it = l.itemId && itemMap ? itemMap.get(l.itemId) : undefined;
     if (!it) return l.accountId;                       // no item → caller's account stands
@@ -182,8 +185,11 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     // asset because a FIFO lot is created against that account. Sending the
     // debit elsewhere would raise stock in the subledger with no matching
     // movement in the GL — a break that never self-corrects.
-    if (!isSale && it.tracked) return it.assetAccountId ?? invAssetId ?? l.accountId;
+    if (!isSale && it.tracked) return it.assetAccountId!;          // resolved by role — never null once loaded
     if (l.accountOverride && l.accountId) return l.accountId;
+    // A customer return of a stocked item is contra-revenue in its own
+    // account (SALES_RETURNS), not a debit buried in the sales line.
+    if (isReturn && it.tracked) return it.accounts?.roles.SALES_RETURNS ?? it.incomeAccountId ?? l.accountId;
     return (isSale ? it.incomeAccountId : it.expenseAccountId) ?? l.accountId;
   };
   // Resolve first, THEN drop empty lines — so a line that names an item but no
@@ -192,6 +198,11 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     .map(l => ({ ...l, accountId: accountFor(l) }))
     .filter(l => l.accountId && round2(l.amount) !== 0);
   if (raw.length === 0) err("Add at least one line with an account and amount.");
+  // An ACCOUNT line (no stocked item behind it) may not post to an inventory
+  // control account: "Raw materials inventory, 500" on a bill's Accounts
+  // section would raise stock in the GL with no lot, no quantity and nothing
+  // that could ever relieve it. Stock enters the books only with an item.
+  await assertNoControlAccounts(orgId, raw.filter(l => !(l.itemId && itemMap?.get(l.itemId)?.tracked)).map(l => ({ accountId: l.accountId! })));
   const priced = await withTax(orgId, raw);
   const netTotal = round2(priced.reduce((s, l) => s + l.net, 0));
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
@@ -282,7 +293,7 @@ async function itemMapForInput(orgId: string, input: PostDocInput): Promise<Map<
  * returns the COGS/Inventory GL lines to append (home currency) plus the lot
  * issues to commit. For purchases, returns the receipt lots to create.
  */
-async function planDocumentInventory(orgId: string, type: DocType, input: PostDocInput, itemMap: Map<string, ItemCostInfo>, invAssetId: string | null, invCogsId: string | null, rate: number): Promise<InvPlan> {
+async function planDocumentInventory(orgId: string, type: DocType, input: PostDocInput, itemMap: Map<string, ItemCostInfo>, rate: number): Promise<InvPlan> {
   const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [], locationId: null };
   const stockLines = (input.lines ?? []).filter(l => l.itemId && itemMap.get(l.itemId)?.tracked && Math.abs(Number(l.qty) || 0) > 0);
   if (!stockLines.length) return plan;
@@ -299,9 +310,10 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
       const item = itemMap.get(l.itemId!)!;
       const issue = await planIssue(orgId, item, baseQtyOfLine(l), { locationId: plan.locationId });
       if (issue.totalCost <= 0) continue;
-      const cogsAcct = item.cogsAccountId ?? invCogsId;
-      const assetAcct = item.assetAccountId ?? invAssetId;
-      if (!cogsAcct || !assetAcct) continue; // no routing — skip cost relief rather than mispost
+      // COGS_FG for finished / trading goods, COGS_SURPLUS for raw material and
+      // WIP sold as surplus — both from the sold item's group.
+      const cogsAcct = item.cogsAccountId!;
+      const assetAcct = item.assetAccountId!;
       // Lot costs are already in home currency, so COGS/relief are home amounts.
       plan.extraHomeLines.push({ accountId: cogsAcct, debit: round2(issue.totalCost), description: `Cost of goods sold — ${item.name}` });
       plan.extraHomeLines.push({ accountId: assetAcct, credit: round2(issue.totalCost), description: `Inventory relief — ${item.name}` });
@@ -310,10 +322,6 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
   } else if (PURCH_STOCK.has(type)) {
     for (const l of stockLines) {
       const item = itemMap.get(l.itemId!)!;
-      // Only capitalise (create a lot) when the GL debit was actually routed to
-      // an inventory asset account — matches buildSalesPurchaseLines' fallback.
-      const assetAcct = item.assetAccountId ?? invAssetId;
-      if (!assetAcct) continue;
       // In BASE units: a line of 5 cartons is 3,000 m of stock, and the cost
       // per metre is the line amount over 3,000 — not over 5.
       const qty = baseQtyOfLine(l);
@@ -569,7 +577,7 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
   // Links to create after posting. fromType/fromId default to the new entry
   // (cash payment); credit applications set them to the credit source instead.
   const pendingLinks: { fromType?: string; fromId?: string; toType: string; toId: string; relation: string; amount: number }[] = [];
-  const { arId, apId, taxId, invAssetId, invCogsId, fxId } = await controlAccounts(orgId);
+  const { arId, apId, taxId, fxId } = await controlAccounts(orgId);
   const memo = input.memo?.trim() || null;
   let invPlan: InvPlan | null = null;
   let paymentExtraLines: PostLine[] = [];
@@ -588,8 +596,8 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
       if (msg) err(msg);
     }
     const itemMap = await itemMapForInput(orgId, input);
-    lines.push(...await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap, invAssetId));
-    invPlan = await planDocumentInventory(orgId, type, input, itemMap, invAssetId, invCogsId, rate);
+    lines.push(...await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap));
+    invPlan = await planDocumentInventory(orgId, type, input, itemMap, rate);
   }
 
   // ── Money-movement documents ──────────────────────────────────────────────
@@ -724,7 +732,7 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     if (!org?.mc) err("Enable multi-currency before entering a foreign-currency transaction.");
     if (!(rate > 0)) err("Enter a valid exchange rate.");
   }
-  const { arId, apId, taxId, invAssetId, invCogsId, fxId } = await controlAccounts(orgId);
+  const { arId, apId, taxId, fxId } = await controlAccounts(orgId);
 
   let built: PostLine[];
   let pendingLinks: PendingLink[] = [];
@@ -748,7 +756,7 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
       .where(and(eq(transactionLinks.orgId, orgId), or(eq(transactionLinks.fromId, entryId), eq(transactionLinks.toId, entryId)))).limit(1);
     if (link) err("This document has payments or credits applied to it — remove those first, or reverse it.");
     const itemMap = await itemMapForInput(orgId, input);
-    built = toHome(await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap, invAssetId), currency, rate, home);
+    built = toHome(await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap), currency, rate, home);
     // Validate the base entry (balance + accounts) BEFORE mutating inventory —
     // a bad edit (missing customer, zero lines) must not strand the lots.
     await validateEntry(orgId, built);
@@ -756,7 +764,7 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     // has since been consumed) and re-plan against the restored FIFO lots.
     try { await reverseInventoryByEntry(orgId, entryId); }
     catch (e: any) { err(e?.message || "Inventory from this document has already been used — reverse it instead of editing."); }
-    invPlan = await planDocumentInventory(orgId, type, input, itemMap, invAssetId, invCogsId, rate);
+    invPlan = await planDocumentInventory(orgId, type, input, itemMap, rate);
     if (invPlan) built.push(...invPlan.extraHomeLines); // balanced Dr/Cr pairs — entry stays balanced
   }
 

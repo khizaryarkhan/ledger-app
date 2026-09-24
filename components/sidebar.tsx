@@ -272,6 +272,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       icon: Database,
       items: [
         { href: "/accounting/tax-rates",         label: "Tax Rates",           icon: Receipt },
+        // The inventory Chart-of-Accounts mapping: which account each stock
+        // posting goes to. Setup, not Ledger — it is configuration, like tax rates.
+        { href: "/accounting/posting-groups",    label: "Posting Groups",      icon: Layers },
         { href: "/accounting/classes",           label: "Classes",             icon: Layers },
         { href: "/accounting/locations",         label: "Locations",           icon: Building2 },
         { href: "/accounting/cost-centres",      label: "Cost Centres",        icon: CreditCard },

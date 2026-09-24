@@ -315,6 +315,32 @@ export async function reconcileOrg(orgId: string, orgName: string): Promise<OrgR
     detail: foreignCount ? `${foreignCount} cross-tenant placement(s) — investigate immediately` : "none",
   });
 
+  // ── 11. stock value agrees with each inventory account's GL balance ─────
+  // Only for an org that has posting groups — i.e. has done inventory since
+  // roles existed. Read-only (provision:false): reconciling must never seed a
+  // chart. This is the check whose absence let a double-counted bill and a
+  // lot-less receipt sit in the books unnoticed (GAP_REPORT.md section C).
+  const hasGroups = await rows<{ n: number }>(sql`select count(*)::int as n from inventory_posting_groups where org_id = ${orgId}`);
+  if (Number(hasGroups[0]?.n ?? 0) === 0) {
+    checks.push({ key: "inventory_vs_gl", label: "Stock value agrees with the inventory accounts", status: "skipped", detail: "no posting groups — the org has not posted inventory under roles" });
+  } else {
+    const { stockVsGl } = await import("@/lib/accounting/account-roles-server");
+    const svg = await stockVsGl(orgId, null, { provision: false });
+    const off = svg.rows.filter(r => Math.abs(r.difference) > TOL);
+    const wipOff = svg.wip.filter(w => Math.abs(w.difference) > TOL);
+    const bad = off.length + wipOff.length + (Math.abs(svg.unassignedValue) > TOL ? 1 : 0);
+    checks.push({
+      key: "inventory_vs_gl",
+      label: "Stock value agrees with the inventory accounts",
+      status: bad ? "fail" : "pass",
+      detail: bad
+        ? [...off.map(r => `${r.accountName}: GL ${fmt(r.glBalance)} vs stock ${fmt(r.stockValue)}`),
+           ...wipOff.map(w => `${w.accountName}: GL ${fmt(w.glBalance)} vs open orders ${fmt(w.openOrdersValue)}`),
+           ...(Math.abs(svg.unassignedValue) > TOL ? [`${fmt(svg.unassignedValue)} of stock sits in groups with no inventory account`] : [])].join("; ")
+        : `${svg.rows.length} inventory account(s) tie out`,
+    });
+  }
+
   return {
     orgId, orgName, usesNativeLedger, checks,
     failures: checks.filter(c => c.status === "fail").length,

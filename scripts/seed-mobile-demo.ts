@@ -26,7 +26,7 @@ import {
   tradeDocuments, tradeDocumentLines,
 } from "@/db/schema";
 import { ensureAccount } from "@/lib/admin/accounts";
-import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
+import { prepareItemAccounting } from "@/lib/accounting/account-roles-server";
 
 const DEMO_SLUG = "app-review-demo";
 const DEMO_ORG_NAME = "Prime Accountax — App Review Demo";
@@ -70,12 +70,11 @@ async function ensureItem(orgId: string, name: string, productType: "RawMaterial
     .where(and(eq(apItems.orgId, orgId), eq(apItems.name, name))).limit(1);
   if (existing) return existing.id;
 
-  await ensureSystemAccounts(orgId);
-  const assetAccountId = await systemAccountId(orgId, INV_SUBTYPE.asset);
-  const cogsAccountId = await systemAccountId(orgId, INV_SUBTYPE.cogs);
+  const acc = await prepareItemAccounting(orgId, { productType });
+  if ("error" in acc) throw new Error(acc.error);
   const [row] = await db.insert(apItems).values({
     orgId, source: "native", name, productType, baseUom, itemType: "Inventory",
-    assetAccountId, cogsAccountId, lotTracked: true, status: "Active",
+    postingGroupId: acc.values.postingGroupId, lotTracked: true, status: "Active",
   } as any).returning({ id: apItems.id });
   return row.id;
 }

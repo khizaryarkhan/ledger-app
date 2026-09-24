@@ -13,7 +13,7 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
 import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
 import { sourcingOf } from "@/lib/inventory/sourcing";
-import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
+import { prepareItemAccounting, effectiveInventoryAccount } from "@/lib/accounting/account-roles-server";
 import { onHandBySku } from "@/lib/inventory/valuation";
 import { itemReferences, itemHasStockHistory, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
@@ -91,10 +91,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.minOhQty !== undefined) set.minOhQty = (numOrNull(b.minOhQty) ?? 0).toString();
   if (b.unitPrice !== undefined) set.unitPrice = numOrNull(b.unitPrice);
   if (b.unitCost !== undefined) set.unitCost = numOrNull(b.unitCost);
-  if (b.incomeAccountId !== undefined) set.incomeAccountId = s(b.incomeAccountId, 64);
   if (b.expenseAccountId !== undefined) set.expenseAccountId = s(b.expenseAccountId, 64);
-  if (b.assetAccountId !== undefined) set.assetAccountId = s(b.assetAccountId, 64);
-  if (b.cogsAccountId !== undefined) set.cogsAccountId = s(b.cogsAccountId, 64);
   if (b.lotTracked !== undefined) set.lotTracked = !!b.lotTracked;
   if (b.taxRateId !== undefined) set.taxRateId = s(b.taxRateId, 64);
   if (b.sourcingPolicy !== undefined) {
@@ -109,22 +106,31 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     }
     set.sourcingPolicy = meta.policy;
   }
-  // A tracked item must post to a balance-sheet asset and relieve COGS, so the
-  // same fallback POST applies has to apply here too. The edit form offers
-  // "Inventory Asset (system default)" as a blank value; without this, choosing
-  // it wrote NULL and the item then failed on every document with "no expense
-  // account set" — a message about a field that kind does not even show.
-  // Evaluated against the kind the item will HAVE, so switching a Service to a
-  // Raw Material lands with its accounts already correct.
-  const willBeTracked = kindOf(set.productType ?? existing.productType).tracked;
-  if (willBeTracked) {
-    const asset = set.assetAccountId !== undefined ? set.assetAccountId : existing.assetAccountId;
-    const cogs = set.cogsAccountId !== undefined ? set.cogsAccountId : existing.cogsAccountId;
-    if (!asset || !cogs) {
-      await ensureSystemAccounts(orgId!).catch(() => {});
-      if (!asset) set.assetAccountId = await systemAccountId(orgId!, INV_SUBTYPE.asset);
-      if (!cogs) set.cogsAccountId = await systemAccountId(orgId!, INV_SUBTYPE.cogs);
+  // Accounting: group + validated overrides, evaluated against the kind the
+  // item will HAVE (a Service turned Raw Material lands in a raw-material
+  // group). Blank = inherit; a stale group of the wrong type falls back to the
+  // default group of the new type rather than refusing the edit.
+  const touchesAccounting = ["postingGroupId", "assetAccountId", "cogsAccountId", "incomeAccountId", "productType"].some(k => b[k] !== undefined);
+  if (touchesAccounting) {
+    const pick = (k: "postingGroupId" | "assetAccountId" | "cogsAccountId" | "incomeAccountId") => b[k] !== undefined ? s(b[k], 64) : (existing as any)[k] ?? null;
+    const productType = set.productType ?? existing.productType;
+    const acc = await prepareItemAccounting(orgId!, {
+      productType,
+      postingGroupId: b.postingGroupId !== undefined ? s(b.postingGroupId, 64) : (changingKind ? null : existing.postingGroupId),
+      assetAccountId: pick("assetAccountId"), cogsAccountId: pick("cogsAccountId"), incomeAccountId: pick("incomeAccountId"),
+    });
+    if ("error" in acc) return bad(acc.error);
+    // Moving an item's stock to a different inventory account while it holds
+    // value would strand that value in the old account — the GL keeps it, the
+    // lots no longer point at it, and the two never reconcile again.
+    if (Number(existing.invValue ?? 0) !== 0) {
+      const before = await effectiveInventoryAccount(orgId!, existing);
+      const after = await effectiveInventoryAccount(orgId!, { ...existing, productType, ...acc.values });
+      if (before && after && before !== after) {
+        return bad("This item holds stock, so its inventory account can't change here — the value on hand would be left behind in the old account. Change the posting group's mapping instead (Accounting → Setup → Posting Groups), which moves the balance with a reclass entry.", 409);
+      }
     }
+    Object.assign(set, acc.values);
   }
   await db.update(apItems).set(set).where(and(eq(apItems.id, params.id), eq(apItems.orgId, orgId!)));
   return ok({ id: params.id, updated: true });

@@ -652,8 +652,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0094` at `when`
-  `1790200000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0095` at `when`
+  `1790300000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1157,6 +1157,97 @@ network at all — that is what makes it ours rather than a proxy.
     reservation/reallocation and planned-vs-actual costing are the next
     phases, designed for but not built — see the roadmap plan for the full
     picture.
+
+## Inventory Chart-of-Accounts mapping — roles & posting groups (2026-09-24)
+
+Phase 2 of the inventory-accounting spec (GAP_REPORT.md is Phase 1). **Posting
+never names an account.** It names a ROLE (18 of them, `lib/accounting/account-roles.ts`)
+and the item's POSTING GROUP says which of the tenant's accounts plays it.
+
+- **Four group types**: RM, WIP, FP and **TRADING** (`StockItem`, bought and
+  resold — decided with the product owner; it sells as goods, so it uses the
+  FG roles, but it has its own group and its own seeded stock/sales/COGS
+  accounts). `groupTypeForKind` maps kinds; untracked kinds have no group.
+- **`lib/accounting/account-roles-server.ts` is the one resolver.**
+  `loadItemCostInfo` (valuation.ts) resolves every tracked item through it, so
+  `item.assetAccountId` / `cogsAccountId` / `incomeAccountId` on an
+  `ItemCostInfo` are the RESOLVED accounts (group role, validated override on
+  top) — not the raw item columns. Non-item roles (GRNI, WIP_OPEN_ORDERS,
+  SCRAP_LOSS, …) come from `roleAccount(item, role)`.
+- **The block lives in `loadItemCostInfo`**: a tracked item whose group has any
+  unmapped role throws `AccountMappingError` (a `LedgerValidationError`, so every
+  route already returns 400) before anything is planned. One choke point, like
+  `resolveLocationId`. Guarded in `tests/architecture.test.ts`, along with "no
+  poster looks an account up by subtype" and "no `?? invAssetId` fallback" —
+  both proven against the pre-Phase-2 posters.
+- **`INV_SUBTYPE` is gone, and the five inventory accounts left
+  `SYSTEM_ACCOUNTS`.** `systemAccountId(org, "Inventory")` returned the FIRST
+  match, and listing stock accounts in `SYSTEM_ACCOUNTS` seeded a stock ledger
+  into every Receivables-only tenant (it runs from ~20 paths). Orgs that have
+  the old 1200/5000/5900/2150/1250 keep them.
+- **Provisioning is lazy** (`ensureInventoryAccounting`), same rule as locations
+  and Suspense. A **native** chart gets the 18 default accounts (+3 trading, +
+  an `Inventories` header, blank codes, `is_system_default`, `default_role`)
+  and the four default groups. **Existing GR/IR, COGS and Inventory Adjustments
+  are ADOPTED**, not duplicated — GR/IR carries every open receipt. The old
+  catch-all "Inventory Asset" is deliberately NOT adopted; the R-10 script
+  reclasses it. A **synced** chart (any account with `source <> 'native'` —
+  judged by the chart, not the token: AM MERCHADISING holds a Xero token and
+  keeps its books here) gets the groups only; the tenant maps roles to its own
+  accounts, and "Create missing default accounts" creates them LOCALLY. Nothing
+  is ever pushed to QuickBooks/Xero.
+- **Control accounts**: an account mapped to RM / WIP stock / WIP open orders /
+  FG is refused by `postJournalEntry` for `Manual`, `Opening`, `Deposit` and
+  `Transfer` entries (mirrored provider entries exempt), and by `postDocument`
+  for any ACCOUNT line (no stocked item) on a sales/purchase document. Header
+  accounts can never be posted to.
+- **What each poster now does**: receipts Cr the item group's GRNI (a receipt
+  may credit several); bill-from-receipt Dr the GRNI of each line's item;
+  shipments/invoices use COGS_FG or COGS_SURPLUS and SALES_FG / SALES_SURPLUS
+  by group, so raw material sold as surplus is no longer refused for "no
+  income account"; credit notes on stocked items Dr SALES_RETURNS (stock still
+  does not move back — P-14 is a known gap); builds post Cr components → Dr/Cr
+  WIP_OPEN_ORDERS → Dr output, netting to zero; job work dispatch/receive/close
+  use the SENT item's WIP_OPEN_ORDERS (the received item isn't known at
+  dispatch, and the three must hit one account), wastage → SCRAP_LOSS, a gain →
+  PRODUCTION_VARIANCE; **transfers post nothing** (P-18) — the per-location
+  `inventory_account_id` is no longer read. **A PO line for a stocked item
+  cannot be converted straight to a Bill** (`convertTradeDoc`) — that was how
+  BILL-0004 double-counted €20,000.
+- **Item form**: a tracked item picks a posting group (blank = default of its
+  type); its accounts are shown read-only from the group, with an admin-only
+  override limited to accounts of the role's type (`components/item-accounting.tsx`,
+  server re-checks in `prepareItemAccounting`). An override equal to the group's
+  account is not stored. Changing the stock account of an item that holds value
+  is refused — remap the group instead. "Purchase cost" is now "Default purchase
+  price". There is no separate Finance Admin permission; `company_admin` /
+  `super_admin` play that part, as they already gate every item edit.
+- **Remap (R-08)**: changing a stock role's account returns 409 with the
+  reclass for confirmation; confirmed, it posts a `Reclass` entry dated on the
+  effective date, THEN saves the mapping. Whole balance if the old account was
+  exclusive to that role; this group's stock value if shared; a shared WIP
+  account with a balance is refused.
+- **Reports (R-09)**: `/accounting/reports/stock-vs-gl` (per inventory ACCOUNT,
+  with the groups posting to it — the GL can only be compared per account) and
+  open job-work vs WIP. The same comparison is reconcile check
+  `inventory_vs_gl`. Both read-only (`provision: false`): looking at an org must
+  never seed its chart. As-at stock value comes from `inventory_movements`
+  (transfers excluded); a void deletes its movements, so an as-at date between
+  a document and its void can disagree with the GL.
+- **Migration 0095** creates the tables and clears item asset/COGS fields that
+  merely pointed at the old system Inventory Asset / COGS (a form default, not a
+  choice — left in place it would read as an override and keep everything on
+  the catch-all). **`scripts/migrate-inventory-accounting.ts`** is R-10: dry run
+  by default, `--commit` to apply, idempotent. It reclasses the old account at
+  stock valuation per type and REPORTS the residual (AM: €20,180.01, the BILL-0004
+  double count + GRN-0035 — GAP_REPORT §C), never plugs it.
+- **Not built (recorded, not forgotten)**: P-03 invoice-price variance into lot
+  cost, P-05/P-14 returns to the original lot, P-10 yield-aware scrap, P-11 MO
+  close, P-15/P-16 stock count & write-down (their roles exist and are mapped,
+  nothing posts to them yet), labour/overhead rates (P-06 — none exist), per-item
+  can-be-sold/purchased flags, two tax fields. The QBO/Xero account sync still
+  omits Other Current Asset/Liability, Income and Bank types, so a synced
+  tenant may not find its external Inventory account to map yet.
 
 ## Supplier sourcing — who may supply an item (2026-09-21)
 

@@ -659,6 +659,13 @@
       "when": 1790200000000,
       "tag": "0094_trade_line_price_unit",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1790300000000,
+      "tag": "0095_inventory_posting_groups",
+      "breakpoints": true
     }
   ]
 }

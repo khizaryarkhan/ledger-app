@@ -16,7 +16,7 @@ import { db } from "@/db";
 import { apItems, itemSkus, productionRuns, productionConsumptions, productionOutputs, boms, bomLines } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
+import { roleAccount } from "@/lib/accounting/account-roles-server";
 import { loadItemCostInfo, planIssue, commitIssue, commitReceipt, type IssuePlan } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { kindOf } from "@/lib/inventory/item-kinds";
@@ -47,8 +47,6 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
   if (qtyOut <= 0) err("Enter the quantity to produce.");
   if (!input.inputs?.length) err("A production build needs at least one input to consume.");
 
-  await ensureSystemAccounts(orgId);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
 
   // Resolved before any write. forIssue on the consume side so components can
   // never be drawn out of Quarantine by a build.
@@ -62,8 +60,12 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
   const output = itemMap.get(input.outputItemId);
   if (!output) err("Output item not found.");
   if (!kindOf(output!.productType).producible) err(`${output!.name} isn't a producible item (must be Finished Product or Work-in-Progress).`);
-  const outAsset = output!.assetAccountId ?? invAssetId;
-  if (!outAsset) err("No inventory asset account is set up for the output item.");
+  const outAsset = output!.assetAccountId;
+  // A build is an order opened and closed in one step: components go INTO
+  // Work in Progress and the output comes OUT of it (P-04 / P-09), both on
+  // the OUTPUT item's group. The pair nets to zero, but the entry now says
+  // what happened instead of moving stock straight from one asset to another.
+  const wipAcct = roleAccount(output!, "WIP_OPEN_ORDERS");
 
   // Plan each input's FIFO/specific-lot issue and build the credit lines. The
   // balancing debit is the SUM OF THE ROUNDED credits so the entry balances to
@@ -82,8 +84,7 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     if (consumeLocationId && plan.shortfallQty > 0) {
       err(`${item!.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }
-    const assetAcct = item!.assetAccountId ?? invAssetId;
-    if (!assetAcct) err(`No inventory asset account for input ${item!.name}.`);
+    const assetAcct = item!.assetAccountId;                 // the COMPONENT's group inventory role
     plans.push({ itemId: item!.id, skuId: inp.skuId ?? null, assetAcct: assetAcct!, plan, name: item!.name });
     const c = round2(plan.totalCost);
     if (c > 0) { lines.push({ accountId: assetAcct!, credit: c, description: `Consumed in production — ${item!.name}` }); totalCost += c; }
@@ -96,7 +97,9 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     return { pending: true, id: pending.id, amount: totalCost } as any;
   }
 
-  // Dr output inventory for the exact sum of the input credits.
+  // Issue to WIP, then report output out of WIP — exact sum of the input credits.
+  lines.push({ accountId: wipAcct, debit: totalCost, description: `Issued to production — ${output!.name}` });
+  lines.push({ accountId: wipAcct, credit: totalCost, description: `Output reported — ${output!.name}` });
   lines.push({ accountId: outAsset!, debit: totalCost, description: `Produced — ${output!.name}` });
 
   const entry = await postJournalEntry({
@@ -188,8 +191,6 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
   const packLines = lines.filter(l => l.role === "pack");
   const unitContent = new Map(outLines.map(l => [l.skuId, Number(l.qty) || 0]));
 
-  await ensureSystemAccounts(orgId);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
 
   // Total base FP + per-output base qty.
   const outputs = reqOutputs.map(o => {
@@ -226,8 +227,7 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
     if (consumeLocationIdMulti && plan.shortfallQty > 0) {
       err(`${item.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }
-    const assetAcct = item.assetAccountId ?? invAssetId;
-    if (!assetAcct) err(`No inventory asset account for ${item.name}.`);
+    const assetAcct = item.assetAccountId;
     plans.set(id, { plan, blended: plan.qty > 0 ? plan.totalCost / plan.qty : 0, assetAcct: assetAcct! });
   }
 
@@ -253,8 +253,10 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
   }
 
   // Debit each output SKU: base-content share of ingredient cost + its packaging cost.
-  const outAsset = itemMap.get(bom!.outputItemId)?.assetAccountId ?? invAssetId;
-  if (!outAsset) err("No inventory asset account for the output item.");
+  const outItem = itemMap.get(bom!.outputItemId);
+  if (!outItem) err("Output item not found.");
+  const outAsset = outItem!.assetAccountId;
+  const wipAcct = roleAccount(outItem!, "WIP_OPEN_ORDERS");
   const outAlloc = outputs.map(o => {
     const share = baseTotal > 0 ? (o.baseQty / baseTotal) * ingredientCost : 0;
     return { ...o, cost: round2(share + (packCostByOutput.get(o.skuId) ?? 0)) };
@@ -270,7 +272,13 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
 
   const entry = await postJournalEntry({
     orgId, entryDate: date, memo: input.notes?.trim() || `Production build — ${bom!.name}`,
-    series: "Production", sourceType: "Production", createdBy: actorId, reference: input.bomId, lines: [...creditLines, ...debitLines],
+    series: "Production", sourceType: "Production", createdBy: actorId, reference: input.bomId,
+    lines: [
+      ...creditLines,
+      { accountId: wipAcct, debit: creditSum, description: `Issued to production — ${outItem!.name}` },
+      { accountId: wipAcct, credit: creditSum, description: `Output reported — ${outItem!.name}` },
+      ...debitLines,
+    ],
   });
   const runNo = entry.docNumber || `BUILD-${date.replace(/-/g, "")}`;
 

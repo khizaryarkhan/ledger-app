@@ -12,7 +12,8 @@
  */
 
 import { db } from "@/db";
-import { tradeDocuments, tradeDocumentLines, apTaxRates } from "@/db/schema";
+import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems } from "@/db/schema";
+import { isTracked } from "@/lib/inventory/item-kinds";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
@@ -204,6 +205,23 @@ export async function convertTradeDoc(orgId: string, id: string, actorId: string
   }).filter(t => t.net > 0);
 
   if (take.length === 0) err("Nothing left to invoice on this document.");
+
+  // A PO line for a STOCKED item cannot be billed straight from the PO. The
+  // bill would post Dr Inventory with no lot behind it — and if the goods were
+  // also received, stock is counted twice and GR/IR never clears (this happened
+  // on a real tenant: BILL-0004). Stock goes Receive → Bill from receipt, the
+  // only route that keeps the lots, GRNI and the GL in step.
+  if (doc.kind === "PurchaseOrder") {
+    const itemIds = [...new Set(take.map(t => t.line.itemId).filter(Boolean) as string[])];
+    if (itemIds.length) {
+      const items = await db.select({ id: apItems.id, name: apItems.name, productType: apItems.productType })
+        .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds)));
+      const stocked = items.filter(i => isTracked(i.productType));
+      if (stocked.length) {
+        err(`${stocked.map(i => i.name).slice(0, 3).join(", ")}${stocked.length > 3 ? " and others" : ""} ${stocked.length === 1 ? "is a stocked item" : "are stocked items"} — receive the goods first (Supply Chain → Goods Receipts), then create the bill from the receipt.`);
+      }
+    }
+  }
 
   const targetType: DocType = doc.kind === "Estimate" ? "Invoice" : "Bill";
   const entry = await postDocument(orgId, {

@@ -32,7 +32,10 @@ const PATCH_SCHEMAS: Record<string, z.ZodTypeAny> = {
     // Informational only (see AccountSchema in ../route.ts) — never affects posting.
     currency: z.string().length(3).nullable().optional(),
     status,
-  }).strict(),
+  // strip, not strict: the chart's edit modal sends the whole row back
+  // (classification, isSystem, syncToken …), which strict() rejected outright.
+  // Unknown keys are still dropped before .set(), so nothing leaks through.
+  }).strip(),
   "items": z.object({
     name:             z.string().min(1).max(255).optional(),
     itemType:         z.enum(["Service", "Non-Inventory", "Inventory"]).optional(),
@@ -89,7 +92,16 @@ export async function PATCH(req: Request, { params }: { params: { entity: string
   // or number tweak is still allowed.
   if (params.entity === "accounts" && (row as any).isSystem) {
     if (d.status === "Inactive") return bad("This is a system account and can't be deactivated.", 403);
-    if (d.type !== undefined || d.subtype !== undefined) return bad("A system account's type can't be changed.", 403);
+    if ((d.type !== undefined && d.type !== (row as any).type) || (d.subtype !== undefined && d.subtype !== (row as any).subtype)) return bad("A system account's type can't be changed.", 403);
+  }
+
+  // An account a posting group, role or item points at can't be switched off
+  // or re-typed: the mapping would silently become invalid (a COGS role on an
+  // Expense account) or every posting through it would start failing.
+  if (params.entity === "accounts" && (d.status === "Inactive" || (d.type !== undefined && d.type !== (row as any).type))) {
+    const { accountReferences } = await import("@/lib/accounting/account-roles-server");
+    const refs = await accountReferences(orgId!, params.id);
+    if (refs.length) return bad(`This account is in use (${refs.slice(0, 4).join("; ")}${refs.length > 4 ? "; …" : ""}) — remap it first under Accounting → Setup → Posting Groups.`, 409);
   }
 
   // Keep classification in step with the account type (drives report placement).

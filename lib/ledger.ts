@@ -16,7 +16,7 @@
  */
 
 import { db } from "@/db";
-import { journalEntries, journalLines, apAccounts, organisations } from "@/db/schema";
+import { journalEntries, journalLines, apAccounts, organisations, postingGroupAccounts } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveDocNumber, nextTransactionId, type DocType } from "@/lib/accounting/numbering";
 
@@ -98,7 +98,7 @@ export async function validateEntry(orgId: string, lines: PostLine[]): Promise<v
   // All accounts must exist in this org and be Active.
   const accountIds = [...new Set(lines.map(l => l.accountId))];
   const accounts = await db
-    .select({ id: apAccounts.id, status: apAccounts.status, name: apAccounts.name })
+    .select({ id: apAccounts.id, status: apAccounts.status, name: apAccounts.name, isHeader: apAccounts.isHeader })
     .from(apAccounts)
     .where(and(eq(apAccounts.orgId, orgId), inArray(apAccounts.id, accountIds)));
   const found = new Map(accounts.map(a => [a.id, a]));
@@ -106,7 +106,32 @@ export async function validateEntry(orgId: string, lines: PostLine[]): Promise<v
     const acc = found.get(id);
     if (!acc) throw new LedgerValidationError("One of the selected accounts was not found in this organisation.");
     if (acc.status === "Inactive") throw new LedgerValidationError(`Account "${acc.name}" is inactive — reactivate it before posting to it.`);
+    if (acc.isHeader) throw new LedgerValidationError(`"${acc.name}" is a header account — post to one of the accounts beneath it.`);
   }
+}
+
+/**
+ * Entry sources a person types by hand. They may not touch an inventory
+ * CONTROL account — one mapped to RM / WIP stock / WIP open orders / FG — or
+ * the GL moves while the lots stay where they were, and stock-vs-GL can never
+ * reconcile again. Stock value changes only through a stock movement.
+ */
+// Deposit / Transfer lines are hand-picked accounts too. Mirrored provider
+// entries are exempt: QuickBooks is the book of record for those.
+const HAND_ENTERED = new Set(["Manual", "Opening", "Deposit", "Transfer"]);
+const INVENTORY_ROLE_KEYS = ["RM_INVENTORY", "WIP_STOCK", "WIP_OPEN_ORDERS", "FG_INVENTORY"];
+
+export async function assertNoControlAccounts(orgId: string, lines: { accountId: string }[]): Promise<void> {
+  const ids = [...new Set(lines.map(l => l.accountId).filter(Boolean))];
+  if (!ids.length) return;
+  const hits = await db.select({ id: postingGroupAccounts.accountId }).from(postingGroupAccounts)
+    .where(and(eq(postingGroupAccounts.orgId, orgId), inArray(postingGroupAccounts.accountId, ids), inArray(postingGroupAccounts.role, INVENTORY_ROLE_KEYS)));
+  if (!hits.length) return;
+  const [a] = await db.select({ name: apAccounts.name }).from(apAccounts).where(eq(apAccounts.id, hits[0].id)).limit(1);
+  throw new LedgerValidationError(
+    `"${a?.name ?? "This account"}" is an inventory control account — its balance must match the stock on hand, so it can't take a manual entry. `
+    + `Post a goods receipt, shipment, build or stock adjustment instead.`
+  );
 }
 
 /** Next sequential entry number for the org. */
@@ -124,6 +149,7 @@ async function nextEntryNumber(orgId: string): Promise<number> {
  */
 export async function postJournalEntry(input: PostEntryInput) {
   await validateEntry(input.orgId, input.lines);
+  if (HAND_ENTERED.has(input.sourceType ?? "Manual") && !input.externalSource) await assertNoControlAccounts(input.orgId, input.lines);
 
   // Period lock: nothing may be posted on/before the book close date, except
   // the system closing entry itself (which is dated the period end).

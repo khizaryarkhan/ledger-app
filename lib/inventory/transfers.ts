@@ -8,12 +8,14 @@
  * change the lot's remaining balance, which would be wrong here and would also
  * re-date the cost layer, quietly corrupting FIFO order.
  *
- * GL: touched only when the two locations map to DIFFERENT inventory accounts
- * (stock_locations.inventory_account_id, falling back to the item's own asset
- * account). In the ordinary case both sides are the same account, nothing has
- * changed in the books, and posting a self-cancelling entry would add noise to
- * the ledger for no information. When they differ it is a real reclassification
- * between two balance-sheet accounts and it posts.
+ * GL: NONE (P-18). Which account stock sits in is decided by the item's
+ * posting group role, never by where it is — so moving it, including to a
+ * subcontractor's site, changes nothing in the books. The per-location
+ * `stock_locations.inventory_account_id` override is no longer read: receipts
+ * never honoured it, so a transfer that did was the only thing that could put
+ * stock into an account nothing else would ever relieve. The reclass branch
+ * below is kept only so an entry is still posted if a future rule ever makes
+ * the two sides differ; today they are always the same account.
  *
  * Transfers are the RELEASE mechanism out of a Quarantine location — so unlike
  * a sale or a production issue, the source is deliberately NOT checked with
@@ -31,7 +33,6 @@ import {
 } from "@/db/schema";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, planIssue, recalcItemCache } from "@/lib/inventory/valuation";
 import { resolveLocationId, placeQty, takeQty } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
@@ -75,8 +76,6 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
   const [toLoc] = await db.select().from(stockLocations)
     .where(and(eq(stockLocations.id, toLocationId), eq(stockLocations.orgId, orgId))).limit(1);
 
-  await ensureSystemAccounts(orgId);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
   const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
 
   // ── Plan (read-only) ────────────────────────────────────────────────────
@@ -107,12 +106,10 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
       );
     }
 
-    // A location may override which balance-sheet account its stock sits in;
-    // otherwise the item's own asset account applies, exactly as everywhere else.
-    const itemAsset = item!.assetAccountId ?? invAssetId;
-    if (!itemAsset) err(`No inventory asset account for ${item!.name}.`);
-    const fromAccountId = fromLoc?.inventoryAccountId ?? itemAsset!;
-    const toAccountId   = toLoc?.inventoryAccountId   ?? itemAsset!;
+    // Same account both sides: the item's group inventory role. See header.
+    const itemAsset = item!.assetAccountId!;
+    const fromAccountId = itemAsset;
+    const toAccountId   = itemAsset;
 
     for (const pick of plan.picks) {
       // planIssue with a locationId can only return located picks or a

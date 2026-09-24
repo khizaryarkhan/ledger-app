@@ -14,7 +14,6 @@ import { db } from "@/db";
 import { salesShipments, shipmentLines, tradeDocumentLines, apItems, organisations, customers } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, planIssue, commitIssue } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
@@ -83,10 +82,6 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     customerLabel = customer?.name ?? null;
   }
 
-  await ensureSystemAccounts(orgId);
-  const cogsSys = await systemAccountId(orgId, INV_SUBTYPE.cogs);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
-
   const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
 
   // Resolved up front, before anything is written, and with forIssue so a
@@ -96,8 +91,9 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     ? await resolveLocationId(orgId, input.locationId, { forIssue: true, label: "Shipping location" })
     : null;
 
-  // Item income account + list price (for the invoice) — not in the cost map.
-  const extra = await db.select({ id: apItems.id, income: apItems.incomeAccountId, price: apItems.unitPrice })
+  // List price (for the invoice) — not in the cost map. The income account is
+  // the sold item's group role (SALES_FG / SALES_SURPLUS), resolved with it.
+  const extra = await db.select({ id: apItems.id, price: apItems.unitPrice })
     .from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, rows.map(r => r.itemId))));
   const extraById = new Map(extra.map(e => [e.id, e]));
 
@@ -109,9 +105,9 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     const item = itemMap.get(r.itemId);
     if (!item) err(`Item ${r.itemId} not found.`);
     if (!item!.tracked) err(`${item!.name} isn't inventory-tracked — only tracked items ship from stock.`);
-    const cogsAcct = item!.cogsAccountId ?? cogsSys;
-    const assetAcct = item!.assetAccountId ?? invAssetId;
-    if (!cogsAcct || !assetAcct) err(`No COGS / inventory account for ${item!.name}.`);
+    // COGS_FG / COGS_SURPLUS and the inventory role of the SHIPPED item's group.
+    const cogsAcct = item!.cogsAccountId;
+    const assetAcct = item!.assetAccountId;
     const qty = roundQty(Math.abs(Number(r.qtyBase) || 0));
     if (qty <= 0) continue;
     const lineLocationId = r.locationId
@@ -124,15 +120,15 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     const cost = round2(plan.totalCost);
     if (cost > 0) { lines.push({ accountId: cogsAcct!, debit: cost, description: `COGS — ${item!.name}` }); lines.push({ accountId: assetAcct!, credit: cost, description: `Inventory relief — ${item!.name}` }); cogsTotal = round2(cogsTotal + cost); }
     const ex = extraById.get(r.itemId);
-    // Guard here, not only at invoice time: a shipment with no income account
-    // would relieve stock (Dr COGS) yet could never be invoiced — stranding the
-    // sale. Require the account up front so the shipment is always invoiceable.
-    if (!ex?.income) err(`${item!.name} has no income account set — add one in Products & Services before shipping, otherwise the shipment can't be invoiced.`);
+    // Always resolvable now (the block in loadItemCostInfo guarantees every role
+    // is mapped) — raw material sold as surplus used to be refused here because
+    // RM items had no income account at all.
+    const income = item!.incomeAccountId;
     const saleRate = r.saleRate != null && r.saleRate !== undefined ? Number(r.saleRate) : (ex?.price != null ? Number(ex.price) : 0);
     saleTotal = round2(saleTotal + qty * saleRate);
     // Income account for the eventual invoice — must NOT fall back to the asset
     // account, or revenue would post to Inventory. Left null → invoicing guards it.
-    commits.push({ r, qty, plan, cogsAcct: cogsAcct!, assetAcct: assetAcct!, income: ex?.income ?? null, saleRate, locationId: lineLocationId });
+    commits.push({ r, qty, plan, cogsAcct: cogsAcct!, assetAcct: assetAcct!, income, saleRate, locationId: lineLocationId });
   }
 
   if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "shipment", saleTotal)) {

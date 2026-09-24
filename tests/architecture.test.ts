@@ -1033,3 +1033,78 @@ describe("a form opens in the shared side drawer, not a private copy of one", ()
     expect(offenders, "use form-kit's Drawer").toEqual([]);
   });
 });
+
+describe("inventory postings resolve ROLES, never an account by guesswork", () => {
+  /**
+   * Settled 2026-09-24 (Phase 2, Chart of Accounts mapping). Every stock
+   * posting names a role and the item's posting group supplies the account —
+   * lib/accounting/account-roles-server.ts. Two older habits are what this
+   * replaced, and both are one quick fix away from coming back:
+   *
+   *   1. `systemAccountId(orgId, "Inventory")` — the FIRST account in the org
+   *      with that subtype. A second Inventory-subtyped account silently became
+   *      the one stock posted to.
+   *   2. `item.assetAccountId ?? invAssetId` — a fallback to the one catch-all
+   *      account, so an unmapped item posted somewhere instead of being
+   *      refused, and every kind's stock piled into one balance.
+   *
+   * Proven to fail on the pre-Phase-2 posters: all six carried the fallback,
+   * five also the subtype lookup, and transfers.ts the location override.
+   */
+  const POSTERS = [
+    "lib/accounting/documents.ts",
+    "lib/inventory/receiving.ts",
+    "lib/inventory/shipping.ts",
+    "lib/inventory/production.ts",
+    "lib/inventory/jobwork.ts",
+    "lib/inventory/transfers.ts",
+  ];
+  const BY_SUBTYPE = /systemAccountId\s*\([^)]*(INV_SUBTYPE|"Inventory"|"SuppliesMaterialsCogs"|"GRIRClearing"|"JobWorkMaterials"|"OtherCostsOfServiceCos")/;
+  const FALLBACK = /(assetAccountId|cogsAccountId)\s*\?\?\s*(invAssetId|cogsSys|invCogsId)/;
+
+  it("no poster looks an inventory account up by subtype", () => {
+    const offenders = POSTERS.filter(rel => BY_SUBTYPE.test(readFileSync(join(ROOT, rel), "utf8")));
+    expect(offenders, "resolve the role through loadItemCostInfo / roleAccount instead").toEqual([]);
+  });
+
+  it("no poster falls back to a catch-all inventory account", () => {
+    const offenders = POSTERS.filter(rel => FALLBACK.test(readFileSync(join(ROOT, rel), "utf8")));
+    expect(offenders, "an unmapped item must be refused, not posted to a default").toEqual([]);
+  });
+
+  it("the guards match the habit they replace", () => {
+    // What the six posters used to say, verbatim. If a refactor of the
+    // patterns above stops matching these, the guards are guarding nothing.
+    expect(BY_SUBTYPE.test(`const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);`)).toBe(true);
+    expect(FALLBACK.test(`const assetAcct = item!.assetAccountId ?? invAssetId;`)).toBe(true);
+    expect(FALLBACK.test(`const cogsAcct = item!.cogsAccountId ?? cogsSys;`)).toBe(true);
+  });
+
+  it("the block lives in loadItemCostInfo, which every poster loads its items through", () => {
+    const val = readFileSync(join(ROOT, "lib/inventory/valuation.ts"), "utf8");
+    expect(val).toMatch(/resolveItemAccounts\(/);
+    expect(val).toMatch(/throw new AccountMappingError/);
+    for (const rel of POSTERS) {
+      expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} must load items through loadItemCostInfo`).toMatch(/loadItemCostInfo/);
+    }
+  });
+
+  it("hand-entered journals are refused on inventory control accounts", () => {
+    const ledger = readFileSync(join(ROOT, "lib/ledger.ts"), "utf8");
+    expect(ledger).toMatch(/HAND_ENTERED\.has\([^)]*\)[^\n]*assertNoControlAccounts/);
+    expect(readFileSync(join(ROOT, "lib/accounting/documents.ts"), "utf8")).toMatch(/assertNoControlAccounts\(/);
+  });
+
+  it("a transfer never picks an account from its location", () => {
+    // P-18: moving stock is not a journal. The per-location account override
+    // was honoured by transfers only, so it could strand value in an account
+    // no receipt, sale or build would ever relieve.
+    expect(readFileSync(join(ROOT, "lib/inventory/transfers.ts"), "utf8")).not.toMatch(/Loc\??\.inventoryAccountId/);
+  });
+
+  it("the role vocabulary stays client-safe", () => {
+    const pure = readFileSync(join(ROOT, "lib/accounting/account-roles.ts"), "utf8");
+    expect(pure).not.toMatch(/from\s+["']@\/db/);
+    expect(importers("components", "account-roles-server")).toEqual([]);
+  });
+});

@@ -16,6 +16,7 @@ import { db } from "@/db";
 import { apItems, inventoryLots, inventoryMovements } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
+import { resolveItemAccounts, unmappedMessage, AccountMappingError, type ResolvedItemAccounts } from "@/lib/accounting/account-roles-server";
 import { nextDocNumber, resolveDocNumber } from "@/lib/accounting/numbering";
 import {
   resolveLocationId, ensureDefaultLocation, placementsForLots, placeQty, takeQty,
@@ -35,27 +36,48 @@ const num = (v: any) => Number(v ?? 0);
 export type ItemCostInfo = {
   id: string; name: string; productType: string; baseUom: string | null;
   tracked: boolean; lotTracked: boolean;
+  // For a TRACKED item these are RESOLVED, not read off the item: the posting
+  // group's role (inventory / COGS / sales for the group's type), with a
+  // validated item-level override on top — lib/accounting/account-roles-server.ts.
+  // For an untracked item they are the item's own fields, as before.
   assetAccountId: string | null; cogsAccountId: string | null;
   // Revenue/expense accounts the item is configured to post through. Carried
   // here so document posting can DERIVE a line's account from its item rather
   // than trusting whatever account the client sent (lib/accounting/documents.ts).
   incomeAccountId: string | null; expenseAccountId: string | null;
   unitCost: number | null;
+  /** Every role of the item's posting group (tracked items only). */
+  accounts: ResolvedItemAccounts | null;
 };
 
-/** Load costing metadata for a set of item ids. */
+/**
+ * Load costing metadata for a set of item ids — and, for tracked items, the
+ * accounts their posting group resolves to.
+ *
+ * This is also the BLOCK (R-03): every stock-moving path loads its items
+ * through here, so a tracked item whose group still has an unmapped role is
+ * refused before anything is planned or posted. One choke point, like
+ * resolveLocationId for tenancy, rather than a check in each poster that the
+ * next poster forgets.
+ */
 export async function loadItemCostInfo(orgId: string, itemIds: string[]): Promise<Map<string, ItemCostInfo>> {
   const ids = [...new Set(itemIds.filter(Boolean))];
   const map = new Map<string, ItemCostInfo>();
   if (!ids.length) return map;
   const rows = await db.select().from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids)));
+  const resolved = await resolveItemAccounts(orgId, rows);
   for (const r of rows) {
+    const acc = resolved.get(r.id) ?? null;
+    if (acc && acc.unmapped.length) throw new AccountMappingError(unmappedMessage(r.name, acc.groupName, acc.unmapped));
     map.set(r.id, {
       id: r.id, name: r.name, productType: r.productType, baseUom: r.baseUom,
       tracked: kindOf(r.productType).tracked, lotTracked: !!r.lotTracked,
-      assetAccountId: r.assetAccountId ?? null, cogsAccountId: r.cogsAccountId ?? null,
-      incomeAccountId: r.incomeAccountId ?? null, expenseAccountId: r.expenseAccountId ?? null,
+      assetAccountId: acc ? acc.assetAccountId : (r.assetAccountId ?? null),
+      cogsAccountId: acc ? acc.cogsAccountId : (r.cogsAccountId ?? null),
+      incomeAccountId: acc ? acc.incomeAccountId : (r.incomeAccountId ?? null),
+      expenseAccountId: r.expenseAccountId ?? null,
       unitCost: r.unitCost != null ? Number(r.unitCost) : null,
+      accounts: acc,
     });
   }
   return map;

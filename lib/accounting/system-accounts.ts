@@ -28,19 +28,14 @@ export const SYSTEM_ACCOUNTS: CoaSeed[] = [
   { name: "Uncategorised Expense",     code: "6999", classification: "Expense",   type: "Expense",                  subtype: "OtherMiscellaneousServiceCost" },
   // Multi-currency: realised FX difference on settling foreign transactions.
   { name: "Exchange Gain or Loss",     code: "6950", classification: "Expense",   type: "Other Expense",            subtype: "ExchangeGainOrLoss" },
-  // Perpetual inventory — default routing for inventory-tracked items. Purchases
-  // capitalise here; sales/consumption relieve to COGS; adjustments to shrinkage.
-  { name: "Inventory Asset",           code: "1200", classification: "Asset",     type: "Other Current Asset",      subtype: "Inventory" },
-  { name: "Cost of Goods Sold",        code: "5000", classification: "Expense",   type: "Cost of Goods Sold",       subtype: "SuppliesMaterialsCogs" },
-  { name: "Inventory Adjustments",     code: "5900", classification: "Expense",   type: "Cost of Goods Sold",       subtype: "OtherCostsOfServiceCos" },
-  // Three-way match clearing: goods received but not yet billed (accrued
-  // payable). Receipts credit it; the Bill debits it to clear to A/P.
-  { name: "Goods Received Not Invoiced", code: "2150", classification: "Liability", type: "Other Current Liability", subtype: "GRIRClearing" },
-  // Job work / subcontracting clearing: material sent to a vendor for external
-  // processing (still owned). Dispatch credits inventory and debits here;
-  // receiving the transformed good back credits this to clear it. Never a
-  // payable — it's a reclassification between two of our own asset accounts.
-  { name: "Materials with Job Worker", code: "1250", classification: "Asset", type: "Other Current Asset", subtype: "JobWorkMaterials" },
+  // NOT here any more: Inventory Asset, Cost of Goods Sold, Inventory
+  // Adjustments, GR/IR and Materials with Job Worker. Inventory accounts are
+  // ROLES now (lib/accounting/account-roles.ts), seeded by
+  // provisionInventoryAccounting only for an org that actually does inventory —
+  // listing them here put a stock ledger into every Receivables-only tenant's
+  // chart, because ensureSystemAccounts runs from ~20 unrelated paths. Orgs that
+  // already have them keep them; the existing GR/IR, COGS and Adjustments
+  // accounts are ADOPTED into their roles rather than duplicated.
 ]
 
 /**
@@ -96,8 +91,10 @@ export async function systemAccountId(orgId: string, subtype: string): Promise<s
   return hit?.id ?? null;
 }
 
-/** Canonical subtypes for the inventory system accounts (lookup keys). */
-export const INV_SUBTYPE = { asset: "Inventory", cogs: "SuppliesMaterialsCogs", shrinkage: "OtherCostsOfServiceCos", grir: "GRIRClearing", jobwork: "JobWorkMaterials" } as const;
+// INV_SUBTYPE is gone on purpose. Resolving an inventory account by subtype
+// returned the FIRST match in the org — a second "Inventory"-subtyped account
+// silently became the one stock posted to. Use roleAccount() /
+// loadItemCostInfo (lib/accounting/account-roles-server.ts).
 
 const SYSTEM_SUBTYPES = SYSTEM_ACCOUNTS.map(a => a.subtype!).filter(Boolean);
 

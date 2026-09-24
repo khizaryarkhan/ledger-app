@@ -10,7 +10,7 @@ import { and, eq, asc } from "drizzle-orm";
 import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
 import { sourcingOf, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
-import { systemAccountId, INV_SUBTYPE, ensureSystemAccounts } from "@/lib/accounting/system-accounts";
+import { prepareItemAccounting } from "@/lib/accounting/account-roles-server";
 
 const s = (v: any, n = 255) => (v == null || String(v).trim() === "" ? null : String(v).trim().slice(0, n));
 const numOrNull = (v: any) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     id: r.id, name: r.name, code: r.code, category: r.category, baseUom: r.baseUom,
     productType: r.productType, status: r.status, minOhQty: Number(r.minOhQty ?? 0), source: r.source,
     unitPrice: r.unitPrice, unitCost: r.unitCost, incomeAccountId: r.incomeAccountId, expenseAccountId: r.expenseAccountId, taxRateId: r.taxRateId,
-    assetAccountId: r.assetAccountId, cogsAccountId: r.cogsAccountId, lotTracked: r.lotTracked,
+    assetAccountId: r.assetAccountId, cogsAccountId: r.cogsAccountId, lotTracked: r.lotTracked, postingGroupId: r.postingGroupId,
     onHandQty: Number(r.onHandQty ?? 0), invValue: Number(r.invValue ?? 0),
   })));
 }
@@ -40,16 +40,16 @@ export async function POST(req: Request) {
   const meta = kindOf(b?.productType);
   const productType = meta.kind;
 
-  // Inventory-tracked items must post to a balance-sheet asset and relieve COGS.
-  // Fall back to the org's system Inventory Asset / COGS accounts when the form
-  // doesn't name explicit ones, so purchases never silently hit an expense.
-  let assetAccountId = s(b?.assetAccountId, 64);
-  let cogsAccountId = s(b?.cogsAccountId, 64);
-  if (meta.tracked) {
-    await ensureSystemAccounts(orgId!).catch(() => {});
-    if (!assetAccountId) assetAccountId = await systemAccountId(orgId!, INV_SUBTYPE.asset);
-    if (!cogsAccountId) cogsAccountId = await systemAccountId(orgId!, INV_SUBTYPE.cogs);
-  }
+  // A tracked item's accounts come from its POSTING GROUP (blank = the default
+  // group of its type); the three account fields are optional overrides, each
+  // checked against the role it stands in for. Nothing is defaulted onto the
+  // item itself any more — an inherited account that was copied onto every item
+  // could never be remapped in one place.
+  const acc = await prepareItemAccounting(orgId!, {
+    productType, postingGroupId: s(b?.postingGroupId, 64),
+    assetAccountId: s(b?.assetAccountId, 64), cogsAccountId: s(b?.cogsAccountId, 64), incomeAccountId: s(b?.incomeAccountId, 64),
+  });
+  if ("error" in acc) return bad(acc.error);
   const lotTracked = b?.lotTracked === undefined ? meta.lotTrackedDefault : !!b.lotTracked;
   // Chosen in the New item drawer; otherwise the kind's default. Never left to
   // the column default, which is `restricted` for every kind.
@@ -61,8 +61,9 @@ export async function POST(req: Request) {
     minOhQty: (numOrNull(b?.minOhQty) ?? 0).toString(),
     itemType: qboItemType(productType),
     unitPrice: numOrNull(b?.unitPrice) as any, unitCost: numOrNull(b?.unitCost) as any,
-    incomeAccountId: s(b?.incomeAccountId, 64), expenseAccountId: s(b?.expenseAccountId, 64), taxRateId: s(b?.taxRateId, 64),
-    assetAccountId, cogsAccountId, lotTracked, sourcingPolicy,
+    incomeAccountId: acc.values.incomeAccountId, expenseAccountId: s(b?.expenseAccountId, 64), taxRateId: s(b?.taxRateId, 64),
+    assetAccountId: acc.values.assetAccountId, cogsAccountId: acc.values.cogsAccountId, postingGroupId: acc.values.postingGroupId,
+    lotTracked, sourcingPolicy,
     status: "Active",
   } as any).returning();
   return ok(row);

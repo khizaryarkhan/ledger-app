@@ -15,8 +15,8 @@ import { db } from "@/db";
 import { goodsReceipts, goodsReceiptLines, tradeDocumentLines, organisations } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
 import { loadItemCostInfo, commitReceipt } from "@/lib/inventory/valuation";
+import { roleAccount } from "@/lib/accounting/account-roles-server";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
@@ -72,11 +72,6 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     if (!(rate > 0)) err("Enter a valid exchange rate.");
   }
 
-  await ensureSystemAccounts(orgId);
-  const grirId = await systemAccountId(orgId, INV_SUBTYPE.grir);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
-  if (!grirId) err("No Goods-Received-Not-Invoiced clearing account is set up.");
-
   const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
 
   // Locations are resolved (and tenancy-checked) UP FRONT, before the journal
@@ -93,14 +88,17 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
   // Build the balanced entry: Dr each item's inventory asset (home), Cr GR/IR.
   const lines: PostLine[] = [];
   let grirTotal = 0;
+  // GRNI is a role of each item's group, so one receipt may credit more than
+  // one clearing account (a tenant that maps RM and FP to different GRNIs).
+  const grniBy = new Map<string, number>();
   const commits: { r: ReceiptLineInput; homeUnit: number; amount: number; assetAcct: string; locationId: string }[] = [];
   for (let ri = 0; ri < rows.length; ri++) {
     const r = rows[ri];
     const item = itemMap.get(r.itemId);
     if (!item) err(`Item ${r.itemId} not found.`);
     if (!item!.tracked) err(`${item!.name} isn't an inventory-tracked item — only tracked items can be received into stock.`);
-    const assetAcct = item!.assetAccountId ?? invAssetId;
-    if (!assetAcct) err(`No inventory asset account for ${item!.name}.`);
+    const assetAcct = item!.assetAccountId;                 // the group's inventory role
+    const grniAcct = roleAccount(item!, "GRNI");
     const qty = roundQty(Math.abs(Number(r.qtyBase) || 0));
     if (qty <= 0) continue;
     const homeUnit = round6((Number(r.unitCost) || 0) * rate);
@@ -110,11 +108,12 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     if (amount > 0) {
       lines.push({ accountId: assetAcct!, debit: round2(amount), description: `Received — ${item!.name}` });
       grirTotal = round2(grirTotal + round2(amount));
+      grniBy.set(grniAcct, round2((grniBy.get(grniAcct) ?? 0) + round2(amount)));
     }
     commits.push({ r, homeUnit, amount, assetAcct: assetAcct!, locationId: lineLocation.get(ri)! });
   }
   if (!commits.length) err("Nothing to receive — check quantities.");
-  if (grirTotal > 0) lines.push({ accountId: grirId!, credit: grirTotal, description: "Goods received not invoiced" });
+  for (const [acct, amt] of grniBy) if (amt > 0) lines.push({ accountId: acct, credit: amt, description: "Goods received not invoiced" });
 
   if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "goods_receipt", grirTotal)) {
     const pending = await stagePendingApproval(orgId, "goods_receipt", input, grirTotal, actorId);
@@ -192,9 +191,6 @@ export type BillFromReceiptsInput = {
  */
 export async function billFromReceipts(orgId: string, input: BillFromReceiptsInput, actorId: string | null) {
   if (!input.receiptIds?.length) err("Select at least one receipt to bill.");
-  await ensureSystemAccounts(orgId);
-  const grirId = await systemAccountId(orgId, INV_SUBTYPE.grir);
-  if (!grirId) err("No Goods-Received-Not-Invoiced clearing account is set up.");
 
   const receipts = await db.select().from(goodsReceipts)
     .where(and(eq(goodsReceipts.orgId, orgId), inArray(goodsReceipts.id, input.receiptIds)));
@@ -207,6 +203,10 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
   const lineRows = await db.select().from(goodsReceiptLines)
     .where(and(eq(goodsReceiptLines.orgId, orgId), inArray(goodsReceiptLines.receiptId, input.receiptIds)));
 
+  // Each line clears the GRNI of its item's group — the account its receipt
+  // credited — so GR/IR nets to zero per account, not just in total.
+  const lineItems = await loadItemCostInfo(orgId, lineRows.map(l => l.itemId).filter(Boolean) as string[]);
+
   // Bill the un-billed remainder of each receipt line (qty basis).
   const billLines: any[] = [];
   const touched: { lineId: string; qty: number; amount: number }[] = [];
@@ -217,7 +217,9 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
     // to exactly zero when a receipt line is fully billed.
     const amount = round2(round4(rem * Number(l.unitCost)));
     if (amount <= 0) continue;
-    billLines.push({ accountId: grirId, itemId: null, description: l.description ?? "Received goods", qty: rem, rate: Number(l.unitCost), amount, taxRateId: input.taxRateId ?? null });
+    const it = l.itemId ? lineItems.get(l.itemId) : undefined;
+    if (!it) err(`The item on receipt line "${l.description ?? l.id}" no longer exists.`);
+    billLines.push({ accountId: roleAccount(it!, "GRNI"), itemId: null, description: l.description ?? "Received goods", qty: rem, rate: Number(l.unitCost), amount, taxRateId: input.taxRateId ?? null });
     touched.push({ lineId: l.id, qty: rem, amount });
   }
   if (!billLines.length) err("These receipts are already fully billed.");

@@ -59,6 +59,9 @@ export const organisations = pgTable("organisations", {
   // covers every pre-existing org (core AR/AP/Studio/Accounting); vertical
   // modules like "manufacturing" are opt-in, assigned by a platform admin.
   enabledModules: jsonb("enabled_modules").notNull().default(["receivables", "payables", "studio", "accounting"]),
+  // Version of the inventory-accounting seed template this org was provisioned
+  // from (lib/accounting/account-roles.ts TEMPLATE_VERSION). null = not yet.
+  inventoryTemplateVersion: integer("inventory_template_version"),
   // Cron run tracking — updated at the end of every cron execution
   lastCronRun:   timestamp("last_cron_run"),
   lastCronStats: jsonb("last_cron_stats"), // { escalated, emailsSent, skipped, errors[] }
@@ -1815,6 +1818,11 @@ export const accounts = pgTable("accounts", {
   currency:       varchar("currency", { length: 8 }),
   status:         varchar("status", { length: 32 }).notNull().default("Active"),
   isSystem:       boolean("is_system").notNull().default(false), // QBO-style protected account — cannot be deleted
+  // Seeded by the inventory-accounting template (lib/accounting/account-roles.ts):
+  // the role it was created to play. Renameable and renumberable; never re-typed.
+  isSystemDefault: boolean("is_system_default").notNull().default(false),
+  defaultRole:    varchar("default_role", { length: 32 }),
+  isHeader:       boolean("is_header").notNull().default(false),     // grouping only — never posted to
   syncToken:      varchar("sync_token", { length: 32 }),         // provider optimistic-concurrency version
   raw:            jsonb("raw"),
   lastSyncedAt:   timestamp("last_synced_at"),
@@ -1866,6 +1874,10 @@ export const apItems = pgTable("ap_items", {
   assetAccountId:    varchar("asset_account_id", { length: 64 }),   // Inventory asset (balance sheet)
   cogsAccountId:     varchar("cogs_account_id", { length: 64 }),    // Cost of Goods Sold (P&L)
   lotTracked:        boolean("lot_tracked").notNull().default(false),
+  // Inventory posting group (tracked kinds only) — decides every account this
+  // item's stock posts through. The asset/cogs/income fields above are then
+  // Finance-Admin OVERRIDES of the group's role; null = inherit.
+  postingGroupId:    uuid("posting_group_id"),
   onHandQty:         numeric("on_hand_qty", { precision: 20, scale: 6 }).notNull().default("0"),   // cached sum of open lots
   invValue:          numeric("inv_value", { precision: 18, scale: 4 }).notNull().default("0"),     // cached total FIFO value on hand
   status:            varchar("status", { length: 32 }).notNull().default("Active"),
@@ -1975,6 +1987,35 @@ export type ItemIdentifier = typeof itemIdentifiers.$inferSelect;
 // `parentId` is present from day one so bin-level detail (site -> rack -> bin)
 // can be added without a structural migration.
 // =========================================================================
+// =========================================================================
+// INVENTORY POSTING GROUPS — role → account mapping (migration 0095)
+// =========================================================================
+// Posting never names an account: it names a ROLE (lib/accounting/account-roles.ts)
+// and the item's group says which account plays it. `group_type` is RM | WIP |
+// FP | TRADING and must match the item kinds that join the group.
+export const inventoryPostingGroups = pgTable("inventory_posting_groups", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:            varchar("name", { length: 128 }).notNull(),
+  groupType:       varchar("group_type", { length: 16 }).notNull(),
+  isDefault:       boolean("is_default").notNull().default(false),
+  templateVersion: integer("template_version"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+});
+export type InventoryPostingGroup = typeof inventoryPostingGroups.$inferSelect;
+
+export const postingGroupAccounts = pgTable("posting_group_accounts", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  groupId:   uuid("group_id").notNull().references(() => inventoryPostingGroups.id, { onDelete: "cascade" }),
+  role:      varchar("role", { length: 32 }).notNull(),
+  accountId: uuid("account_id").notNull().references(() => accounts.id),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  posting_group_accounts_role_unique: uniqueIndex("posting_group_accounts_role_unique").on(t.groupId, t.role),
+}));
+
 export const stockLocations = pgTable("stock_locations", {
   id:                 uuid("id").defaultRandom().primaryKey(),
   orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),

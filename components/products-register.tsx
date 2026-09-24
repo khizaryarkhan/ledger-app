@@ -13,6 +13,7 @@
  * Accounting fields (price, cost, income/expense account, tax) live on the item.
  */
 
+import { ItemAccountingSection } from "@/components/item-accounting";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, Package, Boxes, Layers, Pencil } from "lucide-react";
 import { UOMS, PACK_TYPES, needsConversionFactor } from "@/lib/inventory/uom";
@@ -806,7 +807,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [accounts, setAccounts] = useState<any[]>([]);
   const [taxes, setTaxes] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "" });
+  const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "", postingGroupId: "" });
   const [lotTracked, setLotTracked] = useState(true);
   const [sourcingPolicy, setSourcingPolicy] = useState<string>(defaultSourcingPolicy("FinishedProduct"));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
@@ -823,8 +824,6 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
 
   const incomeAccts  = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
-  const cogsAccts    = accounts.filter(a => ["Cost of Goods Sold", "Expense", "Other Expense"].includes(a.type));
-  const assetAccts   = accounts.filter(a => ["Other Current Asset", "Fixed Asset", "Other Asset", "Bank"].includes(a.type));
 
   async function save() {
     if (!f.name.trim()) { setErr("Item name is required."); return; }
@@ -879,11 +878,11 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
 
         {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
 
-        <Section title="Accounting" className="pt-2 border-t border-stone-800">
+        <Section title={meta.tracked ? "Pricing & tax" : "Accounting"} className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {meta.sellable && <Field label="Sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
-            {meta.buyable && <Field label="Purchase cost"><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
-            {meta.sellable && (
+            {meta.sellable && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
+            {meta.buyable && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
+            {meta.sellable && !meta.tracked && (
               <Field label="Income account">
                 <SelectField inset value={f.incomeAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-income"); return; } set("incomeAccountId", e.target.value); }}>
                   <option value="">Select…</option>
@@ -892,22 +891,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
                 </SelectField>
               </Field>
             )}
-            {meta.tracked ? (
-              <>
-                <Field label="Inventory asset account">
-                  <SelectField inset value={f.assetAccountId} onChange={e => set("assetAccountId", e.target.value)}>
-                    <option value="">Inventory Asset (system default)</option>
-                    {assetAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </SelectField>
-                </Field>
-                <Field label="COGS account">
-                  <SelectField inset value={f.cogsAccountId} onChange={e => set("cogsAccountId", e.target.value)}>
-                    <option value="">Cost of Goods Sold (system default)</option>
-                    {cogsAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </SelectField>
-                </Field>
-              </>
-            ) : (
+            {!meta.tracked && (
               meta.buyable && (
                 <Field label="Expense account">
                   <SelectField inset value={f.expenseAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-expense"); return; } set("expenseAccountId", e.target.value); }}>
@@ -926,8 +910,12 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
               </SelectField>
             </Field>
           </div>
-          {meta.tracked && <p className="text-[11px] text-stone-500">Purchases capitalise to the inventory asset; sales & production relieve it to COGS at exact FIFO lot cost. Leave blank to use the org's system Inventory Asset / COGS accounts.</p>}
         </Section>
+        {meta.tracked && (
+          <ItemAccountingSection productType={f.productType}
+            value={{ postingGroupId: f.postingGroupId, assetAccountId: f.assetAccountId, cogsAccountId: f.cogsAccountId, incomeAccountId: f.incomeAccountId }}
+            onChange={p => setF(prev => ({ ...prev, ...p }))} />
+        )}
       </div>
       {quick && <QuickAdd kind={quick} accounts={accounts} taxes={taxes}
         onClose={() => setQuick(null)}
@@ -951,6 +939,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
     name: item.name ?? "", category: item.category ?? "", code: item.code ?? "", status: item.status ?? "Active",
     minOhQty: String(item.minOhQty ?? "0"), unitPrice: item.unitPrice != null ? String(item.unitPrice) : "", unitCost: item.unitCost != null ? String(item.unitCost) : "",
     incomeAccountId: item.incomeAccountId ?? "", expenseAccountId: item.expenseAccountId ?? "", assetAccountId: item.assetAccountId ?? "", cogsAccountId: item.cogsAccountId ?? "", taxRateId: item.taxRateId ?? "",
+    postingGroupId: item.postingGroupId ?? "",
   });
   const originalPolicy = item.sourcingPolicy ?? "restricted";
   const [sourcingPolicy, setSourcingPolicy] = useState<string>(originalPolicy);
@@ -962,8 +951,6 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
   }, []);
   const incomeAccts = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
-  const cogsAccts = accounts.filter(a => ["Cost of Goods Sold", "Expense", "Other Expense"].includes(a.type));
-  const assetAccts = accounts.filter(a => ["Other Current Asset", "Fixed Asset", "Other Asset", "Bank"].includes(a.type));
 
   async function save() {
     if (!f.name.trim()) { setErr("Item name is required."); return; }
@@ -992,18 +979,20 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
           </div>
         </Section>
         {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={item.baseUom} />}
-        <Section title="Accounting" className="pt-2 border-t border-stone-800">
+        <Section title={meta.tracked ? "Pricing & tax" : "Accounting"} className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {meta.sellable && <Field label="Sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
-            {meta.buyable && <Field label="Purchase cost"><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
-            {meta.sellable && <Field label="Income account"><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
-            {meta.tracked ? (<>
-              <Field label="Inventory asset account"><SelectField inset value={f.assetAccountId} onChange={e => set("assetAccountId", e.target.value)}><option value="">Inventory Asset (system default)</option>{assetAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>
-              <Field label="COGS account"><SelectField inset value={f.cogsAccountId} onChange={e => set("cogsAccountId", e.target.value)}><option value="">Cost of Goods Sold (system default)</option>{cogsAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>
-            </>) : (meta.buyable && <Field label="Expense account"><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
+            {meta.sellable && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
+            {meta.buyable && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
+            {meta.sellable && !meta.tracked && <Field label="Income account"><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
+            {!meta.tracked && (meta.buyable && <Field label="Expense account"><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
             <Field label="Tax rate"><SelectField inset value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)}><option value="">Select…</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>
           </div>
         </Section>
+        {meta.tracked && (
+          <ItemAccountingSection productType={item.productType}
+            value={{ postingGroupId: f.postingGroupId, assetAccountId: f.assetAccountId, cogsAccountId: f.cogsAccountId, incomeAccountId: f.incomeAccountId }}
+            onChange={p => setF(prev => ({ ...prev, ...p }))} />
+        )}
       </div>
     </Drawer>
   );

@@ -49,7 +49,7 @@ import { db } from "@/db";
 import { jobWorkOrders, jobWorkReceipts, goodsReceipts, goodsReceiptLines, inventoryLots, apSuppliers } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { ensureSystemAccounts, systemAccountId, INV_SUBTYPE } from "@/lib/accounting/system-accounts";
+import { roleAccount } from "@/lib/accounting/account-roles-server";
 import { loadItemCostInfo, commitReceipt, planIssue, commitIssue } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
@@ -98,17 +98,17 @@ export async function dispatchToJobWorker(orgId: string, input: DispatchInput, a
     vendorLabel = supplier?.name ?? null;
   }
 
-  await ensureSystemAccounts(orgId);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
-  const jwClearingId = await systemAccountId(orgId, INV_SUBTYPE.jobwork);
-  if (!jwClearingId) err("No 'Materials with Job Worker' clearing account is set up.");
-
   const itemMap = await loadItemCostInfo(orgId, [input.sentItemId]);
   const item = itemMap.get(input.sentItemId);
   if (!item) err("Item not found.");
   if (!item!.tracked) err(`${item!.name} isn't an inventory-tracked item.`);
-  const assetAcct = item!.assetAccountId ?? invAssetId;
-  if (!assetAcct) err(`No inventory asset account for ${item!.name}.`);
+  const assetAcct = item!.assetAccountId;
+  // Material at a job worker is value inside an OPEN ORDER (WIP_OPEN_ORDERS),
+  // replacing the old "Materials with Job Worker" account. Taken from the SENT
+  // item's group, and dispatch, receipt and close all use that same one — the
+  // received item isn't known yet at dispatch, and the three must hit one
+  // account or the order can never net to zero.
+  const jwClearingId = roleAccount(item!, "WIP_OPEN_ORDERS");
 
   // Resolved before any write. forIssue: material still in Quarantine has not
   // been accepted and must not be sent out to a subcontractor.
@@ -201,19 +201,17 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
   if (!jwo) err("Job work order not found.");
   if (jwo!.status === "Closed") err("This job work order has been closed — reopen it first if more stock is still expected.");
 
-  await ensureSystemAccounts(orgId);
-  const invAssetId = await systemAccountId(orgId, INV_SUBTYPE.asset);
-  const jwClearingId = await systemAccountId(orgId, INV_SUBTYPE.jobwork);
-  const grirId = await systemAccountId(orgId, INV_SUBTYPE.grir);
-  if (!jwClearingId) err("No 'Materials with Job Worker' clearing account is set up.");
-  if (!grirId) err("No Goods-Received-Not-Invoiced clearing account is set up.");
-
-  const itemMap = await loadItemCostInfo(orgId, [input.receivedItemId]);
+  const itemMap = await loadItemCostInfo(orgId, [input.receivedItemId, jwo!.sentItemId]);
   const output = itemMap.get(input.receivedItemId);
   if (!output) err("Received item not found.");
   if (!output!.tracked) err(`${output!.name} isn't an inventory-tracked item.`);
-  const outAsset = output!.assetAccountId ?? invAssetId;
-  if (!outAsset) err(`No inventory asset account for ${output!.name}.`);
+  const sent = itemMap.get(jwo!.sentItemId);
+  if (!sent) err("The item this order dispatched no longer exists.");
+  const outAsset = output!.assetAccountId;
+  const jwClearingId = roleAccount(sent!, "WIP_OPEN_ORDERS");    // same account the dispatch debited
+  // The fee's GRNI is the RECEIVED item's — the goods-receipt line below
+  // carries that item, and billFromReceipts clears the GRNI of the line's item.
+  const grirId = roleAccount(output!, "GRNI");
 
   // Where the transformed goods land: what this receipt says, else what was
   // chosen when the material went out (weeks ago — the operator receiving it
@@ -299,8 +297,8 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
  * Explicitly close a job work order — declares that no further receipts are
  * expected. Computes the gap between total dispatched and total received and
  * writes it off as ITS OWN visible GL line (never folded into any lot's unit
- * cost): a shortfall (the normal case) debits "Inventory Adjustments" and
- * credits the clearing account down to zero; a surplus (unusual — e.g.
+ * cost): a shortfall (the normal case) debits Scrap & Yield Loss and
+ * credits Work in Progress – Open Orders down to zero; a surplus (unusual — e.g.
  * moisture/dye uptake — the caller must pass `confirmGain: true`, meant to
  * gate a client-side confirmation) posts the mirror entry. Zero gap still
  * stamps closedAt/closedBy so there's always an audit record of who closed it.
@@ -327,11 +325,12 @@ export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: s
 
   let wastageEntryId: string | null = null;
   if (Math.abs(wastageAmount) > 0.005) {
-    await ensureSystemAccounts(orgId);
-    const jwClearingId = await systemAccountId(orgId, INV_SUBTYPE.jobwork);
-    const adjustmentsId = await systemAccountId(orgId, INV_SUBTYPE.shrinkage);
-    if (!jwClearingId) err("No 'Materials with Job Worker' clearing account is set up.");
-    if (!adjustmentsId) err("No 'Inventory Adjustments' account is set up.");
+    const sent = (await loadItemCostInfo(orgId, [jwo!.sentItemId])).get(jwo!.sentItemId);
+    if (!sent) err("The item this order dispatched no longer exists.");
+    const jwClearingId = roleAccount(sent!, "WIP_OPEN_ORDERS");
+    // Material lost at the job worker is scrap (SCRAP_LOSS); a yield gain is a
+    // production variance — neither is a stock-count adjustment.
+    const adjustmentsId = roleAccount(sent!, wastageQty > 0 ? "SCRAP_LOSS" : "PRODUCTION_VARIANCE");
 
     const lines: PostLine[] = wastageQty > 0
       ? [
