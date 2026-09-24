@@ -1241,6 +1241,17 @@ and the item's POSTING GROUP says which of the tenant's accounts plays it.
   by default, `--commit` to apply, idempotent. It reclasses the old account at
   stock valuation per type and REPORTS the residual (AM: €20,180.01, the BILL-0004
   double count + GRN-0035 — GAP_REPORT §C), never plugs it.
+  **Run with `--commit` for AM MERCHADISING on 2026-09-24** (JE-0001: 4,427.61
+  → Finished Goods Inventory, 15,199.00 → Trading Goods Inventory, 616.00 →
+  Raw Materials Inventory; 20,180.01 left in the old 1200 by design). After it,
+  `inventory_vs_gl` passes on all four role accounts. The old 1200 is not a
+  role account, so that report does not show its residual — look at the
+  account itself. The four synced tenants have NOT been run: they would only
+  get groups, which lazy provisioning also creates on first use.
+- **Provisioning is idempotent across adoption**: an adopted account keeps its
+  own name, so it stands in for its role's base default by `default_role`, not
+  by name. Without that, the second run created a duplicate "Cost of Sales –
+  Finished Goods" beside the adopted 5000 (caught on the production re-run).
 - **Not built (recorded, not forgotten)**: P-03 invoice-price variance into lot
   cost, P-05/P-14 returns to the original lot, P-10 yield-aware scrap, P-11 MO
   close, P-15/P-16 stock count & write-down (their roles exist and are mapped,

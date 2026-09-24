@@ -116,6 +116,16 @@ export async function provisionInventoryAccounting(orgId: string, opts: { withAc
   const byKey = new Map<string, string>();                      // `${role}|${name}` → account id
   const key = (role: AccountRole, name: string) => `${role}|${name.toLowerCase()}`;
   for (const a of accts) if (a.defaultRole) byKey.set(key(a.defaultRole as AccountRole, a.name), a.id);
+  // An ADOPTED account keeps its own name ("Cost of Goods Sold", not "Cost of
+  // Sales – Finished Goods"), so it would never match its role's default by
+  // name and a second run would create a duplicate beside it. It stands in for
+  // the role's BASE default; the trading defaults carry their own names.
+  const tradingNames = new Set(Object.values(TRADING_DEFAULT_NAMES).map(n => n!.toLowerCase()));
+  for (const a of accts) {
+    if (!a.defaultRole || !a.isSystemDefault || tradingNames.has(a.name.toLowerCase())) continue;
+    const base = key(a.defaultRole as AccountRole, ROLES[a.defaultRole as AccountRole]?.defaultName ?? "");
+    if (!byKey.has(base)) byKey.set(base, a.id);
+  }
 
   let headerId = accts.find(a => a.isHeader && a.name.toLowerCase() === INVENTORIES_HEADER.name.toLowerCase())?.id ?? null;
   if (!headerId) {
