@@ -61,6 +61,10 @@ async function main() {
     const items = (await db.select().from(S.apItems).where(eq(S.apItems.orgId, org.id))).filter(i => R.groupTypeForKind(i.productType));
     const lots = await db.select({ n: sql<number>`count(*)::int` }).from(S.inventoryLots).where(eq(S.inventoryLots.orgId, org.id));
     console.log(`── ${org.name.trim()} (${org.id}) · ${synced ? "synced chart" : "native chart"} · ${items.length} stocked item(s) · ${lots[0]?.n ?? 0} lot(s)`);
+    // Same rule as lazy provisioning: nothing appears in a chart until the org
+    // actually holds stock. The first stocked item or posting provisions it.
+    if (!items.length) { console.log(`  skipped:  no stocked items — provisioned on first use
+`); continue; }
 
     // 1. Provision
     const prov = await RS.provisionInventoryAccounting(org.id, { withAccounts: !synced, dryRun: !COMMIT });
