@@ -49,7 +49,7 @@ import { db } from "@/db";
 import { jobWorkOrders, jobWorkReceipts, goodsReceipts, goodsReceiptLines, inventoryLots, apSuppliers } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
-import { roleAccount } from "@/lib/accounting/account-roles-server";
+import { roleAccount, orderRoleAccount } from "@/lib/accounting/account-roles-server";
 import { loadItemCostInfo, commitReceipt, planIssue, commitIssue } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
@@ -108,7 +108,7 @@ export async function dispatchToJobWorker(orgId: string, input: DispatchInput, a
   // item's group, and dispatch, receipt and close all use that same one — the
   // received item isn't known yet at dispatch, and the three must hit one
   // account or the order can never net to zero.
-  const jwClearingId = roleAccount(item!, "WIP_OPEN_ORDERS");
+  const jwClearingId = await orderRoleAccount(orgId, item!, "WIP_OPEN_ORDERS");
 
   // Resolved before any write. forIssue: material still in Quarantine has not
   // been accepted and must not be sent out to a subcontractor.
@@ -208,7 +208,7 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
   const sent = itemMap.get(jwo!.sentItemId);
   if (!sent) err("The item this order dispatched no longer exists.");
   const outAsset = output!.assetAccountId;
-  const jwClearingId = roleAccount(sent!, "WIP_OPEN_ORDERS");    // same account the dispatch debited
+  const jwClearingId = await orderRoleAccount(orgId, sent!, "WIP_OPEN_ORDERS");    // same account the dispatch debited
   // The fee's GRNI is the RECEIVED item's — the goods-receipt line below
   // carries that item, and billFromReceipts clears the GRNI of the line's item.
   const grirId = roleAccount(output!, "GRNI");
@@ -325,12 +325,18 @@ export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: s
 
   let wastageEntryId: string | null = null;
   if (Math.abs(wastageAmount) > 0.005) {
-    const sent = (await loadItemCostInfo(orgId, [jwo!.sentItemId])).get(jwo!.sentItemId);
+    const ids = [jwo!.sentItemId, (jwo as any).receivedItemId].filter(Boolean) as string[];
+    const items = await loadItemCostInfo(orgId, ids);
+    const sent = items.get(jwo!.sentItemId);
     if (!sent) err("The item this order dispatched no longer exists.");
-    const jwClearingId = roleAccount(sent!, "WIP_OPEN_ORDERS");
+    const jwClearingId = await orderRoleAccount(orgId, sent!, "WIP_OPEN_ORDERS");   // what dispatch debited
     // Material lost at the job worker is scrap (SCRAP_LOSS); a yield gain is a
-    // production variance — neither is a stock-count adjustment.
-    const adjustmentsId = roleAccount(sent!, wastageQty > 0 ? "SCRAP_LOSS" : "PRODUCTION_VARIANCE");
+    // production variance — neither is a stock-count adjustment. Both are
+    // ORDER accounts, so they come from the OUTPUT item's group (what the order
+    // made), falling back to the default Finished Goods group — raw material,
+    // the usual thing sent, carries no production accounts at all.
+    const output = ((jwo as any).receivedItemId && items.get((jwo as any).receivedItemId)) || sent!;
+    const adjustmentsId = await orderRoleAccount(orgId, output, wastageQty > 0 ? "SCRAP_LOSS" : "PRODUCTION_VARIANCE");
 
     const lines: PostLine[] = wastageQty > 0
       ? [

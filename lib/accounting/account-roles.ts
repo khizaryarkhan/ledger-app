@@ -145,26 +145,48 @@ export const defaultAccountName = (role: AccountRole, groupType: GroupType): str
   (groupType === "TRADING" ? TRADING_DEFAULT_NAMES[role] : undefined) ?? ROLES[role].defaultName;
 
 /**
- * The three roles that DIFFER by group type — stock, sales and cost of sales.
- * Each group uses exactly one of each; the others belong to sibling groups.
+ * The accounts each group type actually posts through — and ONLY those.
+ * The rule (product owner, 2026-09-24): an account belongs on a group only if
+ * something that happens to that kind of item posts to it. The system has to
+ * stay friendly without losing what matters, so a role that is merely
+ * conceivable for a type does not earn a row.
+ *
+ *   - Stock / Sales / Cost of sales: every type, its OWN role of each.
+ *   - GRNI: every type. Semi-finished is never bought, but a job worker's
+ *     processing charge is received against the item that comes back.
+ *   - Purchase price variance: only types that are bought (not semi-finished).
+ *   - WIP open orders: raw material, semi-finished and finished — what can be
+ *     sent to a job worker or be the output of a build. Trading goods fall
+ *     back to the default finished-goods group (orderRoleAccount).
+ *   - Labour / overhead absorbed, production variance, scrap & yield loss:
+ *     only what is PRODUCED (semi-finished, finished). Raw material is never
+ *     the output of an order, so absorbing labour into it means nothing.
+ *   - Sales returns: what customers actually return (finished, trading). A
+ *     rare surplus return falls back to the item's sales account.
+ *   - Adjustments / write-downs: every type — any stock can be counted,
+ *     damaged or expire.
+ *   - Scrap sales: NO group. Scrap is never stock; its income account lives on
+ *     the non-stock scrap item that is invoiced.
  */
-const GOODS_ROLES: readonly AccountRole[] = [
-  "RM_INVENTORY", "WIP_STOCK", "FG_INVENTORY",
-  "SALES_FG", "SALES_SURPLUS",
-  "COGS_FG", "COGS_SURPLUS",
-];
+const GROUP_ROLES: Record<GroupType, readonly AccountRole[]> = {
+  RM: ["RM_INVENTORY", "SALES_SURPLUS", "COGS_SURPLUS",
+       "GRNI", "PURCHASE_PRICE_VARIANCE", "WIP_OPEN_ORDERS",
+       "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"],
+  WIP: ["WIP_STOCK", "SALES_SURPLUS", "COGS_SURPLUS",
+        "GRNI", "WIP_OPEN_ORDERS", "LABOUR_ABSORBED", "OVERHEAD_ABSORBED", "PRODUCTION_VARIANCE", "SCRAP_LOSS",
+        "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"],
+  FP: ["FG_INVENTORY", "SALES_FG", "COGS_FG",
+       "GRNI", "PURCHASE_PRICE_VARIANCE", "WIP_OPEN_ORDERS", "LABOUR_ABSORBED", "OVERHEAD_ABSORBED", "PRODUCTION_VARIANCE", "SCRAP_LOSS",
+       "SALES_RETURNS", "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"],
+  TRADING: ["FG_INVENTORY", "SALES_FG", "COGS_FG",
+            "GRNI", "PURCHASE_PRICE_VARIANCE",
+            "SALES_RETURNS", "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"],
+};
 
-/**
- * The roles a group of this type actually posts through: its OWN stock, sales
- * and cost-of-sales role, plus every role that is not goods-specific (GRNI,
- * WIP open orders, variances, returns, adjustments). A Raw Materials group
- * never reads "Finished goods inventory" — only a finished-goods item does,
- * through its own group — so asking for it there was a question with no effect.
- */
+/** The roles a group of this type posts through, in the canonical role order. */
 export function rolesForGroupType(t: GroupType): AccountRole[] {
-  const m = GROUP_TYPE_META[t];
-  const own = new Set<AccountRole>([m.inventoryRole, m.salesRole, m.cogsRole]);
-  return ACCOUNT_ROLES.filter(r => !GOODS_ROLES.includes(r) || own.has(r));
+  const set = new Set(GROUP_ROLES[t]);
+  return ACCOUNT_ROLES.filter(r => set.has(r));
 }
 
 /** Is this role one a group of this type uses? */
@@ -182,32 +204,39 @@ export type RoleSection = { title: string; desc: string; roles: { role: AccountR
 export function groupRoleSections(t: GroupType): RoleSection[] {
   const m = GROUP_TYPE_META[t];
   const kind = m.label.toLowerCase();
-  return [
+  const produced = isRoleForGroupType("LABOUR_ABSORBED", t);
+  const all: RoleSection[] = [
     { title: "This group's accounts", desc: `Where ${kind} stock is held, and where its sales and cost of sales go.`, roles: [
       { role: m.inventoryRole, label: "Stock account" },
       { role: m.salesRole,     label: "Sales account" },
       { role: m.cogsRole,      label: "Cost of sales account" },
     ] },
-    { title: "Purchasing", desc: "Receipts awaiting the supplier's bill, and price differences on it.", roles: [
+    { title: "Purchasing", desc: "The clearing account a receipt is credited to until the supplier's bill clears it, and price differences on that bill.", roles: [
       { role: "GRNI",                    label: ROLES.GRNI.label },
       { role: "PURCHASE_PRICE_VARIANCE", label: ROLES.PURCHASE_PRICE_VARIANCE.label },
     ] },
-    { title: "Production & job work", desc: "Value inside open orders, what is charged into them, and what is left when they close.", roles: [
+    { title: produced ? "Production & job work" : "Job work",
+      desc: produced
+        ? "Value inside open orders, what is charged into them, and what is left when they close."
+        : `The value of ${kind} while it is out at a job worker, until it comes back.`,
+      roles: [
       { role: "WIP_OPEN_ORDERS",     label: ROLES.WIP_OPEN_ORDERS.label },
       { role: "LABOUR_ABSORBED",     label: ROLES.LABOUR_ABSORBED.label },
       { role: "OVERHEAD_ABSORBED",   label: ROLES.OVERHEAD_ABSORBED.label },
       { role: "PRODUCTION_VARIANCE", label: ROLES.PRODUCTION_VARIANCE.label },
       { role: "SCRAP_LOSS",          label: ROLES.SCRAP_LOSS.label },
     ] },
-    { title: "Returns & other sales", desc: "Customer returns, and sales of scrap and offcuts.", roles: [
+    { title: "Returns", desc: "Customer returns, kept apart from sales so returns can be read on their own.", roles: [
       { role: "SALES_RETURNS", label: ROLES.SALES_RETURNS.label },
-      { role: "SCRAP_SALES",   label: ROLES.SCRAP_SALES.label },
     ] },
     { title: "Stock adjustments", desc: "Count differences and write-downs of stock on hand.", roles: [
       { role: "INVENTORY_ADJUSTMENT", label: ROLES.INVENTORY_ADJUSTMENT.label },
       { role: "INVENTORY_WRITEDOWN",  label: ROLES.INVENTORY_WRITEDOWN.label },
     ] },
   ];
+  return all
+    .map(sec => ({ ...sec, roles: sec.roles.filter(r => isRoleForGroupType(r.role, t)) }))
+    .filter(sec => sec.roles.length > 0);
 }
 
 /**

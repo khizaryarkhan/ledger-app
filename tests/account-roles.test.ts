@@ -99,7 +99,6 @@ describe("posting groups", () => {
     for (const t of GROUP_TYPES) {
       const m = GROUP_TYPE_META[t];
       const used = rolesForGroupType(t);
-      expect(used).toHaveLength(14);
       for (const r of [m.inventoryRole, m.salesRole, m.cogsRole]) expect(used).toContain(r);
       for (const other of GROUP_TYPES) {
         const o = GROUP_TYPE_META[other];
@@ -109,6 +108,28 @@ describe("posting groups", () => {
     }
     expect(rolesForGroupType("RM")).not.toContain("FG_INVENTORY");
     expect(rolesForGroupType("RM")).not.toContain("WIP_STOCK");
+  });
+
+  // Product owner's rule: an account is on a group only if something that
+  // happens to that kind of item posts to it.
+  it("keeps only the practically applicable accounts per type", () => {
+    expect(rolesForGroupType("RM")).toHaveLength(8);
+    expect(rolesForGroupType("WIP")).toHaveLength(11);
+    expect(rolesForGroupType("FP")).toHaveLength(13);
+    expect(rolesForGroupType("TRADING")).toHaveLength(8);
+    // Raw material is never produced: no labour, overhead or production results.
+    for (const r of ["LABOUR_ABSORBED", "OVERHEAD_ABSORBED", "PRODUCTION_VARIANCE", "SCRAP_LOSS"] as const) {
+      expect(rolesForGroupType("RM")).not.toContain(r);
+      expect(rolesForGroupType("TRADING")).not.toContain(r);
+      expect(rolesForGroupType("FP")).toContain(r);
+      expect(rolesForGroupType("WIP")).toContain(r);
+    }
+    // Semi-finished is never bought.
+    expect(rolesForGroupType("WIP")).not.toContain("PURCHASE_PRICE_VARIANCE");
+    // Scrap is never stock — its income account lives on the scrap item.
+    for (const t of GROUP_TYPES) expect(rolesForGroupType(t)).not.toContain("SCRAP_SALES");
+    // Every type can be received and counted.
+    for (const t of GROUP_TYPES) for (const r of ["GRNI", "INVENTORY_ADJUSTMENT", "INVENTORY_WRITEDOWN"] as const) expect(rolesForGroupType(t)).toContain(r);
   });
 
   it("an unmapped sibling role does not block a group", () => {

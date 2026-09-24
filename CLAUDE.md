@@ -652,8 +652,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0096` at `when`
-  `1790400000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0097` at `when`
+  `1790500000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1248,16 +1248,24 @@ and the item's POSTING GROUP says which of the tenant's accounts plays it.
   role account, so that report does not show its residual — look at the
   account itself. The four synced tenants have NOT been run: they would only
   get groups, which lazy provisioning also creates on first use.
-- **A group maps 14 roles, not 18** (`rolesForGroupType`, 2026-09-24): its OWN
-  stock, sales and cost-of-sales role plus the 11 shared ones. A Raw Materials
-  group never reads "Finished goods inventory" — a finished-goods item reads it
-  from its own group — so showing and requiring it there was a question with
-  no effect, and read as accounts being mixed between groups (reported by the
-  product owner). The screen lays a group out by `groupRoleSections`: "This
-  group's accounts" (Stock / Sales / Cost of sales) first, then Purchasing,
-  Production & job work, Returns & other sales, Stock adjustments. The block,
-  provisioning, group copy and remap all use the per-type list;
-  `loadGroupMaps` ignores sibling rows and 0096 deleted the 16 AM had.
+- **A group maps only what something posts to** (`rolesForGroupType`,
+  2026-09-24, product owner's rule: "only accounts that are practically
+  applicable — keep it friendly without compromising what is important"). Raw
+  material 8, semi-finished 11, finished 13, trading 8. Each group has its OWN
+  stock / sales / cost-of-sales role (never a sibling's — a Raw Materials group
+  showing "Finished goods inventory" was reported as confusing). Labour,
+  overhead, production variance and scrap loss only on what is PRODUCED
+  (semi-finished, finished); purchase price variance only on what is BOUGHT
+  (not semi-finished); returns only on finished and trading; WIP open orders on
+  everything that can go to a job worker or be built (not trading). **Scrap
+  sales is on no group** — scrap is never stock; its income account belongs on
+  the non-stock scrap item. Where an ORDER needs a role the item's type lacks
+  (trading goods sent to a job worker; a job-work order whose output is raw
+  material), `orderRoleAccount` falls back to the default Finished Goods group.
+  Job-work wastage/gain at close now read the OUTPUT item's group, as the spec
+  says order accounts should. The screen lays each group out by
+  `groupRoleSections` (empty sections dropped). 0096 and 0097 pruned the rows
+  the lists exclude; the accounts themselves were never touched.
 - **Provisioning is idempotent across adoption**: an adopted account keeps its
   own name, so it stands in for its role's base default by `default_role`, not
   by name. Without that, the second run created a duplicate "Cost of Sales –

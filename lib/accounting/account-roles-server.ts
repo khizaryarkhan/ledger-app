@@ -297,6 +297,22 @@ export function roleAccount(item: { name: string; accounts?: ResolvedItemAccount
   return id;
 }
 
+/**
+ * An ORDER account (work in progress, variances, scrap loss) for an item whose
+ * own group type doesn't carry that role — trading goods sent to a job worker,
+ * or a job-work order whose output is a raw material. Orders are production,
+ * so they fall back to the default Finished Goods group. Still a refusal, not a
+ * guess, if that group has no account for the role either.
+ */
+export async function orderRoleAccount(orgId: string, item: { name: string; accounts?: ResolvedItemAccounts | null }, role: AccountRole): Promise<string> {
+  const own = item.accounts?.roles[role];
+  if (own) return own;
+  const fp = (await loadGroupMaps(orgId)).find(g => g.isDefault && g.groupType === "FP");
+  const id = fp?.roles[role];
+  if (!id) throw new AccountMappingError(unmappedMessage(item.name, fp?.name ?? "Finished Goods", [role]));
+  return id;
+}
+
 // ── Control accounts ────────────────────────────────────────────────────────
 
 /** Accounts mapped to an inventory role anywhere in the org — control accounts. */
