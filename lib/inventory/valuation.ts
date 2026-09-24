@@ -13,7 +13,7 @@
 
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
-import { apItems, inventoryLots, inventoryMovements } from "@/db/schema";
+import { apItems, inventoryLots, inventoryMovements, lotAllocations } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { resolveItemAccounts, unmappedMessage, AccountMappingError, type ResolvedItemAccounts } from "@/lib/accounting/account-roles-server";
@@ -138,7 +138,34 @@ export type IssueOptions = {
    * here writes.
    */
   locationId?: string | null;
+  /**
+   * Take EXACTLY these lot quantities (MO completion: the lots production
+   * allocated). No FIFO, no substitution, and no fallback cost — anything a lot
+   * cannot supply comes back as shortfallQty for the caller to refuse.
+   */
+  exactPicks?: { lotId: string; qty: number }[];
+  /** The MO whose own allocations may be consumed; everyone else's are off limits. */
+  forMoId?: string | null;
+  /**
+   * Ignore allocations entirely. Only a stock TRANSFER passes this: moving an
+   * allocated lot to another shelf changes where it is, not whose it is, and
+   * the allocation stays on the lot.
+   */
+  ignoreAllocations?: boolean;
 };
+
+/** Quantity of each lot reserved for manufacturing orders other than `exceptMoId`. */
+export async function allocatedByLot(orgId: string, lotIds: string[], exceptMoId?: string | null): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!lotIds.length) return out;
+  const rows = await db.select({ lotId: lotAllocations.lotId, moId: lotAllocations.moId, qty: lotAllocations.qty })
+    .from(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), inArray(lotAllocations.lotId, lotIds)));
+  for (const r of rows) {
+    if (exceptMoId && r.moId === exceptMoId) continue;
+    out.set(r.lotId, (out.get(r.lotId) ?? 0) + num(r.qty));
+  }
+  return out;
+}
 
 /**
  * Plan a FIFO issue (read-only).
@@ -167,7 +194,7 @@ export async function planIssue(
   const empty: IssuePlan = { itemId: item.id, qty: 0, totalCost: 0, picks, shortfallQty: 0, unlocatedQty: 0 };
   if (want === 0) return empty;
 
-  const { restrictLotIds, skuId, locationId } = opts;
+  const { restrictLotIds, skuId, locationId, exactPicks, forMoId, ignoreAllocations } = opts;
 
   let lots = await db.select().from(inventoryLots)
     .where(and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.itemId, item.id), eq(inventoryLots.status, "Open")))
@@ -176,14 +203,19 @@ export async function planIssue(
   // RM issues pass no skuId and draw from the item's (SKU-less) base lots.
   if (skuId) lots = lots.filter(l => l.skuId === skuId);
   if (restrictLotIds?.length) { const set = new Set(restrictLotIds); lots = lots.filter(l => set.has(l.id)); }
+  if (exactPicks) return planExact(orgId, item, lots, exactPicks, forMoId ?? null);
   if (!lots.length) return shortfallOnly(item, want);
 
   const placements = await placementsForLots(orgId, lots.map(l => l.id));
+  // Stock allocated to a manufacturing order is on hand but not ISSUABLE: it
+  // is spoken for. FIFO, a shipment, a sale or a job-work dispatch must not
+  // take it out from under the order that reserved it.
+  const reserved = ignoreAllocations ? new Map<string, number>() : await allocatedByLot(orgId, lots.map(l => l.id), forMoId ?? null);
 
   let remaining = want, cost = 0, unlocated = 0;
   for (const lot of lots) {
     if (remaining <= 0) break;
-    const lotRemaining = num(lot.remainingQty);
+    const lotRemaining = roundQty(num(lot.remainingQty) - (reserved.get(lot.id) ?? 0));
     if (lotRemaining <= 0) continue;
     const unitCost = num(lot.unitCost);
 
@@ -210,6 +242,46 @@ export async function planIssue(
     totalCost: Math.round(cost * 1e4) / 1e4,
     picks, shortfallQty,
     unlocatedQty: roundQty(unlocated),
+  };
+}
+
+/**
+ * Exact lot quantities (MO completion). Each pick is taken from its own lot at
+ * that lot's cost, from wherever in the building the lot sits (issuable
+ * locations only). What a lot cannot supply — because it was issued since it
+ * was allocated, or another order holds it — is reported as shortfall with no
+ * cost row: the caller refuses the whole completion rather than invent a cost.
+ */
+async function planExact(orgId: string, item: ItemCostInfo, lots: (typeof inventoryLots.$inferSelect)[], exact: { lotId: string; qty: number }[], forMoId: string | null): Promise<IssuePlan> {
+  const byId = new Map(lots.map(l => [l.id, l]));
+  const ids = exact.map(p => p.lotId).filter(id => byId.has(id));
+  const placements = await placementsForLots(orgId, ids);
+  const reserved = await allocatedByLot(orgId, ids, forMoId);
+  const picks: IssuePick[] = [];
+  let want = 0, cost = 0, short = 0, unlocated = 0;
+  for (const p of exact) {
+    const q = roundQty(Math.max(0, Number(p.qty) || 0));
+    if (q <= 0) continue;
+    want += q;
+    const lot = byId.get(p.lotId);
+    if (!lot) { short += q; continue; }
+    const avail = roundQty(num(lot.remainingQty) - (reserved.get(lot.id) ?? 0));
+    let left = q;
+    for (const slice of reachableSlices(placements.get(lot.id) ?? [], Math.max(0, avail), null)) {
+      if (left <= 0) break;
+      const take = Math.min(slice.qty, left);
+      if (take <= 0) continue;
+      picks.push({ lotId: lot.id, lotNo: lot.lotNo, qty: take, unitCost: num(lot.unitCost), locationId: slice.locationId });
+      if (slice.locationId === null) unlocated += take;
+      cost += take * num(lot.unitCost);
+      left = roundQty(left - take);
+    }
+    short += Math.max(0, left);
+  }
+  return {
+    itemId: item.id, qty: roundQty(want),
+    totalCost: Math.round(cost * 1e4) / 1e4,
+    picks, shortfallQty: roundQty(short), unlocatedQty: roundQty(unlocated),
   };
 }
 

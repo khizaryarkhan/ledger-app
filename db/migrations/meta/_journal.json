@@ -680,6 +680,13 @@
       "when": 1790500000000,
       "tag": "0097_group_roles_by_type",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "6",
+      "when": 1790600000000,
+      "tag": "0098_mo_materials_lot_allocations",
+      "breakpoints": true
     }
   ]
 }

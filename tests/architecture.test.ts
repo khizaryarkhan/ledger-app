@@ -1108,3 +1108,34 @@ describe("inventory postings resolve ROLES, never an account by guesswork", () =
     expect(importers("components", "account-roles-server")).toEqual([]);
   });
 });
+
+describe("a manufacturing order consumes the lots production allocated", () => {
+  /**
+   * Settled 2026-09-24: no accounting entry until an MO is completed; while it
+   * is in progress production allocates lots, and those quantities are
+   * reserved. Two things erode that quietly:
+   *   - an issue path that skips the reservation (a shipment taking a lot an
+   *     MO holds), and
+   *   - completion falling back to FIFO or a typed cost instead of the picks.
+   */
+  it("only a stock transfer may ignore allocations", () => {
+    const offenders: string[] = [];
+    for (const dir of ["lib", "app"]) for (const f of sourceFiles(dir)) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      if (rel === "lib/inventory/valuation.ts" || rel === "lib/inventory/transfers.ts") continue;
+      if (/ignoreAllocations\s*:\s*true/.test(readFileSync(f, "utf8"))) offenders.push(rel);
+    }
+    expect(offenders, "moving stock is the only thing allowed to touch an allocated lot").toEqual([]);
+  });
+
+  it("planIssue subtracts other orders' allocations by default", () => {
+    const val = readFileSync(join(ROOT, "lib/inventory/valuation.ts"), "utf8");
+    expect(val).toMatch(/ignoreAllocations \? new Map<string, number>\(\) : await allocatedByLot\(/);
+  });
+
+  it("completeMO passes the allocated lot picks and refuses an order not in progress", () => {
+    const mo = readFileSync(join(ROOT, "lib/inventory/manufacturing-orders.ts"), "utf8");
+    expect(mo).toMatch(/moId: id, lotPicks/);
+    expect(mo).toMatch(/status !== "InProgress"\) err\(/);
+  });
+});

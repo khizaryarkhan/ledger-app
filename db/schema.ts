@@ -2317,6 +2317,46 @@ export const moOutputs = pgTable("mo_outputs", {
 }, (t) => ({ mo_outputs_mo_idx: index("mo_outputs_mo_idx").on(t.moId) }));
 export type MoOutput = typeof moOutputs.$inferSelect;
 
+// The MO's OWN copy of what it consumes (migration 0098). Taken from the BOM
+// when the order is created (or its outputs change, while nothing is
+// allocated) — so editing the BOM later never silently changes an order that
+// is already planned or in progress.
+export const moMaterials = pgTable("mo_materials", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:       uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+  itemId:     uuid("item_id").notNull(),
+  kind:       varchar("kind", { length: 12 }).notNull(),                     // ingredient | packaging
+  plannedQty: numeric("planned_qty", { precision: 20, scale: 6 }).notNull(), // base UoM
+  sortOrder:  integer("sort_order").notNull().default(0),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  mo_materials_mo_idx: index("mo_materials_mo_idx").on(t.moId),
+}));
+export type MoMaterial = typeof moMaterials.$inferSelect;
+
+// A lot quantity RESERVED for an MO in progress (0098). No accounting entry:
+// the stock stays on hand, in its lot and its stock account, until the MO is
+// completed — but no other MO, shipment, sale or job work may issue it.
+// Allocation is by QUANTITY, so one lot can be split across orders. Deleted
+// when the MO completes (consumed) or is cancelled (released).
+export const lotAllocations = pgTable("lot_allocations", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:        uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+  itemId:      uuid("item_id").notNull(),
+  lotId:       uuid("lot_id").notNull().references(() => inventoryLots.id, { onDelete: "cascade" }),
+  qty:         numeric("qty", { precision: 20, scale: 6 }).notNull(),
+  suggested:   boolean("suggested").notNull().default(false),               // accepted as the system proposed it
+  allocatedBy: uuid("allocated_by"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  lot_allocations_mo_lot_unique: uniqueIndex("lot_allocations_mo_lot_unique").on(t.moId, t.lotId),
+  lot_allocations_lot_idx: index("lot_allocations_lot_idx").on(t.lotId),
+}));
+export type LotAllocation = typeof lotAllocations.$inferSelect;
+
 // Per-SKU produced outputs of a build (co-products with allocated cost).
 export const productionOutputs = pgTable("production_outputs", {
   id:        uuid("id").defaultRandom().primaryKey(),

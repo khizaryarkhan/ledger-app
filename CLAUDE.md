@@ -652,8 +652,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0097` at `when`
-  `1790500000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0098` at `when`
+  `1790600000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1277,6 +1277,44 @@ and the item's POSTING GROUP says which of the tenant's accounts plays it.
   can-be-sold/purchased flags, two tax fields. The QBO/Xero account sync still
   omits Other Current Asset/Liability, Income and Bank types, so a synced
   tenant may not find its external Inventory account to map yet.
+
+## Manufacturing orders — nothing posts until Completed; lots are allocated (2026-09-24)
+
+The product owner's lifecycle, and now the only one:
+
+| MO status | Entry | Stock |
+|---|---|---|
+| Scheduled / Released | none | the output is EXPECTED stock (Stock Status "Expected (PO / MO)") |
+| In Progress | none | production picks lots per material; those quantities are ALLOCATED (`lot_allocations`) — on hand, in their stock account, but no other MO, shipment, sale, build or job work can issue them |
+| Completed | the one entry | exactly the allocated lot quantities are consumed at their own cost; the output lot is produced; allocations deleted |
+| Cancelled | none | allocations released |
+
+- **Allocation is by QUANTITY**, so a lot can be split across MOs. Suggested
+  first-expiry-first-out (`lib/inventory/allocation.ts`, pure and tested); the
+  user may change it, and `suggested` records whether they kept the proposal.
+- **What is allocated is what was used.** Completion consumes the allocations,
+  which may differ from the plan; the drawer says by how much. It refuses to
+  complete while any stocked material has nothing allocated, and it never falls
+  back to FIFO or to a typed cost (`planIssue`'s `exactPicks` mode reports a
+  shortfall instead of costing one). That closes the worst gap in the MO path:
+  completion used to draw shortages at `apItems.unitCost`, driving stock
+  negative in the GL only.
+- **`planIssue` subtracts other orders' allocations by default.** Only a stock
+  transfer passes `ignoreAllocations` — moving an allocated lot changes where it
+  is, not whose — and `tests/architecture.test.ts` pins that.
+- **The MO keeps its own copy of its materials** (`mo_materials`, 0098), taken
+  from the BOM on creation and re-taken when its outputs or BOM change, which is
+  refused once anything is allocated. A later BOM edit therefore never changes
+  an order already planned. Orders from before 0098 get their copy the first
+  time they are opened. (The per-pack COST split at completion still reads the
+  BOM's output lines — the quantities are the MO's.)
+- **In Progress → Released is refused while lots are allocated** (the stock
+  would stay reserved for an order nobody is working); cancelling releases them.
+- Deliberately NOT done yet: partial completion (all at once for now), yield /
+  scrap beyond the BOM's expected yield, labour and overhead. The work-in-progress
+  account is not used while an MO is open — the allocated stock stays in its
+  raw-material account until completion, which keeps total stock right at any
+  month-end.
 
 ## Supplier sourcing — who may supply an item (2026-09-21)
 

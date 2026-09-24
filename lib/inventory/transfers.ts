@@ -96,6 +96,9 @@ export async function postStockTransfer(orgId: string, input: TransferInput, act
       skuId: r.skuId ?? null,
       locationId: fromLocationId,
       restrictLotIds: r.lotIds?.length ? r.lotIds : undefined,
+      // Moving stock that an MO has allocated is allowed: it changes where the
+      // lot is, not whose it is, and the allocation stays on the lot.
+      ignoreAllocations: true,
     });
 
     if (plan.shortfallQty > 0) {

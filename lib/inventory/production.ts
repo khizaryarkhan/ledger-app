@@ -164,6 +164,13 @@ export type MultiBuildInput = {
   producedDate: string;
   notes?: string | null;
   moId?: string | null;
+  /**
+   * The lot quantities production ALLOCATED to the MO, per consumed item. When
+   * given, the build consumes exactly these — what was actually used, which
+   * may differ from the BOM's plan — and never falls back to FIFO or to a
+   * typed cost. MO completion always passes them.
+   */
+  lotPicks?: Record<string, { lotId: string; qty: number }[]>;
 };
 
 /**
@@ -208,6 +215,17 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
   for (const o of outputs) for (const p of packLines.filter(pl => pl.packagingForSkuId === o.skuId)) {
     required.set(p.itemId, roundQty((required.get(p.itemId) ?? 0) + (Number(p.qty) || 0) * o.packs));
   }
+  // An MO consumes what production allocated, not the BOM's arithmetic: the
+  // actual quantities are the allocated ones. Untracked BOM lines carry no
+  // stock and no cost either way.
+  const picks = input.lotPicks;
+  if (picks) {
+    required.clear();
+    for (const [itemId, list] of Object.entries(picks)) {
+      const q = roundQty(list.reduce((sm, p) => sm + (Number(p.qty) || 0), 0));
+      if (q > 0) required.set(itemId, q);
+    }
+  }
   const consumedIds = [...required.keys()];
   const itemMap = await loadItemCostInfo(orgId, [...consumedIds, bom!.outputItemId]);
 
@@ -223,7 +241,12 @@ export async function buildProductionMulti(orgId: string, input: MultiBuildInput
     const item = itemMap.get(id); if (!item || !item.tracked) continue;
     const qty = required.get(id)!;
     if (qty <= 0) continue;
-    const plan = await planIssue(orgId, item, qty, { locationId: consumeLocationIdMulti });
+    const plan = picks
+      ? await planIssue(orgId, item, qty, { exactPicks: picks[id], forMoId: input.moId ?? null })
+      : await planIssue(orgId, item, qty, { locationId: consumeLocationIdMulti, forMoId: input.moId ?? null });
+    if (picks && plan.shortfallQty > 0) {
+      err(`${item.name}: the allocated lots no longer hold ${roundQty(plan.shortfallQty)} of the ${qty} allocated — the stock was issued elsewhere. Re-allocate this material before completing.`);
+    }
     if (consumeLocationIdMulti && plan.shortfallQty > 0) {
       err(`${item.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }

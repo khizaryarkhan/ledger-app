@@ -154,11 +154,11 @@ export function StockStatusReport() {
           <table className="w-full text-[13px] min-w-[620px]">
             <thead><tr className={tableHead}>
               <th className="text-left px-4 py-2.5">Item</th><th className="text-left px-4 py-2.5">Code</th>
-              <th className="text-right px-4 py-2.5">On hand</th><th className="text-left px-4 py-2.5">Where</th><th className="text-right px-4 py-2.5">Expected (PO)</th><th className="text-right px-4 py-2.5">Committed (SO)</th><th className="text-right px-4 py-2.5">Available</th><th className="text-right px-4 py-2.5">Min.</th><th className="text-left px-4 py-2.5">Status</th>
+              <th className="text-right px-4 py-2.5">On hand</th><th className="text-left px-4 py-2.5">Where</th><th className="text-right px-4 py-2.5" title="On open purchase orders and manufacturing orders">Expected (PO / MO)</th><th className="text-right px-4 py-2.5">Committed (SO)</th><th className="text-right px-4 py-2.5" title="Lots reserved for manufacturing orders in progress">Allocated (MO)</th><th className="text-right px-4 py-2.5">Available</th><th className="text-right px-4 py-2.5">Min.</th><th className="text-left px-4 py-2.5">Status</th>
             </tr></thead>
             <tbody>
-              {rows === null && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && filtered.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">Nothing to show.</td></tr>}
+              {rows === null && <tr><td colSpan={10} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
+              {rows !== null && filtered.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-stone-500">Nothing to show.</td></tr>}
               {filtered.map(r => (
                 <tr key={r.id} className="border-b border-stone-800/60">
                   <td className="px-4 py-2 text-stone-100 font-medium">{r.name}</td>
@@ -183,6 +183,7 @@ export function StockStatusReport() {
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">{Number(r.expectedQty) > 0 ? <span className="text-cyan-400">+{qty(r.expectedQty)}</span> : <span className="text-stone-600">—</span>}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{Number(r.committedQty) > 0 ? <span className="text-amber-400">−{qty(r.committedQty)}</span> : <span className="text-stone-600">—</span>}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{Number(r.allocatedQty) > 0 ? <span className="text-amber-400">−{qty(r.allocatedQty)}</span> : <span className="text-stone-600">—</span>}</td>
                   <td className="px-4 py-2 text-right text-stone-200 tabular-nums">{qty(r.availableQty)}</td>
                   <td className="px-4 py-2 text-right text-stone-400 tabular-nums">{qty(r.minOhQty)}</td>
                   <td className="px-4 py-2">

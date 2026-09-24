@@ -8,7 +8,7 @@
 
 import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
-import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations } from "@/db/schema";
+import { apItems, inventoryLots, tradeDocuments, tradeDocumentLines, itemSkus, inventoryLotLocations, stockLocations, manufacturingOrders, lotAllocations } from "@/db/schema";
 import { requireReadScope, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
@@ -17,6 +17,22 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 const num = (v: any) => Number(v ?? 0);
 
 /** Open-order remaining qty per item (base UoM), for a PO or SO. */
+/**
+ * Manufacturing orders: an open MO's output is EXPECTED stock (it will arrive
+ * when the order completes), and lots allocated to an MO in progress are on
+ * hand but spoken for — so they count against availability, not on-hand.
+ */
+async function moExpectedAndAllocated(orgIds: string[]) {
+  const expected = new Map<string, number>(), allocated = new Map<string, number>();
+  const mos = await db.select({ itemId: manufacturingOrders.outputItemId, qty: manufacturingOrders.qty })
+    .from(manufacturingOrders)
+    .where(and(inArray(manufacturingOrders.orgId, orgIds), inArray(manufacturingOrders.status, ["Scheduled", "Released", "InProgress"])));
+  for (const m of mos) if (m.itemId) expected.set(m.itemId, (expected.get(m.itemId) ?? 0) + num(m.qty));
+  const al = await db.select({ itemId: lotAllocations.itemId, qty: lotAllocations.qty }).from(lotAllocations).where(inArray(lotAllocations.orgId, orgIds));
+  for (const a of al) allocated.set(a.itemId, (allocated.get(a.itemId) ?? 0) + num(a.qty));
+  return { expected, allocated };
+}
+
 async function openOrderQtyByItem(orgIds: string[], kind: "PurchaseOrder" | "SalesOrder"): Promise<Map<string, number>> {
   const docs = await db.select({ id: tradeDocuments.id }).from(tradeDocuments)
     .where(and(inArray(tradeDocuments.orgId, orgIds), eq(tradeDocuments.kind, kind)));
@@ -104,13 +120,16 @@ export async function GET(req: Request) {
   if (type === "status") {
     const expected = await openOrderQtyByItem(orgIds!, "PurchaseOrder");
     const committed = await openOrderQtyByItem(orgIds!, "SalesOrder");
+    const mo = await moExpectedAndAllocated(orgIds!);
     const placements = await placementsByItem(orgIds!);
     return ok(tracked.map(i => {
-      const onHand = num(i.onHandQty), min = num(i.minOhQty), exp = expected.get(i.id) ?? 0, com = committed.get(i.id) ?? 0;
-      const available = onHand + exp - com;
+      const onHand = num(i.onHandQty), min = num(i.minOhQty);
+      const exp = (expected.get(i.id) ?? 0) + (mo.expected.get(i.id) ?? 0);
+      const com = committed.get(i.id) ?? 0, alloc = mo.allocated.get(i.id) ?? 0;
+      const available = onHand + exp - com - alloc;
       return {
         id: i.id, name: i.name, code: i.code, category: i.category, baseUom: i.baseUom, productType: i.productType,
-        onHandQty: onHand, expectedQty: roundQty(exp), committedQty: roundQty(com),
+        onHandQty: onHand, expectedQty: roundQty(exp), committedQty: roundQty(com), allocatedQty: roundQty(alloc),
         availableQty: roundQty(available), minOhQty: min,
         belowMin: min > 0 && available < min, out: onHand <= 0,
         // Where the on-hand quantity actually is. Empty for an org with no
