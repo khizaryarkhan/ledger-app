@@ -10,7 +10,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, X, Loader, Check, Trash2, AlertTriangle, CircleDot } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
-import { localToday, ymd } from "@/lib/format";
+import { localToday, ymd, fmt } from "@/lib/format";
 
 const qtyFmt = (n: any) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
@@ -205,6 +205,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const [alloc, setAlloc] = useState<any>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [info, setInfo] = useState("");
+  const [completing, setCompleting] = useState(false);
   async function load() {
     const det = await fetch(`/api/production/mos/${id}`).then(r => r.json()).catch(() => null);
     setD(det);
@@ -234,14 +235,10 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Failed."); return; }
     load(); onChanged();
   }
-  async function complete() {
-    if (!confirm("Complete this MO? The allocated lots are consumed and the output is produced — this posts the ledger entry.")) return;
-    setBusy(true); setErr(""); setInfo("");
-    const r = await fetch(`/api/production/mos/${id}/complete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    const res = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (!r.ok) { setErr(res?.error || "Could not complete."); return; }
-    if (res.pending) { setInfo("This build exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet, and this MO stays open until it's approved. See Approvals."); load(); onChanged(); return; }
+  function onCompleted(res: any) {
+    setCompleting(false);
+    if (res?.pending) setInfo("This completion exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals.");
+    else setInfo(res?.final ? `Completed — ${res.runNo} posted.` : `Partial completion ${res.runNo} posted. The order stays in progress.`);
     load(); onChanged();
   }
   async function del() {
@@ -279,9 +276,9 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
           <button key={t.to} onClick={() => transition(t.to)} disabled={busy} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>
         ))}
         {mo.status === "InProgress" && (
-          <button onClick={complete} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
+          <button onClick={() => setCompleting(true)} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
             className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
-            {busy ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Complete build
+            {busy ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Complete…
           </button>
         )}
       </div>
@@ -289,6 +286,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   );
 
   return (
+    <>
+    {completing && d && <CompletionDrawer id={id} d={d} alloc={alloc} onClose={() => setCompleting(false)} onDone={onCompleted} />}
     <Drawer title={mo ? `${mo.moNo} · ${d.outputItem?.name ?? ""}` : "Manufacturing order"} onClose={onClose} size="xl" footer={footer}>
       {!d ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-4">
@@ -309,7 +308,10 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
                 {d.outputs.map((o: any) => (
                   <div key={o.id} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
                     <span className="text-stone-200">{o.skuName || "Pack"}</span>
-                    <span className="text-stone-400 tabular-nums">{qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}</span>
+                    <span className="text-stone-400 tabular-nums">
+                      {qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}
+                      {o.completedQty > 0 && <span className="text-emerald-400"> · {qtyFmt(o.completedQty)} done</span>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -372,11 +374,213 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
           {lines.length === 0 && <p className="text-[12px] text-stone-500">No materials planned (the BOM has no ingredients/packaging yet).</p>}
           {mo.status !== "InProgress" && d.materials?.anyShort && <p className="text-[11px] text-amber-400">Some materials are short — receive or produce them before production starts; completion takes only allocated lots.</p>}
 
+          {(d.operations ?? []).length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Operations · labour &amp; overhead</div>
+              <div className="rounded-lg border border-stone-800 overflow-hidden">
+                <table className="w-full text-[12px]">
+                  <thead><tr className="border-b border-stone-800"><th className={th}>Operation</th><th className={`${th} text-right`}>Planned hours</th><th className={`${th} text-right`}>Rate / hour</th><th className={`${th} text-right`}>Planned cost</th></tr></thead>
+                  <tbody>
+                    {d.operations.map((o: any) => (
+                      <tr key={o.id} className="border-b border-stone-800/50">
+                        <td className="px-3 py-1.5 text-stone-200">{o.name}</td>
+                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(o.plannedHours)}</td>
+                        <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{fmt.num2(o.labourRate + o.overheadRate)}</td>
+                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{fmt.num2(o.plannedCost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {d.mo.expYield != null && <p className="text-[11px] text-stone-500">Expected yield {d.mo.expYield}% — loss within it stays in the product's cost; loss beyond it goes to Scrap &amp; yield loss.</p>}
+          {(d.completions ?? []).length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Completions</div>
+              <div className="rounded-lg border border-stone-800 overflow-hidden">
+                <table className="w-full text-[12px]">
+                  <thead><tr className="border-b border-stone-800"><th className={th}>Run</th><th className={th}>Date</th><th className={`${th} text-right`}>Good</th><th className={`${th} text-right`}>Rejected</th><th className={`${th} text-right`}>Materials</th><th className={`${th} text-right`}>Labour + OH</th><th className={`${th} text-right`}>Scrap</th></tr></thead>
+                  <tbody>
+                    {d.completions.map((c: any) => (
+                      <tr key={c.id} className="border-b border-stone-800/50">
+                        <td className="px-3 py-1.5 font-mono text-[12px] text-stone-300">{c.runNo}</td>
+                        <td className="px-3 py-1.5 text-stone-400">{c.date}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-200">{qtyFmt(c.goodQty)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.rejectedQty ? qtyFmt(c.rejectedQty) : "—"}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.materialCost)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.labourCost + c.overheadCost)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.scrapCost ? fmt.num2(c.scrapCost) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {mo.notes && <div className="text-[12px] text-stone-400"><span className="text-stone-500">Notes: </span>{mo.notes}</div>}
           {err && <p className="text-[12px] text-rose-400">{err}</p>}
           {info && <p className="text-[12px] text-amber-400 bg-amber-950/30 border border-amber-900 rounded-lg px-3 py-2">{info}</p>}
         </div>
       )}
+    </Drawer>
+    </>
+  );
+}
+
+/**
+ * One completion run. Everything defaults to "the rest of the order, with
+ * everything allocated", so a single-run order is one click; a partial run
+ * changes the good packs and the lots used. The preview is the server's own
+ * costing of exactly this input, so what is confirmed is what posts.
+ */
+function CompletionDrawer({ id, d, alloc, onClose, onDone }: { id: string; d: any; alloc: any; onClose: () => void; onDone: (res: any) => void }) {
+  const baseUom = d.outputItem?.baseUom || "";
+  const [date, setDate] = useState(localToday());
+  const [good, setGood] = useState<Record<string, string>>(() => Object.fromEntries((d.outputs ?? []).map((o: any) => [o.skuId, String(o.remainingQty ?? o.qty)])));
+  const [rejected, setRejected] = useState("");
+  // Final unless this run leaves packs unmade — or the user says otherwise.
+  const [finalSet, setFinalSet] = useState<boolean | null>(null);
+  const autoFinal = (d.outputs ?? []).every((o: any) => (Number(good[o.skuId]) || 0) + 1e-6 >= Number(o.remainingQty ?? o.qty));
+  const final = finalSet ?? autoFinal;
+  const [hours, setHours] = useState<Record<string, string>>({});
+  const [use, setUse] = useState<Record<string, string>>({});       // lotId -> qty
+  const [touchedUse, setTouchedUse] = useState(false);
+  const [pv, setPv] = useState<any>(null);
+  const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
+
+  const allocated: { itemId: string; lotId: string; lotNo: string; mine: number; name: string }[] = (alloc?.materials ?? []).flatMap((m: any) =>
+    (m.lots ?? []).filter((l: any) => l.mine > 0).map((l: any) => ({ itemId: m.itemId, lotId: l.lotId, lotNo: l.lotNo, mine: l.mine, name: (d.materials?.lines ?? []).find((x: any) => x.itemId === m.itemId)?.name ?? "" })));
+
+  const body = () => ({
+    date,
+    outputs: (d.outputs ?? []).map((o: any) => ({ skuId: o.skuId, goodPacks: Number(good[o.skuId]) || 0 })),
+    rejectedBase: Number(rejected) || 0,
+    final,
+    ...(Object.keys(hours).length ? { hours: Object.entries(hours).map(([operationId, h]) => ({ operationId, hours: Number(h) || 0 })) } : {}),
+    // Untouched: the server's default — everything on a final run, this run's share on a partial one.
+    ...(touchedUse ? { consume: allocated.map(a => ({ itemId: a.itemId, lotId: a.lotId, qty: Number(use[a.lotId]) || 0 })) } : {}),
+  });
+
+  // Live preview, debounced.
+  useEffect(() => {
+    const h = setTimeout(async () => {
+      const r = await fetch(`/api/production/mos/${id}/complete?preview=1`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body()) });
+      const res = await r.json().catch(() => ({}));
+      if (!r.ok) { setPv(null); setErr(res?.error || "Can't preview this."); return; }
+      setErr(null); setPv(res);
+      if (!touchedUse) setUse(Object.fromEntries((res.consume ?? []).map((c: any) => [c.lotId, String(c.qty)])));
+      if (!Object.keys(hours).length) { /* keep defaults visible below */ }
+    }, 350);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, JSON.stringify(good), rejected, final, JSON.stringify(hours), JSON.stringify(touchedUse ? use : {})]);
+
+  async function post() {
+    setSaving(true); setErr(null);
+    const r = await fetch(`/api/production/mos/${id}/complete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body()) });
+    const res = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (!r.ok) { setErr(res?.error || "Could not complete."); return; }
+    onDone(res);
+  }
+
+  return (
+    <Drawer title={`Complete ${d.mo.moNo ?? "order"}`} subtitle="One completion posts one entry. Leave the order open for a partial run." onClose={onClose} size="xl" elevated
+      footer={<DrawerFooter saving={saving} onClose={onClose} onSave={post} saveLabel={final ? "Post and complete the order" : "Post partial completion"} err={err} saveDisabled={!pv} />}>
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Completion date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
+          <Field label={`Rejected (${baseUom || "base units"})`} hint="Product that came out unusable in this run.">
+            <input type="number" min="0" step="any" className={controlInset} value={rejected} onChange={e => setRejected(e.target.value)} placeholder="0" />
+          </Field>
+        </div>
+
+        <Section title="Good output this run">
+          <div className="rounded-lg border border-stone-800 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead><tr className="border-b border-stone-800"><th className={th}>Pack</th><th className={`${th} text-right`}>Remaining</th><th className={`${th} text-right w-32`}>Good packs</th></tr></thead>
+              <tbody>
+                {(d.outputs ?? []).map((o: any) => (
+                  <tr key={o.skuId} className="border-b border-stone-800/50">
+                    <td className="px-3 py-1.5 text-stone-200">{o.skuName || "Pack"}</td>
+                    <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{qtyFmt(o.remainingQty)}</td>
+                    <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={good[o.skuId] ?? ""} onChange={e => setGood(g => ({ ...g, [o.skuId]: e.target.value }))} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+
+        <Section title="Lots used this run" desc={final ? "A final run uses everything allocated unless you change it; what's left over goes back to stock." : "Defaults to this run's share of what's allocated."}>
+          <div className="rounded-lg border border-stone-800 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead><tr className="border-b border-stone-800"><th className={th}>Material</th><th className={th}>Lot</th><th className={`${th} text-right`}>Allocated</th><th className={`${th} text-right w-32`}>Use</th></tr></thead>
+              <tbody>
+                {allocated.length === 0 && <tr><td colSpan={4} className="px-3 py-3 text-center text-stone-500">Nothing allocated.</td></tr>}
+                {allocated.map(a => (
+                  <tr key={a.lotId} className="border-b border-stone-800/50">
+                    <td className="px-3 py-1.5 text-stone-200">{a.name}</td>
+                    <td className="px-3 py-1.5 font-mono text-[12px] text-stone-400">{a.lotNo || "—"}</td>
+                    <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{qtyFmt(a.mine)}</td>
+                    <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={use[a.lotId] ?? ""}
+                      onChange={e => { setTouchedUse(true); setUse(u => ({ ...u, [a.lotId]: e.target.value })); }} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+
+        {(pv?.operations ?? []).length > 0 && (
+          <Section title="Hours this run" desc="Defaults to the planned hours in proportion to what this run made.">
+            <div className="rounded-lg border border-stone-800 overflow-hidden">
+              <table className="w-full text-[12px]">
+                <thead><tr className="border-b border-stone-800"><th className={th}>Operation</th><th className={`${th} text-right w-32`}>Hours</th><th className={`${th} text-right`}>Labour</th><th className={`${th} text-right`}>Overhead</th></tr></thead>
+                <tbody>
+                  {pv.operations.map((o: any) => (
+                    <tr key={o.id} className="border-b border-stone-800/50">
+                      <td className="px-3 py-1.5 text-stone-200">{o.name}</td>
+                      <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={hours[o.id] ?? String(o.hours)} onChange={e => setHours(h => ({ ...h, [o.id]: e.target.value }))} /></td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(o.labour)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(o.overhead)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        )}
+
+        <label className="flex items-start gap-2.5 rounded-lg border border-stone-700 px-3 py-2.5 cursor-pointer">
+          <input type="checkbox" checked={final} onChange={e => setFinalSet(e.target.checked)} className="accent-emerald-600 mt-0.5" />
+          <div>
+            <div className="text-[13px] font-medium text-stone-200">This is the last run — complete the order</div>
+            <p className="text-[12px] text-stone-400">Anything still allocated and not used goes back to stock. Untick to leave the order in progress for another run.</p>
+          </div>
+        </label>
+
+        {pv && (
+          <Section title="What will post">
+            <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/60 text-[12px]">
+              {[["Materials", pv.materials], ["Labour", pv.labour], ["Overhead", pv.overhead]].map(([k, v]) => (
+                <div key={k as string} className="flex justify-between px-3 py-1.5"><span className="text-stone-400">{k}</span><span className="tabular-nums text-stone-200">{fmt.num2(v as number)}</span></div>
+              ))}
+              {(pv.outputs ?? []).map((o: any) => (
+                <div key={o.skuId} className="flex justify-between px-3 py-1.5">
+                  <span className="text-stone-400">Into stock · {(d.outputs ?? []).find((x: any) => x.skuId === o.skuId)?.skuName ?? "pack"} · {qtyFmt(o.baseQty)} {baseUom} at {fmt.num2(o.unitCost)}</span>
+                  <span className="tabular-nums text-emerald-400">{fmt.num2(o.amount)}</span>
+                </div>
+              ))}
+              {pv.scrap > 0 && <div className="flex justify-between px-3 py-1.5"><span className="text-stone-400">Scrap &amp; yield loss · {qtyFmt(pv.abnormalBase)} {baseUom} beyond expected yield</span><span className="tabular-nums text-rose-400">{fmt.num2(pv.scrap)}</span></div>}
+              {pv.normalLossBase > 0 && <div className="px-3 py-1.5 text-stone-500">{qtyFmt(pv.normalLossBase)} {baseUom} rejected within the expected yield — absorbed into the product's cost.</div>}
+              <div className="flex justify-between px-3 py-1.5 font-semibold"><span className="text-stone-300">Total</span><span className="tabular-nums text-stone-100">{fmt.num2(pv.total)}</span></div>
+            </div>
+          </Section>
+        )}
+      </div>
     </Drawer>
   );
 }

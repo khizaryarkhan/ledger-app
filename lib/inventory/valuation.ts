@@ -192,9 +192,9 @@ export async function planIssue(
   const want = Math.max(0, Number(qty) || 0);
   const picks: IssuePick[] = [];
   const empty: IssuePlan = { itemId: item.id, qty: 0, totalCost: 0, picks, shortfallQty: 0, unlocatedQty: 0 };
-  if (want === 0) return empty;
-
   const { restrictLotIds, skuId, locationId, exactPicks, forMoId, ignoreAllocations } = opts;
+  // Exact picks carry their own quantities; `qty` is not what decides them.
+  if (want === 0 && !exactPicks?.length) return empty;
 
   let lots = await db.select().from(inventoryLots)
     .where(and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.itemId, item.id), eq(inventoryLots.status, "Open")))

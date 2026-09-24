@@ -16,7 +16,7 @@ import {
   goodsReceipts, goodsReceiptLines, salesShipments, shipmentLines,
   productionRuns, productionConsumptions, tradeDocumentLines,
   journalEntries, journalLines, transactionLinks, organisations, manufacturingOrders,
-  jobWorkOrders, jobWorkReceipts,
+  jobWorkOrders, jobWorkReceipts, productionOutputs, moOutputs,
 } from "@/db/schema";
 import { and, eq, or, sql } from "drizzle-orm";
 import { LedgerValidationError } from "@/lib/ledger";
@@ -85,6 +85,11 @@ export async function voidShipment(orgId: string, shipmentId: string) {
 export async function voidProductionRun(orgId: string, runId: string) {
   const [run] = await db.select().from(productionRuns).where(and(eq(productionRuns.id, runId), eq(productionRuns.orgId, orgId))).limit(1);
   if (!run) err("Production run not found.");
+  // Read before the run is deleted — its output rows cascade with it.
+  const moOuts = (run as any)?.moId
+    ? await db.select({ skuId: productionOutputs.skuId, packs: productionOutputs.qtyPacks }).from(productionOutputs)
+        .where(and(eq(productionOutputs.orgId, orgId), eq(productionOutputs.runId, runId)))
+    : [];
 
   // Restores consumed input lots and removes the produced output lot — throws
   // if the produced stock has since been sold or consumed in another build.
@@ -94,11 +99,23 @@ export async function voidProductionRun(orgId: string, runId: string) {
   await deleteEntry(orgId, run!.entryId ?? null);
   await db.delete(productionRuns).where(and(eq(productionRuns.id, runId), eq(productionRuns.orgId, orgId))); // consumptions cascade
 
-  // If this run came from completing a Manufacturing Order, un-brick that MO:
-  // clear its run link and drop it back to Released so it can be re-built.
-  await db.update(manufacturingOrders)
-    .set({ status: "Released", productionRunId: null, updatedAt: new Date() })
-    .where(and(eq(manufacturingOrders.orgId, orgId), eq(manufacturingOrders.productionRunId, runId)));
+  // A completion of a Manufacturing Order (0099): take its packs back off the
+  // order and reopen it In Progress. The consumed lots are back in stock but
+  // NOT re-allocated — production picks them again, knowingly.
+  if ((run as any).moId) {
+    for (const o of moOuts) if (o.skuId) {
+      await db.update(moOutputs).set({ completedQty: sql`greatest(0, ${moOutputs.completedQty} - ${String(o.packs)})` })
+        .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, (run as any).moId), eq(moOutputs.skuId, o.skuId)));
+    }
+    await db.update(manufacturingOrders).set({ status: "InProgress", productionRunId: null, updatedAt: new Date() })
+      .where(and(eq(manufacturingOrders.orgId, orgId), eq(manufacturingOrders.id, (run as any).moId)));
+  } else {
+    // Older builds from an MO, before completions were runs: drop the MO back
+    // to Released so it can be re-built.
+    await db.update(manufacturingOrders)
+      .set({ status: "Released", productionRunId: null, updatedAt: new Date() })
+      .where(and(eq(manufacturingOrders.orgId, orgId), eq(manufacturingOrders.productionRunId, runId)));
+  }
 
   return { id: runId, voided: true };
 }

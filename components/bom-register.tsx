@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, GitMerge, ArrowRight } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
+import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, controlInset, tableHead, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 const inputCls = controlInset;
@@ -122,7 +123,7 @@ function BomRow({ bom, items, open, onToggle, onChanged }: { bom: any; items: an
 
 function BomEditor({ bom, items, onChanged }: { bom: any; items: any[]; onChanged: () => void }) {
   const [data, setData] = useState<any>(null);
-  const [adding, setAdding] = useState<"output" | "input" | null>(null);
+  const [adding, setAdding] = useState<"output" | "input" | "operation" | null>(null);
   const [packFor, setPackFor] = useState<any | null>(null);   // output line to add packaging to
   const [openOut, setOpenOut] = useState<string | null>(null);
   async function load() { setData(await fetch(`/api/inventory/boms/${bom.id}`).then(x => x.json()).catch(() => null)); }
@@ -136,6 +137,8 @@ function BomEditor({ bom, items, onChanged }: { bom: any; items: any[]; onChange
   const consumable = items.filter(i => kindOf(i.productType).consumable);
   const baseUom = data?.outputItem?.baseUom || bom.baseUom || "";
   const packBySku = (skuId: string) => packaging.filter((p: any) => p.packagingForSkuId === skuId);
+  const operations = data?.operations ?? [];
+  async function removeOp(id: string) { await fetch(`/api/inventory/bom-operations?id=${id}`, { method: "DELETE" }); load(); }
 
   return (
     <div className="space-y-5">
@@ -214,10 +217,76 @@ function BomEditor({ bom, items, onChanged }: { bom: any; items: any[]; onChange
         </div>
       </div>
 
+      {/* Operations — labour & overhead */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-stone-300"><ArrowRight size={14} className="text-sky-400" /> Operations <span className="text-stone-500 font-normal">· time per batch of {Number(bom.batchSize)} {baseUom}; the work centre's rates cost it</span></div>
+          <button onClick={() => setAdding("operation")} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add operation</button>
+        </div>
+        <div className="rounded-lg border border-stone-800 overflow-hidden">
+          <table className="w-full text-[12px]">
+            <thead><tr className="border-b border-stone-800">
+              <th className={th}>Operation</th><th className={th}>Work centre</th><th className={`${th} !text-right`}>Hours / batch</th><th className={`${th} !text-right`}>Cost / batch</th><th className="w-8" />
+            </tr></thead>
+            <tbody>
+              {data !== null && operations.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-stone-500">No operations — output is costed at materials only. Add the work each batch takes to charge labour and overhead.</td></tr>}
+              {operations.map((o: any) => (
+                <tr key={o.id} className="border-b border-stone-800/50 hover:bg-stone-950/40">
+                  <td className="px-3 py-2 text-stone-200">{o.description || o.workCentre}</td>
+                  <td className="px-3 py-2 text-stone-400">{o.workCentre}</td>
+                  <td className="px-3 py-2 text-right text-stone-200 tabular-nums">{Number(o.hoursPerBatch)}</td>
+                  <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{fmt.num2(Number(o.hoursPerBatch) * (Number(o.labourRate) + Number(o.overheadRate)))}</td>
+                  <td className="px-3 py-2"><button onClick={() => removeOp(o.id)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {adding === "operation" && <OperationDrawer bom={bom} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
       {adding === "input" && <IngredientDrawer bom={bom} items={consumable} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
       {adding === "output" && <OutputPackDrawer bom={bom} outputSkus={outputSkus} baseUom={baseUom} onClose={() => setAdding(null)} onCreated={() => { setAdding(null); load(); }} />}
       {packFor && <PackagingDrawer bom={bom} output={packFor} items={consumable} onClose={() => setPackFor(null)} onCreated={() => { setPackFor(null); load(); }} />}
     </div>
+  );
+}
+
+function OperationDrawer({ bom, onClose, onCreated }: { bom: any; onClose: () => void; onCreated: () => void }) {
+  const [centres, setCentres] = useState<any[] | null>(null);
+  const [f, setF] = useState({ workCentreId: "", hoursPerBatch: "", description: "" });
+  const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { fetch("/api/production/work-centres").then(r => r.json()).then(d => setCentres(Array.isArray(d) ? d.filter((c: any) => c.status === "Active") : [])).catch(() => setCentres([])); }, []);
+  const wc = centres?.find(c => c.id === f.workCentreId);
+  async function save() {
+    setSaving(true); setErr(null);
+    const r = await fetch("/api/inventory/bom-operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bomId: bom.id, ...f }) });
+    const d = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (!r.ok) { setErr(d?.error || "Could not add."); return; }
+    onCreated();
+  }
+  return (
+    <Drawer title="Add operation" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Add operation" err={err} saveDisabled={!f.workCentreId || !(Number(f.hoursPerBatch) > 0)} />}>
+      <div className="space-y-4">
+        {centres?.length === 0 && <p className="text-[12px] text-amber-400">No active work centres. Add one under Supply Chain → Work Centres first.</p>}
+        <Field label="Work centre" required>
+          <SelectField inset value={f.workCentreId} onChange={e => setF(p => ({ ...p, workCentreId: e.target.value }))}>
+            <option value="">Select…</option>
+            {(centres ?? []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </SelectField>
+        </Field>
+        <Field label="Hours per batch" required hint={`For a batch of ${Number(bom.batchSize)}. An MO scales it to the quantity it makes.`}>
+          <input type="number" min="0" step="any" className={controlInset} value={f.hoursPerBatch} onChange={e => setF(p => ({ ...p, hoursPerBatch: e.target.value }))} />
+        </Field>
+        <Field label="Description" hint="Optional, e.g. Stitching, Cutting.">
+          <input className={controlInset} value={f.description} onChange={e => setF(p => ({ ...p, description: e.target.value }))} />
+        </Field>
+        {wc && Number(f.hoursPerBatch) > 0 && (
+          <p className="text-[12px] text-stone-400">Costs {fmt.num2(Number(f.hoursPerBatch) * (Number(wc.labourRate) + Number(wc.overheadRate)))} per batch at today's rates ({fmt.num2(wc.labourRate)} labour + {fmt.num2(wc.overheadRate)} overhead per hour).</p>
+        )}
+      </div>
+    </Drawer>
   );
 }
 
@@ -399,7 +468,7 @@ function NewBomDrawer({ items, onClose, onCreated }: { items: any[]; onClose: ()
             <Field label="Batch size">
               <input type="number" className={controlInset} value={f.batchSize} onChange={e => set("batchSize", e.target.value)} />
             </Field>
-            <Field label="Exp. yield %">
+            <Field label="Exp. yield %" hint="Share of output expected to come out good. Loss within it stays in the product's cost; loss beyond it goes to Scrap & yield loss. Blank = 100%.">
               <input type="number" className={controlInset} value={f.expYield} onChange={e => set("expYield", e.target.value)} placeholder="optional" />
             </Field>
             <Field label="Processing step" className="col-span-3">

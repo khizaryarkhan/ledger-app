@@ -8,6 +8,7 @@
  * inventory/GL write happens for a gated transaction.
  */
 
+import { completeMoRun } from "@/lib/inventory/mo-completion";
 import { finishMoCompletion } from "@/lib/inventory/manufacturing-orders";
 import { db } from "@/db";
 import { pendingApprovals, manufacturingOrders } from "@/db/schema";
@@ -44,6 +45,11 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
         result = await buildProductionMulti(orgId!, payload, pending.requestedBy, opts);
         // Same finish as completeMO: mark it built and drop its allocations.
         if (payload?.moId) await finishMoCompletion(orgId!, payload.moId, result.id);
+        break;
+      }
+      case "mo_completion": {
+        const payload = pending.payloadJson as any;
+        result = await completeMoRun(orgId!, payload.moId, payload, pending.requestedBy, opts);
         break;
       }
       case "goods_receipt": result = await postGoodsReceipt(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;

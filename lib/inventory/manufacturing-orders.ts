@@ -19,13 +19,12 @@
 
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
-import { manufacturingOrders, moOutputs, moMaterials, lotAllocations, boms, bomLines, apItems, itemSkus, inventoryLots } from "@/db/schema";
+import { manufacturingOrders, moOutputs, moMaterials, moOperations, lotAllocations, boms, bomLines, bomOperations, workCentres, apItems, itemSkus, productionRuns } from "@/db/schema";
 import { and, eq, asc, desc, inArray, sql } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { coverage } from "@/lib/inventory/allocation";
 import { LedgerValidationError } from "@/lib/ledger";
 import { nextDocNumber } from "@/lib/accounting/numbering";
-import { buildProductionMulti } from "@/lib/inventory/production";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 const num = (v: any) => Number(v ?? 0);
@@ -95,7 +94,11 @@ async function outputsForMO(orgId: string, mo: any) {
   }
   return rows.map(r => {
     const sku = r.skuId ? skuById.get(r.skuId) : null;
-    return { id: r.id, skuId: r.skuId, qty: num(r.qty), skuName: sku?.skuName ?? sku?.skuCode ?? null, unitContent: r.skuId ? (unitContent.get(r.skuId) || 0) : 0 };
+    // The MO's own copy of the pack content wins (0099); the BOM is only the
+    // fallback for an order planned before it was copied.
+    const uc = r.unitContent != null ? num(r.unitContent) : (r.skuId ? (unitContent.get(r.skuId) || 0) : 0);
+    return { id: r.id, skuId: r.skuId, qty: num(r.qty), completedQty: num(r.completedQty), remainingQty: roundQty(Math.max(0, num(r.qty) - num(r.completedQty))),
+      skuName: sku?.skuName ?? sku?.skuCode ?? null, unitContent: uc };
   });
 }
 
@@ -112,14 +115,53 @@ export async function ensureMoMaterials(orgId: string, mo: { id: string; bomId: 
   return db.select().from(moMaterials).where(and(eq(moMaterials.orgId, orgId), eq(moMaterials.moId, mo.id))).orderBy(asc(moMaterials.sortOrder));
 }
 
+/**
+ * Copy the plan from the BOM onto the MO: materials (ingredients per item,
+ * packaging per item AND the pack it is for), operations with the work
+ * centres' rates as they are now, each pack's base content, and the expected
+ * yield. Everything a completion needs, so a later BOM or rate edit never
+ * re-plans or re-costs an order already made.
+ */
 async function snapshotMaterials(orgId: string, moId: string, bomId: string | null, outputs: { skuId: string; qty: number }[]) {
-  const mat = await materialsForOutputs(orgId, bomId, outputs);
   await db.delete(moMaterials).where(and(eq(moMaterials.orgId, orgId), eq(moMaterials.moId, moId)));
-  if (mat.lines.length) {
-    await db.insert(moMaterials).values(mat.lines.map((l: any, i: number) => ({
-      orgId, moId, itemId: l.itemId, kind: l.kind, plannedQty: roundQty(l.required).toString(), sortOrder: i,
+  await db.delete(moOperations).where(and(eq(moOperations.orgId, orgId), eq(moOperations.moId, moId)));
+  if (!bomId || !outputs.length) return;
+  const [bom] = await db.select().from(boms).where(and(eq(boms.id, bomId), eq(boms.orgId, orgId))).limit(1);
+  if (!bom) return;
+  const batch = num(bom.batchSize) || 1;
+  const lines = await db.select().from(bomLines).where(and(eq(bomLines.orgId, orgId), eq(bomLines.bomId, bomId)));
+  const unitContent = new Map(lines.filter(l => l.role === "output").map(l => [l.skuId, num(l.qty)]));
+  const baseTotal = roundQty(outputs.reduce((sm, o) => sm + num(o.qty) * (unitContent.get(o.skuId) || 0), 0));
+  const factor = batch > 0 ? baseTotal / batch : 0;
+
+  const rows: { itemId: string; kind: string; forSkuId: string | null; qty: number }[] = [];
+  const ing = new Map<string, number>();
+  for (const l of lines.filter(l => l.role === "input")) ing.set(l.itemId, (ing.get(l.itemId) ?? 0) + num(l.qty) * factor);
+  for (const [itemId, q] of ing) rows.push({ itemId, kind: "ingredient", forSkuId: null, qty: q });
+  for (const o of outputs) for (const p of lines.filter(l => l.role === "pack" && l.packagingForSkuId === o.skuId)) {
+    rows.push({ itemId: p.itemId, kind: "packaging", forSkuId: o.skuId, qty: num(p.qty) * num(o.qty) });
+  }
+  if (rows.length) {
+    await db.insert(moMaterials).values(rows.map((r, i) => ({
+      orgId, moId, itemId: r.itemId, kind: r.kind, forSkuId: r.forSkuId, plannedQty: roundQty(r.qty).toString(), sortOrder: i,
     })));
   }
+
+  const ops = await db.select({ op: bomOperations, wc: workCentres }).from(bomOperations)
+    .innerJoin(workCentres, eq(workCentres.id, bomOperations.workCentreId))
+    .where(and(eq(bomOperations.orgId, orgId), eq(bomOperations.bomId, bomId)));
+  if (ops.length) {
+    await db.insert(moOperations).values(ops.sort((a, b) => a.op.sortOrder - b.op.sortOrder).map((r, i) => ({
+      orgId, moId, workCentreId: r.wc.id, name: r.op.description?.trim() || r.wc.name,
+      plannedHours: roundQty(num(r.op.hoursPerBatch) * factor).toString(),
+      labourRate: r.wc.labourRate, overheadRate: r.wc.overheadRate, sortOrder: i,
+    })));
+  }
+  for (const o of outputs) {
+    await db.update(moOutputs).set({ unitContent: roundQty(unitContent.get(o.skuId) || 0).toString() })
+      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), eq(moOutputs.skuId, o.skuId)));
+  }
+  await db.update(manufacturingOrders).set({ expYield: bom.expYield ?? null }).where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
 }
 
 /** Allocated quantity per (mo, item), and per item across OTHER orders. */
@@ -141,7 +183,16 @@ export async function moDetail(orgId: string, id: string) {
   const [item] = mo.outputItemId ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(eq(apItems.id, mo.outputItemId)).limit(1) : [null];
   const outputs = await outputsForMO(orgId, mo);
   const plannedBase = await materialsForOutputs(orgId, mo.bomId, outputs.map(o => ({ skuId: o.skuId!, qty: o.qty })));
-  const snap = await ensureMoMaterials(orgId, mo);
+  const snapRows = await ensureMoMaterials(orgId, mo);
+  // One line per item: packaging for two packs is one material to allocate.
+  const agg = new Map<string, { itemId: string; kind: string; plannedQty: number }>();
+  for (const r of snapRows) {
+    const cur = agg.get(r.itemId) ?? { itemId: r.itemId, kind: r.kind, plannedQty: 0 };
+    cur.plannedQty += num(r.plannedQty);
+    if (r.kind === "ingredient") cur.kind = "ingredient";
+    agg.set(r.itemId, cur);
+  }
+  const snap = [...agg.values()];
   const ids = snap.map(m => m.itemId);
   const items = ids.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom, onHand: apItems.onHandQty, productType: apItems.productType }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids))) : [];
   const byId = new Map(items.map(i => [i.id, i]));
@@ -161,7 +212,18 @@ export async function moDetail(orgId: string, id: string) {
     };
   });
   const materials = { baseTotal: plannedBase.baseTotal || num(mo.qty), lines, anyShort: lines.some(l => !l.ok) };
-  return { mo: { ...mo, qty: num(mo.qty) }, outputItem: item ?? null, outputs, materials };
+  const ops = await db.select().from(moOperations).where(and(eq(moOperations.orgId, orgId), eq(moOperations.moId, id))).orderBy(asc(moOperations.sortOrder));
+  const operations = ops.map(o => ({
+    id: o.id, name: o.name, plannedHours: num(o.plannedHours), labourRate: num(o.labourRate), overheadRate: num(o.overheadRate),
+    plannedCost: Math.round(num(o.plannedHours) * (num(o.labourRate) + num(o.overheadRate)) * 100) / 100,
+  }));
+  const runs = await db.select().from(productionRuns).where(and(eq(productionRuns.orgId, orgId), eq(productionRuns.moId, id))).orderBy(asc(productionRuns.createdAt));
+  const completions = runs.map(r => ({
+    id: r.id, runNo: r.runNo, date: r.producedDate, goodQty: num(r.goodQty), rejectedQty: num(r.rejectedQty),
+    materialCost: Math.round((num(r.totalInputCost) - num(r.labourCost) - num(r.overheadCost)) * 100) / 100,
+    labourCost: num(r.labourCost), overheadCost: num(r.overheadCost), scrapCost: num(r.scrapCost),
+  }));
+  return { mo: { ...mo, qty: num(mo.qty), expYield: mo.expYield != null ? num(mo.expYield) : null }, outputItem: item ?? null, outputs, materials, operations, completions };
 }
 
 /** Normalise create/edit output packs from the request body. */
@@ -244,39 +306,6 @@ export async function deleteMO(orgId: string, id: string) {
   if (mo!.status === "Completed" || mo!.productionRunId) err("This MO has been built — void the build from Production first.");
   await db.delete(manufacturingOrders).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId))); // mo_outputs cascade
   return { id, deleted: true };
-}
-
-/** Complete an MO by running the multi-output build (FIFO). */
-export async function completeMO(orgId: string, id: string, actorId: string | null, opts?: { producedDate?: string }) {
-  const [mo] = await db.select().from(manufacturingOrders).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId))).limit(1);
-  if (!mo) err("MO not found.");
-  if (mo!.status === "Completed") err("This MO is already completed.");
-  if (mo!.status === "Cancelled") err("This MO was cancelled.");
-  if (mo!.status !== "InProgress") err("Start the order (In Progress) and allocate its lots before completing it.");
-  if (!mo!.bomId) err("This MO has no BOM — a build needs a recipe.");
-  const outs = await outputsForMO(orgId, mo!);
-  if (!outs.length) err("This MO has no output packs.");
-
-  // Every stocked material must have lots allocated. What is allocated is what
-  // was used: the build consumes exactly these, never FIFO, never a typed cost.
-  const detail = await moDetail(orgId, id);
-  const missing = (detail?.materials.lines ?? []).filter((l: any) => l.tracked && l.required > 0 && !(l.allocated > 0));
-  if (missing.length) err(`Allocate lots for ${missing.slice(0, 3).map((l: any) => l.name).join(", ")}${missing.length > 3 ? ` and ${missing.length - 3} more` : ""} before completing.`);
-  const allocs = await db.select({ itemId: lotAllocations.itemId, lotId: lotAllocations.lotId, qty: lotAllocations.qty })
-    .from(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, id)));
-  const lotPicks: Record<string, { lotId: string; qty: number }[]> = {};
-  for (const a of allocs) (lotPicks[a.itemId] ??= []).push({ lotId: a.lotId, qty: num(a.qty) });
-
-  const res: any = await buildProductionMulti(orgId, {
-    bomId: mo!.bomId!, outputs: outs.map(o => ({ skuId: o.skuId!, qty: o.qty })),
-    producedDate: opts?.producedDate || mo!.scheduledDate || new Date().toISOString().slice(0, 10),
-    moId: id, lotPicks,
-  }, actorId);
-
-  if (res.pending) return { id, pending: true, approvalId: res.id, amount: res.amount };
-
-  await finishMoCompletion(orgId, id, res.id);
-  return { id, status: "Completed", runId: res.id, runNo: res.runNo, totalCost: res.totalInputCost };
 }
 
 /** Does this order hold any lot allocations? */

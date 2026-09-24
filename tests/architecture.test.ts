@@ -1133,9 +1133,12 @@ describe("a manufacturing order consumes the lots production allocated", () => {
     expect(val).toMatch(/ignoreAllocations \? new Map<string, number>\(\) : await allocatedByLot\(/);
   });
 
-  it("completeMO passes the allocated lot picks and refuses an order not in progress", () => {
-    const mo = readFileSync(join(ROOT, "lib/inventory/manufacturing-orders.ts"), "utf8");
-    expect(mo).toMatch(/moId: id, lotPicks/);
-    expect(mo).toMatch(/status !== "InProgress"\) err\(/);
+  it("a completion consumes exact lots out of the order's own allocations, only while in progress", () => {
+    const c = readFileSync(join(ROOT, "lib/inventory/mo-completion.ts"), "utf8");
+    expect(c).toMatch(/exactPicks: picks, forMoId: moId/);            // never FIFO, never a typed cost
+    expect(c).toMatch(/Only lots allocated to this order can be consumed/);
+    expect(c).toMatch(/status !== "InProgress"\) err\(/);
+    // Order accounts come from the output item's group.
+    expect(c).toMatch(/orderRoleAccount\(orgId, output, "WIP_OPEN_ORDERS"\)/);
   });
 });

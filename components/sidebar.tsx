@@ -354,6 +354,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/supply-chain", label: "Production Orders", icon: ListTree },
         { href: "/supply-chain/build", label: "Build", icon: Workflow },
         { href: "/supply-chain/bom", label: "Bill of Materials", icon: GitBranch },
+        // Where work is done and what an hour of it costs — the rates BOM
+        // operations and MOs cost labour and overhead from.
+        { href: "/supply-chain/work-centres", label: "Work Centres", icon: Factory },
       ],
     },
     {

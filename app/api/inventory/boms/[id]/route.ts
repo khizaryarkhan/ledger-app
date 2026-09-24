@@ -5,7 +5,7 @@
  */
 
 import { db } from "@/db";
-import { boms, bomLines, apItems, itemSkus } from "@/db/schema";
+import { boms, bomLines, apItems, itemSkus, bomOperations, workCentres } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
@@ -39,6 +39,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     outputs: lines.filter(l => l.role === "output").map(decorate),
     inputs: lines.filter(l => l.role === "input").map(decorate),
     packaging: lines.filter(l => l.role === "pack").map(decorate),  // each has packagingForSkuId
+    // Time per batch at each work centre, with the centre's current rates.
+    operations: (await db.select({ op: bomOperations, wc: workCentres }).from(bomOperations)
+      .innerJoin(workCentres, eq(workCentres.id, bomOperations.workCentreId))
+      .where(and(eq(bomOperations.orgId, orgId!), eq(bomOperations.bomId, params.id)))
+      .orderBy(asc(bomOperations.sortOrder), asc(bomOperations.createdAt)))
+      .map(r => ({ id: r.op.id, workCentreId: r.wc.id, workCentre: r.wc.name, description: r.op.description, hoursPerBatch: Number(r.op.hoursPerBatch),
+        labourRate: Number(r.wc.labourRate), overheadRate: Number(r.wc.overheadRate) })),
   });
 }
 

@@ -2209,6 +2209,36 @@ export const boms = pgTable("boms", {
 }));
 export type Bom = typeof boms.$inferSelect;
 
+// Where work is done, and what an hour of it costs (0099). The RATE lives here,
+// not on the item or the BOM: a wage change is one edit, and one item made on
+// two lines can cost differently on each.
+export const workCentres = pgTable("work_centres", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  code:         varchar("code", { length: 32 }),
+  name:         varchar("name", { length: 128 }).notNull(),
+  labourRate:   numeric("labour_rate", { precision: 18, scale: 6 }).notNull().default("0"),    // per hour
+  overheadRate: numeric("overhead_rate", { precision: 18, scale: 6 }).notNull().default("0"),  // per hour
+  status:       varchar("status", { length: 16 }).notNull().default("Active"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+});
+export type WorkCentre = typeof workCentres.$inferSelect;
+
+// The TIME a recipe takes at a work centre, per batch (0099).
+export const bomOperations = pgTable("bom_operations", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  orgId:         uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  bomId:         uuid("bom_id").notNull().references(() => boms.id, { onDelete: "cascade" }),
+  workCentreId:  uuid("work_centre_id").notNull().references(() => workCentres.id),
+  hoursPerBatch: numeric("hours_per_batch", { precision: 16, scale: 6 }).notNull(),
+  description:   varchar("description", { length: 255 }),
+  sortOrder:     integer("sort_order").notNull().default(0),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  bom_operations_bom_idx: index("bom_operations_bom_idx").on(t.bomId),
+}));
+
 export const bomLines = pgTable("bom_lines", {
   id:              uuid("id").defaultRandom().primaryKey(),
   orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
@@ -2252,6 +2282,15 @@ export const productionRuns = pgTable("production_runs", {
   entryId:         uuid("entry_id"),         // linked journal entry (Dr FP inv / Cr components)
   producedLotId:   uuid("produced_lot_id"),  // output lot created
   producedDate:    date("produced_date"),
+  // An MO completion (0099). One MO may complete in several runs; each run is
+  // one posted entry: materials + labour + overhead in, good output and any
+  // abnormal scrap out.
+  moId:            uuid("mo_id"),
+  goodQty:         numeric("good_qty", { precision: 20, scale: 6 }),       // base UoM
+  rejectedQty:     numeric("rejected_qty", { precision: 20, scale: 6 }),   // base UoM
+  labourCost:      numeric("labour_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+  overheadCost:    numeric("overhead_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+  scrapCost:       numeric("scrap_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   notes:           text("notes"),
   createdBy:       uuid("created_by"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
@@ -2294,6 +2333,7 @@ export const manufacturingOrders = pgTable("manufacturing_orders", {
   priority:        varchar("priority", { length: 8 }).notNull().default("Normal"), // Low | Normal | High
   status:          varchar("status", { length: 16 }).notNull().default("Draft"),   // Draft|Scheduled|Released|InProgress|Completed|Cancelled
   salesOrderId:    uuid("sales_order_id"), // optional — the Sales Order (trade_documents) this MO fulfils; drives the Order Production Tracker
+  expYield:        numeric("exp_yield", { precision: 9, scale: 4 }),   // copied from the BOM (0099); null = 100%
   notes:           text("notes"),
   productionRunId: uuid("production_run_id"),   // the build that fulfilled it
   createdBy:       uuid("created_by"),
@@ -2313,6 +2353,10 @@ export const moOutputs = pgTable("mo_outputs", {
   itemId:    uuid("item_id").notNull(),
   skuId:     uuid("sku_id"),
   qty:       numeric("qty", { precision: 20, scale: 6 }).notNull().default("0"),  // in SKU packs
+  // 0099: base content per pack copied from the BOM, and packs completed so far
+  // (an MO may complete in several runs).
+  unitContent:  numeric("unit_content", { precision: 20, scale: 6 }),
+  completedQty: numeric("completed_qty", { precision: 20, scale: 6 }).notNull().default("0"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ mo_outputs_mo_idx: index("mo_outputs_mo_idx").on(t.moId) }));
 export type MoOutput = typeof moOutputs.$inferSelect;
@@ -2328,12 +2372,30 @@ export const moMaterials = pgTable("mo_materials", {
   itemId:     uuid("item_id").notNull(),
   kind:       varchar("kind", { length: 12 }).notNull(),                     // ingredient | packaging
   plannedQty: numeric("planned_qty", { precision: 20, scale: 6 }).notNull(), // base UoM
+  forSkuId:   uuid("for_sku_id"),                                            // packaging: the output pack it is for (0099)
   sortOrder:  integer("sort_order").notNull().default(0),
   createdAt:  timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   mo_materials_mo_idx: index("mo_materials_mo_idx").on(t.moId),
 }));
 export type MoMaterial = typeof moMaterials.$inferSelect;
+
+// The MO's own copy of its operations, with the rates as they were when it was
+// planned (0099) — a rate change later does not re-cost an order in flight.
+export const moOperations = pgTable("mo_operations", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:         uuid("mo_id").notNull().references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+  workCentreId: uuid("work_centre_id"),
+  name:         varchar("name", { length: 128 }).notNull(),
+  plannedHours: numeric("planned_hours", { precision: 16, scale: 6 }).notNull(),
+  labourRate:   numeric("labour_rate", { precision: 18, scale: 6 }).notNull().default("0"),
+  overheadRate: numeric("overhead_rate", { precision: 18, scale: 6 }).notNull().default("0"),
+  sortOrder:    integer("sort_order").notNull().default(0),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  mo_operations_mo_idx: index("mo_operations_mo_idx").on(t.moId),
+}));
 
 // A lot quantity RESERVED for an MO in progress (0098). No accounting entry:
 // the stock stays on hand, in its lot and its stock account, until the MO is

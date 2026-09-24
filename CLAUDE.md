@@ -652,8 +652,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0098` at `when`
-  `1790600000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0099` at `when`
+  `1790700000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1310,11 +1310,46 @@ The product owner's lifecycle, and now the only one:
   BOM's output lines — the quantities are the MO's.)
 - **In Progress → Released is refused while lots are allocated** (the stock
   would stay reserved for an order nobody is working); cancelling releases them.
-- Deliberately NOT done yet: partial completion (all at once for now), yield /
-  scrap beyond the BOM's expected yield, labour and overhead. The work-in-progress
-  account is not used while an MO is open — the allocated stock stays in its
-  raw-material account until completion, which keeps total stock right at any
-  month-end.
+- The work-in-progress account is not used while an MO is open — the allocated
+  stock stays in its raw-material account until completion, which keeps total
+  stock right at any month-end.
+
+### Completion runs, labour & overhead, yield (2026-09-24, 0099)
+
+- **Each completion is its own run and its own entry**
+  (`lib/inventory/mo-completion.ts`). A run reports good packs, a rejected
+  quantity, the lots it used (out of the order's allocations only) and hours per
+  operation — every field defaults ("the rest of the order, everything
+  allocated", hours in proportion). A partial run leaves the order In Progress
+  with its allocations reduced; a FINAL run releases whatever is still
+  allocated, which is how unused material goes back to stock — no entry, it
+  never left. `?preview=1` returns the server's own costing of exactly that
+  input, and the drawer shows it before posting.
+- **The entry**: Cr components (exact lots) → Dr WIP; Dr WIP / Cr Labour
+  absorbed + Overhead absorbed; Dr output stock / Cr WIP; Dr Scrap & yield loss
+  / Cr WIP. WIP nets to zero on every run. Order accounts come from the OUTPUT
+  item's group.
+- **Rates live on WORK CENTRES** (labour + overhead per hour, Supply Chain →
+  Manufacturing → Work Centres), **time on the BOM's OPERATIONS** (hours per
+  batch). Not on the item: one item on two lines costs differently, and a wage
+  change is one edit. The MO copies operations WITH the rates when planned, so a
+  later rate change never re-costs an order in flight.
+- **Yield** (`lib/inventory/mo-costing.ts`, pure, 9 tests): with expected yield
+  y, a run of G good + R rejected may lose (G+R)(1−y) normally — absorbed into
+  the good units. Rejects above that are abnormal and go to Scrap & yield loss
+  at the SAME unit cost, so good units carry the normal loss and never the
+  abnormal. No yield on the BOM = 100% (every reject is abnormal). Packaging is
+  outside the yield: a pack holds only good product.
+- **The MO's copy now holds everything a completion reads**: materials per item
+  and per pack (`mo_materials.for_sku_id`), operations with rates, each pack's
+  base content (`mo_outputs.unit_content`) and the yield — nothing at completion
+  reads the live BOM.
+- **Void** of a completion run takes its packs back off the order and reopens it
+  In Progress; the consumed lots return to stock but are NOT re-allocated —
+  production picks them again, knowingly.
+- Verified end to end on the vercel-dev branch (migrated to 0099 for it):
+  allocate → partial run with rejects → final run → void both, WIP zero after
+  each step, every entry balanced. The E2E-prefixed fixture items remain there.
 
 ## Supplier sourcing — who may supply an item (2026-09-21)
 
