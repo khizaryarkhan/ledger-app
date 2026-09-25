@@ -40,6 +40,19 @@ const uniqEmails = (vals: (string | null)[]) => {
   return [...set];
 };
 
+// A board row in the shape the composition classifier reads. Module scope, not
+// inside BoardList: `filteredRows` (a useMemo, so it runs during render) calls
+// it, and a `const` declared below that memo is still in its temporal dead
+// zone — clicking a segment set `cf.comp` and crashed the board with
+// "Cannot access 'compItem' before initialization".
+const compItem = (r: any) => ({
+  escalationType:  r.inv.escalationType ?? null,
+  collectionStage: r.inv.collectionStage ?? null,
+  hasOpenDispute:  r.inv.hasOpenDispute,
+  promiseDate:     r.inv.promiseDate,
+  overdueDays:     r.days,
+});
+
 export function BoardList({ rows, stages, updateInvoice, refresh, toast, comments = [], orgName, orgLogoUrl, isGroup = false, orgNames = {} }: {
   rows: BoardRow[];
   stages: Stage[];
@@ -781,13 +794,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // Per CURRENCY. One strip summing EUR and USD balances into one total, in
   // whichever currency was largest, is arithmetic on incompatible units — the
   // same defect the Dashboard widget had (classifyCompositionByCurrency).
-  const compItem = (r: any) => ({
-    escalationType:  r.inv.escalationType ?? null,
-    collectionStage: r.inv.collectionStage ?? null,
-    hasOpenDispute:  r.inv.hasOpenDispute,
-    promiseDate:     r.inv.promiseDate,
-    overdueDays:     r.days,
-  });
   const compositions = useMemo(() => classifyCompositionByCurrency(
     rows.map(r => ({ ...compItem(r), amount: r.bal, currency: r.inv.currency ?? null })), homeCcy,
   ), [rows]);
