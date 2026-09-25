@@ -166,3 +166,14 @@ export async function voidJobWorkOrder(orgId: string, jwoId: string) {
   await db.delete(jobWorkOrders).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId)));
   return { id: jwoId, voided: true };
 }
+
+/** Void a stock count or a write-down: remove its entry and undo its stock side exactly. */
+export async function voidStockAdjustment(orgId: string, entryId: string) {
+  const [e] = await db.select({ id: journalEntries.id, type: journalEntries.sourceType }).from(journalEntries)
+    .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
+  if (!e || !["StockCount", "WriteDown"].includes(e.type ?? "")) err("Stock adjustment not found.");
+  try { await reverseInventoryByEntry(orgId, entryId); }
+  catch (x: any) { err(x?.message || "Stock this adjustment added has since been used — reverse that first."); }
+  await deleteEntry(orgId, entryId);
+  return { id: entryId, voided: true };
+}

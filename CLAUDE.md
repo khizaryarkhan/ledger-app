@@ -1325,6 +1325,18 @@ shortfall for its caller to word. Quick Build now consumes the lots AND
 quantities the user picked (it used to keep only the lot ids and refill them
 FIFO). Guarded in `tests/architecture.test.ts`.
 
+### Stock counts and write-downs (2026-09-25)
+
+`lib/inventory/adjustments.ts`, Supply Chain → Inventory → Stock Adjustments.
+A COUNT sets a lot to what was counted; the difference moves at that lot's cost
+(loss issued out, gain put back in) against Inventory adjustments, and stock
+with no lot becomes a new lot at a stated cost. A count may not go below what
+MOs have allocated from the lot. A WRITE-DOWN lowers ONE lot's unit cost with a
+reason (NRV / Expiry / Damage / Recall / Other) against Inventory write-downs;
+a write-up is refused. Both are one entry (ADJ- series, sourceType StockCount /
+WriteDown) and voidable exactly (`voidStockAdjustment`). Verified end to end on
+the dev branch, including void.
+
 ### Returns and invoice price differences (2026-09-25)
 
 - **"Goods returned" is a document-level switch** on Credit note, Refund receipt

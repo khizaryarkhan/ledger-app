@@ -377,6 +377,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // stock without leaving Inventory's remit. A separate Setup group here
         // would hold two entries and split one idea across two places.
         { href: "/supply-chain/transfers", label: "Stock Transfers", icon: ArrowLeftRight },
+        { href: "/supply-chain/adjustments", label: "Stock Adjustments", icon: ClipboardList },
         // "Stock Locations", not "Locations": Accounting > Setup already has a
         // Locations entry (/accounting/locations) and it is the GL reporting
         // DIMENSION, not a physical place. Two menu items with one word meaning
