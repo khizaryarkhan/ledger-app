@@ -11,7 +11,8 @@
  * recompute the cached totals from the authoritative lot rows afterwards.
  */
 
-import { roundQty } from "@/lib/inventory/round";
+import { roundQty, QTY_EPSILON } from "@/lib/inventory/round";
+import { LedgerValidationError } from "@/lib/ledger";
 import { db } from "@/db";
 import { apItems, inventoryLots, inventoryMovements, lotAllocations } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
@@ -204,7 +205,7 @@ export async function planIssue(
   if (skuId) lots = lots.filter(l => l.skuId === skuId);
   if (restrictLotIds?.length) { const set = new Set(restrictLotIds); lots = lots.filter(l => set.has(l.id)); }
   if (exactPicks) return planExact(orgId, item, lots, exactPicks, forMoId ?? null);
-  if (!lots.length) return shortfallOnly(item, want);
+  if (!lots.length) refuseShortfall(item, want, 0, 0, locationId ?? null);
 
   const placements = await placementsForLots(orgId, lots.map(l => l.id));
   // Stock allocated to a manufacturing order is on hand but not ISSUABLE: it
@@ -232,10 +233,15 @@ export async function planIssue(
   }
 
   const shortfallQty = roundQty(remaining);
-  if (shortfallQty > 0) {
-    const fb = item.unitCost ?? (picks.length ? picks[picks.length - 1].unitCost : 0);
-    picks.push({ lotId: null, lotNo: null, qty: shortfallQty, unitCost: fb, locationId: null });
-    cost += shortfallQty * fb;
+  // No stock, no issue. This used to fill the gap with a lot-less pick costed
+  // at the item's TYPED purchase price and let it through — so a sale or a
+  // build could take out more than existed, the GL was credited for stock that
+  // never was, and stock and GL drifted apart with nothing to show where
+  // (GAP_REPORT P-rule "shortfall consumption"). Stock is issued from lots or
+  // not at all.
+  if (shortfallQty > QTY_EPSILON) {
+    const reservedHere = roundQty([...reserved.values()].reduce((sm, v) => sm + v, 0));
+    refuseShortfall(item, want, roundQty(want - shortfallQty), reservedHere, locationId ?? null);
   }
   return {
     itemId: item.id, qty: want,
@@ -285,13 +291,13 @@ async function planExact(orgId: string, item: ItemCostInfo, lots: (typeof invent
   };
 }
 
-function shortfallOnly(item: ItemCostInfo, want: number): IssuePlan {
-  const fb = item.unitCost ?? 0;
-  return {
-    itemId: item.id, qty: want, totalCost: Math.round(want * fb * 1e4) / 1e4,
-    picks: [{ lotId: null, lotNo: null, qty: want, unitCost: fb, locationId: null }],
-    shortfallQty: want, unlocatedQty: 0,
-  };
+function refuseShortfall(item: ItemCostInfo, want: number, available: number, reserved: number, locationId: string | null): never {
+  const uom = item.baseUom ? ` ${item.baseUom}` : "";
+  throw new LedgerValidationError(
+    `${item.name}: only ${roundQty(available)}${uom} of the ${roundQty(want)}${uom} needed is available${locationId ? " at the selected location" : ""}`
+    + (reserved > 0 ? ` (${reserved}${uom} more is allocated to manufacturing orders)` : "")
+    + ". Receive, produce or transfer the stock first — nothing was posted.",
+  );
 }
 
 export type Slice = { locationId: string | null; qty: number };

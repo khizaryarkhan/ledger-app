@@ -79,8 +79,14 @@ export async function buildProduction(orgId: string, input: ProductionInput, act
     if (!item!.tracked) continue; // non-tracked inputs carry no inventory cost
     const qty = Math.max(0, Number(inp.qty) || 0);
     if (qty <= 0) continue;
-    const restrict = inp.lotPicks?.length ? inp.lotPicks.map(p => p.lotId) : undefined;
-    const plan = await planIssue(orgId, item!, qty, { restrictLotIds: restrict, skuId: inp.skuId ?? null, locationId: consumeLocationId });
+    // The lots the user picked are what is consumed, in the quantities picked.
+    // This used to keep only the lot IDS and refill them oldest-first, so the
+    // grid's quantities were silently discarded. No picks = FIFO.
+    const picks = (inp.lotPicks ?? []).filter(p => p.lotId && Number(p.qty) > 0).map(p => ({ lotId: p.lotId, qty: Number(p.qty) }));
+    const plan = picks.length
+      ? await planIssue(orgId, item!, roundQty(picks.reduce((sm, p) => sm + p.qty, 0)), { exactPicks: picks })
+      : await planIssue(orgId, item!, qty, { skuId: inp.skuId ?? null, locationId: consumeLocationId });
+    if (picks.length && plan.shortfallQty > 0) err(`${item!.name}: the picked lots don't hold ${roundQty(plan.shortfallQty)} of what was picked — refresh and pick again.`);
     if (consumeLocationId && plan.shortfallQty > 0) {
       err(`${item!.name}: only ${roundQty(qty - plan.shortfallQty)} of ${qty} is available at the selected component location.`);
     }

@@ -1314,6 +1314,17 @@ The product owner's lifecycle, and now the only one:
   stock stays in its raw-material account until completion, which keeps total
   stock right at any month-end.
 
+### Stock is issued from lots or not at all (2026-09-25)
+
+`planIssue` REFUSES a shortage (`refuseShortfall`) for every caller — sale,
+shipment, build, job work, transfer. It used to fill the gap with a lot-less
+pick costed at `apItems.unitCost`, so stock could leave that never existed and
+the GL drifted from stock with nothing to show where. The error names what is
+available and how much is allocated to MOs. Exact-picks mode still returns a
+shortfall for its caller to word. Quick Build now consumes the lots AND
+quantities the user picked (it used to keep only the lot ids and refill them
+FIFO). Guarded in `tests/architecture.test.ts`.
+
 ### Completion runs, labour & overhead, yield (2026-09-24, 0099)
 
 - **Each completion is its own run and its own entry**

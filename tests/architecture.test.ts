@@ -1145,3 +1145,17 @@ describe("a manufacturing order consumes the lots production allocated", () => {
     expect(c).toMatch(/orderRoleAccount\(orgId, output, "WIP_OPEN_ORDERS"\)/);
   });
 });
+
+describe("stock is issued from lots or not at all", () => {
+  /**
+   * planIssue used to fill a shortage with a lot-less pick costed at the item's
+   * TYPED purchase price. A sale or build could then take out more than
+   * existed; the GL was credited for stock that never was, and stock and GL
+   * drifted with nothing to show where. Proven to fail on the pre-fix file.
+   */
+  it("planIssue never costs a shortage at the item's typed price", () => {
+    const val = readFileSync(join(ROOT, "lib/inventory/valuation.ts"), "utf8");
+    expect(val).not.toMatch(/item\.unitCost \?\?/);
+    expect(val).toMatch(/refuseShortfall\(item, want/);
+  });
+});
