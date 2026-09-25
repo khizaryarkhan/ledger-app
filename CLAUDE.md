@@ -1274,9 +1274,15 @@ and the item's POSTING GROUP says which of the tenant's accounts plays it.
   cost, P-05/P-14 returns to the original lot, P-10 yield-aware scrap, P-11 MO
   close, P-15/P-16 stock count & write-down (their roles exist and are mapped,
   nothing posts to them yet), labour/overhead rates (P-06 — none exist), per-item
-  can-be-sold/purchased flags, two tax fields. The QBO/Xero account sync still
-  omits Other Current Asset/Liability, Income and Bank types, so a synced
-  tenant may not find its external Inventory account to map yet.
+  can-be-sold/purchased flags, two tax fields. (Several of these were built on
+  2026-09-25 — see the sections below.)
+- **The QBO and Xero account syncs now mirror the WHOLE chart** (2026-09-25).
+  QBO fetched only six expense-side types and Xero a similar list, so a synced
+  tenant had none of its own stock, GRNI, income or bank accounts to map a role
+  to. Xero types are stored translated into the app's vocabulary
+  (`xeroAccountType`; Xero's code stays in `raw.Type`) — before, a Xero account
+  could never pass role validation. Both syncs now set `classification`. Pickers
+  filter by type, so the extra accounts only reach the lists they belong in.
 
 ## Manufacturing orders — nothing posts until Completed; lots are allocated (2026-09-24)
 

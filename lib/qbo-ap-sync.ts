@@ -8,6 +8,7 @@
  *   const result = await runQboApSync(orgId, userId);
  */
 
+import { classificationForType } from "@/lib/accounting/account-types";
 import { db } from "@/db";
 import {
   apSuppliers,
@@ -359,7 +360,13 @@ export async function runQboApSync(
       accessToken,
       realmId,
       "Account",
-      `AccountType IN ('Cost of Goods Sold', 'Expense', 'Other Expense', 'Fixed Asset', 'Other Asset', 'Accounts Payable')`,
+      // The WHOLE chart, not only the expense side Payables codes bills to. A
+      // synced tenant maps its inventory posting roles to its own accounts —
+      // stock (Other Current Asset), goods received not invoiced (Other Current
+      // Liability), sales (Income) — which this filter used to leave behind, so
+      // the mapping screen had nothing of theirs to offer. Pickers elsewhere
+      // filter by type, so extra types only reach the lists they belong in.
+      "",
       1000
     );
     await sleep(300);
@@ -374,6 +381,7 @@ export async function runQboApSync(
           code: acc.AcctNum ?? null,
           name: acc.Name,
           type: acc.AccountType ?? null,
+          classification: classificationForType(acc.AccountType ?? null),
           subtype: acc.AccountSubType ?? null,
           status: acc.Active === false ? "Inactive" : "Active",
           raw: acc,
@@ -385,6 +393,7 @@ export async function runQboApSync(
           code: row.code,
           name: row.name,
           type: row.type,
+          classification: row.classification,
           subtype: row.subtype,
           status: row.status,
           raw: row.raw,

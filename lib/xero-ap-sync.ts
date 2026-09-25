@@ -9,6 +9,7 @@
  *   const result = await runXeroApSync(orgId, userId);
  */
 
+import { classificationForType } from "@/lib/accounting/account-types";
 import { db } from "@/db";
 import {
   apSuppliers,
@@ -410,9 +411,10 @@ export async function runXeroApSync(
     const allAccounts = await xeroFetchAll(accessToken, tenantId, "Accounts");
     await sleep(300);
 
-    const filtered = allAccounts.filter((acc: any) =>
-      apAccountTypes.includes(acc.Type)
-    );
+    // The whole chart (see qbo-ap-sync.ts for why); apAccountTypes is kept
+    // only as the record of what Payables itself codes bills to.
+    void apAccountTypes;
+    const filtered = allAccounts;
 
     const accountResults = await Promise.allSettled(
       filtered.map(async (acc: any) => {
@@ -424,7 +426,11 @@ export async function runXeroApSync(
           source: "xero",
           code: acc.Code ?? null,
           name: acc.Name,
-          type: acc.Type ?? null,
+          // Stored in the app's (QBO-style) type vocabulary, so posting-role
+          // validation and every type-filtered picker read Xero accounts the
+          // same way as QuickBooks ones. Xero's own code stays in raw.Type.
+          type: xeroAccountType(acc),
+          classification: classificationForType(xeroAccountType(acc)),
           subtype: acc.SystemAccount ?? null,
           status: acc.Status === "ARCHIVED" ? "Inactive" : "Active",
           raw: acc,
@@ -436,6 +442,7 @@ export async function runXeroApSync(
           code: row.code,
           name: row.name,
           type: row.type,
+          classification: row.classification,
           subtype: row.subtype,
           status: row.status,
           raw: row.raw,
@@ -1079,4 +1086,25 @@ export async function syncXeroApBills(
   }
 
   return { upserted, skipped, errors };
+}
+
+/**
+ * Xero account type → the app's account type (QuickBooks' vocabulary, which
+ * lib/accounting/account-types.ts and the posting roles are built on).
+ * Xero's receivable / payable control accounts are CURRENT / CURRLIAB accounts
+ * flagged by SystemAccount, so that flag decides them first.
+ */
+export function xeroAccountType(acc: { Type?: string | null; SystemAccount?: string | null }): string | null {
+  if (acc.SystemAccount === "DEBTORS") return "Accounts Receivable";
+  if (acc.SystemAccount === "CREDITORS") return "Accounts Payable";
+  const map: Record<string, string> = {
+    BANK: "Bank", CURRENT: "Other Current Asset", INVENTORY: "Other Current Asset", PREPAYMENT: "Other Current Asset",
+    FIXED: "Fixed Asset", NONCURRENT: "Other Asset",
+    CURRLIAB: "Other Current Liability", LIABILITY: "Other Current Liability", PAYGLIAB: "Other Current Liability", TERMLIAB: "Long Term Liability",
+    EQUITY: "Equity",
+    REVENUE: "Income", SALES: "Income", OTHERINCOME: "Other Income",
+    DIRECTCOSTS: "Cost of Goods Sold", EXPENSE: "Expense", OVERHEADS: "Expense", DEPRECIATN: "Expense", WAGESEXPENSE: "Expense",
+    SUPERANNUATIONEXPENSE: "Expense",
+  };
+  return acc.Type ? (map[acc.Type] ?? acc.Type) : null;
 }
