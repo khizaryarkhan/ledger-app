@@ -20,7 +20,7 @@
 import { roundQty } from "@/lib/inventory/round";
 import { db } from "@/db";
 import { manufacturingOrders, moOutputs, moMaterials, moOperations, lotAllocations, boms, bomLines, bomOperations, workCentres, apItems, itemSkus, productionRuns } from "@/db/schema";
-import { and, eq, asc, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, asc, desc, inArray, isNull, sql } from "drizzle-orm";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { coverage } from "@/lib/inventory/allocation";
 import { LedgerValidationError } from "@/lib/ledger";
@@ -61,9 +61,10 @@ export async function materialsForOutputs(orgId: string, bomId: string | null, o
   const outLines = lines.filter(l => l.role === "output");
   const inLines = lines.filter(l => l.role === "input");
   const packLines = lines.filter(l => l.role === "pack");
-  const unitContent = new Map(outLines.map(l => [l.skuId, num(l.qty)]));
+  const unitContent = new Map<string | null, number>(outLines.map(l => [l.skuId, num(l.qty)]));
+  unitContent.set(null, 1);   // the base-unit output
 
-  const baseTotal = roundQty(outputs.reduce((sum, o) => sum + num(o.qty) * (unitContent.get(o.skuId) || 0), 0));
+  const baseTotal = roundQty(outputs.reduce((sum, o) => sum + num(o.qty) * (unitContent.get(o.skuId ?? null) || 0), 0));
   const factor = batch > 0 ? baseTotal / batch : 0;
 
   const req = new Map<string, { qty: number; kind: "ingredient" | "packaging" }>();
@@ -96,7 +97,7 @@ async function outputsForMO(orgId: string, mo: any) {
     const sku = r.skuId ? skuById.get(r.skuId) : null;
     // The MO's own copy of the pack content wins (0099); the BOM is only the
     // fallback for an order planned before it was copied.
-    const uc = r.unitContent != null ? num(r.unitContent) : (r.skuId ? (unitContent.get(r.skuId) || 0) : 0);
+    const uc = r.unitContent != null ? num(r.unitContent) : (r.skuId ? (unitContent.get(r.skuId) || 0) : 1);
     return { id: r.id, skuId: r.skuId, qty: num(r.qty), completedQty: num(r.completedQty), remainingQty: roundQty(Math.max(0, num(r.qty) - num(r.completedQty))),
       skuName: sku?.skuName ?? sku?.skuCode ?? null, unitContent: uc };
   });
@@ -130,8 +131,9 @@ async function snapshotMaterials(orgId: string, moId: string, bomId: string | nu
   if (!bom) return;
   const batch = num(bom.batchSize) || 1;
   const lines = await db.select().from(bomLines).where(and(eq(bomLines.orgId, orgId), eq(bomLines.bomId, bomId)));
-  const unitContent = new Map(lines.filter(l => l.role === "output").map(l => [l.skuId, num(l.qty)]));
-  const baseTotal = roundQty(outputs.reduce((sm, o) => sm + num(o.qty) * (unitContent.get(o.skuId) || 0), 0));
+  const unitContent = new Map<string | null, number>(lines.filter(l => l.role === "output").map(l => [l.skuId, num(l.qty)]));
+  unitContent.set(null, 1);   // the base-unit output
+  const baseTotal = roundQty(outputs.reduce((sm, o) => sm + num(o.qty) * (unitContent.get(o.skuId ?? null) || 0), 0));
   const factor = batch > 0 ? baseTotal / batch : 0;
 
   const rows: { itemId: string; kind: string; forSkuId: string | null; qty: number }[] = [];
@@ -158,8 +160,8 @@ async function snapshotMaterials(orgId: string, moId: string, bomId: string | nu
     })));
   }
   for (const o of outputs) {
-    await db.update(moOutputs).set({ unitContent: roundQty(unitContent.get(o.skuId) || 0).toString() })
-      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), eq(moOutputs.skuId, o.skuId)));
+    await db.update(moOutputs).set({ unitContent: roundQty(unitContent.get(o.skuId ?? null) || 0).toString() })
+      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), o.skuId ? eq(moOutputs.skuId, o.skuId) : isNull(moOutputs.skuId)));
   }
   await db.update(manufacturingOrders).set({ expYield: bom.expYield ?? null }).where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
 }
@@ -228,7 +230,9 @@ export async function moDetail(orgId: string, id: string) {
 
 /** Normalise create/edit output packs from the request body. */
 function readOutputs(b: any): { skuId: string; qty: number }[] {
-  if (Array.isArray(b?.outputs)) return b.outputs.filter((o: any) => o?.skuId && num(o.qty) > 0).map((o: any) => ({ skuId: String(o.skuId), qty: num(o.qty) }));
+  // skuId null = the item's BASE unit, for a BOM with no output packs (the
+  // Quick-Build shape): one output, one base unit per "pack".
+  if (Array.isArray(b?.outputs)) return b.outputs.filter((o: any) => num(o?.qty) > 0).map((o: any) => ({ skuId: o?.skuId ? String(o.skuId) : null as any, qty: num(o.qty) }));
   if (b?.outputSkuId && num(b?.qty) > 0) return [{ skuId: String(b.outputSkuId), qty: num(b.qty) }];
   return [];
 }

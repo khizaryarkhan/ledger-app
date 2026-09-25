@@ -1325,6 +1325,19 @@ shortfall for its caller to word. Quick Build now consumes the lots AND
 quantities the user picked (it used to keep only the lot ids and refill them
 FIFO). Guarded in `tests/architecture.test.ts`.
 
+### MOs on BOMs without output packs; BOM line units (2026-09-25)
+
+- **A BOM with no output packs** (the Quick-Build shape — all of AM's) can now
+  be planned as an MO: it produces the item's BASE unit, stored as an MO output
+  with a null SKU and unit content 1. `mo-completion.ts` keys outputs with
+  `K(skuId)` ("" for base) and writes null back; void handles it too.
+- **BOM line units are converted when the line is saved**
+  (`/api/inventory/bom-lines`): a line entered in another unit of the same kind
+  is converted to the item's base unit (500 g of a kg item → 0.5 kg); a unit
+  that can't be converted (litres of a kg item) is refused. Every consumer reads
+  base units, so this closes the "2 cones read as 2 kg" gap. No existing line in
+  production used a non-base unit.
+
 ### Can be sold / can be purchased, per item (2026-09-25, 0101)
 
 `ap_items.can_be_sold` / `can_be_purchased` are NULLABLE: null = the item

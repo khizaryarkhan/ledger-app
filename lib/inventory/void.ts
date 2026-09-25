@@ -103,9 +103,9 @@ export async function voidProductionRun(orgId: string, runId: string) {
   // order and reopen it In Progress. The consumed lots are back in stock but
   // NOT re-allocated — production picks them again, knowingly.
   if ((run as any).moId) {
-    for (const o of moOuts) if (o.skuId) {
+    for (const o of moOuts) {
       await db.update(moOutputs).set({ completedQty: sql`greatest(0, ${moOutputs.completedQty} - ${String(o.packs)})` })
-        .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, (run as any).moId), eq(moOutputs.skuId, o.skuId)));
+        .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, (run as any).moId), o.skuId ? eq(moOutputs.skuId, o.skuId) : sql`${moOutputs.skuId} is null`));
     }
     await db.update(manufacturingOrders).set({ status: "InProgress", productionRunId: null, updatedAt: new Date() })
       .where(and(eq(manufacturingOrders.orgId, orgId), eq(manufacturingOrders.id, (run as any).moId)));

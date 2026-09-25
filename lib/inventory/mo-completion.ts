@@ -28,7 +28,7 @@ import {
   manufacturingOrders, moOutputs, moMaterials, moOperations, lotAllocations,
   productionRuns, productionConsumptions, productionOutputs,
 } from "@/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { loadItemCostInfo, planIssue, commitIssue, commitReceipt, type IssuePlan } from "@/lib/inventory/valuation";
 import { orderRoleAccount } from "@/lib/accounting/account-roles-server";
@@ -38,6 +38,13 @@ import { round2, roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 import { costCompletion, splitPackaging, proportionalHours, type CompletionCost } from "@/lib/inventory/mo-costing";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
+/**
+ * Output key. A BOM with no output packs (the Quick-Build shape) produces the
+ * item's BASE unit, stored as a null SKU; "" is its key everywhere here, and
+ * null again when it is written.
+ */
+const K = (skuId: string | null | undefined) => skuId ?? "";
+const skuOf = (k: string) => (k === "" ? null : k);
 const num = (v: any) => Number(v ?? 0);
 
 export type CompletionInput = {
@@ -74,17 +81,17 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
   ]);
 
   // ── Output of this run ────────────────────────────────────────────────
-  const remaining = new Map(outRows.map(o => [o.skuId!, roundQty(Math.max(0, num(o.qty) - num(o.completedQty)))]));
-  const unitContent = new Map(outRows.map(o => [o.skuId!, num(o.unitContent)]));
-  const outputs = (input.outputs ?? outRows.map(o => ({ skuId: o.skuId!, goodPacks: remaining.get(o.skuId!) ?? 0 })))
-    .map(o => ({ skuId: String(o.skuId), goodPacks: roundQty(Math.max(0, Number(o.goodPacks) || 0)) }));
+  const remaining = new Map(outRows.map(o => [K(o.skuId), roundQty(Math.max(0, num(o.qty) - num(o.completedQty)))]));
+  const unitContent = new Map(outRows.map(o => [K(o.skuId), o.unitContent != null ? num(o.unitContent) : (o.skuId ? 0 : 1)]));
+  const outputs = (input.outputs ?? outRows.map(o => ({ skuId: K(o.skuId), goodPacks: remaining.get(K(o.skuId)) ?? 0 })))
+    .map(o => ({ skuId: K(o.skuId as any), goodPacks: roundQty(Math.max(0, Number(o.goodPacks) || 0)) }));
   for (const o of outputs) if (!remaining.has(o.skuId)) err("One of the output packs is not part of this order.");
   if (outputs.some(o => !(unitContent.get(o.skuId)! > 0))) err("An output pack has no base content — set it on the BOM's output pack.");
   const rejectedBase = roundQty(Math.max(0, Number(input.rejectedBase) || 0));
   const goodBase = roundQty(outputs.reduce((s, o) => s + o.goodPacks * unitContent.get(o.skuId)!, 0));
   if (goodBase + rejectedBase <= 0) err("Enter what this run produced — good packs, or a rejected quantity.");
   const plannedBase = roundQty(outRows.reduce((s, o) => s + num(o.qty) * num(o.unitContent), 0));
-  const doneAfter = outRows.every(o => roundQty(num(o.completedQty) + (outputs.find(x => x.skuId === o.skuId)?.goodPacks ?? 0)) + QTY_EPSILON >= num(o.qty));
+  const doneAfter = outRows.every(o => roundQty(num(o.completedQty) + (outputs.find(x => x.skuId === K(o.skuId))?.goodPacks ?? 0)) + QTY_EPSILON >= num(o.qty));
   const final = input.final ?? doneAfter;
 
   // ── Consumption: out of this order's allocations only ─────────────────
@@ -138,7 +145,7 @@ export async function planCompletion(orgId: string, moId: string, input: Complet
     ingredientCost = round2(ingredientCost + p.credit - packCost);
     if (packCost > 0) {
       const split = splitPackaging(packCost, Object.fromEntries(packRows.map(r => [r.forSkuId!, num(r.plannedQty)])));
-      for (const [sku, v] of Object.entries(split)) packagingCostBySku[sku] = round2((packagingCostBySku[sku] ?? 0) + v);
+      for (const [sku, v] of Object.entries(split)) packagingCostBySku[K(sku)] = round2((packagingCostBySku[K(sku)] ?? 0) + v);
     }
   }
 
@@ -237,11 +244,11 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
   }
   for (const o of cost.outputs) {
     const lotId = await commitReceipt(orgId, {
-      itemId: mo.outputItemId, skuId: o.skuId, qty: o.baseQty, unitCost: o.unitCost, productType: output.productType,
+      itemId: mo.outputItemId, skuId: skuOf(o.skuId), qty: o.baseQty, unitCost: o.unitCost, productType: output.productType,
       sourceType: "production", receivedDate: p.date, locationId: outputLocationId,
       refType: "ProductionRun", refId: entry.id, entryId: entry.id, createdBy: actorId, note: `${mo.moNo ?? "MO"} · ${runNo}`,
     });
-    await db.insert(productionOutputs).values({ orgId, runId: run.id, itemId: mo.outputItemId, skuId: o.skuId, qtyPacks: o.packs.toString(), qtyBase: o.baseQty.toString(), unitCost: o.unitCost.toString(), amount: o.amount.toString(), lotId } as any);
+    await db.insert(productionOutputs).values({ orgId, runId: run.id, itemId: mo.outputItemId, skuId: skuOf(o.skuId), qtyPacks: o.packs.toString(), qtyBase: o.baseQty.toString(), unitCost: o.unitCost.toString(), amount: o.amount.toString(), lotId } as any);
   }
 
   // Order side: what was consumed leaves the allocation; what was made is done.
@@ -252,7 +259,7 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
   await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId), sql`${lotAllocations.qty} <= ${QTY_EPSILON}`));
   for (const o of p.outputs) if (o.goodPacks > 0) {
     await db.update(moOutputs).set({ completedQty: sql`${moOutputs.completedQty} + ${o.goodPacks.toString()}` })
-      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), eq(moOutputs.skuId, o.skuId)));
+      .where(and(eq(moOutputs.orgId, orgId), eq(moOutputs.moId, moId), o.skuId ? eq(moOutputs.skuId, o.skuId) : isNull(moOutputs.skuId)));
   }
   if (p.final) {
     // Whatever is still allocated was not used: it goes back to stock. No

@@ -122,12 +122,16 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
     if (d?.bom) setBom(d);
   }
   const baseUom = bom?.outputItem?.baseUom || "";
-  const outs = bom?.outputs ?? [];
-  const baseTotal = useMemo(() => outs.reduce((s: number, o: any) => s + (Number(packQty[o.skuId]) || 0) * Number(o.qty), 0), [outs, packQty]);
+  // A BOM with no output packs (built for Quick Build) makes the item's BASE
+  // unit: one output, one base unit each. Offered rather than refused, so
+  // every existing BOM can be planned as an MO.
+  const outs = (bom?.outputs ?? []).length ? bom.outputs
+    : bom ? [{ skuId: null, qty: 1, item: { name: `${bom.outputItem?.name ?? "Output"} (${baseUom || "base unit"})` }, base: true }] : [];
+  const baseTotal = useMemo(() => outs.reduce((s: number, o: any) => s + (Number(packQty[String(o.skuId)]) || 0) * Number(o.qty), 0), [outs, packQty]);
 
   async function save() {
     if (!bomId || !bom) { setErr("Choose a BOM."); return; }
-    const outputs = outs.map((o: any) => ({ skuId: o.skuId, qty: Number(packQty[o.skuId]) || 0 })).filter((o: any) => o.qty > 0);
+    const outputs = outs.map((o: any) => ({ skuId: o.skuId, qty: Number(packQty[String(o.skuId)]) || 0 })).filter((o: any) => o.qty > 0);
     if (!outputs.length) { setErr("Enter a quantity for at least one output pack."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/production/mos`, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -150,16 +154,16 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
 
           {bom && (
             <Field label="Output packs — qty to produce">
-              {outs.length === 0 ? <p className="text-[12px] text-amber-400">This BOM has no output packs — add them on the BOM first.</p> : (
+              {outs.length === 0 ? <p className="text-[12px] text-amber-400">This BOM has no output — set its output item first.</p> : (
                 <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/60">
                   {outs.map((o: any) => (
-                    <div key={o.skuId} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
+                    <div key={String(o.skuId)} className="flex items-center gap-3 px-3 py-2 hover:bg-stone-950/40">
                       <div className="flex-1 min-w-0">
                         <div className="text-[12.5px] text-stone-100 truncate">{o.item?.name ?? "Pack"}</div>
-                        <div className="text-[11px] text-stone-500">{Number(o.qty)} {baseUom}/pack</div>
+                        <div className="text-[11px] text-stone-500">{o.base ? "no output packs on this BOM — produced in its base unit" : `${Number(o.qty)} ${baseUom}/pack`}</div>
                       </div>
-                      <input type="number" value={packQty[o.skuId] ?? ""} onChange={e => setPackQty(p => ({ ...p, [o.skuId]: e.target.value }))} placeholder="0" className={`${controlInset} !h-8 w-24 text-right tabular-nums`} />
-                      <span className="text-[11px] text-stone-500 w-16">packs</span>
+                      <input type="number" value={packQty[String(o.skuId)] ?? ""} onChange={e => setPackQty(p => ({ ...p, [String(o.skuId)]: e.target.value }))} placeholder="0" className={`${controlInset} !h-8 w-24 text-right tabular-nums`} />
+                      <span className="text-[11px] text-stone-500 w-16">{o.base ? baseUom || "units" : "packs"}</span>
                     </div>
                   ))}
                 </div>
@@ -307,7 +311,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
               <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/50">
                 {d.outputs.map((o: any) => (
                   <div key={o.id} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
-                    <span className="text-stone-200">{o.skuName || "Pack"}</span>
+                    <span className="text-stone-200">{o.skuName || (o.skuId ? "Pack" : `Base unit (${d.outputItem?.baseUom || "units"})`)}</span>
                     <span className="text-stone-400 tabular-nums">
                       {qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}
                       {o.completedQty > 0 && <span className="text-emerald-400"> · {qtyFmt(o.completedQty)} done</span>}
@@ -504,7 +508,7 @@ function CompletionDrawer({ id, d, alloc, onClose, onDone }: { id: string; d: an
               <tbody>
                 {(d.outputs ?? []).map((o: any) => (
                   <tr key={o.skuId} className="border-b border-stone-800/50">
-                    <td className="px-3 py-1.5 text-stone-200">{o.skuName || "Pack"}</td>
+                    <td className="px-3 py-1.5 text-stone-200">{o.skuName || (o.skuId ? "Pack" : `Base unit (${baseUom || "units"})`)}</td>
                     <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{qtyFmt(o.remainingQty)}</td>
                     <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={good[o.skuId] ?? ""} onChange={e => setGood(g => ({ ...g, [o.skuId]: e.target.value }))} /></td>
                   </tr>
@@ -570,7 +574,7 @@ function CompletionDrawer({ id, d, alloc, onClose, onDone }: { id: string; d: an
               ))}
               {(pv.outputs ?? []).map((o: any) => (
                 <div key={o.skuId} className="flex justify-between px-3 py-1.5">
-                  <span className="text-stone-400">Into stock · {(d.outputs ?? []).find((x: any) => x.skuId === o.skuId)?.skuName ?? "pack"} · {qtyFmt(o.baseQty)} {baseUom} at {fmt.num2(o.unitCost)}</span>
+                  <span className="text-stone-400">Into stock · {(d.outputs ?? []).find((x: any) => (x.skuId ?? "") === o.skuId)?.skuName ?? (o.skuId ? "pack" : "base unit")} · {qtyFmt(o.baseQty)} {baseUom} at {fmt.num2(o.unitCost)}</span>
                   <span className="tabular-nums text-emerald-400">{fmt.num2(o.amount)}</span>
                 </div>
               ))}

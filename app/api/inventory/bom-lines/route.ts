@@ -1,7 +1,8 @@
 /** POST /api/inventory/bom-lines (add input/output line) · DELETE ?id= */
 
 import { db } from "@/db";
-import { bomLines, boms } from "@/db/schema";
+import { bomLines, boms, apItems } from "@/db/schema";
+import { convert, uom as uomOf } from "@/lib/inventory/uom";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq } from "drizzle-orm";
@@ -20,11 +21,27 @@ export async function POST(req: Request) {
   if (!bom) return bad("BOM not found", 404);
   const roleVal = b?.role === "output" ? "output" : b?.role === "pack" ? "pack" : "input";
   if (!s(b?.itemId)) return bad("An item is required");
+  // Every consumer of a BOM line — builds, MO planning, allocation — reads its
+  // quantity in the item's BASE unit. A line entered in another unit is
+  // converted here, once, when it can be (500 g of a kg item → 0.5), and
+  // refused when it can't (litres of a kg item need a density nobody gave).
+  let qtyIn = numStr(b?.qty, "0")!, uomIn = s(b?.uom, 16);
+  if (roleVal !== "output") {
+    const [it] = await db.select({ baseUom: apItems.baseUom, name: apItems.name }).from(apItems).where(and(eq(apItems.id, String(b.itemId)), eq(apItems.orgId, orgId!))).limit(1);
+    if (!it) return bad("Item not found", 404);
+    const base = it.baseUom;
+    if (uomIn && base && uomIn.toLowerCase() !== base.toLowerCase()) {
+      const r = uomOf(uomIn) && uomOf(base) ? convert(Number(qtyIn), uomIn, base) : null;
+      if (!r || !r.ok) return bad(`${it.name} is kept in ${base}; ${uomIn} can't be converted to it. Enter the quantity in ${base}.`);
+      qtyIn = String(Math.round(r.qty * 1e6) / 1e6);
+    }
+    uomIn = base ?? uomIn;
+  }
   const [row] = await db.insert(bomLines).values({
     orgId: orgId!, bomId: bom.id, role: roleVal,
     itemId: s(b?.itemId, 64) as any,
     skuId: s(b?.skuId, 64) as any,
-    qty: numStr(b?.qty, "0")!, uom: s(b?.uom, 16),
+    qty: qtyIn, uom: uomIn,
     packagingConfig: s(b?.packagingConfig, 128),
     outputPackQty: numStr(b?.outputPackQty),
     packagingForSkuId: s(b?.packagingForSkuId, 64) as any,
