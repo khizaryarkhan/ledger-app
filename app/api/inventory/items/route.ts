@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { apItems } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc } from "drizzle-orm";
-import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
+import { kindOf, qboItemType, defaultTradeFlags } from "@/lib/inventory/item-kinds";
 import { sourcingOf, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { prepareItemAccounting } from "@/lib/accounting/account-roles-server";
@@ -26,6 +26,7 @@ export async function GET(req: Request) {
     productType: r.productType, status: r.status, minOhQty: Number(r.minOhQty ?? 0), source: r.source,
     unitPrice: r.unitPrice, unitCost: r.unitCost, incomeAccountId: r.incomeAccountId, expenseAccountId: r.expenseAccountId, taxRateId: r.taxRateId,
     assetAccountId: r.assetAccountId, cogsAccountId: r.cogsAccountId, lotTracked: r.lotTracked, postingGroupId: r.postingGroupId,
+    canBeSold: r.canBeSold, canBePurchased: r.canBePurchased, purchaseTaxRateId: r.purchaseTaxRateId,
     onHandQty: Number(r.onHandQty ?? 0), invValue: Number(r.invValue ?? 0),
   })));
 }
@@ -55,6 +56,12 @@ export async function POST(req: Request) {
   // the column default, which is `restricted` for every kind.
   const sourcingPolicy = b?.sourcingPolicy ? sourcingOf(b.sourcingPolicy).policy : defaultSourcingPolicy(productType);
 
+  // New items carry the spec's defaults explicitly (null is kept only for
+  // items made before the switches existed).
+  const flags = defaultTradeFlags(productType);
+  const canBeSold = typeof b?.canBeSold === "boolean" ? b.canBeSold : flags.canBeSold;
+  const canBePurchased = typeof b?.canBePurchased === "boolean" ? b.canBePurchased : flags.canBePurchased;
+
   const [row] = await db.insert(apItems).values({
     orgId: orgId!, source: "native", name,
     productType, baseUom: s(b?.baseUom, 16), category: s(b?.category, 128), code: s(b?.code, 64),
@@ -63,7 +70,7 @@ export async function POST(req: Request) {
     unitPrice: numOrNull(b?.unitPrice) as any, unitCost: numOrNull(b?.unitCost) as any,
     incomeAccountId: acc.values.incomeAccountId, expenseAccountId: s(b?.expenseAccountId, 64), taxRateId: s(b?.taxRateId, 64),
     assetAccountId: acc.values.assetAccountId, cogsAccountId: acc.values.cogsAccountId, postingGroupId: acc.values.postingGroupId,
-    lotTracked, sourcingPolicy,
+    lotTracked, sourcingPolicy, canBeSold, canBePurchased, purchaseTaxRateId: s(b?.purchaseTaxRateId, 64),
     status: "Active",
   } as any).returning();
   return ok(row);

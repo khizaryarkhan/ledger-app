@@ -13,7 +13,7 @@
 
 import { db } from "@/db";
 import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems } from "@/db/schema";
-import { isTracked } from "@/lib/inventory/item-kinds";
+import { isTracked, itemCanBeSold } from "@/lib/inventory/item-kinds";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
@@ -78,6 +78,17 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   // line naming an item is judged even while its amount is still zero.
   const sourcingErr = await sourcingErrorMessage(orgId, kind, input.partyId, input.lines ?? []);
   if (sourcingErr) err(sourcingErr);
+  // R-07: a Sales Order commits to selling, so an item switched off for sale
+  // is refused here, before the commitment — not later at the shipment.
+  if (kind === "SalesOrder") {
+    const ids = [...new Set((input.lines ?? []).map((l: any) => l.itemId).filter(Boolean) as string[])];
+    if (ids.length) {
+      const rows = await db.select({ name: apItems.name, productType: apItems.productType, canBeSold: apItems.canBeSold }).from(apItems)
+        .where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids)));
+      const bad = rows.filter(r => !itemCanBeSold(r));
+      if (bad.length) err(`${bad.map(r => r.name).slice(0, 3).join(", ")} ${bad.length === 1 ? "is" : "are"} set as not for sale. Turn on "Can be sold" on the item to sell it.`);
+    }
+  }
 
   const priced = await priceLines(orgId, raw);
   const subtotal = round2(priced.reduce((s, l) => s + l.net, 0));

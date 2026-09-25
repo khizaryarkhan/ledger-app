@@ -53,6 +53,31 @@ export function kindOf(productType?: string | null): KindMeta {
 
 export const isTracked = (productType?: string | null) => kindOf(productType).tracked;
 
+/**
+ * Defaults for the per-item "can be sold" / "can be purchased" switches on a
+ * NEW item (spec R-07): raw material is bought, not sold; semi-finished is
+ * neither (it is made and consumed); a finished product is sold, not bought;
+ * trading goods, non-inventory and services are both. Every one is
+ * switchable per item — a raw material sold as surplus, a finished product
+ * also bought in.
+ */
+export function defaultTradeFlags(productType?: string | null): { canBeSold: boolean; canBePurchased: boolean } {
+  switch (kindOf(productType).kind) {
+    case "RawMaterial":     return { canBeSold: false, canBePurchased: true };
+    case "WorkInProgress":  return { canBeSold: false, canBePurchased: false };
+    case "FinishedProduct": return { canBeSold: true,  canBePurchased: false };
+    default:                return { canBeSold: true,  canBePurchased: true };
+  }
+}
+
+/**
+ * What an item may actually do. An explicit per-item switch wins; null (every
+ * item made before the switches existed) keeps the kind's own flag, so those
+ * items behave exactly as they always did.
+ */
+export const itemCanBeSold = (i: { productType?: string | null; canBeSold?: boolean | null }) => i.canBeSold ?? kindOf(i.productType).sellable;
+export const itemCanBePurchased = (i: { productType?: string | null; canBePurchased?: boolean | null }) => i.canBePurchased ?? kindOf(i.productType).buyable;
+
 /** Legacy QBO itemType derived from the kind (kept in sync for report/sync compatibility). */
 export function qboItemType(productType?: string | null): "Service" | "Non-Inventory" | "Inventory" {
   const m = kindOf(productType);

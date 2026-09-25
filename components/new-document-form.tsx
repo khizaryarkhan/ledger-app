@@ -537,7 +537,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   function applyItem(i: number, it: any) {
     if (split) {
       const acct = itemAccountId(it);
-      setLine(i, { itemId: it.id, kind: "item", accountId: acct || lines[i].accountId, taxRateId: it.taxRateId || lines[i].taxRateId, description: it.name || lines[i].description, lotNo: "" });
+      setLine(i, { itemId: it.id, kind: "item", accountId: acct || lines[i].accountId, taxRateId: (cfg.side === "purchase" ? (it.purchaseTaxRateId || it.taxRateId) : it.taxRateId) || lines[i].taxRateId, description: it.name || lines[i].description, lotNo: "" });
       // The supplier's preferred SKU for this item, else their first.
       const ls = linksFor(it.id);
       setLineSku(i, it, (ls.find((x: any) => x.isPreferred) ?? ls[0])?.id ?? null);
@@ -552,7 +552,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     // one of them. Falls back to it when the link carries no price.
     const quoted = cfg.side === "purchase" ? supplierRate(optionsFor(it)[0]) : null;
     const rate = quoted ?? (cfg.side === "purchase" ? (it.unitCost ?? "") : (it.unitPrice ?? ""));
-    setLine(i, { itemId: it.id, accountId: acct || lines[i].accountId, rate: rate === null ? "" : String(rate ?? ""), taxRateId: it.taxRateId || lines[i].taxRateId, description: it.name || lines[i].description, orderUom: it.baseUom || "", packLevel: "base", unitsPerOrderUnit: 1, supplierSkuId: "", lotNo: "" });
+    setLine(i, { itemId: it.id, accountId: acct || lines[i].accountId, rate: rate === null ? "" : String(rate ?? ""), taxRateId: (cfg.side === "purchase" ? (it.purchaseTaxRateId || it.taxRateId) : it.taxRateId) || lines[i].taxRateId, description: it.name || lines[i].description, orderUom: it.baseUom || "", packLevel: "base", unitsPerOrderUnit: 1, supplierSkuId: "", lotNo: "" });
     recompute(i, { rate: String(rate ?? "") });
     // Pre-fill a suggested lot code for Stock Item / Raw Material purchases —
     // FP/WIP items never get an editable suggestion (see isFPWIP above).

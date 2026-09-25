@@ -16,7 +16,7 @@ import { LedgerValidationError } from "@/lib/ledger";
 import { db } from "@/db";
 import { apItems, inventoryLots, inventoryMovements, lotAllocations } from "@/db/schema";
 import { and, eq, asc, sql, inArray, or } from "drizzle-orm";
-import { kindOf } from "@/lib/inventory/item-kinds";
+import { kindOf, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 import { resolveItemAccounts, unmappedMessage, AccountMappingError, type ResolvedItemAccounts } from "@/lib/accounting/account-roles-server";
 import { nextDocNumber, resolveDocNumber } from "@/lib/accounting/numbering";
 import {
@@ -49,6 +49,9 @@ export type ItemCostInfo = {
   unitCost: number | null;
   /** Every role of the item's posting group (tracked items only). */
   accounts: ResolvedItemAccounts | null;
+  /** Resolved per-item switches (item-kinds.ts itemCanBeSold / itemCanBePurchased). */
+  canBeSold: boolean;
+  canBePurchased: boolean;
 };
 
 /**
@@ -79,6 +82,7 @@ export async function loadItemCostInfo(orgId: string, itemIds: string[]): Promis
       expenseAccountId: r.expenseAccountId ?? null,
       unitCost: r.unitCost != null ? Number(r.unitCost) : null,
       accounts: acc,
+      canBeSold: itemCanBeSold(r), canBePurchased: itemCanBePurchased(r),
     });
   }
   return map;

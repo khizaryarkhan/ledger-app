@@ -14,6 +14,7 @@
  */
 
 import { ItemAccountingSection } from "@/components/item-accounting";
+import { defaultTradeFlags, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, Package, Boxes, Layers, Pencil } from "lucide-react";
 import { UOMS, PACK_TYPES, needsConversionFactor } from "@/lib/inventory/uom";
@@ -156,8 +157,8 @@ function RowGroup({ item, open, onToggle, onChanged }: { item: any; open: boolea
   // Sales SKUs describe our own packaging of stock we sell; supplier links
   // describe how a vendor sells it to us. An item can want both, one, or
   // neither — see the note on the expanded panel below.
-  const showsSkus = meta.sellable && meta.tracked;
-  const showsSuppliers = meta.buyable;
+  const showsSkus = itemCanBeSold(item) && meta.tracked;
+  const showsSuppliers = itemCanBePurchased(item);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -801,14 +802,31 @@ function SourcingToggle({ policy, onChange, baseUom }: { policy: string; onChang
   );
 }
 
+function TradeFlags({ sold, purchased, onSold, onPurchased }: { sold: boolean; purchased: boolean; onSold: (v: boolean) => void; onPurchased: (v: boolean) => void }) {
+  return (
+    <Section title="Selling & buying" desc="Documents refuse an item switched off for them. Defaults follow the item type; change them per item.">
+      <div className="grid grid-cols-2 gap-2">
+        {([["Can be sold", sold, onSold, "Invoices, sales orders and shipments."], ["Can be purchased", purchased, onPurchased, "Purchase orders, bills and expenses."]] as const).map(([label, v, on, hint]) => (
+          <label key={label} className="flex items-start gap-2.5 rounded-lg border border-stone-700 px-3 py-2.5 cursor-pointer">
+            <input type="checkbox" checked={v} onChange={e => on(e.target.checked)} className="accent-emerald-600 mt-0.5" />
+            <div><div className="text-[13px] font-medium text-stone-200">{label}</div><p className="text-[11px] text-stone-400">{hint}</p></div>
+          </label>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 /* ----------------------------- New item drawer ----------------------------- */
 
 function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [taxes, setTaxes] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "", postingGroupId: "" });
+  const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "", purchaseTaxRateId: "", postingGroupId: "" });
   const [lotTracked, setLotTracked] = useState(true);
+  const [canBeSold, setCanBeSold] = useState(defaultTradeFlags("FinishedProduct").canBeSold);
+  const [canBePurchased, setCanBePurchased] = useState(defaultTradeFlags("FinishedProduct").canBePurchased);
   const [sourcingPolicy, setSourcingPolicy] = useState<string>(defaultSourcingPolicy("FinishedProduct"));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
@@ -820,7 +838,10 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
 
   const meta = kindOf(f.productType);
   // Sync the lot-tracked default when the kind changes.
-  useEffect(() => { setLotTracked(meta.lotTrackedDefault); setSourcingPolicy(defaultSourcingPolicy(f.productType)); }, [f.productType]);
+  useEffect(() => {
+    setLotTracked(meta.lotTrackedDefault); setSourcingPolicy(defaultSourcingPolicy(f.productType));
+    const d = defaultTradeFlags(f.productType); setCanBeSold(d.canBeSold); setCanBePurchased(d.canBePurchased);
+  }, [f.productType]);
 
   const incomeAccts  = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
@@ -829,7 +850,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
     if (!f.name.trim()) { setErr("Item name is required."); return; }
     if (meta.tracked && !f.baseUom) { setErr("A base UoM is required for inventory-tracked items."); return; }
     setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked, ...(meta.buyable ? { sourcingPolicy } : {}) }) });
+    const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked, canBeSold, canBePurchased, ...(canBePurchased ? { sourcingPolicy } : {}) }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
     onCreated();
@@ -876,13 +897,14 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
           </label>
         )}
 
-        {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
+        <TradeFlags sold={canBeSold} purchased={canBePurchased} onSold={setCanBeSold} onPurchased={setCanBePurchased} />
+        {canBePurchased && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
 
         <Section title={meta.tracked ? "Pricing & tax" : "Accounting"} className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {meta.sellable && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
-            {meta.buyable && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
-            {meta.sellable && !meta.tracked && (
+            {canBeSold && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
+            {canBePurchased && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
+            {canBeSold && !meta.tracked && (
               <Field label="Income account">
                 <SelectField inset value={f.incomeAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-income"); return; } set("incomeAccountId", e.target.value); }}>
                   <option value="">Select…</option>
@@ -892,7 +914,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
               </Field>
             )}
             {!meta.tracked && (
-              meta.buyable && (
+              canBePurchased && (
                 <Field label="Expense account">
                   <SelectField inset value={f.expenseAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-expense"); return; } set("expenseAccountId", e.target.value); }}>
                     <option value="">Select…</option>
@@ -902,13 +924,23 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
                 </Field>
               )
             )}
-            <Field label="Tax rate">
-              <SelectField inset value={f.taxRateId} onChange={e => { if (e.target.value === "__add__") { setQuick("tax"); return; } set("taxRateId", e.target.value); }}>
-                <option value="">Select…</option>
-                {taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                <option value="__add__">+ Add new tax rate…</option>
-              </SelectField>
-            </Field>
+            {canBeSold && (
+              <Field label="Default sales tax">
+                <SelectField inset value={f.taxRateId} onChange={e => { if (e.target.value === "__add__") { setQuick("tax"); return; } set("taxRateId", e.target.value); }}>
+                  <option value="">None</option>
+                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  <option value="__add__">+ Add new tax rate…</option>
+                </SelectField>
+              </Field>
+            )}
+            {canBePurchased && (
+              <Field label="Default purchase tax">
+                <SelectField inset value={f.purchaseTaxRateId ?? ""} onChange={e => set("purchaseTaxRateId", e.target.value)}>
+                  <option value="">None</option>
+                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </SelectField>
+              </Field>
+            )}
           </div>
         </Section>
         {meta.tracked && (
@@ -939,8 +971,10 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
     name: item.name ?? "", category: item.category ?? "", code: item.code ?? "", status: item.status ?? "Active",
     minOhQty: String(item.minOhQty ?? "0"), unitPrice: item.unitPrice != null ? String(item.unitPrice) : "", unitCost: item.unitCost != null ? String(item.unitCost) : "",
     incomeAccountId: item.incomeAccountId ?? "", expenseAccountId: item.expenseAccountId ?? "", assetAccountId: item.assetAccountId ?? "", cogsAccountId: item.cogsAccountId ?? "", taxRateId: item.taxRateId ?? "",
-    postingGroupId: item.postingGroupId ?? "",
+    postingGroupId: item.postingGroupId ?? "", purchaseTaxRateId: item.purchaseTaxRateId ?? "",
   });
+  const [canBeSold, setCanBeSold] = useState<boolean>(itemCanBeSold(item));
+  const [canBePurchased, setCanBePurchased] = useState<boolean>(itemCanBePurchased(item));
   const originalPolicy = item.sourcingPolicy ?? "restricted";
   const [sourcingPolicy, setSourcingPolicy] = useState<string>(originalPolicy);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
@@ -958,7 +992,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
     // The policy is sent only when it changed: the server refuses a switch to
     // "any supplier" while pack configurations exist, and an unrelated rename
     // must never trip over that check.
-    const body = sourcingPolicy !== originalPolicy ? { ...f, sourcingPolicy } : f;
+    const body = { ...(sourcingPolicy !== originalPolicy ? { ...f, sourcingPolicy } : f), canBeSold, canBePurchased };
     const r = await fetch(`/api/inventory/items/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
@@ -978,14 +1012,16 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
             <Field label="Status" className="col-span-2"><SelectField inset value={f.status} onChange={e => set("status", e.target.value)}><option>Active</option><option>Inactive</option></SelectField></Field>
           </div>
         </Section>
-        {meta.buyable && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={item.baseUom} />}
+        <TradeFlags sold={canBeSold} purchased={canBePurchased} onSold={setCanBeSold} onPurchased={setCanBePurchased} />
+        {canBePurchased && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={item.baseUom} />}
         <Section title={meta.tracked ? "Pricing & tax" : "Accounting"} className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-            {meta.sellable && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
-            {meta.buyable && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
-            {meta.sellable && !meta.tracked && <Field label="Income account"><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
-            {!meta.tracked && (meta.buyable && <Field label="Expense account"><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
-            <Field label="Tax rate"><SelectField inset value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)}><option value="">Select…</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>
+            {canBeSold && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
+            {canBePurchased && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
+            {canBeSold && !meta.tracked && <Field label="Income account"><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
+            {!meta.tracked && (canBePurchased && <Field label="Expense account"><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
+            {canBeSold && <Field label="Default sales tax"><SelectField inset value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)}><option value="">None</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>}
+            {canBePurchased && <Field label="Default purchase tax"><SelectField inset value={f.purchaseTaxRateId} onChange={e => set("purchaseTaxRateId", e.target.value)}><option value="">None</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>}
           </div>
         </Section>
         {meta.tracked && (

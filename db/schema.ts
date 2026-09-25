@@ -1852,7 +1852,12 @@ export const apItems = pgTable("ap_items", {
   purchaseAccountId: varchar("purchase_account_id", { length: 64 }),
   expenseAccountId:  varchar("expense_account_id", { length: 64 }),
   unitCost:          real("unit_cost"),
-  taxRateId:         varchar("tax_rate_id", { length: 64 }),
+  taxRateId:         varchar("tax_rate_id", { length: 64 }),          // default SALES tax
+  // 0101: per-item switches (null = the kind's default, so every item made
+  // before them behaves exactly as it did) and a separate purchase tax.
+  canBeSold:         boolean("can_be_sold"),
+  canBePurchased:    boolean("can_be_purchased"),
+  purchaseTaxRateId: varchar("purchase_tax_rate_id", { length: 64 }),
   // Sales side (QBO items carry both directions) — used by native records.
   itemType:          varchar("item_type", { length: 32 }).default("Service"), // Service | Non-Inventory | Inventory
   // Inventory kind — the single source of truth for accounting behaviour:

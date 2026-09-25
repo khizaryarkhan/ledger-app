@@ -652,8 +652,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0100` at `when`
-  `1790800000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0101` at `when`
+  `1790900000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1324,6 +1324,21 @@ available and how much is allocated to MOs. Exact-picks mode still returns a
 shortfall for its caller to word. Quick Build now consumes the lots AND
 quantities the user picked (it used to keep only the lot ids and refill them
 FIFO). Guarded in `tests/architecture.test.ts`.
+
+### Can be sold / can be purchased, per item (2026-09-25, 0101)
+
+`ap_items.can_be_sold` / `can_be_purchased` are NULLABLE: null = the item
+kind's own flag (`itemCanBeSold` / `itemCanBePurchased` in item-kinds.ts), so
+every item made before them behaves exactly as before and nothing was
+back-filled. New items get the spec's defaults (`defaultTradeFlags`: RM bought
+not sold, WIP neither, FP sold not bought, trading / non-inventory / service
+both), switchable per item — which is how the old "RM sold as surplus"
+decision survives. Enforced: purchase documents (via the sourcing check),
+Invoice / Sales receipt, Shipment, Sales Order. Credit notes and returns are
+exempt — taking back what was sold must always work. `purchase_tax_rate_id` is
+the default PURCHASE tax (the form uses it on the purchase side);
+`tax_rate_id` stays the sales tax. The item form shows prices, tax fields and
+the Suppliers toggle only for the directions the item is switched on for.
 
 ### Stock counts and write-downs (2026-09-25)
 

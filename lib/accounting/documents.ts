@@ -667,6 +667,12 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
       if (msg) err(msg);
     }
     const itemMap = await itemMapForInput(orgId, input);
+    // R-07: an item switched off for sale can't be sold. (Returns and credit
+    // notes are exempt — taking back what was sold must always be possible.)
+    if (type === "Invoice" || type === "SalesReceipt") {
+      const bad = [...new Set((input.lines ?? []).map(l => l.itemId).filter(Boolean) as string[])].map(id => itemMap.get(id)).filter(i => i && !i.canBeSold);
+      if (bad.length) err(`${bad.map(i => i!.name).slice(0, 3).join(", ")} ${bad.length === 1 ? "is" : "are"} set as not for sale. Turn on "Can be sold" on the item to sell it.`);
+    }
     lines.push(...await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap));
     invPlan = await planDocumentInventory(orgId, type, input, itemMap, rate);
   }

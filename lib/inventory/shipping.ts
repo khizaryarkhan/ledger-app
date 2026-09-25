@@ -105,6 +105,7 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     const item = itemMap.get(r.itemId);
     if (!item) err(`Item ${r.itemId} not found.`);
     if (!item!.tracked) err(`${item!.name} isn't inventory-tracked — only tracked items ship from stock.`);
+    if (!item!.canBeSold) err(`${item!.name} is set as not for sale. Turn on "Can be sold" on the item to ship it to a customer.`);
     // COGS_FG / COGS_SURPLUS and the inventory role of the SHIPPED item's group.
     const cogsAcct = item!.cogsAccountId;
     const assetAcct = item!.assetAccountId;

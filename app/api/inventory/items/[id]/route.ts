@@ -94,6 +94,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.expenseAccountId !== undefined) set.expenseAccountId = s(b.expenseAccountId, 64);
   if (b.lotTracked !== undefined) set.lotTracked = !!b.lotTracked;
   if (b.taxRateId !== undefined) set.taxRateId = s(b.taxRateId, 64);
+  if (b.purchaseTaxRateId !== undefined) set.purchaseTaxRateId = s(b.purchaseTaxRateId, 64);
+  if (typeof b.canBeSold === "boolean") set.canBeSold = b.canBeSold;
+  if (typeof b.canBePurchased === "boolean") set.canBePurchased = b.canBePurchased;
   if (b.sourcingPolicy !== undefined) {
     const meta = sourcingOf(b.sourcingPolicy);
     // Switching to "any supplier" would strand pack configurations that can no

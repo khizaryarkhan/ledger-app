@@ -19,7 +19,7 @@
  * item says we have not decided yet — which is a gap to close, not a licence.
  */
 
-import { kindOf } from "@/lib/inventory/item-kinds";
+import { kindOf, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 
 export type SourcingPolicy = "restricted" | "open";
 
@@ -162,7 +162,7 @@ export function pricePerBaseUnit(unitPrice: any, baseUnitsPerSupplierUnit: numbe
 export const SOURCING_ENFORCED_TYPES = new Set(["PurchaseOrder", "Bill", "Expense"]);
 
 export type SourcingLine = { itemId?: string | null; description?: string | null };
-export type SourcingItem = { id: string; name?: string | null; sourcingPolicy?: string | null; productType?: string | null };
+export type SourcingItem = { id: string; name?: string | null; sourcingPolicy?: string | null; productType?: string | null; canBePurchased?: boolean | null };
 
 export type SourcingViolation = { itemId: string; itemName: string; message: string };
 
@@ -201,11 +201,13 @@ export function sourcingViolations(
     // panel and never will — so the ordinary "link it to this supplier"
     // message would send the buyer looking for a control that does not exist.
     const kind = kindOf(item.productType);
-    if (!kind.buyable) {
+    if (!itemCanBePurchased(item)) {
       seen.add(itemId);
       out.push({
         itemId, itemName,
-        message: `${itemName} is a ${kind.label} — it cannot be purchased. ${kind.producible ? "It is created by a production build, not bought." : "Change its type if you do buy it."}`,
+        message: item.canBePurchased === false
+          ? `${itemName} is set as not purchasable. Turn on "Can be purchased" on the item if you do buy it.`
+          : `${itemName} is a ${kind.label} — it cannot be purchased. ${kind.producible ? "It is created by a production build, not bought." : "Change its type if you do buy it."}`,
       });
       continue;
     }
