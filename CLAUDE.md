@@ -1325,6 +1325,42 @@ shortfall for its caller to word. Quick Build now consumes the lots AND
 quantities the user picked (it used to keep only the lot ids and refill them
 FIFO). Guarded in `tests/architecture.test.ts`.
 
+### Returns and invoice price differences (2026-09-25)
+
+- **"Goods returned" is a document-level switch** on Credit note, Refund receipt
+  and Vendor credit (`PostDocInput.goodsReturned`, a checkbox on the form).
+  Unticked = a price credit: no stock moves. A vendor credit on a stocked item
+  then goes to Purchase price variance, never to the inventory account (it
+  used to credit inventory with no lot behind it).
+- **Customer return (P-14)** goes back into the lots it was SOLD to that
+  customer from — invoices and shipments, most recent first, net of earlier
+  returns (`planCustomerReturn`) — at each lot's current cost, reversing cost of
+  sale. Returning more than was sold through lots is refused.
+- **Supplier return** leaves the lots THAT supplier supplied, at lot cost; the
+  gap between the credit's amount and that cost goes to purchase price variance,
+  so the stock account moves by exactly the lot cost.
+- **Invoice price ≠ receipt price (P-03)**: `billFromReceipts` takes an invoice
+  price per receipt line (the bill drawer's "Invoice prices" column). GR/IR still
+  clears at the receipt's value; the difference is its own line to purchase price
+  variance, and the share on stock still in the lot (remaining ÷ original) moves
+  into the lot's cost via `revalueLot` — an internal `postDocument` option, never
+  read from a request body, because it posts to a control account.
+- **Bills from receipts are in the receipts' currency, at their rate (P-02).**
+  Before, no currency was passed, so a foreign-currency receipt could not be
+  billed at all. Receipts in different currencies or rates must be billed
+  separately. The FX difference belongs to the payment. (A cent of rounding can
+  remain on GR/IR for a foreign receipt: its home value is converted to the bill
+  currency and back.)
+- `reverseInventoryByEntry` now undoes a stock INCREASE into an existing lot
+  (a return, a count gain — refused if since issued) and a revaluation (the unit
+  cost steps back), so deleting or editing such a document is clean.
+- Bill/Expense lines may be negative (posted as a credit), for a discount or an
+  invoice below the receipt price.
+- Verified end to end on the dev branch: return into the same lot with cost of
+  sale reversed; over-return refused; price credit moves nothing; supplier
+  return with 2.00 to PPV; bill at 5 against a receipt at 4 with 40% of the lot
+  used → 4 to PPV, 6 into stock, lot cost 4 → 5; deleting the bill restores 4.
+
 ### Completion runs, labour & overhead, yield (2026-09-24, 0099)
 
 - **Each completion is its own run and its own entry**

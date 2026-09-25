@@ -160,6 +160,10 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   const [reference, setReference] = useState("");
   const [docNumber, setDocNumber] = useState("");
   const [memo, setMemo] = useState("");
+  // Credit note / refund / vendor credit: did goods actually move? A credit can
+  // be a price allowance with nothing returned, so stock moves only if ticked.
+  const [goodsReturned, setGoodsReturned] = useState(false);
+  const isReturnable = type === "CreditNote" || type === "RefundReceipt" || type === "VendorCredit";
   const [partyId, setPartyId] = useState("");
   const [bankAccountId, setBankAccountId] = useState("");
   const [toBankAccountId, setToBankAccountId] = useState("");
@@ -202,6 +206,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
       setDate(p.date ?? todayStr());
       setDocNumber(p.docNumber ?? "");
       setMemo(p.memo ?? "");
+      setGoodsReturned(!!p.goodsReturned);
       setPartyId(p.partyId ?? "");
       setBankAccountId(p.bankAccountId ?? "");
       if (p.currency) setCurrency(p.currency);
@@ -639,6 +644,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
     try {
       const party = parties.find(p => p.id === partyId);
       const payload: any = { date, docNumber: docNumber.trim() || undefined, memo: memo.trim() || undefined };
+      if (isReturnable) payload.goodsReturned = goodsReturned;
       if (foreign) { payload.currency = currency; payload.exchangeRate = num(rate); }
       if (cfg.party) { payload.partyType = cfg.party; payload.partyId = partyId || undefined; payload.partyLabel = party?.name || undefined; }
       if (cfg.bank) payload.bankAccountId = bankAccountId || undefined;
@@ -1452,6 +1458,19 @@ export function NewDocumentForm({ type }: { type: DocType }) {
                 })}
               </div>
             </Section>
+          )}
+          {isReturnable && (
+            <label className="flex items-start gap-2.5 rounded-lg border border-stone-800 px-3 py-2.5 cursor-pointer max-w-2xl">
+              <input type="checkbox" checked={goodsReturned} onChange={e => setGoodsReturned(e.target.checked)} className="accent-emerald-600 mt-0.5" />
+              <div>
+                <div className="text-[13px] font-medium text-stone-200">{type === "VendorCredit" ? "Goods returned to the supplier" : "Goods returned by the customer"}</div>
+                <p className="text-[12px] text-stone-400">
+                  {type === "VendorCredit"
+                    ? "Stocked items leave the lots this supplier supplied, at their cost; any difference from the credit goes to purchase price variance. Leave unticked for a price credit."
+                    : "Stocked items go back into the lots they were sold from, at their cost, and the cost of sale is reversed. Leave unticked for a price credit."}
+                </p>
+              </div>
+            </label>
           )}
           {/* Memo + totals */}
           <div className="flex flex-wrap items-start justify-between gap-5 pt-1">

@@ -12,7 +12,7 @@ import { useStockLocations, LocationField, defaultLocationId } from "@/component
 import { Plus, RefreshCw, PackageCheck, X, Loader, Check, Trash2, FileText } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
 
 const money = fmt.num2;
 
@@ -290,12 +290,22 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
   const [reference, setReference] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-  const total = receipts.reduce((s, r) => s + Number(r.open || 0), 0);
+  const [lines, setLines] = useState<any[] | null>(null);
+  const [price, setPrice] = useState<Record<string, string>>({});   // lineId -> invoice unit price
+  useEffect(() => {
+    fetch(`/api/inventory/receiving/bill?ids=${receipts.map(x => x.id).join(",")}`).then(r => r.json())
+      .then(d => { const ls = Array.isArray(d) ? d : []; setLines(ls); setPrice(Object.fromEntries(ls.map((l: any) => [l.id, String(l.unitCost)]))); }).catch(() => setLines([]));
+  }, [receipts]);
+  // In the receipts' own currency, like the prices below (fall back to the list's figure while loading).
+  const total = lines ? Math.round(lines.reduce((s, l) => s + l.open * l.unitCost, 0) * 100) / 100 : receipts.reduce((s, r) => s + Number(r.open || 0), 0);
+  const invoiced = (lines ?? []).reduce((s, l) => s + l.open * (Number(price[l.id]) || 0), 0);
+  const diff = Math.round((invoiced - total) * 100) / 100;
 
   async function save() {
     setSaving(true); setErr("");
+    const prices = (lines ?? []).filter(l => price[l.id] !== "" && Math.abs((Number(price[l.id]) || 0) - l.unitCost) > 1e-9).map(l => ({ lineId: l.id, unitCost: Number(price[l.id]) || 0 }));
     const r = await fetch(`/api/inventory/receiving/bill`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ receiptIds: receipts.map(x => x.id), billDate: date, dueDate: dueDate || null, reference: reference || null, taxRateId: taxRateId || null }) });
+      body: JSON.stringify({ receiptIds: receipts.map(x => x.id), billDate: date, dueDate: dueDate || null, reference: reference || null, taxRateId: taxRateId || null, prices }) });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not create bill."); return; }
     onDone();
@@ -318,7 +328,28 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
             </Field>
           </div>
         </Section>
-        <div className="rounded-lg bg-stone-800/50 border border-stone-700 px-4 py-2.5 text-[12px] text-stone-300">Net to bill (clears GR/IR) → <span className="font-semibold text-stone-100">{money(total)}</span></div>
+        <Section title="Invoice prices" desc="Change a price only where the supplier's invoice differs from the receipt. The difference on stock still held goes into that lot's cost; on stock already used, to purchase price variance.">
+          <div className="rounded-lg border border-stone-800 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead><tr className="border-b border-stone-800"><th className={th}>Item</th><th className={`${th} text-right`}>To bill</th><th className={`${th} text-right`}>Receipt price</th><th className={`${th} text-right w-32`}>Invoice price</th></tr></thead>
+              <tbody>
+                {lines === null && <tr><td colSpan={4} className="px-3 py-3 text-center text-stone-500">Loading…</td></tr>}
+                {(lines ?? []).map(l => (
+                  <tr key={l.id} className="border-b border-stone-800/50">
+                    <td className="px-3 py-1.5 text-stone-200">{l.itemName ?? "—"} <span className="text-stone-500 font-mono text-[11px]">{l.receiptNo}</span></td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.qty(l.open)} {l.baseUom || ""}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{fmt.num2(l.unitCost)}</td>
+                    <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={price[l.id] ?? ""} onChange={e => setPrice(p => ({ ...p, [l.id]: e.target.value }))} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+        <div className="rounded-lg bg-stone-800/50 border border-stone-700 px-4 py-2.5 text-[12px] text-stone-300">
+          Clears GR/IR → <span className="font-semibold text-stone-100">{money(total)}</span>
+          {Math.abs(diff) >= 0.005 && <> · price difference <span className={diff > 0 ? "text-amber-300" : "text-emerald-300"}>{diff > 0 ? "+" : ""}{money(diff)}</span> · bill total <span className="font-semibold text-stone-100">{money(total + diff)}</span></>}
+        </div>
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
       </Drawer>

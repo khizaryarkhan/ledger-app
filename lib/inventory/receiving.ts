@@ -12,14 +12,14 @@
  */
 
 import { db } from "@/db";
-import { goodsReceipts, goodsReceiptLines, tradeDocumentLines, organisations } from "@/db/schema";
+import { goodsReceipts, goodsReceiptLines, tradeDocumentLines, organisations, inventoryLots } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { postJournalEntry, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { loadItemCostInfo, commitReceipt } from "@/lib/inventory/valuation";
 import { roleAccount } from "@/lib/accounting/account-roles-server";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { nextDocNumber } from "@/lib/accounting/numbering";
-import { postDocument } from "@/lib/accounting/documents";
+import { postDocument, type DocRevaluation } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
 import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
@@ -180,6 +180,13 @@ export type BillFromReceiptsInput = {
   reference?: string | null;       // supplier bill no.
   taxRateId?: string | null;       // applied to each line
   memo?: string | null;
+  /**
+   * The supplier's INVOICE unit price per receipt line (home currency, per base
+   * unit), where it differs from what the receipt recorded. P-03: the share of
+   * the difference on stock still in the lot is added to that lot's cost; the
+   * share on stock already used goes to Purchase price variance.
+   */
+  prices?: { lineId: string; unitCost: number }[];
 };
 
 /**
@@ -200,6 +207,21 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
   const supplierId = receipts[0].supplierId ?? null;
   const supplierLabel = receipts[0].supplierLabel ?? null;
 
+  // P-02: bill in the RECEIPTS' currency, at their rate. GR/IR holds the home
+  // value the receipt recorded; converting the bill back at that same rate is
+  // what lets it clear exactly — the FX difference belongs to the payment
+  // (settlePayment), not here. Before this no currency was passed at all, so a
+  // foreign-currency receipt could not be billed.
+  const [org] = await db.select({ home: organisations.currency }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const home = (org?.home ?? "PKR").toUpperCase();
+  const ccys = [...new Set(receipts.map(r => (r.currency || home).toUpperCase()))];
+  if (ccys.length > 1) err("The selected receipts are in different currencies — bill them separately.");
+  const currency = ccys[0];
+  const rates = [...new Set(receipts.map(r => Number(r.exchangeRate) || 1))];
+  if (currency !== home && rates.length > 1) err("The selected receipts were received at different exchange rates — bill them separately so each clears at its own rate.");
+  const fx = currency === home ? 1 : rates[0];
+  const toTxn = (homeAmount: number) => round2(homeAmount / fx);
+
   const lineRows = await db.select().from(goodsReceiptLines)
     .where(and(eq(goodsReceiptLines.orgId, orgId), inArray(goodsReceiptLines.receiptId, input.receiptIds)));
 
@@ -210,6 +232,11 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
   // Bill the un-billed remainder of each receipt line (qty basis).
   const billLines: any[] = [];
   const touched: { lineId: string; qty: number; amount: number }[] = [];
+  const priceFor = new Map((input.prices ?? []).filter(p => p?.lineId && Number.isFinite(Number(p.unitCost)) && Number(p.unitCost) >= 0).map(p => [String(p.lineId), Number(p.unitCost)]));
+  const revaluations: DocRevaluation[] = [];
+  const lotIds = lineRows.map(l => l.lotId).filter(Boolean) as string[];
+  const lots = lotIds.length ? await db.select().from(inventoryLots).where(and(eq(inventoryLots.orgId, orgId), inArray(inventoryLots.id, lotIds))) : [];
+  const lotById = new Map(lots.map(l => [l.id, l]));
   for (const l of lineRows) {
     const rem = roundQty(Number(l.qtyBase) - Number(l.billedQty));
     if (rem <= 0) continue;
@@ -219,8 +246,25 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
     if (amount <= 0) continue;
     const it = l.itemId ? lineItems.get(l.itemId) : undefined;
     if (!it) err(`The item on receipt line "${l.description ?? l.id}" no longer exists.`);
-    billLines.push({ accountId: roleAccount(it!, "GRNI"), itemId: null, description: l.description ?? "Received goods", qty: rem, rate: Number(l.unitCost), amount, taxRateId: input.taxRateId ?? null });
+    billLines.push({ accountId: roleAccount(it!, "GRNI"), itemId: null, description: l.description ?? "Received goods", qty: rem, rate: round6(Number(l.unitCost) / fx), amount: toTxn(amount), taxRateId: input.taxRateId ?? null });
     touched.push({ lineId: l.id, qty: rem, amount });
+    // The invoice at a different price: GRNI still clears at the receipt's
+    // value (above); the difference is its own line, to purchase price
+    // variance, and the part of it on stock still in the lot is then moved
+    // into the lot's cost.
+    if (priceFor.has(l.id)) {
+      // Invoice prices are entered in the bill's (the receipts') currency.
+      const diff = round2(round2(rem * priceFor.get(l.id)! * fx) - amount);
+      if (Math.abs(diff) >= 0.005) {
+        const ppv = it!.accounts?.roles.PURCHASE_PRICE_VARIANCE;
+        if (!ppv) err(`${it!.name}: its posting group has no Purchase price variance account — map it under Accounting → Setup → Posting Groups.`);
+        billLines.push({ accountId: ppv, itemId: null, description: `Price difference — ${it!.name}`, qty: rem, rate: round6(diff / fx / rem), amount: toTxn(diff), taxRateId: input.taxRateId ?? null });
+        const lot = l.lotId ? lotById.get(l.lotId) : undefined;
+        const stillHeld = lot && Number(lot.origQty) > 0 ? Math.min(1, Math.max(0, Number(lot.remainingQty) / Number(lot.origQty))) : 0;
+        const toStock = round2(diff * stillHeld);
+        if (lot && Math.abs(toStock) >= 0.005) revaluations.push({ lotId: lot.id, amount: toStock, assetAccountId: it!.assetAccountId!, ppvAccountId: ppv!, itemName: it!.name });
+      }
+    }
   }
   if (!billLines.length) err("These receipts are already fully billed.");
 
@@ -228,9 +272,10 @@ export async function billFromReceipts(orgId: string, input: BillFromReceiptsInp
     type: "Bill", date: input.billDate,
     memo: input.memo?.trim() || `Bill for goods received (${receipts.map(r => r.receiptNo).filter(Boolean).join(", ")})`,
     partyType: "Vendor", partyId: supplierId, partyLabel: supplierLabel,
+    ...(currency !== home ? { currency, exchangeRate: fx } : {}),
     dueDate: input.dueDate ?? null, reference: input.reference?.trim() || null,
     lines: billLines,
-  }, actorId);
+  }, actorId, { revaluations });
 
   // Link receipts → bill, and advance billed progress.
   const totalBilled = round2(touched.reduce((s, t) => s + t.amount, 0));

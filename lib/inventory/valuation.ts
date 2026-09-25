@@ -421,7 +421,7 @@ export async function commitReceipt(orgId: string, r: ReceiptInput): Promise<str
 }
 
 export type IssueCommit = {
-  itemId: string; plan: IssuePlan; movementType: "issue_sale" | "issue_production" | "adjustment" | "issue_jobwork";
+  itemId: string; plan: IssuePlan; movementType: "issue_sale" | "issue_production" | "adjustment" | "issue_jobwork" | "return_purchase";
   skuId?: string | null;
   refType: string; refId: string; entryId?: string | null; date: string; createdBy?: string | null; note?: string | null;
 };
@@ -535,6 +535,22 @@ export async function reverseInventoryByEntry(orgId: string, entryId: string): P
       const moved = Math.abs(num(m.qty));
       if (m.toLocationId) await takeQty(orgId, m.lotId, m.toLocationId, moved);
       if (m.fromLocationId) await placeQty(orgId, m.lotId, m.fromLocationId, moved);
+    } else if (m.movementType === "revalue" && m.lotId) {
+      // A revaluation moved the lot's unit cost; move it back by the same step.
+      await db.update(inventoryLots).set({ unitCost: sql`${inventoryLots.unitCost} - ${n6(num(m.unitCost))}` })
+        .where(and(eq(inventoryLots.id, m.lotId), eq(inventoryLots.orgId, orgId)));
+    } else if (m.lotId && num(m.qty) > 0) {
+      // Stock that CAME BACK into an existing lot (a customer return, a count
+      // gain): take it out again — refused if it has since been issued.
+      const q = num(m.qty);
+      const [lot] = await db.select().from(inventoryLots).where(and(eq(inventoryLots.id, m.lotId), eq(inventoryLots.orgId, orgId))).limit(1);
+      if (!lot || num(lot.remainingQty) + QTY_EPSILON < q) {
+        throw new Error("Stock returned or counted into a lot by this document has since been issued. Reverse the later transaction(s) first.");
+      }
+      const left = roundQty(num(lot.remainingQty) - q);
+      await db.update(inventoryLots).set({ remainingQty: nQty(left), status: left > QTY_EPSILON ? "Open" : "Depleted" })
+        .where(and(eq(inventoryLots.id, m.lotId), eq(inventoryLots.orgId, orgId)));
+      if (m.toLocationId) await takeQty(orgId, m.lotId, m.toLocationId, q);
     } else if (m.lotId) {
       // Issue — put the qty back on the lot, reopen it, and return it to the
       // location it left from.
@@ -555,4 +571,103 @@ export async function reverseInventoryByEntry(orgId: string, entryId: string): P
   }
   await db.delete(inventoryMovements).where(and(eq(inventoryMovements.orgId, orgId), or(eq(inventoryMovements.entryId, entryId), eq(inventoryMovements.refId, entryId))));
   for (const itemId of affected) await recalcItemCache(orgId, itemId);
+}
+
+/**
+ * Put quantities BACK into existing lots (a customer return to its original
+ * lot, a stock-count gain). The lot keeps its identity and its cost — a return
+ * is the same stock coming home, not a new receipt — and reopens if it was
+ * depleted. Placement goes to `locationId` (resolved by the caller) or the org
+ * default.
+ */
+export async function commitLotIncrease(orgId: string, c: {
+  itemId: string; picks: { lotId: string; qty: number; unitCost: number }[];
+  movementType: "return_sale" | "adjustment"; refType: string; refId: string; entryId?: string | null;
+  date: string; createdBy?: string | null; note?: string | null; locationId: string | null;
+}): Promise<void> {
+  const where = c.locationId ?? await ensureDefaultLocation(orgId);
+  for (const p of c.picks) {
+    const q = roundQty(p.qty);
+    if (q <= 0) continue;
+    await db.update(inventoryLots).set({ remainingQty: sql`${inventoryLots.remainingQty} + ${nQty(q)}`, status: "Open" })
+      .where(and(eq(inventoryLots.id, p.lotId), eq(inventoryLots.orgId, orgId)));
+    await placeQty(orgId, p.lotId, where, q);
+    await db.insert(inventoryMovements).values({
+      orgId, itemId: c.itemId, lotId: p.lotId, movementType: c.movementType,
+      qty: nQty(q), unitCost: n6(p.unitCost), totalCost: n4(q * p.unitCost), toLocationId: where,
+      refType: c.refType, refId: c.refId, entryId: c.entryId ?? null, movementDate: c.date, note: c.note ?? null, createdBy: c.createdBy ?? null,
+    } as any);
+  }
+  await recalcItemCache(orgId, c.itemId);
+}
+
+/**
+ * Change a lot's unit cost by `deltaTotal` spread over what it still holds —
+ * a supplier's invoice price difference on stock still in the lot, or a
+ * write-down. Stock already issued is not touched: its cost is history.
+ * Logged as a zero-quantity `revalue` movement carrying the per-unit step, so
+ * a void moves the cost back exactly and as-at valuation sees the change.
+ */
+export async function revalueLot(orgId: string, c: {
+  lotId: string; deltaTotal: number; refType: string; refId: string; entryId?: string | null;
+  date: string; createdBy?: string | null; note?: string | null;
+}): Promise<{ deltaUnit: number }> {
+  const [lot] = await db.select().from(inventoryLots).where(and(eq(inventoryLots.id, c.lotId), eq(inventoryLots.orgId, orgId))).limit(1);
+  if (!lot) throw new LedgerValidationError("Lot not found.");
+  const rem = num(lot.remainingQty);
+  if (rem <= QTY_EPSILON) throw new LedgerValidationError(`Lot ${lot.lotNo ?? ""} holds nothing to revalue.`);
+  const deltaUnit = Math.round((c.deltaTotal / rem) * 1e6) / 1e6;
+  if (num(lot.unitCost) + deltaUnit < -1e-6) throw new LedgerValidationError(`That would take lot ${lot.lotNo ?? ""} below zero cost.`);
+  await db.update(inventoryLots).set({ unitCost: sql`${inventoryLots.unitCost} + ${n6(deltaUnit)}` })
+    .where(and(eq(inventoryLots.id, c.lotId), eq(inventoryLots.orgId, orgId)));
+  await db.insert(inventoryMovements).values({
+    orgId, itemId: lot.itemId, lotId: lot.id, movementType: "revalue",
+    qty: nQty(0), unitCost: n6(deltaUnit), totalCost: n4(c.deltaTotal),
+    refType: c.refType, refId: c.refId, entryId: c.entryId ?? null, movementDate: c.date, note: c.note ?? null, createdBy: c.createdBy ?? null,
+  } as any);
+  await recalcItemCache(orgId, lot.itemId);
+  return { deltaUnit };
+}
+
+/**
+ * The lots a customer return goes back into: the lots this item was SOLD to
+ * this customer from (invoices and shipments), most recent first, less what
+ * has already come back. At each lot's current cost (spec 2.6). Refuses a
+ * return larger than what was sold to them through lots — goods that never
+ * left as tracked stock cannot come back into it.
+ */
+export async function planCustomerReturn(orgId: string, item: ItemCostInfo, qty: number, customerId: string): Promise<{ lotId: string; qty: number; unitCost: number }[]> {
+  const res: any = await db.execute(sql`
+    with sold as (
+      select m.lot_id, -sum(m.qty::numeric) as q, max(m.movement_date) as last
+      from inventory_movements m
+      where m.org_id = ${orgId} and m.item_id = ${item.id} and m.movement_type = 'issue_sale' and m.lot_id is not null
+        and (exists (select 1 from journal_lines l where l.entry_id = m.entry_id and l.name_type = 'Customer' and l.name_id = ${customerId})
+             or exists (select 1 from sales_shipments s where s.entry_id = m.entry_id and s.customer_id = ${customerId}))
+      group by m.lot_id
+    ), back as (
+      select m.lot_id, sum(m.qty::numeric) as q
+      from inventory_movements m
+      where m.org_id = ${orgId} and m.item_id = ${item.id} and m.movement_type = 'return_sale'
+        and exists (select 1 from journal_lines l where l.entry_id = m.entry_id and l.name_type = 'Customer' and l.name_id = ${customerId})
+      group by m.lot_id
+    )
+    select s.lot_id, s.q - coalesce(b.q, 0) as open, l.unit_cost, s.last
+    from sold s join inventory_lots l on l.id = s.lot_id left join back b on b.lot_id = s.lot_id
+    where s.q - coalesce(b.q, 0) > 0
+    order by s.last desc`);
+  const rows: any[] = res?.rows ?? res ?? [];
+  let left = roundQty(qty);
+  const out: { lotId: string; qty: number; unitCost: number }[] = [];
+  for (const r of rows) {
+    if (left <= QTY_EPSILON) break;
+    const take = Math.min(num(r.open), left);
+    out.push({ lotId: String(r.lot_id), qty: roundQty(take), unitCost: num(r.unit_cost) });
+    left = roundQty(left - take);
+  }
+  if (left > QTY_EPSILON) {
+    const sold = roundQty(qty - left);
+    throw new LedgerValidationError(`${item.name}: only ${sold}${item.baseUom ? " " + item.baseUom : ""} was sold to this customer from tracked stock (net of earlier returns), so ${roundQty(qty)} can't be returned into it. Untick "Goods returned" for a price credit.`);
+  }
+  return out;
 }

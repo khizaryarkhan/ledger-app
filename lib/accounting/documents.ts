@@ -25,14 +25,14 @@
  */
 
 import { db } from "@/db";
-import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines } from "@/db/schema";
+import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import type { DocType } from "@/lib/accounting/numbering";
 import { ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
 import { openDocsForParty, availableCreditsForParty } from "@/lib/accounting/payments";
-import { loadItemCostInfo, planIssue, commitReceipt, commitIssue, reverseInventoryByEntry, type ItemCostInfo, type IssuePlan } from "@/lib/inventory/valuation";
+import { loadItemCostInfo, planIssue, commitReceipt, commitIssue, commitLotIncrease, planCustomerReturn, revalueLot, reverseInventoryByEntry, type ItemCostInfo, type IssuePlan } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
 import { baseQtyOfLine } from "@/lib/inventory/order-options";
 
@@ -61,6 +61,13 @@ export type DocLineInput = {
 };
 
 export type PostDocInput = {
+  /**
+   * Credit note / refund receipt / vendor credit: did GOODS come back (or go
+   * back)? A credit can equally be a price allowance with nothing returned, so
+   * stock moves only when this says so. Customer returns go back into the lots
+   * they were sold from; supplier returns leave from that supplier's lots.
+   */
+  goodsReturned?: boolean;
   type: DocType;
   date: string;                   // YYYY-MM-DD
   docNumber?: string | null;
@@ -185,7 +192,13 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     // asset because a FIFO lot is created against that account. Sending the
     // debit elsewhere would raise stock in the subledger with no matching
     // movement in the GL — a break that never self-corrects.
-    if (!isSale && it.tracked) return it.assetAccountId!;          // resolved by role — never null once loaded
+    if (!isSale && it.tracked) {
+      // A vendor credit on a stocked item with NO goods going back is a price
+      // credit: it changes what the stock cost, not how much there is, so it
+      // can't sit against the inventory account with no lot to carry it.
+      if (type === "VendorCredit" && !input.goodsReturned) return it.accounts?.roles.PURCHASE_PRICE_VARIANCE ?? it.assetAccountId!;
+      return it.assetAccountId!;                                    // resolved by role — never null once loaded
+    }
     if (l.accountOverride && l.accountId) return l.accountId;
     // A customer return of a stocked item is contra-revenue in its own
     // account (SALES_RETURNS), not a debit buried in the sales line.
@@ -244,7 +257,9 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
       lines.push({ accountId: input.bankAccountId!, credit: grand, description: "Refund" });
     }
   } else if (type === "Bill" || type === "Expense") {
-    for (const l of priced) lines.push({ accountId: l.accountId!, debit: l.net, ...lineCommon(l) });
+    // A negative line (a supplier's discount, or an invoice price below the
+    // receipt price) is a credit, not a negative debit the ledger would refuse.
+    for (const l of priced) lines.push(l.net >= 0 ? { accountId: l.accountId!, debit: l.net, ...lineCommon(l) } : { accountId: l.accountId!, credit: -l.net, ...lineCommon(l) });
     if (taxTotal) lines.push({ accountId: taxId!, debit: taxTotal, description: "Input tax" });
     if (type === "Bill") {
       if (!apId) err("No Accounts Payable account is set up.");
@@ -273,8 +288,10 @@ const PURCH_STOCK = new Set<DocType>(["Bill", "Expense"]);
 
 type InvPlan = {
   extraHomeLines: PostLine[];
-  issues: { line: DocLineInput; item: ItemCostInfo; plan: IssuePlan }[];
+  issues: { line: DocLineInput; item: ItemCostInfo; plan: IssuePlan; movementType?: "issue_sale" | "return_purchase" }[];
   receipts: { line: DocLineInput; item: ItemCostInfo; unitCost: number }[];
+  /** Customer returns: quantities going back into the lots they were sold from. */
+  returnsIn: { item: ItemCostInfo; picks: { lotId: string; qty: number; unitCost: number }[] }[];
   /**
    * Resolved during PLANNING, so a bad or foreign location id fails before the
    * journal entry is posted — not afterwards, with a balanced entry already in
@@ -294,14 +311,18 @@ async function itemMapForInput(orgId: string, input: PostDocInput): Promise<Map<
  * issues to commit. For purchases, returns the receipt lots to create.
  */
 async function planDocumentInventory(orgId: string, type: DocType, input: PostDocInput, itemMap: Map<string, ItemCostInfo>, rate: number): Promise<InvPlan> {
-  const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [], locationId: null };
+  const plan: InvPlan = { extraHomeLines: [], issues: [], receipts: [], returnsIn: [], locationId: null };
   const stockLines = (input.lines ?? []).filter(l => l.itemId && itemMap.get(l.itemId)?.tracked && Math.abs(Number(l.qty) || 0) > 0);
   if (!stockLines.length) return plan;
+  const RETURN_IN = type === "CreditNote" || type === "RefundReceipt";
+  const RETURN_OUT = type === "VendorCredit";
+  if ((RETURN_IN || RETURN_OUT) && !input.goodsReturned) return plan;   // a price credit moves no stock
+  if ((RETURN_IN || RETURN_OUT) && !input.partyId) err(`Choose the ${RETURN_IN ? "customer" : "supplier"} from the list — returned goods go back into (or out of) the lots that party's transactions moved.`);
 
   // A sale issues stock, so a Quarantine location is refused here; a purchase
   // may legitimately receive INTO Quarantine pending inspection.
   plan.locationId = await resolveLocationId(orgId, input.locationId, {
-    forIssue: SALES_STOCK.has(type),
+    forIssue: SALES_STOCK.has(type) || RETURN_OUT,
     label: "Stock location",
   });
 
@@ -318,6 +339,43 @@ async function planDocumentInventory(orgId: string, type: DocType, input: PostDo
       plan.extraHomeLines.push({ accountId: cogsAcct, debit: round2(issue.totalCost), description: `Cost of goods sold — ${item.name}` });
       plan.extraHomeLines.push({ accountId: assetAcct, credit: round2(issue.totalCost), description: `Inventory relief — ${item.name}` });
       plan.issues.push({ line: l, item, plan: issue });
+    }
+  } else if (RETURN_IN) {
+    // P-14: back into the ORIGINAL lots, at their current cost. Revenue is
+    // already Dr Sales returns / Cr A/R; this reverses the cost of sale.
+    for (const l of stockLines) {
+      const item = itemMap.get(l.itemId!)!;
+      const picks = await planCustomerReturn(orgId, item, baseQtyOfLine(l), input.partyId!);
+      const cost = round2(picks.reduce((sm, p) => sm + p.qty * p.unitCost, 0));
+      if (cost > 0) {
+        plan.extraHomeLines.push({ accountId: item.assetAccountId!, debit: cost, description: `Returned to stock — ${item.name}` });
+        plan.extraHomeLines.push({ accountId: item.cogsAccountId!, credit: cost, description: `Cost of sale reversed — ${item.name}` });
+      }
+      plan.returnsIn.push({ item, picks });
+    }
+  } else if (RETURN_OUT) {
+    // Goods back to the supplier: out of the lots THEY supplied, at lot cost.
+    // The credit's own amount is what the supplier gives back; any gap between
+    // that and what the stock cost is a purchase price variance — the stock
+    // account moves by exactly the lot cost, or it stops tying to the lots.
+    const supplierLots = await db.select({ id: inventoryLots.id, itemId: inventoryLots.itemId }).from(inventoryLots)
+      .where(and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.supplierId, input.partyId!), eq(inventoryLots.status, "Open")));
+    for (const l of stockLines) {
+      const item = itemMap.get(l.itemId!)!;
+      const ids = supplierLots.filter(x => x.itemId === item.id).map(x => x.id);
+      if (!ids.length) err(`${item.name}: there is no stock on hand from this supplier to return.`);
+      const issue = await planIssue(orgId, item, baseQtyOfLine(l), { restrictLotIds: ids, locationId: plan.locationId });
+      const cost = round2(issue.totalCost);
+      const credited = round2(round2(l.amount) * rate);
+      const diff = round2(credited - cost);
+      if (Math.abs(diff) >= 0.005) {
+        const ppv = item.accounts?.roles.PURCHASE_PRICE_VARIANCE;
+        if (!ppv) err(`${item.name}: its posting group has no Purchase price variance account — map it under Accounting → Setup → Posting Groups.`);
+        // The base line credited stock at the credit's amount; bring it to lot cost.
+        if (diff > 0) { plan.extraHomeLines.push({ accountId: item.assetAccountId!, debit: diff, description: `Return at lot cost — ${item.name}` }); plan.extraHomeLines.push({ accountId: ppv!, credit: diff, description: `Purchase price variance — ${item.name}` }); }
+        else { plan.extraHomeLines.push({ accountId: ppv!, debit: -diff, description: `Purchase price variance — ${item.name}` }); plan.extraHomeLines.push({ accountId: item.assetAccountId!, credit: -diff, description: `Return at lot cost — ${item.name}` }); }
+      }
+      plan.issues.push({ line: l, item, plan: issue, movementType: "return_purchase" });
     }
   } else if (PURCH_STOCK.has(type)) {
     for (const l of stockLines) {
@@ -348,9 +406,15 @@ async function commitDocumentInventory(orgId: string, type: DocType, plan: InvPl
   }
   for (const iss of plan.issues) {
     await commitIssue(orgId, {
-      itemId: iss.item.id, plan: iss.plan, movementType: "issue_sale",
+      itemId: iss.item.id, plan: iss.plan, movementType: iss.movementType ?? "issue_sale",
       refType: type, refId, entryId, date, createdBy: actorId, note: iss.item.name,
     }).catch(e => console.error("[inventory issue]", e));
+  }
+  for (const r of plan.returnsIn) {
+    await commitLotIncrease(orgId, {
+      itemId: r.item.id, picks: r.picks, movementType: "return_sale",
+      refType: type, refId, entryId, date, createdBy: actorId, note: `Returned — ${r.item.name}`, locationId: plan.locationId,
+    });
   }
 }
 
@@ -555,7 +619,14 @@ async function settlePayment(orgId: string, type: DocType, input: PostDocInput, 
  * Build lines + post. Returns the created journal entry (with entryNumber,
  * docNumber, txnNo). Throws LedgerValidationError with a clear message.
  */
-export async function postDocument(orgId: string, input: PostDocInput, actorId: string | null) {
+/**
+ * Internal lot revaluations a caller posts WITH a document (bill-from-receipt's
+ * price difference on stock still in its lot). Never read from a request body:
+ * they post to an inventory control account, which a user line may not.
+ */
+export type DocRevaluation = { lotId: string; amount: number; assetAccountId: string; ppvAccountId: string; itemName: string };
+
+export async function postDocument(orgId: string, input: PostDocInput, actorId: string | null, opts?: { revaluations?: DocRevaluation[] }) {
   const { type, date } = input;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) err("A valid date is required.");
 
@@ -657,6 +728,13 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
     const homeLines = toHome(lines, currency, rate, home);
     if (invPlan) homeLines.push(...invPlan.extraHomeLines);
     homeLines.push(...paymentExtraLines);
+    // P-03: the share of a price difference that belongs to stock still in its
+    // lot moves from purchase price variance into the lot's stock account.
+    for (const r of opts?.revaluations ?? []) {
+      const a = round2(r.amount);
+      if (a > 0) { homeLines.push({ accountId: r.assetAccountId, debit: a, description: `Price difference into stock — ${r.itemName}` }); homeLines.push({ accountId: r.ppvAccountId, credit: a, description: `Price difference into stock — ${r.itemName}` }); }
+      else if (a < 0) { homeLines.push({ accountId: r.ppvAccountId, debit: -a, description: `Price difference out of stock — ${r.itemName}` }); homeLines.push({ accountId: r.assetAccountId, credit: -a, description: `Price difference out of stock — ${r.itemName}` }); }
+    }
     entry = await postJournalEntry({
       orgId,
       entryDate: date,
@@ -675,6 +753,10 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
 
   // Commit the FIFO lot movements now the entry id exists.
   if (invPlan && entry) await commitDocumentInventory(orgId, type, invPlan, entry.id, entry.id, date, input, actorId);
+  if (entry) for (const r of opts?.revaluations ?? []) {
+    if (Math.abs(round2(r.amount)) < 0.005) continue;
+    await revalueLot(orgId, { lotId: r.lotId, deltaTotal: round2(r.amount), refType: type, refId: entry.id, entryId: entry.id, date, createdBy: actorId, note: `Invoice price difference — ${r.itemName}` });
+  }
 
   // Create the settlement links (cash from the new entry, credits from their
   // source documents) — everything the open balances are derived from.
