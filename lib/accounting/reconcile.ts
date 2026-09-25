@@ -178,6 +178,22 @@ export async function reconcileOrg(orgId: string, orgName: string): Promise<OrgR
         : `${fmt(apControl)}`,
     });
 
+    // A bill in the A/P control account with no Payables row — posted before
+    // the bridge existed, or a bridge that failed. The AP twin of
+    // ar_posted_unbridged. Fixed by rebridgeNativeBills.
+    const apUnbridged = await rows<{ doc_number: string | null }>(sql`
+      select e.doc_number from journal_entries e
+       where e.org_id = ${orgId} and e.source_type = 'Bill' and e.status = 'Posted' and e.external_source is null
+         and not exists (select 1 from ap_bills b where b.entry_id = e.id)`);
+    checks.push({
+      key: "ap_posted_unbridged",
+      label: "No bill posted to the GL but missing from Payables",
+      status: apUnbridged.length ? "fail" : "pass",
+      detail: apUnbridged.length
+        ? `${apUnbridged.length} bill(s) invisible to Payables and aged payables (${apUnbridged.slice(0, 5).map(u => u.doc_number ?? "—").join(", ")}) — run scripts/rebridge-bills.ts`
+        : "none",
+    });
+
     const apOffLedger = await rows<{ n: number; open: string }>(sql`
       select count(*)::int as n, coalesce(sum(coalesce(total,0) - coalesce(amount_paid,0)),0) as open
         from ap_bills

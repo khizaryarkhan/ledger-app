@@ -1184,3 +1184,29 @@ export async function documentPayload(orgId: string, entryId: string) {
   return { sourceType: entry.sourceType, docNumber: entry.docNumber, status: entry.status, editable, payload };
 }
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
+
+/**
+ * Mirror every POSTED native bill that has no Payables row into ap_bills.
+ * Bills posted before the bridge existed (AM MERCHADISING's three
+ * bills-from-receipts of 2026-08-29) are in the A/P control account but
+ * invisible to Payables and aged payables — the reconciliation's ap_control
+ * gap. Rebuilt from each entry's own stored form input (sourcePayload), the
+ * same input bridgeNativeBill is always called with. Idempotent.
+ */
+export async function rebridgeNativeBills(orgId: string, opts: { dryRun: boolean }) {
+  const [org] = await db.select({ home: organisations.currency }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const home = org?.home ?? "PKR";
+  const missing = await db.execute(sql`
+    select e.id, e.doc_number, e.source_payload
+      from journal_entries e
+     where e.org_id = ${orgId} and e.source_type = 'Bill' and e.status = 'Posted' and e.external_source is null
+       and not exists (select 1 from ap_bills b where b.entry_id = e.id)`);
+  const rows: any[] = (missing as any)?.rows ?? (missing as any) ?? [];
+  const out: { docNumber: string | null; bridged: boolean; reason?: string }[] = [];
+  for (const r of rows) {
+    if (!r.source_payload) { out.push({ docNumber: r.doc_number, bridged: false, reason: "no stored form input" }); continue; }
+    if (!opts.dryRun) await bridgeNativeBill(orgId, String(r.id), r.doc_number ?? null, r.source_payload as PostDocInput, home);
+    out.push({ docNumber: r.doc_number, bridged: !opts.dryRun });
+  }
+  return out;
+}
