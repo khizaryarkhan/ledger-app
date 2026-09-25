@@ -189,9 +189,28 @@ export async function provisionInventoryAccounting(orgId: string, opts: { withAc
   }
   if (!opts.dryRun) {
     if (inserts.length) await db.insert(postingGroupAccounts).values(inserts).onConflictDoNothing();
+    await ensureScrapItem(orgId, byKey.get(key("SCRAP_SALES", ROLES.SCRAP_SALES.defaultName)) ?? null);
     await db.update(organisations).set({ inventoryTemplateVersion: TEMPLATE_VERSION }).where(eq(organisations.id, orgId));
   }
   return report;
+}
+
+/**
+ * Scrap is never stock, so it is not a posting-group role: selling offcuts is
+ * invoicing a NON-STOCK item whose income account is Scrap Sales. This makes
+ * sure that item exists, so nobody has to know which account to pick.
+ */
+export const SCRAP_ITEM_NAME = "Scrap & offcuts";
+async function ensureScrapItem(orgId: string, scrapAccountId: string | null) {
+  if (!scrapAccountId || scrapAccountId.startsWith("dry:")) return;
+  const [have] = await db.select({ id: apItems.id }).from(apItems)
+    .where(and(eq(apItems.orgId, orgId), sql`lower(trim(${apItems.name})) = ${SCRAP_ITEM_NAME.toLowerCase()}`)).limit(1);
+  if (have) return;
+  await db.insert(apItems).values({
+    orgId, source: "native", name: SCRAP_ITEM_NAME, productType: "NonInventory", itemType: "Non-Inventory",
+    incomeAccountId: scrapAccountId, sourcingPolicy: "open", status: "Active",
+    description: "Scrap and offcuts sold. Not stock: invoicing it credits Scrap Sales, with no cost of sales.",
+  } as any);
 }
 
 /**

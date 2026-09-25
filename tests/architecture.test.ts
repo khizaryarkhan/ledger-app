@@ -969,12 +969,15 @@ describe("a form opens in the shared side drawer, not a private copy of one", ()
   // had the pinned footer the other six lacked. This guard is what stops an
   // eighth appearing.
   const files = [...sourceFiles("components"), ...sourceFiles("app")]
-    .filter(f => !f.endsWith("components/form-kit.tsx"));
+    // Separator-agnostic: on Windows the walk yields back-slashed paths, and a
+    // forward-slash suffix never matched them — the guard then flagged the one
+    // file it exists to allow.
+    .filter(f => !f.replace(/\\/g, "/").endsWith("components/form-kit.tsx"));
 
   it("nothing defines its own Drawer or DrawerFooter", () => {
     const offenders = files.filter(f =>
       /^\s*(export\s+)?function\s+Drawer(Footer)?\s*\(/m.test(readFileSync(f, "utf8")));
-    expect(offenders.map(f => relative(ROOT, f))).toEqual([]);
+    expect(offenders.map(f => relative(ROOT, f).replace(/\\/g, "/"))).toEqual([]);
   });
 
   it("form-kit's Drawer pins the footer below the scrolling body", () => {
@@ -1015,7 +1018,7 @@ describe("a form opens in the shared side drawer, not a private copy of one", ()
 
   it("no component builds its own centred dialog", () => {
     const offenders = [...sourceFiles("components"), ...sourceFiles("app")]
-      .map(f => relative(ROOT, f))
+      .map(f => relative(ROOT, f).replace(/\\/g, "/"))   // allowlist keys are forward-slashed
       .filter(rel => !(rel in CENTRED_OK))
       .filter(rel => overlaysIn(join(ROOT, rel),
         c => c.includes("items-center") && c.includes("justify-center")).length > 0);
@@ -1027,7 +1030,7 @@ describe("a form opens in the shared side drawer, not a private copy of one", ()
 
   it("no component builds its own side panel", () => {
     const offenders = [...sourceFiles("components"), ...sourceFiles("app")]
-      .map(f => relative(ROOT, f))
+      .map(f => relative(ROOT, f).replace(/\\/g, "/"))
       .filter(rel => !(rel in PANEL_OK))
       .filter(rel => overlaysIn(join(ROOT, rel), c => c.includes("justify-end")).length > 0);
     expect(offenders, "use form-kit's Drawer").toEqual([]);
