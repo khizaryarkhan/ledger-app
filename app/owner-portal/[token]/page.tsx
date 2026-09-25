@@ -8,6 +8,7 @@
  * invoice's activity feed in the collections system.
  */
 
+import { formatDateShort } from "@/lib/format";
 import { useState, useEffect } from "react";
 import { fmt } from "@/lib/format";
 
@@ -27,8 +28,9 @@ type Data = { owner: string; org: { name: string; logoUrl: string | null } | nul
 const money = (n: number, ccy: string) =>
   fmt.money(n, ccy || "EUR");
 
-const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+// Due dates are date-only: read literally by the shared formatter, never as a
+// UTC-midnight Date (the day before, west of Greenwich). "30 Jun 26".
+const fmtDate = (d: string) => formatDateShort(d).replace(/ (\d{2})(\d{2})$/, " $2");
 
 const fmtDateTime = (d: string) => {
   const t = new Date(d);

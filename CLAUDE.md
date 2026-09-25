@@ -1043,6 +1043,20 @@ network at all — that is what makes it ours rather than a proxy.
   of org without touching the QBO sync write path — see
   `app/(app)/accounting/transactions/[id]/page.tsx` (native) and
   `app/(app)/invoices/[id]/page.tsx` (QBO-mirror) for the two consumers.
+- **Board composition strip — per currency, and a click is the segment itself**
+  (2026-09-25). One strip per currency (`classifyCompositionByCurrency`); it
+  used to sum every currency into one total labelled with the largest. Clicking
+  a segment sets `cf.comp` (+ `cf.compCcy`) and filters with
+  `compositionKeyOf` — the SAME first-match rule the strip counts with. The old
+  click applied stage/response filters that ignored the rule's priority (an
+  escalated invoice with a promise is not "Committed"; an overdue disputed one
+  is not "In Collection"), so the board showed a different set than the count.
+- **Due dates on the board, Payables, AR report, both portals' escalation
+  screens, the customer statement and the bill PDF** now go through
+  `formatDateShort`. Each built `new Date(dueDate)` — UTC midnight, a day early
+  west of Greenwich — which the old guard missed because it only knew the
+  `+ "T00:00:00Z"` form. A new guard covers `new Date(<dueDate>)` and local
+  `fmtDate` helpers built on `new Date()`, with an allowlist for real timestamps.
 - **Receivable Composition** (`lib/receivable-composition.ts`): shared classifier
   splitting open AR into workable / blocked / not-yet-due groups. Powers the
   Dashboard widget and the Board's click-to-filter strip. Chart colors are

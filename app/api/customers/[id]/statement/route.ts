@@ -1,4 +1,5 @@
 import { requireOrg, bad } from "@/lib/api";
+import { formatDateShort } from "@/lib/format";
 import { db } from "@/db";
 import { customers, invoices, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -42,7 +43,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const totalBalance = open.reduce((s, i) => s + openBal(i), 0);
   const currency = open[0]?.currency || customer.currency || "EUR";
   const fmt = (n: number) => numberFormat.money(n, currency);
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  // A statement the DEBTOR receives: invoice and due dates read literally
+  // (lib/format), not as a UTC-midnight Date that only looks right because
+  // the server happens to run in UTC.
+  const fmtDate = (d: string) => formatDateShort(d);
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   const orgName = org?.displayName || org?.name || "Your Company";

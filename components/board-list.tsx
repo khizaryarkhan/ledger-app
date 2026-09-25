@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Stage, isExceptionStage, stageDotClass, stageChipClass } from "@/lib/stages";
-import { fmt, localToday } from "@/lib/format";
+import { fmt, localToday, formatDateShort } from "@/lib/format";
 import { Send, X, AlertTriangle, CalendarClock, AlertOctagon, Check, Pencil, Download, MessageSquare, FileText, Globe, StickyNote, CheckCircle2, XCircle, Clock, Mail, ChevronUp, ChevronDown, ChevronsUpDown, CornerUpLeft, ArrowDownRight, ArrowUpRight, Flag, UserCheck, Filter, Users, SlidersHorizontal, Phone, Voicemail, Zap, TrendingUp, Eye, EyeOff } from "lucide-react";
 import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/lib/next-action";
 import { useSession } from "next-auth/react";
@@ -12,7 +12,7 @@ import { exportChaseReport, exportStatement, exportAgeingChaseReport, exportComm
 import { exportStatementPdf } from "@/lib/statement-pdf";
 import { EmailComposer } from "@/components/feature";
 import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
-import { classifyComposition } from "@/lib/receivable-composition";
+import { classifyCompositionByCurrency, compositionKeyOf, COMPOSITION_CATEGORIES } from "@/lib/receivable-composition";
 import { useData } from "@/components/data-provider";
 import { ContactsPanel } from "@/components/contacts-panel";
 import { CellSelect, SelectField, Drawer, DrawerFooter, control, controlInset, controlMultiline } from "@/components/form-kit";
@@ -53,7 +53,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   orgNames?: Record<string, string>;       // orgId → branch name (group mode)
 }) {
   const { data: session } = useSession();
-  const { contacts: allContacts } = useData() as any;
+  const { contacts: allContacts, orgSettings } = useData() as any;
+  // Home currency: a row with no currency is in it (never "EUR" by assumption).
+  const homeCcy = String(orgSettings?.currency || "EUR").toUpperCase();
   const userName = (session?.user?.name as string) || "User";
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [overdueOnly, setOverdueOnly] = useState(false);
@@ -719,6 +721,8 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     const today = localToday();
     return rows.filter(r => {
       if (overdueOnly && r.days <= 0) return false;
+      if (cf.comp && compositionKeyOf(compItem(r)) !== cf.comp) return false;
+      if (cf.compCcy && (r.inv.currency || homeCcy).toUpperCase() !== cf.compCcy) return false;
       if (cf.invoice && !has(r.inv.invoiceNumber, cf.invoice)) return false;
       if (cf.customer && !has(r.custName, cf.customer)) return false;
       if (cf.project && !has(r.projName, cf.project)) return false;
@@ -774,28 +778,31 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // computed from the FULL board (not the currently filtered rows) so a
   // segment always shows what clicking it will select, unaffected by
   // whatever filter happens to be active right now.
-  const composition = useMemo(() => {
-    const items = rows.map(r => ({
-      escalationType:  r.inv.escalationType ?? null,
-      collectionStage: r.inv.collectionStage ?? null,
-      hasOpenDispute:  r.inv.hasOpenDispute,
-      promiseDate:     r.inv.promiseDate,
-      overdueDays:     r.days,
-      amount:          r.bal,
-    }));
-    return classifyComposition(items);
-  }, [rows]);
-
-  const compositionCcy = useMemo(() => {
-    const byCcy: Record<string, number> = {};
-    rows.forEach(r => { const c = r.inv.currency || "EUR"; byCcy[c] = (byCcy[c] || 0) + r.bal; });
-    return Object.entries(byCcy).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "EUR";
-  }, [rows]);
+  // Per CURRENCY. One strip summing EUR and USD balances into one total, in
+  // whichever currency was largest, is arithmetic on incompatible units — the
+  // same defect the Dashboard widget had (classifyCompositionByCurrency).
+  const compItem = (r: any) => ({
+    escalationType:  r.inv.escalationType ?? null,
+    collectionStage: r.inv.collectionStage ?? null,
+    hasOpenDispute:  r.inv.hasOpenDispute,
+    promiseDate:     r.inv.promiseDate,
+    overdueDays:     r.days,
+  });
+  const compositions = useMemo(() => classifyCompositionByCurrency(
+    rows.map(r => ({ ...compItem(r), amount: r.bal, currency: r.inv.currency ?? null })), homeCcy,
+  ), [rows]);
 
   // Clicking a composition segment replaces the working filter set with
   // exactly the filter(s) that reproduce that segment — a fresh "show me
   // this bucket" action rather than a filter merge.
-  function applyCompositionFilter(key: string) {
+  function applyCompositionFilter(key: string, currency?: string) {
+    // Exactly the segment: same classifier, same currency. See compositionKeyOf.
+    setOverdueOnly(false);
+    setCf(currency && compositions.length > 1 ? { comp: key, compCcy: currency } : { comp: key });
+  }
+  // The old stage/response approximation, kept only as documentation of what
+  // each segment MEANS in board-filter terms — it is no longer applied.
+  function _legacyCompositionFilter(key: string) {
     const next: Record<string, string> = {};
     switch (key) {
       case "legal":               next.stage = "Escalated"; next.escType = ["Legal Review", "Insolvency Risk"].join(MULTI_SEP); break;
@@ -812,9 +819,9 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       case "inCollection":        next.stage = "Escalated"; next.stageMode = "not"; break;
       case "current":             next.bucket = "current"; break;
     }
-    setOverdueOnly(key === "inCollection");
-    setCf(next);
+    return next;
   }
+  void _legacyCompositionFilter;
 
   // Persist the working view (filters + grouping + overdue) across visits.
   // Only after hydration — otherwise the initial empty state would clobber
@@ -853,6 +860,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       const vals = [...multiVals(k)];
       if (vals.length) chips.push({ key: k, label: `${prefix}: ${vals.length > 2 ? `${vals.length} selected` : vals.join(", ")}` });
     };
+    if (cf.comp) chips.push({ key: "comp", label: `Composition: ${COMPOSITION_CATEGORIES.find(c => c.key === cf.comp)?.label ?? cf.comp}${cf.compCcy ? ` (${cf.compCcy})` : ""}` });
     if (cf.invoice) chips.push({ key: "invoice", label: `Invoice ~ "${cf.invoice}"` });
     if (cf.customer) chips.push({ key: "customer", label: `Customer ~ "${cf.customer}"` });
     if (cf.project) chips.push({ key: "project", label: `Project ~ "${cf.project}"` });
@@ -888,6 +896,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       else if (key === "lastSent") { delete n.lastSent; delete n.lastSentBefore; }
       else if (key === "amount") { delete n.minAmount; delete n.maxAmount; }
       else if (key === "days") { delete n.minDays; delete n.maxDays; }
+      else if (key === "comp") { delete n.comp; delete n.compCcy; }
       else delete n[key];
       return n;
     });
@@ -1113,7 +1122,12 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
     isException(label)
       ? `rounded-full px-2 py-0.5 ${stageChip(label)}`
       : "rounded px-1.5 py-0.5 text-stone-300 border border-transparent hover:border-stone-700 hover:bg-stone-800/60";
-  const fmtSent = (d: string | null) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" }) : null;
+  // Through the shared date-safe formatter. This used new Date() on the DUE
+  // date — a date-only value — which ECMAScript reads as UTC midnight, so west
+  // of Greenwich every due date read one day early (the ACC report's exact
+  // symptom, surviving here because the guard only knew the "T00:00:00Z" form).
+  // Two-digit year kept: "30 Jun 26".
+  const fmtSent = (d: string | null) => d ? formatDateShort(d).replace(/ (\d{2})(\d{2})$/, " $2") : null;
   // Relative "Nd ago" — the actionable number for chasing; exact date on hover.
   const daysAgo = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
   const agoCls = (n: number) => n >= 14 ? "text-rose-400" : n >= 7 ? "text-amber-400" : "text-stone-400";
@@ -1619,43 +1633,47 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
       {/* Click-away for toolbar menus — below the sticky thead (z-20) */}
       {toolbarMenu && <div className="fixed inset-0 z-10" onClick={() => setToolbarMenu(null)} />}
 
-      {/* Receivable Composition — click a segment to filter the board to it */}
-      {composition.total > 0 && (
+      {/* Receivable Composition — click a segment to filter the board to it. One strip per currency. */}
+      {compositions.length > 0 && compositions[0].total > 0 && (
         <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 shrink-0">
           <button onClick={() => setCompositionOpen(v => !v)} className="w-full flex items-center gap-2 mb-1.5">
             <ChevronDown size={11} className={`text-stone-600 transition-transform ${compositionOpen ? "" : "-rotate-90"}`} />
             <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Composition</span>
             <span className="text-[11px] text-stone-600">click a segment to filter</span>
             <div className="flex-1" />
-            <span className="text-[11px] text-stone-400 tabular-nums">{fmt.money(composition.total, compositionCcy)}</span>
+            <span className="text-[11px] text-stone-400 tabular-nums">{compositions.map(c => fmt.money(c.total, c.currency)).join(" · ")}</span>
           </button>
-          {compositionOpen && (
-            <>
-              <div className="h-2.5 rounded-full overflow-hidden flex mb-1.5">
-                {composition.groups.map((g, i) => (
-                  <button key={g.key} onClick={() => applyCompositionFilter(g.key)}
-                    className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}
-                    style={{
-                      width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%`,
-                      borderLeft: i > 0 ? "2px solid var(--seg-gap)" : undefined,
-                    }}
-                    title={`${g.label} — ${fmt.money(g.amount, compositionCcy)} (${((g.amount / composition.total) * 100).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
-                  />
-                ))}
+          {compositionOpen && compositions.filter(c => c.total > 0).map(composition => {
+            const ccy = composition.currency;
+            return (
+              <div key={ccy} className="mb-1.5 last:mb-0">
+                {compositions.length > 1 && <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-500 mb-1">{ccy} · {fmt.money(composition.total, ccy)}</div>}
+                <div className="h-2.5 rounded-full overflow-hidden flex mb-1.5">
+                  {composition.groups.map((g, i) => (
+                    <button key={g.key} onClick={() => applyCompositionFilter(g.key, ccy)}
+                      className={`h-full ${g.bar} hover:opacity-80 transition-opacity`}
+                      style={{
+                        width: `${Math.max((g.amount / composition.total) * 100, 0.5)}%`,
+                        borderLeft: i > 0 ? "2px solid var(--seg-gap)" : undefined,
+                      }}
+                      title={`${g.label} — ${fmt.money(g.amount, ccy)} (${((g.amount / composition.total) * 100).toFixed(1)}%) · ${g.count} invoice${g.count !== 1 ? "s" : ""}\n${g.description}`}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {composition.groups.map(g => (
+                    <button key={g.key} onClick={() => applyCompositionFilter(g.key, ccy)} title={g.description}
+                      className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
+                      <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
+                      {g.label}
+                      <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, ccy)}</span>
+                      <span className="text-stone-600">{((g.amount / composition.total) * 100).toFixed(0)}%</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {composition.groups.map(g => (
-                  <button key={g.key} onClick={() => applyCompositionFilter(g.key)} title={g.description}
-                    className="flex items-center gap-1.5 text-[11px] text-stone-400 hover:text-white transition-colors">
-                    <span className={`w-1.5 h-1.5 rounded-full ${g.dot}`} />
-                    {g.label}
-                    <span className="font-semibold text-stone-300 tabular-nums">{fmt.money(g.amount, compositionCcy)}</span>
-                    <span className="text-stone-600">{((g.amount / composition.total) * 100).toFixed(0)}%</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+            );
+          })}
         </div>
       )}
 

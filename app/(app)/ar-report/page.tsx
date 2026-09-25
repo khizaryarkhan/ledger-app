@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateLong, formatDateShort } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
@@ -20,10 +21,10 @@ const money = (n: number, ccy?: string | null) => {
   return sym + fmt.num2(Math.abs(n));
 };
 const pct = (n: number) => n.toFixed(1) + "%";
-const fmtDate = (d: string | Date) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-const fmtShort = (d: string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+// Through the shared date-safe formatters: new Date() on a date-only value is
+// UTC midnight, the day before west of Greenwich.
+const fmtDate = (d: string | Date) => formatDateLong(d);
+const fmtShort = (d: string) => formatDateShort(d);
 
 // ── table primitives ──────────────────────────────────────────────────────────
 const TH = ({ children, right, w }: { children?: React.ReactNode; right?: boolean; w?: string | number }) => (

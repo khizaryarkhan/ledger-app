@@ -72,12 +72,10 @@ interface AvailableBill {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(d?: string) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  // Date-only values (due / bill / issue dates) go through the shared
+  // formatter: parsed as a Date they are UTC midnight, which renders the day
+  // before anywhere west of Greenwich.
+  return d ? formatDateShort(d) : "—";
 }
 
 function fmtMoney(amount: number, currency = "USD") {

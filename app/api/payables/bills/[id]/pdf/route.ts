@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { formatDateShort } from "@/lib/format";
 import { apBills, apBillLines, apSuppliers } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { eq, and } from "drizzle-orm";
@@ -42,8 +43,9 @@ function money(amount: number | null | undefined, currency: string) {
 }
 
 function fmtDate(d?: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  // A document someone receives: its dates are read literally, never as a
+  // UTC-midnight Date — correct today only because the server runs in UTC.
+  return d ? formatDateShort(d) : "—";
 }
 
 function truncate(s: string, n: number) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateShort } from "@/lib/format";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -79,8 +80,10 @@ interface ApprovalRecord {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(d?: string) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  // Date-only values (due / bill / issue dates) go through the shared
+  // formatter: parsed as a Date they are UTC midnight, which renders the day
+  // before anywhere west of Greenwich.
+  return d ? formatDateShort(d) : "—";
 }
 
 function fmtDateTime(d?: string) {

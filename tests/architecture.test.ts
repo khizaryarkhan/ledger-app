@@ -1159,3 +1159,32 @@ describe("stock is issued from lots or not at all", () => {
     expect(val).toMatch(/refuseShortfall\(item, want/);
   });
 });
+
+describe("a due date is never rendered through new Date()", () => {
+  /**
+   * The ACC off-by-one (CLAUDE.md, "A date is a date") survived in the
+   * Collections Board's Due column and in five Payables/AR screens because the
+   * existing guard only knew the `+ "T00:00:00Z"` form. These are the other two
+   * shapes it took: a due date handed straight to new Date(), and a local
+   * `fmtDate` helper built on new Date(). Proven to fail on the pre-fix files.
+   */
+  const DUE_TO_DATE = /new Date\([\w.?]*[Dd]ue[Dd]ate\w*\)\.toLocale/;
+  /** Files whose matching value is a real TIMESTAMP, not a calendar date. */
+  const TIMESTAMP_OK: Record<string, string> = {
+    "app/(app)/admin/invoices/page.tsx": "Stripe invoice dueDate is an epoch timestamp (number), not a date string",
+    "app/(app)/payables/settings/page.tsx": "fmtDate formats last-sync timestamps, with the time",
+  };
+  const FMTDATE_ON_DATE = /(function\s+fmtDate\s*\([^)]*\)\s*\{[^}]*new Date\(|const\s+fmt(Date|Short)\s*=\s*\([^)]*\)\s*=>\s*new Date\()/;
+
+  it("no screen formats a due date with new Date()", () => {
+    const offenders: string[] = [];
+    for (const f of [...sourceFiles("components"), ...sourceFiles("app")]) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      if (rel.includes("/portal/")) continue;   // the customer portal keeps its own formatters (CLAUDE.md)
+      if (TIMESTAMP_OK[rel]) continue;
+      const src = readFileSync(f, "utf8");
+      if (DUE_TO_DATE.test(src) || FMTDATE_ON_DATE.test(src)) offenders.push(rel);
+    }
+    expect(offenders, "use formatDateShort / formatDate from lib/format — they read a date-only value literally").toEqual([]);
+  });
+});

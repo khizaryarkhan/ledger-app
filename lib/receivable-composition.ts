@@ -133,6 +133,18 @@ export const COMPOSITION_CATEGORIES: CompCategory[] = [
   },
 ];
 
+/**
+ * The segment one invoice falls in — the SAME first-match rule the strip and
+ * the Dashboard count with. A filter that reproduces a segment must use this,
+ * not an approximation from stage/response filters: those ignore the rule's
+ * priority (an escalated invoice with a promise is not "Committed"; an overdue
+ * disputed one is not "In Collection"), so the board showed a different set
+ * than the segment's own count.
+ */
+export function compositionKeyOf(i: CompItem): string {
+  return COMPOSITION_CATEGORIES.find(c => c.match(i))!.key;   // "current" always matches
+}
+
 export function classifyComposition<T extends CompItem>(items: (T & { amount: number })[]) {
   const groups = COMPOSITION_CATEGORIES.map(c => ({ ...c, amount: 0, count: 0, items: [] as (T & { amount: number })[] }));
   const total = items.reduce((s, it) => s + it.amount, 0);
