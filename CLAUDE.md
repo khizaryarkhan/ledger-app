@@ -718,6 +718,13 @@ than depend on it, **we stamp the button on ourselves**:
   data have already been mistaken for each other more than once, including a
   "why did this item lose its SKUs?" investigation that turned out to be two
   different items in two different branches.
+- **A bill in the GL with no Payables row** (posted before `bridgeNativeBill`
+  existed) is invisible to Payables and aged payables. `ap_posted_unbridged` in
+  the reconcile flags it; `scripts/rebridge-bills.ts` (dry run by default)
+  mirrors it from the entry's own `sourcePayload`. Run for AM MERCHADISING on
+  2026-09-25 (BILL-0001..0003, 23,000) — every reconcile check now passes
+  there. BILL-0004 (the PO→Bill double count, GAP_REPORT §C) is still in its
+  books by design: historic errors are reported, not rewritten.
 - **Known, latent, not yet fixed**: `user_organisations.user_id`/`org_id` are
   NOT NULL in `db/schema.ts` but nullable in production. No bad data exists
   (28 rows, 0 nulls, 0 orphans), so it is a missing constraint rather than an
