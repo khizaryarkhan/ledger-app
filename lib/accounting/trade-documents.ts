@@ -68,8 +68,14 @@ async function priceLines(orgId: string, lines: { amount: number; taxRateId?: st
 
 export async function createTradeDoc(orgId: string, kind: TradeKind, input: TradeDocInput, actorId: string | null) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.issueDate)) err("A valid date is required.");
-  const raw = (input.lines ?? []).filter(l => l.accountId && round2(l.amount) !== 0);
-  if (raw.length === 0) err("Add at least one line with an account and amount.");
+  // A trade document has no ledger impact until it's converted (Estimate →
+  // Invoice, PurchaseOrder → Bill), so an item line needs no resolved account
+  // yet — only an account-only line (no item behind it) is defined purely by
+  // its account and must have one. Defense in depth: components/new-document-
+  // form.tsx enforces the same rule client-side, but a direct API call must
+  // not be able to silently drop a line the form would have kept.
+  const raw = (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0);
+  if (raw.length === 0) err("Add at least one line with an account (or a product/service) and amount.");
   if (!input.partyId && !input.partyLabel) err(kind === "PurchaseOrder" ? "Select a supplier." : "Select a customer.");
 
   // A Purchase Order commits to buying, so the sourcing decision has to exist
@@ -241,7 +247,12 @@ export async function convertTradeDoc(orgId: string, id: string, actorId: string
     memo: `From ${doc.kind === "Estimate" ? "estimate" : "purchase order"} ${doc.docNumber ?? ""}`.trim(),
     partyType: doc.partyType as any, partyId: doc.partyId, partyLabel: doc.partyLabel,
     currency: doc.currency, exchangeRate: doc.exchangeRate != null ? Number(doc.exchangeRate) : null,
-    lines: take.map(t => ({ accountId: t.line.accountId ?? undefined, description: t.line.description, amount: t.net, taxRateId: t.line.taxRateId, classId: t.line.classId ?? undefined, locationId: t.line.locationId ?? undefined })),
+    // itemId travels along even when the trade line's own accountId is empty —
+    // postDocument resolves an item's account fresh (buildSalesPurchaseLines'
+    // accountFor), so an item ordered before its accounting setup was finished
+    // still converts cleanly once that setup exists, without trade-documents.ts
+    // duplicating that resolution itself.
+    lines: take.map(t => ({ accountId: t.line.accountId ?? undefined, itemId: t.line.itemId ?? undefined, description: t.line.description, amount: t.net, taxRateId: t.line.taxRateId, classId: t.line.classId ?? undefined, locationId: t.line.locationId ?? undefined })),
   }, actorId);
 
   // Advance each line's invoiced amount.

@@ -666,9 +666,12 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           if (!used) continue;
           if (l.itemId) {
             if (!num(l.qty) || l.rate.trim() === "") { setErr("Product/service lines need a quantity and a rate."); setPosting(false); return; }
-            // The line posts to the item's default income/expense account; without
-            // one it would be silently dropped by the filter below — surface it.
-            if (!l.accountId) {
+            // Estimate/PurchaseOrder/SalesOrder have no ledger impact — nothing
+            // posts until conversion, which resolves the item's account fresh at
+            // that point (lib/accounting/trade-documents.ts). Requiring one here
+            // blocked ordering an item before its accounting setup was finished,
+            // for a document that was never going to touch that account anyway.
+            if (!cfg.trade && !l.accountId) {
               const nm = items.find(x => x.id === l.itemId)?.name || "This item";
               setErr(`${nm} has no ${cfg.side === "sales" ? "income" : "expense"} account set — add one in Products & Services before using it here.`);
               setPosting(false); return;
@@ -694,7 +697,9 @@ export function NewDocumentForm({ type }: { type: DocType }) {
       if (cfg.mode === "deposit" && sweptPaymentIds.length) payload.sweptPaymentIds = sweptPaymentIds;
       if (cfg.mode === "lineItems" || cfg.mode === "deposit") {
         payload.lines = lines
-          .filter(l => l.accountId && num(l.amount) !== 0)
+          // A trade document's item line may have no resolved account yet —
+          // it isn't dropped for that (see the validation above).
+          .filter(l => (l.accountId || (cfg.trade && l.itemId)) && num(l.amount) !== 0)
           .map(l => ({ accountId: l.accountId, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
             priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
       }
