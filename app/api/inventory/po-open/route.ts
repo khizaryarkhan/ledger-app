@@ -5,7 +5,7 @@
 
 import { roundQty, QTY_EPSILON} from "@/lib/inventory/round";
 import { db } from "@/db";
-import { tradeDocuments, tradeDocumentLines, apItems } from "@/db/schema";
+import { tradeDocuments, tradeDocumentLines, apItems, itemSkus } from "@/db/schema";
 import { requireOrg, ok } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, asc, inArray } from "drizzle-orm";
@@ -33,14 +33,22 @@ export async function GET(req: Request) {
   const items = itemIds.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom, productType: apItems.productType }).from(apItems).where(and(eq(apItems.orgId, orgId!), inArray(apItems.id, itemIds))) : [];
   const itemById = new Map(items.map(i => [i.id, i]));
 
+  // SKU display — the card grid names what's actually being received (a
+  // supplier may quote several packs of the same item), not just the item.
+  const skuIds = [...new Set(lines.map(l => l.skuId).filter(Boolean) as string[])];
+  const skus = skuIds.length ? await db.select({ id: itemSkus.id, skuName: itemSkus.skuName, skuCode: itemSkus.skuCode }).from(itemSkus).where(inArray(itemSkus.id, skuIds)) : [];
+  const skuById = new Map(skus.map(s => [s.id, s]));
+
   const result = wanted.map(po => {
     const poLines = lines.filter(l => l.documentId === po.id && l.itemId).map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
       const received = num(l.receivedQty);
       const remaining = roundQty(ordered - received);
       const it = l.itemId ? itemById.get(l.itemId) : null;
+      const sku = l.skuId ? skuById.get(l.skuId) : null;
       return {
         lineId: l.id, itemId: l.itemId, skuId: l.skuId ?? null, itemName: it?.name ?? "Item", baseUom: it?.baseUom ?? null,
+        skuLabel: sku?.skuName || sku?.skuCode || null,
         orderUom: l.orderUom, packLevel: l.packLevel, unitsPerOrderUnit: num(l.unitsPerOrderUnit || 1),
         rate: num(l.rate), orderedBaseQty: ordered, receivedQty: received, remainingQty: remaining,
         unitCostBase: num(l.unitsPerOrderUnit || 1) > 0 ? Math.round((num(l.rate) / num(l.unitsPerOrderUnit || 1)) * 1e6) / 1e6 : num(l.rate),
