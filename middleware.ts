@@ -1,5 +1,6 @@
 import { auth } from "@/auth.config";
 import { NextResponse } from "next/server";
+import { APP_PATH_HEADER } from "@/lib/modules";
 
 export default auth((req) => {
   const isAuth = !!req.auth;
@@ -147,13 +148,23 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/login", req.nextUrl));
   }
 
+  // Every authenticated request carries its real path to the route handler, so
+  // requireOrg() can refuse an API route whose module the org doesn't have
+  // (lib/modules.ts API_OWNERS). Always SET, never passed through: a value the
+  // client sent is overwritten here, so it can't be used to dodge the check.
+  const pass = () => {
+    const headers = new Headers(req.headers);
+    headers.set(APP_PATH_HEADER, path);
+    return NextResponse.next({ request: { headers } });
+  };
+
   // Admin panel — platform_admin and super_admin only
   if (isAdmin) {
     if (role !== "platform_admin" && role !== "super_admin") {
       if (isApi) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
     }
-    return NextResponse.next();
+    return pass();
   }
 
   // Rep users can only access /rep-portal and /api routes
@@ -161,7 +172,7 @@ export default auth((req) => {
     if (!isRepPortal && !isApi) {
       return NextResponse.redirect(new URL("/rep-portal", req.nextUrl));
     }
-    return NextResponse.next();
+    return pass();
   }
 
   // Non-rep admin/users cannot access rep portal
@@ -171,7 +182,7 @@ export default auth((req) => {
 
   // "/" is the public landing page — let it render even for logged-in users.
   // They can click "Open dashboard" from there.
-  return NextResponse.next();
+  return pass();
 });
 
 export const config = {

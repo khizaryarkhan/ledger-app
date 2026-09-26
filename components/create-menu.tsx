@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus, ChevronDown } from "lucide-react";
+import { useData } from "@/components/data-provider";
+import { hasModule } from "@/lib/modules";
 
 // QBO-style "+ Create" launcher. Each form posts to the ledger tagged with its
 // transaction type (journal_entries.source_type). Items with an href are live;
@@ -68,13 +70,21 @@ const SUPPLY_CHAIN_GROUPS: Groups = [
 
 export function CreateMenu() {
   const pathname = usePathname();
-  const GROUPS: Groups = pathname.startsWith("/supply-chain") ? SUPPLY_CHAIN_GROUPS : ACCOUNTING_GROUPS;
+  const { orgSettings } = useData();
+  // Each set of forms belongs to a module; with that module off there is
+  // nothing to create here, so the button goes rather than opening onto
+  // forms the org can't use (the pages are blocked by ModuleGate anyway).
+  const GROUPS: Groups | null = pathname.startsWith("/supply-chain")
+    ? (hasModule(orgSettings.enabledModules, "manufacturing") ? SUPPLY_CHAIN_GROUPS : null)
+    : (hasModule(orgSettings.enabledModules, "accounting") ? ACCOUNTING_GROUPS : null);
 
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<any>(null);
   const openNow = () => { if (closeTimer.current) clearTimeout(closeTimer.current); setOpen(true); };
   const closeSoon = () => { closeTimer.current = setTimeout(() => setOpen(false), 180); };
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
+  if (!GROUPS) return null;
 
   return (
     <div className="relative" onMouseEnter={openNow} onMouseLeave={closeSoon}>

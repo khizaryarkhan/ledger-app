@@ -15,6 +15,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { SyncButton } from "@/components/sync-button";
 import { Toast } from "@/components/ui";
 import { SubscriptionGate } from "@/components/subscription-gate";
+import { ModuleGate } from "@/components/module-gate";
 
 function ThemeToggle() {
   const { resolved, setPref } = useTheme();
@@ -112,7 +113,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <SubscriptionGate>{children}</SubscriptionGate>
+          <SubscriptionGate><ModuleGate>{children}</ModuleGate></SubscriptionGate>
         </main>
       </div>
 

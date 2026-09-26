@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { userOrganisations, reps, users, organisations, orgGroupUsers } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { bearerTokenFrom, verifyMobileToken, type MobileAccessClaims } from "@/lib/mobile-auth";
+import { APP_PATH_HEADER, MODULES, hasModule, moduleForApi } from "@/lib/modules";
 
 // Resolves the caller's session: the web app's NextAuth cookie session, or —
 // when there is none — a mobile bearer token from the Authorization header.
@@ -146,6 +147,22 @@ export async function requireOrg() {
 
   // STEP 4: Final role — super_admin always wins; otherwise per-org role from junction
   const role = isSuperAdmin ? "super_admin" : (orgRole || userRow.role);
+
+  // STEP 4b: the route must belong to a module this org has. One check here
+  // covers every route (lib/modules.ts API_OWNERS), rather than each handler
+  // remembering to name its module. Only owned routes pay for the lookup.
+  // super_admin is not exempt: an org's modules decide what the org can do,
+  // not what the viewer is allowed to see.
+  let appPath: string | null = null;
+  try { appPath = headers().get(APP_PATH_HEADER); } catch { /* not in a request context */ }
+  const owner = appPath ? moduleForApi(appPath) : null;
+  if (owner) {
+    const [org] = await db.select({ enabledModules: organisations.enabledModules })
+      .from(organisations).where(eq(organisations.id, orgId)).limit(1);
+    if (!hasModule(org?.enabledModules, owner)) {
+      return { error: NextResponse.json({ error: `${MODULES[owner].label} is not enabled for this organisation.` }, { status: 403 }), session: null, orgId: null, role: null, repId: null };
+    }
+  }
 
   // STEP 5: repId only valid if the rep belongs to the active org
   let repId: string | null = null;

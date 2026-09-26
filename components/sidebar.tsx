@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
+import { hasModule, type ModuleKey } from "@/lib/modules";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -94,7 +95,23 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   useEffect(() => {
     if (pathDepartment) { setLastDept(pathDepartment); try { localStorage.setItem("pa:lastDept", pathDepartment); } catch {} }
   }, [pathDepartment]);
-  const department: Department = pathDepartment ?? lastDept;
+  // Every workspace is gated by the org's modules (lib/modules.ts), the core
+  // four included — they used to be drawn unconditionally, so unticking one in
+  // the admin portal changed nothing.
+  const on = (k: ModuleKey) => hasModule(orgSettings?.enabledModules, k);
+  const deptVisible: Record<Department, boolean> = {
+    ar: on("receivables"), ap: on("payables"), accounting: on("accounting"), batch: on("studio"),
+    supplychain: on("manufacturing"), resources: on("resources"),
+    // Reporting is gated by the separate reporting_enabled flag, which only
+    // ever hid the switcher entry — left exactly as it was (see CLAUDE.md).
+    reporting: true,
+  };
+  // A module the org doesn't have never supplies the nav — not from the URL
+  // (the page itself shows ModuleGate's notice) and not from a remembered
+  // lastDept. Fall back to the first workspace the org does have.
+  const wanted: Department = pathDepartment ?? lastDept;
+  const department: Department = deptVisible[wanted] ? wanted
+    : (["ar", "ap", "supplychain", "accounting", "resources", "reporting", "batch"] as Department[]).find(d => deptVisible[d]) ?? wanted;
 
   const [wsOpen, setWsOpen] = useState(false);
 
@@ -222,8 +239,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     },
   ];
 
-  const manufacturingEnabled = Array.isArray(orgSettings?.enabledModules) && orgSettings.enabledModules.includes("manufacturing");
-  const resourcesEnabled = Array.isArray(orgSettings?.enabledModules) && orgSettings.enabledModules.includes("resources");
+  const manufacturingEnabled = on("manufacturing");
+  const resourcesEnabled = on("resources");
 
   // Phase 1a module IA restructure (see CLAUDE.md "Module information
   // architecture" section): Accounting's old "Master Data" group mixed the
@@ -422,15 +439,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // Workspace switcher entries — literal Tailwind classes (never build at runtime).
   const reportingEnabled = !!orgSettings?.reportingEnabled;
   const WORKSPACES = [
-    { key: "ar",         label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard",          active: "bg-emerald-500/20 text-emerald-400", dot: "bg-emerald-400" },
-    { key: "ap",         label: "Payables",    Icon: Package,        href: "/payables/dashboard", active: "bg-violet-500/20 text-violet-400",   dot: "bg-violet-400" },
+    ...(on("receivables") ? [{ key: "ar", label: "Receivables", Icon: ArrowLeftRight, href: "/dashboard", active: "bg-emerald-500/20 text-emerald-400", dot: "bg-emerald-400" }] : []),
+    ...(on("payables") ? [{ key: "ap", label: "Payables", Icon: Package, href: "/payables/dashboard", active: "bg-violet-500/20 text-violet-400", dot: "bg-violet-400" }] : []),
     ...(manufacturingEnabled ? [{ key: "supplychain", label: "Supply Chain", Icon: Workflow, href: "/supply-chain/dashboard", active: "bg-orange-500/20 text-orange-400", dot: "bg-orange-400" }] : []),
-    { key: "accounting", label: "Accounting",  Icon: BookOpen,       href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400",       dot: "bg-teal-400" },
+    ...(on("accounting") ? [{ key: "accounting", label: "Accounting", Icon: BookOpen, href: "/accounting/dashboard", active: "bg-teal-500/20 text-teal-400", dot: "bg-teal-400" }] : []),
     ...(resourcesEnabled ? [{ key: "resources", label: "Resources", Icon: CalendarClock, href: "/resources/board", active: "bg-pink-500/20 text-pink-400", dot: "bg-pink-400" }] : []),
     ...(reportingEnabled ? [{ key: "reporting", label: "Reporting", Icon: BarChart3, href: "/reporting", active: "bg-blue-500/20 text-blue-400", dot: "bg-blue-400" }] : []),
-    { key: "batch",      label: "Studio",      Icon: Layers,         href: "/batch",              active: "bg-amber-500/20 text-amber-400",     dot: "bg-amber-400" },
+    ...(on("studio") ? [{ key: "batch", label: "Studio", Icon: Layers, href: "/batch", active: "bg-amber-500/20 text-amber-400", dot: "bg-amber-400" }] : []),
   ];
-  const currentWs = WORKSPACES.find(w => w.key === department) ?? WORKSPACES[0];
+  const currentWs = WORKSPACES.find(w => w.key === department) ?? WORKSPACES[0]
+    ?? { key: "none", label: "No modules", Icon: Shield, href: "/settings", active: "bg-stone-800 text-stone-400", dot: "bg-stone-500" };
 
   const userName = session?.user?.name || "User";
   const initials = userName.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();

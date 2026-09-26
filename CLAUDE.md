@@ -382,6 +382,35 @@ into, not a preference.
   every org uses regardless of vertical) — this is defense in depth, not just
   hiding a nav link, so a non-manufacturing org gets a real 403 hitting the
   route directly.
+- **The core four are gated too (2026-09-26).** Until then only manufacturing
+  and resources were honoured: Receivables/Payables/Accounting/Studio were drawn
+  unconditionally and no route checked them, so unticking one in the admin
+  portal did nothing (reported on Foodready.ai: Accounting + Studio showing with
+  only Receivables + Payables ticked). Now **`PAGE_OWNERS` / `API_OWNERS` in
+  `lib/modules.ts` are the single answer to "which module owns this URL?"**,
+  read by three places that therefore cannot disagree: the sidebar switcher
+  (and its fallback when `lastDept` names a module the org lacks), the page
+  guard `components/module-gate.tsx` (wraps every page in the app shell), and
+  **`requireOrg()`**, which refuses an owned API route with a 403 — one choke
+  point instead of a `requireModule` call per route. It learns the path from the
+  `x-app-path` header that `middleware.ts` SETS on every authenticated request
+  (overwriting any client value, so it can't be spoofed to dodge the check).
+  - **Gate only what one module owns outright.** Much of the app is borrowed
+    across modules — Customers/Suppliers/Projects, `/accounting/products`, tax
+    rates, currencies, PO/SO screens, the reports hub, the document page
+    `/accounting/transactions/[id]` (+ `/api/ledger/journal/[id]`), document
+    posting, `/api/batch/jobs` (Receivables' bulk invoice send runs on it), and
+    everything the app-wide data provider loads. Those are `owner: null`
+    carve-outs, listed ABOVE the prefix they carve from (first match wins).
+    Gating `/accounting/*` by prefix would break Supply Chain.
+  - The Create menu hides itself when its module (Accounting, or Supply Chain on
+    `/supply-chain`) is off. `reporting_enabled` is untouched.
+  - `tests/module-gating.test.ts` pins the carve-outs, their ordering, that every
+    rule names a path that exists (a typo gates nothing), and that the header is
+    both stamped and read — each proven to fail on the real defect.
+  - Production at the time: ACC, EDC and EDC London had Accounting unticked
+    deliberately (`billing_audit_logs`, `organisation_modules_updated`) and zero
+    native journal entries, so enforcing it removed nothing in use.
 - **Keep the two files separate.** `lib/modules-server.ts` imports `db` —
   importing that from a client component would bundle server code into the
   client. Anything a client component needs (the admin modules card, the
