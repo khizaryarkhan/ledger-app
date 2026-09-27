@@ -700,7 +700,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           // A trade document's item line may have no resolved account yet —
           // it isn't dropped for that (see the validation above).
           .filter(l => (l.accountId || (cfg.trade && l.itemId)) && num(l.amount) !== 0)
-          .map(l => ({ accountId: l.accountId, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
+          .map(l => ({ accountId: l.accountId || null, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
             priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
       }
 

@@ -121,7 +121,13 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
       const orderedBase = roundQty((Number(l.qty) || 0) * upo);
       return {
         orgId, documentId: doc.id, lineNo: i + 1,
-        accountId: l.accountId ?? null, itemId: l.itemId ?? null, description: l.description ?? null,
+        // `|| null`, not `?? null`: the form used to guarantee accountId was
+        // non-empty here, so it was always sent as either a real uuid or
+        // omitted entirely. Now that an item line may reach this insert with
+        // no resolved account, the client sends the empty string its inputs
+        // default to — `?? null` leaves that as "", and Postgres refuses ""
+        // for a uuid column ("invalid input syntax for type uuid: ''").
+        accountId: l.accountId || null, itemId: l.itemId ?? null, description: l.description ?? null,
         qty: l.qty != null ? String(l.qty) : null, rate: l.rate != null ? String(l.rate) : null,
         amount: priced[i].net.toFixed(2), taxRateId: l.taxRateId ?? null, taxAmount: priced[i].tax.toFixed(2),
         orderUom: l.orderUom ?? null, packLevel: l.packLevel ?? null,
