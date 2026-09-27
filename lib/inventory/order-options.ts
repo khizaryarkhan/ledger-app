@@ -166,3 +166,68 @@ export function ratePerOrderUnit(price: number, unitsPerOrderUnit: number, units
   if (!(unitsPerPriceUnit > 0) || !(unitsPerOrderUnit > 0)) return price;
   return price * unitsPerOrderUnit / unitsPerPriceUnit;
 }
+
+/**
+ * The units a production operator may count a LOT's consumption in — base UoM
+ * plus the packs that lot physically arrived in.
+ *
+ * Scoped to the lot's own supplier, for the same reason `orderOptions` scopes
+ * a PO line: one vendor's "bag" may be 25 kg and another's 20 kg, and the
+ * wrong factor lands as a wrong quantity consumed. A lot with no supplier on
+ * record (opening stock, production output) falls back to every link's packs
+ * — each label carries its size, so they stay distinguishable. Our own item
+ * SKUs (packaging, semi-finished packs) are offered too, narrowed to the lot's
+ * SKU when it has one. Whatever is picked, the quantity sent to the server is
+ * `entered × unitsPerOrderUnit` in base units.
+ */
+export function consumptionUnits(
+  baseUom: string | null,
+  lot: { supplierId?: string | null; skuId?: string | null },
+  supplierSkus: any[],
+  itemSkus: any[],
+): OrderOption[] {
+  const links = supplierSkus || [];
+  const fromSupplier: OrderOption[] = lot.supplierId
+    ? orderOptions(baseUom, links, lot.supplierId)
+    : [...new Set(links.map(l => l.supplierId))].flatMap(sid => orderOptions(baseUom, links, sid).slice(1));
+  const skus = (itemSkus || []).filter(s => !lot.skuId || s.id === lot.skuId);
+  const fromSkus = salesOrderOptions(baseUom, skus).slice(1);
+  const out: OrderOption[] = [];
+  const seen = new Set<string>();
+  for (const o of [baseOption(baseUom), ...fromSupplier, ...fromSkus]) {
+    const k = `${o.label}|${o.unitsPerOrderUnit}`;
+    if (seen.has(k) || !(o.unitsPerOrderUnit > 0)) continue;
+    seen.add(k);
+    out.push({ ...o, unitPrice: null, currency: null });
+  }
+  return out;
+}
+
+/**
+ * The units a production run's OUTPUT may be counted in, each expressed as
+ * how many of the order's PACKS one of it holds.
+ *
+ * An MO output is counted in packs (`mo_outputs.qty`), a pack holding
+ * `unitContent` base units — the BOM's own figure, so it is the anchor rather
+ * than the SKU's `innerUnitPackSize`, which may not have been filled in. The
+ * SKU's higher levels are counts of the level below (additional inner = N
+ * packs; outer = N additional-inner packs, or N packs when there is none),
+ * which is the same nesting `salesOrderOptions` reads. The base unit is always
+ * offered, so a run measured in litres off a tank can be entered as litres.
+ */
+export function outputCaptureUnits(
+  baseUom: string | null,
+  out: { skuId?: string | null; skuName?: string | null; unitContent?: number | null },
+  sku?: { innerPackType?: string | null; unitsInAddlInnerPack?: any; addlInnerPackType?: string | null; unitsInOuterPack?: any; outerPackType?: string | null } | null,
+): { label: string; perPack: number }[] {
+  const content = Number(out.unitContent) || 0;
+  if (!out.skuId || !(content > 0)) return [{ label: `${baseUom || "unit"} — base`, perPack: 1 }];
+  const packName = sku?.innerPackType || out.skuName || "pack";
+  const units = [{ label: `${packName} (${content} ${baseUom || ""})`.replace(" )", ")"), perPack: 1 }];
+  const addl = Number(sku?.unitsInAddlInnerPack) || 0;
+  if (addl > 0) units.push({ label: `${sku?.addlInnerPackType || "pack"} (${addl} × ${packName})`, perPack: addl });
+  const outer = Number(sku?.unitsInOuterPack) || 0;
+  if (outer > 0) units.push({ label: `${sku?.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (sku?.addlInnerPackType || "pack") : packName})`, perPack: outer * (addl > 0 ? addl : 1) });
+  units.push({ label: `${baseUom || "unit"} — base`, perPack: 1 / content });
+  return units;
+}

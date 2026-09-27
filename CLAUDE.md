@@ -1375,6 +1375,31 @@ The product owner's lifecycle, and now the only one:
 - The work-in-progress account is not used while an MO is open — the allocated
   stock stays in its raw-material account until completion, which keeps total
   stock right at any month-end.
+- **An order reads as Input / Output tabs** (2026-09-27, both the guided
+  Process MO drawer and the row-click detail drawer — shared `MoTabs` /
+  `InputPanel` / `OutputPanel` in `components/mo-console.tsx`, so they can't
+  drift). Input = one card per material (expected qty); a card opens its lots
+  as cards (available, planned = FEFO share, actual). **Actual is counted in
+  any unit the lot came in** — `consumptionUnits` (`lib/inventory/order-options.ts`)
+  offers base UoM + the lot's OWN supplier's packs (scoped like `orderOptions`:
+  another vendor's "bag" is a different size) + our item-SKU packs, and the
+  client sends `entered × perUnit` in BASE units, so the server and
+  `lot_allocations` never see a pack unit. Lots show read-only before In Progress.
+  **Output is the same shape**: a card per output pack (expected / actual);
+  opening one captures what was ACTUALLY produced, in the pack, the SKU's
+  higher levels (shrink, carton) or the base unit — `outputCaptureUnits`,
+  anchored on the MO's own `unit_content` (not the SKU's `innerUnitPackSize`,
+  which may be blank), so everything converts to PACKS. The capture is drawer
+  state only: it pre-fills Complete production's "good packs" and posts
+  nothing itself; a posted run clears it.
+  **Lot selection has two saves**, because an order is often completed over
+  several runs: *Save for later* only reserves (allocation, nothing posts);
+  *Save & complete a run* saves, then opens completion preset to consume
+  EXACTLY what is allocated (not the server's pro-rata partial default) —
+  the order stays In Progress unless every output is done. `runBlocker` says
+  which material still has no lots instead of opening a drawer that can only
+  fail. Both drawers set the order and its allocations in one state update,
+  so the run never opens on pre-save allocations.
 
 ### Stock is issued from lots or not at all (2026-09-25)
 
