@@ -9,14 +9,12 @@
  */
 
 import { completeMoRun } from "@/lib/inventory/mo-completion";
-import { finishMoCompletion } from "@/lib/inventory/manufacturing-orders";
 import { db } from "@/db";
-import { pendingApprovals, manufacturingOrders } from "@/db/schema";
+import { pendingApprovals } from "@/db/schema";
 import { requireOrg, ok, bad, requireRole } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { LedgerValidationError } from "@/lib/ledger";
 import { dispatchToJobWorker } from "@/lib/inventory/jobwork";
-import { buildProduction, buildProductionMulti } from "@/lib/inventory/production";
 import { postGoodsReceipt } from "@/lib/inventory/receiving";
 import { postShipment } from "@/lib/inventory/shipping";
 
@@ -39,14 +37,6 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     const opts = { skipApprovalCheck: true } as const;
     switch (pending.entityType) {
       case "jobwork_dispatch": result = await dispatchToJobWorker(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;
-      case "production_build": result = await buildProduction(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;
-      case "production_build_multi": {
-        const payload = pending.payloadJson as any;
-        result = await buildProductionMulti(orgId!, payload, pending.requestedBy, opts);
-        // Same finish as completeMO: mark it built and drop its allocations.
-        if (payload?.moId) await finishMoCompletion(orgId!, payload.moId, result.id);
-        break;
-      }
       case "mo_completion": {
         const payload = pending.payloadJson as any;
         result = await completeMoRun(orgId!, payload.moId, payload, pending.requestedBy, opts);

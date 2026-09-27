@@ -61,9 +61,16 @@ independently: `canPostInventoryTxn()` for floor transactions,
 
 ## Scope
 
-**Operations — Receiving, Production, Shipping.** The three inventory
-workflows that make sense on a phone (scan/select a document, enter
-quantities, submit).
+**Operations — Receiving, Shipping.** The inventory workflows that make sense
+on a phone (scan/select a document, enter quantities, submit).
+
+**Production was removed (2026-09-27)**, along with its web equivalent
+("Build", an ad-hoc production run against a BOM with no scheduling or
+allocation) — both duplicated what a Manufacturing Order already does
+properly, and only the ad-hoc version existed here; this app never had MO
+support at all. Scheduling a Manufacturing Order needs lot allocation and a
+status board, so it stays desktop-only until mobile gets a real (not
+ad-hoc) production workflow of its own.
 
 **Receivables — the whole rep portal.** Overview (total AR, overdue,
 aging), the invoice list with server-side filters and search, invoice

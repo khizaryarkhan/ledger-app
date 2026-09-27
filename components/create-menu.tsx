@@ -57,7 +57,6 @@ const SUPPLY_CHAIN_GROUPS: Groups = [
   { title: "Manufacturing", items: [
     { label: "Bill of Materials", href: "/supply-chain/bom?new=1" },
     { label: "Production Order", href: "/supply-chain?new=1" },
-    { label: "Build", href: "/supply-chain/build?new=1" },
   ] },
   { title: "Fulfilment", items: [
     { label: "Sales order", href: "/accounting/new/SalesOrder" },

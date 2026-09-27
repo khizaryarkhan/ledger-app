@@ -371,7 +371,7 @@ describe("stock placement is only ever written through one choke point", () => {
       "lib/inventory/valuation.ts",
       "lib/inventory/receiving.ts",
       "lib/inventory/shipping.ts",
-      "lib/inventory/production.ts",
+      "lib/inventory/mo-completion.ts",
       "lib/inventory/jobwork.ts",
       "lib/inventory/transfers.ts",
       "lib/accounting/documents.ts",
@@ -1058,7 +1058,7 @@ describe("inventory postings resolve ROLES, never an account by guesswork", () =
     "lib/accounting/documents.ts",
     "lib/inventory/receiving.ts",
     "lib/inventory/shipping.ts",
-    "lib/inventory/production.ts",
+    "lib/inventory/mo-completion.ts",
     "lib/inventory/jobwork.ts",
     "lib/inventory/transfers.ts",
   ];

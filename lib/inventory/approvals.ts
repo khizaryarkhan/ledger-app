@@ -2,26 +2,28 @@
  * Maker-checker: should this posting be staged for a second, different
  * user's approval instead of posting immediately? Job Work dispatch is
  * gated unconditionally (material leaves custody with no offsetting
- * document in hand — the highest-risk step); Production/Goods Receipt/
- * Shipment are gated above an org-configurable value threshold. Checked by
- * each posting function (lib/inventory/jobwork.ts, production.ts,
- * receiving.ts, shipping.ts) BEFORE any write — if gated, the caller stages
- * the request via stagePendingApproval and returns `{ pending: true, id }`
- * instead of posting.
+ * document in hand — the highest-risk step); Manufacturing Order
+ * completion/Goods Receipt/Shipment are gated above an org-configurable
+ * value threshold. Checked by each posting function (lib/inventory/
+ * jobwork.ts, mo-completion.ts, receiving.ts, shipping.ts) BEFORE any
+ * write — if gated, the caller stages the request via stagePendingApproval
+ * and returns `{ pending: true, id }` instead of posting.
  */
 
 import { db } from "@/db";
 import { approvalThresholds, pendingApprovals } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 
-// "production_build_multi" (Manufacturing Order multi-output builds) has no
-// threshold row of its own — it shares "production_build"'s configured
-// threshold (checked via requiresApproval) but is stored under its own
-// entityType so the approval route knows to re-invoke buildProductionMulti
-// (not buildProduction) and, if the build came from an MO, finalize that MO.
-// "mo_completion" (0099) likewise shares production_build's threshold; approving re-runs
-// completeMoRun with the recorded input.
-export type ApprovalEntityType = "jobwork_dispatch" | "production_build" | "production_build_multi" | "mo_completion" | "goods_receipt" | "shipment";
+// "production_build" is the configured THRESHOLD an admin sets (Settings →
+// Approvals) for producing stock — kept under this name rather than renamed
+// to "mo_completion" because it predates Manufacturing Orders and an org's
+// existing threshold amount must survive the rename unchanged. "mo_completion"
+// is the entity type an actual completion is STAGED under (checked against
+// production_build's threshold via requiresApproval, above); approving one
+// re-runs completeMoRun with the recorded input. The two names describe the
+// same control from two sides — the limit, and the thing being limited — not
+// two features.
+export type ApprovalEntityType = "jobwork_dispatch" | "production_build" | "mo_completion" | "goods_receipt" | "shipment";
 
 export async function requiresApproval(orgId: string, entityType: ApprovalEntityType, amount: number): Promise<boolean> {
   const [row] = await db.select().from(approvalThresholds)

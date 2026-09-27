@@ -1,7 +1,7 @@
 import type { NavigatorScreenParams, CompositeScreenProps } from "@react-navigation/native";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { OpenPo, OpenSo, BomSummary } from "../api/types";
+import type { OpenPo, OpenSo } from "../api/types";
 
 /**
  * The four bottom tabs — the app's permanent furniture. Everything else is a
@@ -26,12 +26,10 @@ export type RootStackParamList = {
   ReceivablesEscalations: undefined;
   ReceivablesCustomers: undefined;
 
-  // Operations (warehouse & production)
+  // Operations (warehouse)
   ReceivingList: undefined;
   ReceivingDetail: { po: OpenPo };
   ReceivingAdHoc: undefined;
-  ProductionList: undefined;
-  ProductionDetail: { bom: BomSummary };
   ShippingList: undefined;
   ShippingDetail: { so: OpenSo };
 };

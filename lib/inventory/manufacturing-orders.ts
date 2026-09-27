@@ -13,8 +13,8 @@
  * Multi-output: an MO carries a quantity PER output pack (mo_outputs). Material
  * planning derives the total base FP from the packs (× each pack's base content
  * on the BOM), scales the shared ingredients to it, and computes packaging per
- * pack — all vs on-hand. Completing runs buildProductionMulti (posts the GL &
- * moves stock, allocating cost per pack).
+ * pack — all vs on-hand. Completing runs completeMoRun (lib/inventory/
+ * mo-completion.ts — posts the GL & moves stock, allocating cost per pack).
  */
 
 import { roundQty } from "@/lib/inventory/round";

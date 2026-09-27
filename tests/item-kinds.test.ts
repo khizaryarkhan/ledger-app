@@ -20,9 +20,9 @@ const KINDS = Object.values(ITEM_KINDS);
 
 describe("the taxonomy is internally coherent", () => {
   it("only stock can be produced or consumed", () => {
-    // lib/inventory/production.ts creates a lot for the output and relieves
-    // lots for the inputs. An untracked kind has no lots, so a build would
-    // have nothing to write.
+    // lib/inventory/mo-completion.ts creates a lot for the output and relieves
+    // lots for the inputs. An untracked kind has no lots, so completing a
+    // Manufacturing Order for it would have nothing to write.
     for (const m of KINDS) {
       if (m.producible) expect(m.tracked, `${m.kind} is producible but not tracked`).toBe(true);
       if (m.consumable) expect(m.tracked, `${m.kind} is consumable but not tracked`).toBe(true);

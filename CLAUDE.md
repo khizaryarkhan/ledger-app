@@ -235,8 +235,8 @@ exactly the anti-pattern this rule exists to prevent.)
 
 - **Supply Chain** (renamed from "Production" — same orange accent, same
   `manufacturing` module gate; UI-layer rename only, internal identifiers
-  (`production_runs`, `/api/inventory/production`, `lib/inventory/production.ts`,
-  the `BUILD-` numbering series) are untouched) — four sections:
+  (`production_runs`, `/api/inventory/production`, the `BUILD-` numbering
+  series) are untouched) — four sections:
   - **Purchasing**: Purchase Orders (`/accounting/trade/purchase-orders` — shared
     with Accounting, not moved), Goods Receipts (`/supply-chain/receiving`),
     Purchasing Reports (links to the shared `/accounting/reports` hub — there's
@@ -244,8 +244,11 @@ exactly the anti-pattern this rule exists to prevent.)
   - **Manufacturing**: Production Schedule and Production Orders BOTH point at
     `/supply-chain` on purpose, not a bug — `components/mo-console.tsx` already
     IS the combined schedule/orders board, there's no separate screen for one
-    without the other. Build (`/supply-chain/build`), Bill of Materials
-    (`/supply-chain/bom`).
+    without the other. Bill of Materials (`/supply-chain/bom`). "Build" — an
+    ad-hoc production run against a BOM with no scheduling or allocation — was
+    a separate, second entry here until it was removed (2026-09-27, see the
+    "Build was removed" section below); a Manufacturing Order is now the only
+    way to produce stock.
   - **Fulfilment**: Sales Orders (`/accounting/trade/sales-orders` — shared,
     not moved), Shipments (`/supply-chain/shipping`), Fulfilment Reports (same
     shared reports hub as Purchasing Reports).
@@ -1127,12 +1130,15 @@ network at all — that is what makes it ours rather than a proxy.
     Credit notes / vendor credits (returns) don't move stock yet — known TODO.
     The form now carries `itemId` (+ lot no/expiry on purchase lines) to posting.
   - **BOM** (`boms`/`bom_lines`, `/api/inventory/boms*`, `components/bom-register.tsx`,
-    `/accounting/bom`): recipe of output←input items. **Production build**
-    (`lib/inventory/production.ts`, `/api/inventory/production`,
-    `components/production-console.tsx`, `/production/build`) consumes picked
-    input lots and produces an output lot at the summed cost — Dr output Inventory
-    / Cr each input Inventory, no P&L. `production_runs`/`production_consumptions`
-    record it. "Production" is a numbered DocType (BUILD- series).
+    `/accounting/bom`): recipe of output←input items. Producing stock against a
+    BOM is done through a **Manufacturing Order** (see the dedicated section
+    below) — `lib/inventory/mo-completion.ts`'s `completeMoRun` consumes the
+    lots allocated to the order and produces an output lot at the summed cost,
+    into the same `production_runs`/`production_consumptions`/
+    `production_outputs` tables and the same "Production" `BUILD-` numbered
+    series a standalone "Build" console used to write to directly (removed
+    2026-09-27 — see below); the tables and series predate the MO and are
+    unchanged by its removal.
   - **Procure-to-pay (three-way match):** PO (`trade_documents`, non-accounting)
     → **Goods Receipt** (`goods_receipts`/`_lines`, `lib/inventory/receiving.ts`
     `postGoodsReceipt`: Dr Inventory / Cr **GR/IR** clearing + FIFO lot, lot #
@@ -1383,8 +1389,9 @@ FIFO). Guarded in `tests/architecture.test.ts`.
 
 ### MOs on BOMs without output packs; BOM line units (2026-09-25)
 
-- **A BOM with no output packs** (the Quick-Build shape — all of AM's) can now
-  be planned as an MO: it produces the item's BASE unit, stored as an MO output
+- **A BOM with no output packs** (all of AM's — the shape the standalone
+  "Build" console produced before its removal, see below) can now be planned
+  as an MO: it produces the item's BASE unit, stored as an MO output
   with a null SKU and unit content 1. `mo-completion.ts` keys outputs with
   `K(skuId)` ("" for base) and writes null back; void handles it too.
 - **BOM line units are converted when the line is saved**
@@ -1393,6 +1400,50 @@ FIFO). Guarded in `tests/architecture.test.ts`.
   that can't be converted (litres of a kg item) is refused. Every consumer reads
   base units, so this closes the "2 cones read as 2 kg" gap. No existing line in
   production used a non-base unit.
+
+### "Build" was removed — a Manufacturing Order is the only way to produce stock (2026-09-27)
+
+Product owner's call: an ad-hoc production run against a BOM (`/supply-chain/build`,
+`components/production-console.tsx`, `lib/inventory/production.ts`'s
+`buildProduction`/`buildProductionMulti`) sat alongside the Manufacturing Order
+lifecycle as a second, lighter way to produce stock — no schedule, no lot
+allocation, no labour/overhead, post immediately. Kept for the same reason a
+small operation doesn't want the ceremony of Draft → Scheduled → Released
+before recording "I made 50 units today." Decided that convenience wasn't
+worth two production-posting engines: removed rather than kept as a shortcut.
+
+- **What actually left**: the nav entry, the Create-menu entry, the
+  `/supply-chain/build` page/console, the POST handler on
+  `/api/inventory/production` (creation), `lib/inventory/production.ts`
+  itself, and the `"production_build"`/`"production_build_multi"` approval
+  resume cases. Mobile's ENTIRE "Production" department item goes with it —
+  it was built on this same ad-hoc engine (`postProduction` →
+  `/api/inventory/production`), not on Manufacturing Orders, which mobile
+  never supported at all. Scheduling one needs lot allocation and a status
+  board a phone screen has no room for, so mobile's floor workflows are
+  Receiving and Shipping only until it gets a real production workflow.
+- **What did NOT move an inch, because it's shared infrastructure the MO
+  lifecycle depends on, not "Build" ephemera**: the `production_runs`/
+  `production_consumptions`/`production_outputs` tables (`mo-completion.ts`
+  writes them directly — it never called `buildProduction`, despite an old
+  comment in `manufacturing-orders.ts` implying otherwise, now fixed), the
+  `"Production"` `BUILD-` numbering series, `lib/inventory/void.ts`'s
+  `voidProductionRun` (handles both an MO-linked run and a pre-0099 build the
+  same function always did), `lib/inventory/genealogy.ts`'s lot-trace reports,
+  `lib/inventory/references.ts`'s delete-blocking count, and the
+  `"production_build"` approval entity type — `mo-completion.ts` still checks
+  its configured threshold directly (`requiresApproval(orgId,
+  "production_build", …)`), so an org's existing threshold amount survives
+  the removal unchanged; only `"production_build_multi"` (confirmed zero rows
+  ever, in production) was removed outright.
+- **Voiding a completed MO's run moved from the (now-gone) Build console into
+  the MO's own detail drawer** — `components/mo-console.tsx`'s "Built ✓" line
+  is now a real button calling the same `DELETE /api/inventory/production/
+  [id]` route unchanged; `voidProductionRun` doesn't care whether the run it's
+  voiding came from a build or a completion.
+- Checked before removing anything: production had exactly 4 `production_runs`
+  (all pre-MO, `moId` null) and one resolved (`Rejected`, not pending)
+  `production_build` approval row — nothing pending would have been stranded.
 
 ### Can be sold / can be purchased, per item (2026-09-25, 0101)
 
@@ -1696,9 +1747,11 @@ lot-tracked ⇒ tracked, every kind acquirable somehow, every kind in
   created by a build. Selling a Raw Material is merely unusual: scrap and waste
   sales are real, and textile orgs do them routinely. Enforce what is
   impossible, not what is uncommon.
-- **Still unenforced server-side: `consumable`.** Only `producible` (in
-  `lib/inventory/production.ts`) and now `buyable` are checked. Flagged rather
-  than fixed — BOM lines are the place it would belong.
+- **Still unenforced server-side: `consumable`.** `producible` is checked, but
+  only client-side, at BOM registration (`components/bom-register.tsx` filters
+  which items can be picked as a BOM's output) — not by any poster. `buyable`
+  is enforced server-side. Flagged rather than fixed — BOM lines are the place
+  `consumable` would belong.
 
 ## Stock locations (Supply Chain completion, Phase 1, 2026-09-21)
 

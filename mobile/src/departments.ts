@@ -57,13 +57,17 @@ export const DEPARTMENTS: Department[] = [
   {
     key: "operations",
     title: "Operations",
-    blurb: "Warehouse and production — stock in, stock made, stock out.",
+    // "Production" (an ad-hoc build against a BOM) was removed — it let stock
+    // get produced with no schedule and no allocation, duplicating a
+    // Manufacturing Order. Scheduling one is desktop-only for now (it needs
+    // lot allocation and a status board a phone screen doesn't have room
+    // for); this app's floor workflows are receiving and shipping only.
+    blurb: "Warehouse — stock in, stock out.",
     // Floor staff and up — the same line `canPostInventoryTxn` draws on the
     // server. Reps are deliberately excluded: they don't move stock.
     roles: ["company_user", "company_admin", "super_admin"],
     items: [
       { key: "receiving",  title: "Receiving",  subtitle: "Post a goods receipt, with or without a PO", route: "ReceivingList",  icon: "download-outline" },
-      { key: "production", title: "Production", subtitle: "Build finished goods from a BOM",            route: "ProductionList", icon: "hammer-outline" },
       { key: "shipping",   title: "Shipping",   subtitle: "Ship against a sales order",                 route: "ShippingList",   icon: "cube-outline" },
     ],
   },

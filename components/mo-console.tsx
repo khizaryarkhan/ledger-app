@@ -122,9 +122,10 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
     if (d?.bom) setBom(d);
   }
   const baseUom = bom?.outputItem?.baseUom || "";
-  // A BOM with no output packs (built for Quick Build) makes the item's BASE
-  // unit: one output, one base unit each. Offered rather than refused, so
-  // every existing BOM can be planned as an MO.
+  // A BOM with no output packs (the shape the old Build console produced,
+  // before it was removed) makes the item's BASE unit: one output, one base
+  // unit each. Offered rather than refused, so every existing BOM can be
+  // planned as an MO.
   const outs = (bom?.outputs ?? []).length ? bom.outputs
     : bom ? [{ skuId: null, qty: 1, item: { name: `${bom.outputItem?.name ?? "Output"} (${baseUom || "base unit"})` }, base: true }] : [];
   const baseTotal = useMemo(() => outs.reduce((s: number, o: any) => s + (Number(packQty[String(o.skuId)]) || 0) * Number(o.qty), 0), [outs, packQty]);
@@ -251,6 +252,23 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not delete."); return; }
     onChanged(); onClose();
   }
+  /**
+   * Void the run this MO was completed by — reverses the consumed/produced
+   * lots and their GL entry, then reopens the order In Progress with nothing
+   * re-allocated (the same behaviour the standalone Build console used to
+   * expose; that console is gone, so this is the only way to undo a
+   * completion now). Reuses the DELETE route unchanged — voidProductionRun
+   * doesn't care whether the run came from a build or an MO completion.
+   */
+  async function voidBuild() {
+    if (!mo?.productionRunId) return;
+    if (!confirm("Void this completion? This reverses the stock and its GL entry, and reopens the order In Progress.")) return;
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/inventory/production/${mo.productionRunId}`, { method: "DELETE" });
+    setBusy(false);
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not void the completion."); return; }
+    await load(); onChanged();
+  }
   /** Save one material's allocation. */
   async function saveAlloc(itemId: string, picks: { lotId: string; qty: number; suggested?: boolean }[]) {
     setErr("");
@@ -274,7 +292,11 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
       {mo.status !== "Completed" && !mo.productionRunId && (
         <button onClick={del} className="p-1.5 rounded hover:bg-stone-800 text-stone-500 hover:text-rose-400" title="Delete MO"><Trash2 size={14} /></button>
       )}
-      {mo.status === "Completed" && mo.productionRunId && <span className="text-[11px] text-stone-500">Built ✓ — void from Quick Build to undo</span>}
+      {mo.status === "Completed" && mo.productionRunId && (
+        <button onClick={voidBuild} disabled={busy} className="text-[11px] font-medium text-stone-500 hover:text-rose-400 disabled:opacity-50">
+          Built ✓ — void to undo
+        </button>
+      )}
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {(NEXT[mo.status] ?? []).map(t => (
           <button key={t.to} onClick={() => transition(t.to)} disabled={busy} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>
