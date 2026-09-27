@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
+import { useData } from "@/components/data-provider";
 import { Plus, RefreshCw, PackageCheck, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
@@ -449,6 +450,7 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
   suppliers: any[]; items: any[]; locationId: string; setLocationId: (id: string) => void; locations: any[];
   onBack: () => void; onPosted: (msg: string) => void;
 }) {
+  const { orgSettings } = useData();
   const [supplierId, setSupplierId] = useState("");
   const [date, setDate] = useState(localToday());
   const [currency, setCurrency] = useState("");
@@ -457,6 +459,12 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
   const supplier = suppliers.find(s => s.id === supplierId);
+  // Unlike a PO-linked receipt (which inherits the PO's own currency), an
+  // ad-hoc receipt has nothing to read a foreign currency off — so the
+  // toggle is what reveals the field at all, gated on the org actually
+  // having multi-currency enabled (postGoodsReceipt refuses otherwise).
+  const [foreignCcy, setForeignCcy] = useState(false);
+  const showCcy = foreignCcy || (!!currency && currency !== orgSettings.currency);
 
   function newLine(): RLine { return { key: newKey(), itemId: "", itemName: "", baseUom: null, skuId: null, poId: null, poLineId: null, qtyBase: "", unitCost: "", lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" }; }
   function setLine(key: string, patch: Partial<RLine>) { setLines(ls => ls.map(l => l.key === key ? { ...l, ...patch } : l)); }
@@ -509,6 +517,11 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
             <Field label="Receipt date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
             <LocationField label="Receive into" value={locationId} onChange={setLocationId} locations={locations} hint="Where the goods physically landed" />
           </div>
+          {orgSettings.multicurrencyEnabled && !showCcy && (
+            <button onClick={() => { setForeignCcy(true); setCurrency(orgSettings.currency); }} className="mt-3 text-[11.5px] text-stone-500 hover:text-stone-300">
+              + Receiving in a foreign currency?
+            </button>
+          )}
         </Section>
 
         <Section title={`Lines to receive${currency ? ` · ${currency}` : ""}`}
@@ -540,7 +553,7 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
           </div>
         </Section>
 
-        {currency && (
+        {showCcy && (
           <Section title="Currency">
             <div className="grid grid-cols-2 gap-x-4 gap-y-4">
               <Field label="Currency"><input className={controlInset} value={currency} onChange={e => setCurrency(e.target.value)} /></Field>
