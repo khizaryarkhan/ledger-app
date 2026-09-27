@@ -4,6 +4,7 @@ import { crmQuotes } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { logActivity } from "@/lib/admin/activities";
+import { fmt } from "@/lib/format";
 
 export const quoteRef = (seq: number | null | undefined) => seq ? `Q-${String(seq).padStart(5, "0")}` : "";
 
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
   }).returning();
 
   await logActivity({
-    type: "deal_created", title: `Quote ${quoteRef(row.refSeq)} created · ${(row.total / 100).toFixed(2)} ${row.currency}`.slice(0, 300),
+    type: "deal_created", title: `Quote ${quoteRef(row.refSeq)} created · ${fmt.num2(row.total / 100)} ${row.currency}`.slice(0, 300),
     accountId: b.accountId, opportunityId: b.opportunityId || null, actorId: userId,
     meta: { quoteId: row.id, total: row.total, currency: row.currency },
   });

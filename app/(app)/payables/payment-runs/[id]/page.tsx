@@ -15,7 +15,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { Badge, Button, Card, Input, EmptyState, Modal } from "@/components/ui";
-import { formatDateShort } from "@/lib/format";
+import { formatDateShort, fmt } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -76,14 +76,6 @@ function fmtDate(d?: string) {
   // formatter: parsed as a Date they are UTC midnight, which renders the day
   // before anywhere west of Greenwich.
   return d ? formatDateShort(d) : "—";
-}
-
-function fmtMoney(amount: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
 }
 
 function statusBadge(status: RunStatus): string {
@@ -255,7 +247,7 @@ function BillPickerModal({
                     Due {fmtDate(bill.dueDate)}
                   </span>
                   <span className="text-sm font-semibold text-white tabular-nums">
-                    {fmtMoney(bill.amount, bill.currency)}
+                    {fmt.money(bill.amount, bill.currency)}
                   </span>
                 </label>
               );
@@ -414,7 +406,7 @@ export default function PaymentRunDetailPage() {
             </span>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">
-            {fmtMoney(run.totalAmount, run.currency)}
+            {fmt.money(run.totalAmount, run.currency)}
           </p>
           <p className="text-sm text-stone-400 mt-1">
             {run.billCount} bill{run.billCount !== 1 ? "s" : ""} · Created by{" "}
@@ -547,7 +539,7 @@ export default function PaymentRunDetailPage() {
             Total Amount
           </p>
           <p className="text-2xl font-bold text-white tabular-nums">
-            {fmtMoney(run.totalAmount, run.currency)}
+            {fmt.money(run.totalAmount, run.currency)}
           </p>
         </Card>
         <Card>
@@ -564,7 +556,7 @@ export default function PaymentRunDetailPage() {
                     {cur}
                   </span>
                   <span className="text-sm font-semibold text-white tabular-nums">
-                    {fmtMoney(amt, cur)}
+                    {fmt.money(amt, cur)}
                   </span>
                 </div>
               ))}
@@ -692,11 +684,7 @@ function BillsTable({
                 {formatDateShort(bill.dueDate)}
               </td>
               <td className="px-4 py-3 text-right font-semibold text-white tabular-nums text-[13px]">
-                {new Intl.NumberFormat("en-US", {
-                  style: "currency",
-                  currency: bill.currency,
-                  minimumFractionDigits: 2,
-                }).format(bill.amount)}
+                {fmt.money(bill.amount, bill.currency)}
               </td>
               <td className="px-4 py-3 text-stone-300 text-[13px]">
                 {bill.currency}
