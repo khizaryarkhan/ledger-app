@@ -49,19 +49,33 @@ export function hasModule(enabledModules: unknown, key: ModuleKey): boolean {
 // entry with `owner: null` is an explicit "shared, never gated", and it must
 // sit ABOVE the prefix it carves out of: first match wins.
 //
-// manufacturing/resources are not listed: their routes already call
-// requireModule() themselves, and their pages are unreachable without the nav.
+// manufacturing (/supply-chain pages, /api/production and /api/inventory
+// except the shared items/skus/supplier-skus master data) and resources
+// (/resources pages, /api/resources) ARE fully listed below, same as every
+// other module — every one of their routes already called requireModule()
+// independently before they were registered here, so registering them changed
+// no runtime behaviour, only closed a registry gap (a bookmarked/typed URL to
+// e.g. /supply-chain used to render with no gate at all).
+// tests/module-gating.test.ts's reverse-completeness check guards against this
+// class of gap recurring: every real page/API route must be either registered
+// here (owned or explicit `owner: null`) or named in that test's own allowlist
+// with a reason.
 
-type PathRule = { path: string; owner: ModuleKey | null; exact?: boolean };
+export type PathRule = { path: string; owner: ModuleKey | null; exact?: boolean };
 
-function matches(pathname: string, r: PathRule): boolean {
+export function matches(pathname: string, r: PathRule): boolean {
   if (pathname === r.path) return true;
   return !r.exact && pathname.startsWith(r.path + "/");
 }
 
-function ownerOf(rules: readonly PathRule[], pathname: string): ModuleKey | null {
-  for (const r of rules) if (matches(pathname, r)) return r.owner;
+/** The first rule (in order) whose path matches pathname, or null if none does. */
+export function findRule(rules: readonly PathRule[], pathname: string): PathRule | null {
+  for (const r of rules) if (matches(pathname, r)) return r;
   return null;
+}
+
+function ownerOf(rules: readonly PathRule[], pathname: string): ModuleKey | null {
+  return findRule(rules, pathname)?.owner ?? null;
 }
 
 const ACCOUNTING_REPORTS = [
@@ -107,12 +121,19 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   { path: "/smart-views", owner: "receivables" },
   { path: "/ar-report", owner: "receivables" },
   { path: "/reports", owner: "receivables" },
+
+  // Supply Chain / Resources — see CLAUDE.md "Modules & per-org feature gating".
+  { path: "/supply-chain", owner: "manufacturing" },
+  { path: "/resources", owner: "resources" },
 ];
 
 export const API_OWNERS: readonly PathRule[] = [
   // Shared — carved out of the prefixes below.
   { path: "/api/batch/jobs", owner: null },              // the job engine behind Receivables' bulk invoice send
   { path: "/api/payables/suppliers", owner: null },      // Accounting's purchases and GL reports read suppliers
+  { path: "/api/inventory/items", owner: null },         // Products & Services — every org's master data, not just Supply Chain's
+  { path: "/api/inventory/skus", owner: null },
+  { path: "/api/inventory/supplier-skus", owner: null },
 
   // Studio
   { path: "/api/batch", owner: "studio" },
@@ -135,6 +156,13 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/cash-flow", owner: "accounting" },
   { path: "/api/accounting/fx-exposure", owner: "accounting" },
   { path: "/api/accounting/tax-liability", owner: "accounting" },
+
+  // Supply Chain / Resources — every route here already called
+  // requireModule() independently before it was registered; see the header
+  // comment above.
+  { path: "/api/production", owner: "manufacturing" },
+  { path: "/api/inventory", owner: "manufacturing" },
+  { path: "/api/resources", owner: "resources" },
 
   // Receivables — only what nothing else calls. /api/invoices, /api/customers,
   // /api/communications, /api/tasks and /api/reps are loaded by the app-wide
