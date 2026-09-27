@@ -271,7 +271,7 @@ function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { bo
  * Chain feel like one system rather than two.
  * ======================================================================= */
 
-type ProcessView = { v: "hub" } | { v: "order"; moId: string } | { v: "lot"; moId: string; itemId: string };
+type ProcessView = { v: "hub" } | { v: "order"; moId: string; run?: boolean } | { v: "lot"; moId: string; itemId: string };
 
 function ProcessMoDrawer({ rows, onClose, onChanged }: { rows: any[]; onClose: () => void; onChanged: () => void }) {
   const [tab, setTab] = useState<"start" | "inprogress">("start");
@@ -296,14 +296,15 @@ function ProcessMoDrawer({ rows, onClose, onChanged }: { rows: any[]; onClose: (
         <ProcessHub readyToStart={readyToStart} inProgress={inProgress} tab={tab} setTab={setTab} notice={notice} onOpen={openOrder} />
       )}
       {view.v === "order" && (
-        <OrderStep moId={view.moId} onBack={backToHub}
+        <OrderStep key={`${view.moId}:${view.run ? "run" : ""}`} moId={view.moId} startRun={!!view.run} onBack={backToHub}
           onOpenLot={(itemId) => setView({ v: "lot", moId: view.moId, itemId })}
           onProgressed={async (msg) => { await refresh(); onChanged(); setNotice(msg); }}
           onCompleted={async (msg) => { await refresh(); onChanged(); setNotice(msg); setView({ v: "hub" }); }}
         />
       )}
       {view.v === "lot" && (
-        <LotStep moId={view.moId} itemId={view.itemId} onBack={() => setView({ v: "order", moId: view.moId })} />
+        <LotStep moId={view.moId} itemId={view.itemId} onBack={() => setView({ v: "order", moId: view.moId })}
+          onRun={() => setView({ v: "order", moId: view.moId, run: true })} />
       )}
     </Drawer>
   );
@@ -366,8 +367,8 @@ function TabButton({ active, onClick, label, count }: { active: boolean; onClick
  * In Progress, each opening its own LotStep, exactly as a receipt line opens
  * its own LotCapture in Receiving.
  */
-function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
-  moId: string; onBack: () => void; onOpenLot: (itemId: string) => void;
+function OrderStep({ moId, startRun = false, onBack, onOpenLot, onProgressed, onCompleted }: {
+  moId: string; startRun?: boolean; onBack: () => void; onOpenLot: (itemId: string) => void;
   onProgressed: (msg: string) => void; onCompleted: (msg: string) => void;
 }) {
   const [d, setD] = useState<any>(null);
@@ -379,14 +380,18 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
   // Captured actual output, in PACKS per mo_outputs row — pre-fills Complete production.
   const [produced, setProduced] = useState<Record<string, number>>({});
   const [openOut, setOpenOut] = useState<string | null>(null);
+  const [pendingRun, setPendingRun] = useState(startRun);
+  const [runFromAlloc, setRunFromAlloc] = useState(false);
 
   async function load() {
     const det = await fetch(`/api/production/mos/${moId}`).then(r => r.json()).catch(() => null);
-    setD(det);
     // Loaded from Draft onward so a card can show its lots read-only before
     // production starts; only In Progress may change them.
-    if (det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)) setAlloc(await fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null));
-    else setAlloc(null);
+    // Set together, so nothing reacting to a fresh order (Save & complete a
+    // run) can read the allocations from before the save.
+    const al = det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)
+      ? await fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null) : null;
+    setD(det); setAlloc(al);
   }
   useEffect(() => { load(); }, [moId]);
 
@@ -395,6 +400,13 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
   const stocked = lines.filter(l => l.tracked && l.required > 0);
   const unallocated = stocked.filter(l => !(l.allocated > 0));
   const canComplete = mo?.status === "InProgress" && stocked.length > 0 && unallocated.length === 0;
+  useEffect(() => {
+    if (!pendingRun || !d) return;
+    setPendingRun(false);
+    const why = runBlocker(d);
+    if (why) { setErr(why); return; }
+    setRunFromAlloc(true); setCompleting(true);
+  }, [pendingRun, d]);
 
   async function transition(to: string, msg: string) {
     setBusy(true); setErr("");
@@ -424,7 +436,7 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
 
   return (
     <>
-      {completing && <CompletionDrawer id={moId} d={d} alloc={alloc} produced={produced} onClose={() => setCompleting(false)} onDone={onRunPosted} />}
+      {completing && <CompletionDrawer id={moId} d={d} alloc={alloc} produced={produced} useAllocated={runFromAlloc} onClose={() => { setCompleting(false); setRunFromAlloc(false); }} onDone={r => { setRunFromAlloc(false); onRunPosted(r); }} />}
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
         <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> All orders</button>
         <div className="flex items-center gap-2">
@@ -461,7 +473,7 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
           </button>
         )}
         {mo.status === "InProgress" && (
-          <button onClick={() => setCompleting(true)} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
+          <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
             className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
             <Check size={14} /> Complete production →
           </button>
@@ -472,7 +484,7 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
 }
 
 /** Allocate one material's lots — a dedicated step, like Receiving's LotCapture. */
-function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBack: () => void }) {
+function LotStep({ moId, itemId, onBack, onRun }: { moId: string; itemId: string; onBack: () => void; onRun: () => void }) {
   const [d, setD] = useState<any>(null);
   const [alloc, setAlloc] = useState<any>(null);
   const [err, setErr] = useState("");
@@ -489,13 +501,14 @@ function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBac
   const line = (d?.materials?.lines ?? []).find((l: any) => l.itemId === itemId);
   const m = (alloc?.materials ?? []).find((x: any) => x.itemId === itemId);
 
-  async function save(picks: { lotId: string; qty: number; suggested?: boolean }[]) {
+  async function put(picks: { lotId: string; qty: number; suggested?: boolean }[]) {
     setErr("");
     const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, picks }) });
     if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
-    onBack();
     return true;
   }
+  async function save(picks: { lotId: string; qty: number; suggested?: boolean }[]) { const ok = await put(picks); if (ok) onBack(); return ok; }
+  async function saveAndRun(picks: { lotId: string; qty: number; suggested?: boolean }[]) { const ok = await put(picks); if (ok) onRun(); return ok; }
 
   return (
     <>
@@ -513,7 +526,7 @@ function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBac
         {!d || !alloc ? <p className="text-[13px] text-stone-500">Loading…</p> : !m ? (
           <p className="text-[13px] text-rose-400">{err || "This material isn't part of the order."}</p>
         ) : (
-          <LotPicker line={line} m={m} editable={d?.mo?.status === "InProgress"} onSave={save} />
+          <LotPicker line={line} m={m} editable={d?.mo?.status === "InProgress"} onSave={save} onSaveAndRun={saveAndRun} />
         )}
         {err && <p className="text-[12px] text-rose-400 mt-2">{err}</p>}
       </div>
@@ -531,6 +544,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const [d, setD] = useState<any>(null);
   const [alloc, setAlloc] = useState<any>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
+  const [pendingRun, setPendingRun] = useState(false);
+  const [runFromAlloc, setRunFromAlloc] = useState(false);
   const [tab, setTab] = useState<"input" | "output" | "ops">("input");
   // Captured actual output, in PACKS per mo_outputs row — pre-fills Complete production.
   const [produced, setProduced] = useState<Record<string, number>>({});
@@ -539,11 +554,13 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const [completing, setCompleting] = useState(false);
   async function load() {
     const det = await fetch(`/api/production/mos/${id}`).then(r => r.json()).catch(() => null);
-    setD(det);
     // Lots are shown from Draft onward (read-only until In Progress), so the
     // floor can see what it will pick from before it starts.
-    if (det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)) setAlloc(await fetch(`/api/production/mos/${id}/allocations`).then(r => r.json()).catch(() => null));
-    else setAlloc(null);
+    // Set together, so nothing reacting to a fresh order (Save & complete a
+    // run) can read the allocations from before the save.
+    const al = det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)
+      ? await fetch(`/api/production/mos/${id}/allocations`).then(r => r.json()).catch(() => null) : null;
+    setD(det); setAlloc(al);
   }
   useEffect(() => { load(); }, [id]);
 
@@ -559,6 +576,15 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const stocked = lines.filter(l => l.tracked && l.required > 0);
   const unallocated = stocked.filter(l => !(l.allocated > 0));
   const canComplete = mo?.status === "InProgress" && unallocated.length === 0;
+  // "Save & complete a run" — wait for the reload, then open completion with
+  // exactly what was just allocated (or say what is still missing).
+  useEffect(() => {
+    if (!pendingRun || !d) return;
+    setPendingRun(false);
+    const why = runBlocker(d);
+    if (why) { setErr(why); return; }
+    setRunFromAlloc(true); setCompleting(true);
+  }, [pendingRun, d]);
 
   async function transition(to: string) {
     if (to === "Cancelled" && lines.some(l => l.allocated > 0) && !confirm("Cancel this order? Its allocated lots are released back to stock.")) return;
@@ -631,7 +657,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
           <button key={t.to} onClick={() => transition(t.to)} disabled={busy} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">{t.label}</button>
         ))}
         {mo.status === "InProgress" && (
-          <button onClick={() => setCompleting(true)} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
+          <button onClick={() => { setRunFromAlloc(false); setCompleting(true); }} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
             className="flex items-center gap-1.5 text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
             {busy ? <Loader size={13} className="animate-spin" /> : <Check size={13} />} Complete…
           </button>
@@ -642,7 +668,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
   return (
     <>
-    {completing && d && <CompletionDrawer id={id} d={d} alloc={alloc} produced={produced} onClose={() => setCompleting(false)} onDone={onCompleted} />}
+    {completing && d && <CompletionDrawer id={id} d={d} alloc={alloc} produced={produced} useAllocated={runFromAlloc} onClose={() => { setCompleting(false); setRunFromAlloc(false); }} onDone={r => { setRunFromAlloc(false); onCompleted(r); }} />}
     <Drawer title={mo ? `${mo.moNo} · ${d.outputItem?.name ?? ""}` : "Manufacturing order"} onClose={onClose} size="xl" footer={footer}>
       {!d ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-4">
@@ -660,7 +686,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
           {tab === "input" && (openItem && lines.some((l: any) => l.itemId === openItem) && alloc?.materials?.some((x: any) => x.itemId === openItem)
             ? <LotPicker key={openItem} line={lines.find((l: any) => l.itemId === openItem)} m={alloc.materials.find((x: any) => x.itemId === openItem)}
                 editable={mo.status === "InProgress"} onBack={() => setOpenItem(null)}
-                onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }} />
+                onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }}
+                onSaveAndRun={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) { setOpenItem(null); setPendingRun(true); } return ok; }} />
             : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} />)}
 
           {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
@@ -686,7 +713,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
  * changes the good packs and the lots used. The preview is the server's own
  * costing of exactly this input, so what is confirmed is what posts.
  */
-function CompletionDrawer({ id, d, alloc, produced = {}, onClose, onDone }: { id: string; d: any; alloc: any; produced?: Record<string, number>; onClose: () => void; onDone: (res: any) => void }) {
+function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, onClose, onDone }: { id: string; d: any; alloc: any; produced?: Record<string, number>; useAllocated?: boolean; onClose: () => void; onDone: (res: any) => void }) {
   const baseUom = d.outputItem?.baseUom || "";
   const [date, setDate] = useState(localToday());
   const [good, setGood] = useState<Record<string, string>>(() => Object.fromEntries((d.outputs ?? []).map((o: any) => [o.skuId, String(produced[o.id] ?? o.remainingQty ?? o.qty)])));
@@ -696,8 +723,14 @@ function CompletionDrawer({ id, d, alloc, produced = {}, onClose, onDone }: { id
   const autoFinal = (d.outputs ?? []).every((o: any) => (Number(good[o.skuId]) || 0) + 1e-6 >= Number(o.remainingQty ?? o.qty));
   const final = finalSet ?? autoFinal;
   const [hours, setHours] = useState<Record<string, string>>({});
-  const [use, setUse] = useState<Record<string, string>>({});       // lotId -> qty
-  const [touchedUse, setTouchedUse] = useState(false);
+  // From "Save & complete a run": the lots just saved ARE this run's usage,
+  // so start from every allocated quantity instead of the server's pro-rata
+  // share. Otherwise the server's default (everything on a final run, this
+  // run's share on a partial one).
+  const [use, setUse] = useState<Record<string, string>>(() => useAllocated
+    ? Object.fromEntries((alloc?.materials ?? []).flatMap((m: any) => (m.lots ?? []).filter((l: any) => l.mine > 0).map((l: any) => [l.lotId, String(l.mine)])))
+    : {});       // lotId -> qty
+  const [touchedUse, setTouchedUse] = useState(useAllocated);
   const [pv, setPv] = useState<any>(null);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState<string | null>(null);
 
@@ -1108,6 +1141,19 @@ function OperationsPanel({ d }: { d: any }) {
   );
 }
 
+/**
+ * Why a completion run can't be recorded yet, or null. Completion consumes
+ * every stocked material from its allocations and refuses one with none, so
+ * a run needs lots for all of them — say which, rather than open a drawer
+ * that can only fail.
+ */
+function runBlocker(d: any): string | null {
+  if (d?.mo?.status !== "InProgress") return "The order must be In Progress to record a run.";
+  const missing = (d?.materials?.lines ?? []).filter((l: any) => l.tracked && l.required > 0 && !(l.allocated > 0));
+  if (!missing.length) return null;
+  return `Saved. To record a run, also pick lots for ${missing.map((l: any) => l.name).join(", ")} — a run consumes every material.`;
+}
+
 /** One input material as a card: what the order expects, and where it stands. */
 function InputCard({ l, inProgress, onOpen }: { l: any; inProgress: boolean; onOpen?: () => void }) {
   const attention = l.tracked && (inProgress ? l.coverage === "none" || l.coverage === "partial" : !l.ok);
@@ -1144,9 +1190,11 @@ function InputCard({ l, inProgress, onOpen }: { l: any; inProgress: boolean; onO
  * `consumptionUnits`) and sent to the server in BASE units. It may differ from
  * the plan; the material's status says by how much.
  */
-function LotPicker({ line, m, editable, onBack, onSave }: {
+function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
   line: any; m: any; editable: boolean; onBack?: () => void;
   onSave: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean>;
+  /** Save, then record a completion run consuming what is allocated — for an order finished over several runs. */
+  onSaveAndRun?: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean>;
 }) {
   const baseUom = line.baseUom || "";
   const unitsOf = (l: any): { label: string; perUnit: number }[] => (l.units?.length ? l.units : [{ label: `${baseUom || "unit"} — base`, perUnit: 1 }]);
@@ -1239,13 +1287,38 @@ function LotPicker({ line, m, editable, onBack, onSave }: {
         })}
       </div>
 
+      {editable && lots.length > 0 && picks.length > 0 && onSaveAndRun && (
+        <p className="text-[11px] text-stone-500">
+          <span className="text-stone-400">Save for later</span> reserves {qtyFmt(total)} {baseUom} for this order and posts nothing.{" "}
+          <span className="text-stone-400">Save &amp; complete a run</span> also records a completion that consumes what is allocated — for an order finished over several runs.
+        </p>
+      )}
       {editable && lots.length > 0 && (
         <div className="flex items-center justify-end gap-2 pt-1">
           <button onClick={() => setRows(seed("suggest"))} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Suggest by earliest expiry</button>
-          <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
-            className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
-            {saving ? "Saving…" : picks.length ? `Allocate ${qtyFmt(total)} ${baseUom}` : "Release"}
-          </button>
+          {picks.length === 0 ? (
+            <button disabled={saving} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
+              className="text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50">
+              {saving ? "Saving…" : "Release"}
+            </button>
+          ) : (
+            <>
+              <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
+                title="Reserve these lots for the order. Nothing posts."
+                className={onSaveAndRun
+                  ? "text-[12px] font-semibold text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3.5 py-1.5 disabled:opacity-50"
+                  : "text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50"}>
+                {saving ? "Saving…" : "Save for later"}
+              </button>
+              {onSaveAndRun && (
+                <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSaveAndRun(picks); setSaving(false); }}
+                  title="Save, then record a completion run that consumes these lots. The order stays open unless every output is done."
+                  className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+                  {saving ? "Saving…" : "Save & complete a run →"}
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

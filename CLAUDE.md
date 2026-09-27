@@ -1392,6 +1392,14 @@ The product owner's lifecycle, and now the only one:
   which may be blank), so everything converts to PACKS. The capture is drawer
   state only: it pre-fills Complete production's "good packs" and posts
   nothing itself; a posted run clears it.
+  **Lot selection has two saves**, because an order is often completed over
+  several runs: *Save for later* only reserves (allocation, nothing posts);
+  *Save & complete a run* saves, then opens completion preset to consume
+  EXACTLY what is allocated (not the server's pro-rata partial default) —
+  the order stays In Progress unless every output is done. `runBlocker` says
+  which material still has no lots instead of opening a drawer that can only
+  fail. Both drawers set the order and its allocations in one state update,
+  so the run never opens on pre-save allocations.
 
 ### Stock is issued from lots or not at all (2026-09-25)
 
