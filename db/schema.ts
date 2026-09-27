@@ -2341,6 +2341,14 @@ export const manufacturingOrders = pgTable("manufacturing_orders", {
   expYield:        numeric("exp_yield", { precision: 9, scale: 4 }),   // copied from the BOM (0099); null = 100%
   notes:           text("notes"),
   productionRunId: uuid("production_run_id"),   // the build that fulfilled it
+  // Real instants (0102), not calendar dates — the Process MO list shows a
+  // clock time, unlike scheduledDate/dueDate. startedAt is stamped on every
+  // Released → InProgress transition (setMoStatus), so restarting an order
+  // that was sent back to Released records the latest start, not the first.
+  // completedAt is stamped once, by the FINAL completion run (completeMoRun);
+  // a partial run leaves it null since the order isn't done yet.
+  startedAt:       timestamp("started_at"),
+  completedAt:     timestamp("completed_at"),
   createdBy:       uuid("created_by"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),

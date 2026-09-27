@@ -47,7 +47,24 @@ export async function listMOs(orgId: string) {
   const ids = [...new Set(rows.map(r => r.outputItemId).filter(Boolean) as string[])];
   const items = ids.length ? await db.select({ id: apItems.id, name: apItems.name, baseUom: apItems.baseUom }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, ids))) : [];
   const byId = new Map(items.map(i => [i.id, i]));
-  return rows.map(r => ({ ...r, qty: num(r.qty), outputItem: r.outputItemId ? byId.get(r.outputItemId) ?? null : null }));
+
+  // Output pack labels + actual (produced) qty — a list row's own facts, not
+  // just the plan. One query for every order rather than N, same reasoning as
+  // po-open/procurement-reports doing their joins up front.
+  const moIds = rows.map(r => r.id);
+  const outs = moIds.length ? await db.select().from(moOutputs).where(and(eq(moOutputs.orgId, orgId), inArray(moOutputs.moId, moIds))) : [];
+  const skuIds = [...new Set(outs.map(o => o.skuId).filter(Boolean) as string[])];
+  const skus = skuIds.length ? await db.select({ id: itemSkus.id, skuName: itemSkus.skuName, skuCode: itemSkus.skuCode }).from(itemSkus).where(inArray(itemSkus.id, skuIds)) : [];
+  const skuById = new Map(skus.map(sk => [sk.id, sk]));
+  const outsByMo = new Map<string, typeof outs>();
+  for (const o of outs) (outsByMo.get(o.moId) ?? outsByMo.set(o.moId, []).get(o.moId)!).push(o);
+
+  return rows.map(r => {
+    const mine = outsByMo.get(r.id) ?? [];
+    const skuLabel = [...new Set(mine.map(o => o.skuId ? (skuById.get(o.skuId)?.skuName || skuById.get(o.skuId)?.skuCode || "Pack") : null).filter((x): x is string => !!x))].join(", ") || null;
+    const completedBase = roundQty(mine.reduce((sm, o) => sm + num(o.completedQty) * (o.unitContent != null ? num(o.unitContent) : 1), 0));
+    return { ...r, qty: num(r.qty), outputItem: r.outputItemId ? byId.get(r.outputItemId) ?? null : null, skuLabel, completedBase };
+  });
 }
 
 /** Materials required to produce a set of output packs on a BOM, vs on-hand. */
@@ -299,7 +316,12 @@ export async function setMoStatus(orgId: string, id: string, status: MoStatus) {
   if (mo!.status === "InProgress" && status === "Released" && await hasAllocations(orgId, id)) {
     err("This order has lots allocated. Release them first, or cancel the order to give the stock back.");
   }
-  await db.update(manufacturingOrders).set({ status, updatedAt: new Date() }).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId)));
+  const set: Record<string, any> = { status, updatedAt: new Date() };
+  // Stamped on every Released → InProgress move, not just the first: an order
+  // sent back to Released (materials swapped) and started again should show
+  // the latest start, the same way a re-run overwrites, not appends.
+  if (status === "InProgress") set.startedAt = new Date();
+  await db.update(manufacturingOrders).set(set).where(and(eq(manufacturingOrders.id, id), eq(manufacturingOrders.orgId, orgId)));
   if (status === "Cancelled") await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, id)));
   return { id, status };
 }
@@ -324,7 +346,7 @@ export async function hasAllocations(orgId: string, moId: string): Promise<boole
  * completeMO and by the approval path, which runs the build later.
  */
 export async function finishMoCompletion(orgId: string, moId: string, runId: string) {
-  await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: runId, updatedAt: new Date() })
+  await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: runId, completedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
   await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
 }

@@ -265,7 +265,7 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
     // Whatever is still allocated was not used: it goes back to stock. No
     // entry — it never left its lot or its account.
     await db.delete(lotAllocations).where(and(eq(lotAllocations.orgId, orgId), eq(lotAllocations.moId, moId)));
-    await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: run.id, updatedAt: new Date() })
+    await db.update(manufacturingOrders).set({ status: "Completed", productionRunId: run.id, completedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(manufacturingOrders.id, moId), eq(manufacturingOrders.orgId, orgId)));
   } else {
     await db.update(manufacturingOrders).set({ productionRunId: run.id, updatedAt: new Date() })

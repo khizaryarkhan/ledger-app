@@ -207,6 +207,18 @@ export const fmt = {
   date: (d: string | Date | null | undefined) => formatDateShort(d),
   // Short date — now includes year for clarity
   shortDate: (d: string | Date | null | undefined) => formatDateShort(d),
+  /**
+   * A real instant — date AND time, in the viewer's own timezone. For a
+   * genuine timestamp (createdAt, startedAt, completedAt), never a date-only
+   * value: formatDateShort already reads a date-only string literally, so
+   * this only ever adds a clock time where one actually exists.
+   */
+  dateTime: (d: string | Date | null | undefined) => {
+    if (!d) return "—";
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return "—";
+    return `${formatDateShort(d)} · ${dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  },
   relative: (d: string | Date | null | undefined) => {
     if (!d) return "—";
     const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);

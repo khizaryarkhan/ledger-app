@@ -1,34 +1,51 @@
 "use client";
 
 /**
- * Production module — schedule & monitor Manufacturing Orders. A status board
- * (Draft → Scheduled → Released → In Progress → Completed) with KPIs, a New-MO
- * drawer, and an MO detail drawer showing material availability, status
- * transitions and the "Complete build" action (which runs the production build).
+ * Production module — schedule & monitor Manufacturing Orders as a flat list
+ * (MO #, status, SKUs, expected/actual qty, scheduled/started/manufactured).
+ * Two entry points mirror how the rest of Supply Chain separates "add work"
+ * from "do work": Schedule MO creates a Draft/Scheduled order; Process MO is
+ * a guided drawer — Hub (ready to start / in progress) → one order at a time
+ * → allocate each material's lots → complete — the same drilldown shape as
+ * Receiving's "Receive stock" (hub of open POs → items → lot capture → post).
+ * Row click still opens the full detail drawer (status transitions, cancel,
+ * delete, void) for anything outside that guided happy path.
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Workflow, X, Loader, Check, Trash2, AlertTriangle, CircleDot } from "lucide-react";
+import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
 
 const qtyFmt = (n: any) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
-const COLUMNS = [
-  { key: "Draft", label: "Draft", tone: "text-stone-400" },
-  { key: "Scheduled", label: "Scheduled", tone: "text-sky-400" },
-  { key: "Released", label: "Released", tone: "text-violet-400" },
-  { key: "InProgress", label: "In Progress", tone: "text-amber-400" },
-  { key: "Completed", label: "Completed", tone: "text-emerald-400" },
-] as const;
+const STATUSES = ["Draft", "Scheduled", "Released", "InProgress", "Completed", "Cancelled"] as const;
+const STATUS_LABEL: Record<string, string> = { Draft: "Draft", Scheduled: "Scheduled", Released: "Released", InProgress: "In Progress", Completed: "Completed", Cancelled: "Cancelled" };
+// One tone per status, everywhere a status is shown — the same rule
+// CLAUDE.md's stage-colour section enforces on the Collections Board: derive
+// it in one place so a status can't gain or lose colour depending on which
+// screen drew it.
+const STATUS_TONE: Record<string, string> = {
+  Draft: "border-stone-700 text-stone-400 bg-stone-800/60",
+  Scheduled: "border-sky-800/50 text-sky-400 bg-sky-500/10",
+  Released: "border-violet-800/50 text-violet-400 bg-violet-500/10",
+  InProgress: "border-amber-800/50 text-amber-400 bg-amber-500/10",
+  Completed: "border-emerald-800/50 text-emerald-400 bg-emerald-500/10",
+  Cancelled: "border-rose-800/50 text-rose-400 bg-rose-500/10",
+};
+function StatusPill({ status }: { status: string }) {
+  return <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_TONE[status] ?? "border-stone-700 text-stone-400"}`}>{STATUS_LABEL[status] ?? status}</span>;
+}
 
 export function MoConsole() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [boms, setBoms] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
-  const [showNew, setShowNew] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showProcess, setShowProcess] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   async function load() { setRows(await fetch(`/api/production/mos`).then(r => r.json()).catch(() => [])); }
   useEffect(() => {
@@ -37,7 +54,7 @@ export function MoConsole() {
     fetch(`/api/inventory/items`).then(r => r.json()).then(r => setItems(Array.isArray(r) ? r : [])).catch(() => {});
     fetch(`/api/trade-documents/sales-orders`).then(r => r.json()).then(r => setSalesOrders(Array.isArray(r) ? r.filter((o: any) => o.status !== "Closed") : [])).catch(() => {});
   }, []);
-  useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowNew(true); }, []);
+  useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowSchedule(true); }, []);
 
   const list = rows ?? [];
   const weekAhead = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return ymd(d); }, []);
@@ -46,12 +63,20 @@ export function MoConsole() {
     const soon = open.filter(m => m.scheduledDate && m.scheduledDate <= weekAhead);
     const wip = list.filter(m => m.status === "InProgress");
     const month = new Date().toISOString().slice(0, 7);
-    const doneThisMonth = list.filter(m => m.status === "Completed" && (m.updatedAt ?? "").slice(0, 7) === month);
+    const doneThisMonth = list.filter(m => m.status === "Completed" && String(m.completedAt ?? m.updatedAt ?? "").slice(0, 7) === month);
     return { open: open.length, soon: soon.length, wip: wip.length, done: doneThisMonth.length };
   }, [list, weekAhead]);
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const s of STATUSES) c[s] = 0;
+    for (const m of list) c[m.status] = (c[m.status] ?? 0) + 1;
+    return c;
+  }, [list]);
+  const shown = statusFilter ? list.filter(m => m.status === statusFilter) : list;
+  const readyToProcess = useMemo(() => list.filter(m => ["Scheduled", "Released", "InProgress"].includes(m.status)).length, [list]);
 
   return (
-    <div className="p-6 max-w-6xl">
+    <div className="p-6 max-w-7xl">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center"><Workflow size={18} className="text-orange-400" /></div>
@@ -59,55 +84,87 @@ export function MoConsole() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New MO</button>
+          <button onClick={() => setShowProcess(true)} disabled={readyToProcess === 0} title={readyToProcess ? "" : "Nothing is scheduled, released or in progress yet"}
+            className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40">
+            <PlayCircle size={14} /> Process MO{readyToProcess ? ` (${readyToProcess})` : ""}
+          </button>
+          <button onClick={() => setShowSchedule(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Schedule MO</button>
         </div>
       </div>
       <p className="text-[13px] text-stone-400 mb-5 ml-12">Plan and monitor manufacturing orders. Nothing posts until an order is completed: start it, allocate the lots it uses, then complete it to consume them and produce the output.</p>
 
-      <div className="grid grid-cols-4 gap-2 mb-5">
-        {[["Open MOs", kpis.open, "text-stone-100"], ["Scheduled ≤7 days", kpis.soon, "text-sky-400"], ["In progress", kpis.wip, "text-amber-400"], ["Completed this month", kpis.done, "text-emerald-400"]].map(([l, v, c]) => (
-          <div key={l as string} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        {([["Open MOs", kpis.open, "text-stone-100"], ["Scheduled ≤7 days", kpis.soon, "text-sky-400"], ["In progress", kpis.wip, "text-amber-400"], ["Completed this month", kpis.done, "text-emerald-400"]] as const).map(([l, v, c]) => (
+          <div key={l} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
             <div className="text-[10px] uppercase tracking-wide text-stone-500">{l}</div>
-            <div className={`text-[18px] font-semibold ${c}`}>{v as number}</div>
+            <div className={`text-[18px] font-semibold ${c}`}>{v}</div>
           </div>
         ))}
       </div>
 
-      {showNew && <NewMoDrawer boms={boms} items={items} salesOrders={salesOrders} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
+      <div className="flex items-center gap-1.5 mb-5 flex-wrap">
+        <button onClick={() => setStatusFilter(null)} className={`text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${!statusFilter ? "border-stone-500 text-stone-100 bg-stone-800" : "border-stone-800 text-stone-500 hover:text-stone-300"}`}>
+          All <span className={!statusFilter ? "text-stone-400" : "text-stone-600"}>{list.length}</span>
+        </button>
+        {STATUSES.map(s => (
+          <button key={s} onClick={() => setStatusFilter(f => f === s ? null : s)}
+            className={`text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${statusFilter === s ? STATUS_TONE[s] : "border-stone-800 text-stone-500 hover:text-stone-300"}`}>
+            {STATUS_LABEL[s]} <span className={statusFilter === s ? "" : "text-stone-600"}>{counts[s]}</span>
+          </button>
+        ))}
+      </div>
+
+      {showSchedule && <ScheduleMoDrawer boms={boms} items={items} salesOrders={salesOrders} onClose={() => setShowSchedule(false)} onCreated={() => { setShowSchedule(false); load(); }} />}
+      {showProcess && <ProcessMoDrawer rows={list} onClose={() => setShowProcess(false)} onChanged={load} />}
       {openId && <MoDrawer id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
 
-      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No manufacturing orders yet — plan one with New MO.</div>
-      ) : (
-        <div className="grid grid-cols-5 gap-3">
-          {COLUMNS.map(col => {
-            const cards = list.filter(m => m.status === col.key);
-            return (
-              <div key={col.key}>
-                <div className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${col.tone}`}>{col.label} <span className="text-stone-600">{cards.length}</span></div>
-                <div className="space-y-2">
-                  {cards.map(m => (
-                    <button key={m.id} onClick={() => setOpenId(m.id)} className="w-full text-left rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-600 p-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-[11px] text-stone-400">{m.moNo}</span>
-                        {m.priority === "High" && <span className="text-[10px] text-rose-400 font-medium">HIGH</span>}
-                      </div>
-                      <div className="text-[13px] font-medium text-stone-100 mt-0.5 leading-tight">{m.outputItem?.name ?? "—"}</div>
-                      <div className="text-[11px] text-stone-500 mt-0.5">{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}{m.scheduledDate ? ` · ${m.scheduledDate}` : ""}</div>
-                    </button>
-                  ))}
-                  {cards.length === 0 && <div className="text-[11px] text-stone-600 px-1">—</div>}
-                </div>
-              </div>
-            );
-          })}
+      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px] min-w-[980px]">
+            <thead>
+              <tr className="border-b border-stone-800">
+                <th className={th}>MO #</th>
+                <th className={th}>Status</th>
+                <th className={th}>SKUs</th>
+                <th className={`${th} !text-right`}>Qty expected</th>
+                <th className={`${th} !text-right`}>Actual qty</th>
+                <th className={th}>Scheduled</th>
+                <th className={th}>Started</th>
+                <th className={th}>Manufactured</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows === null && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
+              {rows !== null && shown.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">
+                  {list.length === 0 ? "No manufacturing orders yet — plan one with Schedule MO." : "Nothing at this status."}
+                </td></tr>
+              )}
+              {shown.map(m => (
+                <tr key={m.id} onClick={() => setOpenId(m.id)} className="border-b border-stone-800/60 hover:bg-stone-800/20 cursor-pointer">
+                  <td className="px-4 py-2.5 font-mono text-[12px] text-stone-200 whitespace-nowrap">
+                    {m.moNo || m.id.slice(0, 8)}{m.priority === "High" && <span className="ml-1.5 text-[10px] text-rose-400 font-medium align-middle">HIGH</span>}
+                  </td>
+                  <td className="px-4 py-2.5"><StatusPill status={m.status} /></td>
+                  <td className="px-4 py-2.5 text-stone-300 max-w-[220px] truncate">{m.skuLabel || m.outputItem?.name || "—"}</td>
+                  <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums whitespace-nowrap">{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">
+                    {m.completedBase > 0 ? <span className="text-emerald-400">{qtyFmt(m.completedBase)} {m.outputItem?.baseUom || ""}</span> : <span className="text-stone-600">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.scheduledDate ? fmt.shortDate(m.scheduledDate) : "—"}</td>
+                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.startedAt ? fmt.dateTime(m.startedAt) : "—"}</td>
+                  <td className="px-4 py-2.5 text-stone-400 whitespace-nowrap">{m.completedAt ? fmt.dateTime(m.completedAt) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: any[]; items: any[]; salesOrders: any[]; onClose: () => void; onCreated: () => void }) {
+function ScheduleMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: any[]; items: any[]; salesOrders: any[]; onClose: () => void; onCreated: () => void }) {
   const [bomId, setBomId] = useState("");
   const [bom, setBom] = useState<any>(null);          // { outputItem, outputs:[{skuId, item, qty(unitContent)}] }
   const [packQty, setPackQty] = useState<Record<string, string>>({});  // skuId -> qty
@@ -143,7 +200,7 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
   }
 
   return (
-    <Drawer title="New manufacturing order" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create MO" />}>
+    <Drawer title="Schedule a manufacturing order" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Schedule MO" />}>
       <div className="space-y-6">
         <Section title="Order">
           <Field label="Recipe (BOM)" required>
@@ -204,6 +261,317 @@ function NewMoDrawer({ boms, items, salesOrders, onClose, onCreated }: { boms: a
       </Drawer>
   );
 }
+
+/* =========================================================================
+ * Process MO — a guided drawer: Hub (ready to start / in progress) → one
+ * order at a time → allocate each material's lots → complete. Mirrors the
+ * Receiving console's "Receive stock" drilldown (hub of open POs → items →
+ * lot capture → post) so the two production-facing guided flows in Supply
+ * Chain feel like one system rather than two.
+ * ======================================================================= */
+
+type ProcessView = { v: "hub" } | { v: "order"; moId: string } | { v: "lot"; moId: string; itemId: string };
+
+function ProcessMoDrawer({ rows, onClose, onChanged }: { rows: any[]; onClose: () => void; onChanged: () => void }) {
+  const [tab, setTab] = useState<"start" | "inprogress">("start");
+  const [view, setView] = useState<ProcessView>({ v: "hub" });
+  const [list, setList] = useState<any[]>(rows);
+  const [notice, setNotice] = useState("");
+
+  async function refresh() {
+    const r = await fetch(`/api/production/mos`).then(x => x.json()).catch(() => null);
+    if (Array.isArray(r)) setList(r);
+  }
+
+  const readyToStart = list.filter(m => ["Scheduled", "Released"].includes(m.status));
+  const inProgress = list.filter(m => m.status === "InProgress");
+
+  function openOrder(id: string) { setNotice(""); setView({ v: "order", moId: id }); }
+  function backToHub() { setNotice(""); setView({ v: "hub" }); }
+
+  return (
+    <Drawer title="Process manufacturing order" onClose={onClose} wide pad={false}>
+      {view.v === "hub" && (
+        <ProcessHub readyToStart={readyToStart} inProgress={inProgress} tab={tab} setTab={setTab} notice={notice} onOpen={openOrder} />
+      )}
+      {view.v === "order" && (
+        <OrderStep moId={view.moId} onBack={backToHub}
+          onOpenLot={(itemId) => setView({ v: "lot", moId: view.moId, itemId })}
+          onProgressed={async (msg) => { await refresh(); onChanged(); setNotice(msg); }}
+          onCompleted={async (msg) => { await refresh(); onChanged(); setNotice(msg); setView({ v: "hub" }); }}
+        />
+      )}
+      {view.v === "lot" && (
+        <LotStep moId={view.moId} itemId={view.itemId} onBack={() => setView({ v: "order", moId: view.moId })} />
+      )}
+    </Drawer>
+  );
+}
+
+function ProcessHub({ readyToStart, inProgress, tab, setTab, notice, onOpen }: {
+  readyToStart: any[]; inProgress: any[]; tab: "start" | "inprogress"; setTab: (t: "start" | "inprogress") => void;
+  notice: string; onOpen: (id: string) => void;
+}) {
+  const list = tab === "start" ? readyToStart : inProgress;
+  return (
+    <>
+      <div className="flex items-center gap-1 sticky top-0 z-10 bg-stone-900 px-5 pt-4 border-b border-stone-800">
+        <TabButton active={tab === "start"} onClick={() => setTab("start")} label="Ready to start" count={readyToStart.length} />
+        <TabButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
+      </div>
+      <div className="p-5">
+        {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
+        {list.length === 0 && (
+          <p className="text-[13px] text-stone-500 text-center py-10">
+            {tab === "start" ? "Nothing is scheduled or released yet — plan one with Schedule MO." : "Nothing is in progress right now."}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          {list.map(m => (
+            <button key={m.id} onClick={() => onOpen(m.id)}
+              className="text-left rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-700 hover:bg-stone-800/50 p-4 transition-colors">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <span className="text-[13.5px] font-semibold text-stone-100 truncate">{m.outputItem?.name || "Unknown item"}</span>
+                <ChevronRight size={15} className="text-stone-600 shrink-0" />
+              </div>
+              <div className="flex items-center gap-1.5 text-[12px] text-stone-400 font-mono mb-1.5">
+                <Workflow size={12} className="text-orange-500" /> {m.moNo || m.id.slice(0, 8)}
+              </div>
+              <div className="flex items-center justify-between text-[11.5px] gap-2">
+                <span className="text-stone-500 truncate">{qtyFmt(m.qty)} {m.outputItem?.baseUom || ""}{m.scheduledDate ? ` · ${fmt.shortDate(m.scheduledDate)}` : ""}</span>
+                <StatusPill status={m.status} />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TabButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button onClick={onClick}
+      className={`px-3 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${active ? "border-emerald-500 text-stone-100" : "border-transparent text-stone-500 hover:text-stone-300"}`}>
+      {label} {count > 0 && <span className={`ml-1 text-[11px] ${active ? "text-emerald-400" : "text-stone-600"}`}>({count})</span>}
+    </button>
+  );
+}
+
+/**
+ * One order, one step at a time: the next lifecycle action is always the one
+ * primary button in the footer — Release, then Start, then Complete once
+ * every material has lots. Materials become clickable rows once the order is
+ * In Progress, each opening its own LotStep, exactly as a receipt line opens
+ * its own LotCapture in Receiving.
+ */
+function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
+  moId: string; onBack: () => void; onOpenLot: (itemId: string) => void;
+  onProgressed: (msg: string) => void; onCompleted: (msg: string) => void;
+}) {
+  const [d, setD] = useState<any>(null);
+  const [alloc, setAlloc] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [completing, setCompleting] = useState(false);
+
+  async function load() {
+    const det = await fetch(`/api/production/mos/${moId}`).then(r => r.json()).catch(() => null);
+    setD(det);
+    if (det?.mo?.status === "InProgress") setAlloc(await fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null));
+    else setAlloc(null);
+  }
+  useEffect(() => { load(); }, [moId]);
+
+  const mo = d?.mo;
+  const lines: any[] = d?.materials?.lines ?? [];
+  const stocked = lines.filter(l => l.tracked && l.required > 0);
+  const unallocated = stocked.filter(l => !(l.allocated > 0));
+  const canComplete = mo?.status === "InProgress" && stocked.length > 0 && unallocated.length === 0;
+
+  async function transition(to: string, msg: string) {
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/production/mos/${moId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: to }) });
+    setBusy(false);
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Failed."); return; }
+    await load(); onProgressed(msg);
+  }
+  async function allocateAll() {
+    setBusy(true); setErr("");
+    for (const m of alloc?.materials ?? []) {
+      if (m.allocated > 0 || !m.suggestion?.length) continue;
+      const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: m.itemId, picks: m.suggestion.map((p: any) => ({ ...p, suggested: true })) }) });
+      if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); break; }
+    }
+    setBusy(false); await load();
+  }
+  function onRunPosted(res: any) {
+    setCompleting(false);
+    if (res?.pending) { onProgressed("This completion exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals."); return; }
+    if (res?.final) onCompleted(`Completed — ${res.runNo} posted.`);
+    else { load(); onProgressed(`Partial completion ${res.runNo} posted — allocate the rest, or complete again.`); }
+  }
+
+  if (!d || !mo) return <div className="p-5"><p className="text-[13px] text-stone-500">Loading…</p></div>;
+
+  return (
+    <>
+      {completing && <CompletionDrawer id={moId} d={d} alloc={alloc} onClose={() => setCompleting(false)} onDone={onRunPosted} />}
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
+        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> All orders</button>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center shrink-0"><Workflow size={15} className="text-orange-400" /></div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold text-stone-100 truncate">{mo.moNo} · {d.outputItem?.name ?? ""}</div>
+            <div className="text-[11.5px] text-stone-500">{qtyFmt(mo.qty)} {d.outputItem?.baseUom || ""}{mo.scheduledDate ? ` · scheduled ${fmt.shortDate(mo.scheduledDate)}` : ""}</div>
+          </div>
+          <StatusPill status={mo.status} />
+        </div>
+      </div>
+      <div className="p-5 space-y-4">
+        <StageNote status={mo.status} />
+
+        {(d.outputs ?? []).length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Output packs</div>
+            <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/50">
+              {d.outputs.map((o: any) => (
+                <div key={o.id} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
+                  <span className="text-stone-200">{o.skuName || (o.skuId ? "Pack" : `Base unit (${d.outputItem?.baseUom || "units"})`)}</span>
+                  <span className="text-stone-400 tabular-nums">
+                    {qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}
+                    {o.completedQty > 0 && <span className="text-emerald-400"> · {qtyFmt(o.completedQty)} done</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {mo.status === "InProgress" && stocked.length > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2">
+            <span className="text-[12px] text-stone-400">
+              {unallocated.length ? `${unallocated.length} of ${stocked.length} material${stocked.length === 1 ? "" : "s"} still need lots — tap one to allocate.` : "Every material has lots allocated — ready to complete."}
+            </span>
+            {unallocated.length > 0 && (
+              <button onClick={allocateAll} disabled={busy || !alloc} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50 shrink-0">Allocate the rest by earliest expiry</button>
+            )}
+          </div>
+        )}
+
+        {(["ingredient", "packaging"] as const).map(kind => {
+          const rows2 = lines.filter((l: any) => l.kind === kind);
+          if (!rows2.length) return null;
+          const inProgress = mo.status === "InProgress";
+          return (
+            <div key={kind}>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">{kind === "ingredient" ? "Ingredients" : "Packaging"}</div>
+              <div className="rounded-lg border border-stone-800 overflow-hidden">
+                <table className="w-full text-[12px]">
+                  <thead><tr className="border-b border-stone-800">
+                    <th className={th}>Material</th><th className={`${th} text-right`}>Planned</th>
+                    <th className={`${th} text-right`}>{inProgress ? "Allocated" : "Available"}</th><th className={`${th} text-right`}>Status</th>
+                  </tr></thead>
+                  <tbody>
+                    {rows2.map((l: any) => (
+                      <tr key={l.itemId} className={`border-b border-stone-800/50 ${inProgress && l.tracked ? "cursor-pointer hover:bg-stone-950/40" : ""}`}
+                        onClick={() => inProgress && l.tracked && onOpenLot(l.itemId)}>
+                        <td className="px-3 py-1.5 text-stone-200">{l.name}</td>
+                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(l.required)} {l.baseUom}</td>
+                        <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{inProgress ? qtyFmt(l.allocated) : qtyFmt(l.onHand)}</td>
+                        <td className="px-3 py-1.5 text-right">
+                          <span className="inline-flex items-center justify-end gap-1"><MaterialStatus l={l} inProgress={inProgress} />{inProgress && l.tracked && <ChevronRight size={12} className="text-stone-600" />}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+        {lines.length === 0 && <p className="text-[12px] text-stone-500">No materials planned (the BOM has no ingredients/packaging yet).</p>}
+        {mo.status !== "InProgress" && d.materials?.anyShort && <p className="text-[11px] text-amber-400">Some materials are short — receive or produce them before production starts; completion takes only allocated lots.</p>}
+
+        {err && <p className="text-[12px] text-rose-400">{err}</p>}
+      </div>
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3 flex items-center justify-end gap-2">
+        {mo.status === "Scheduled" && (
+          <button onClick={() => transition("Released", "Released for production.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+            {busy ? <Loader size={14} className="animate-spin" /> : <ChevronRight size={14} />} Release for production
+          </button>
+        )}
+        {mo.status === "Released" && (
+          <button onClick={() => transition("InProgress", "Production started.")} disabled={busy} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+            {busy ? <Loader size={14} className="animate-spin" /> : <PlayCircle size={14} />} Start production
+          </button>
+        )}
+        {mo.status === "InProgress" && (
+          <button onClick={() => setCompleting(true)} disabled={busy || !canComplete} title={canComplete ? "" : "Allocate lots for every material first"}
+            className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 disabled:opacity-50">
+            <Check size={14} /> Complete production →
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Allocate one material's lots — a dedicated step, like Receiving's LotCapture. */
+function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBack: () => void }) {
+  const [d, setD] = useState<any>(null);
+  const [alloc, setAlloc] = useState<any>(null);
+  const [err, setErr] = useState("");
+
+  async function load() {
+    const [det, al] = await Promise.all([
+      fetch(`/api/production/mos/${moId}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null),
+    ]);
+    setD(det); setAlloc(al);
+  }
+  useEffect(() => { load(); }, [moId, itemId]);
+
+  const line = (d?.materials?.lines ?? []).find((l: any) => l.itemId === itemId);
+  const m = (alloc?.materials ?? []).find((x: any) => x.itemId === itemId);
+
+  async function save(picks: { lotId: string; qty: number; suggested?: boolean }[]) {
+    setErr("");
+    const r = await fetch(`/api/production/mos/${moId}/allocations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, picks }) });
+    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not allocate."); return false; }
+    onBack();
+    return true;
+  }
+
+  return (
+    <>
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
+        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> Materials</button>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center shrink-0"><Package size={15} className="text-orange-400" /></div>
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold text-stone-100 truncate">{line?.name ?? "Material"}</div>
+            <div className="text-[11.5px] text-stone-500">Needs {line ? qtyFmt(line.required) : "—"} {line?.baseUom || ""}</div>
+          </div>
+        </div>
+      </div>
+      <div className="p-5">
+        {!d || !alloc ? <p className="text-[13px] text-stone-500">Loading…</p> : !m ? (
+          <p className="text-[13px] text-rose-400">{err || "This material isn't part of the order."}</p>
+        ) : (
+          <LotAllocator m={m} baseUom={line?.baseUom ?? null} onSave={save} />
+        )}
+        {err && <p className="text-[12px] text-rose-400 mt-2">{err}</p>}
+      </div>
+    </>
+  );
+}
+
+/* =========================================================================
+ * Detail drawer (row click) — unchanged behaviour: status transitions, void,
+ * delete, and the same inline allocate-and-complete flow, for anything the
+ * guided Process MO drawer above doesn't cover on its own happy path.
+ * ======================================================================= */
 
 function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const [d, setD] = useState<any>(null);
@@ -318,7 +686,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
       {!d ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-[12px] text-stone-400">
-            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${mo.status === "Completed" ? "border-emerald-800/50 text-emerald-400 bg-emerald-500/10" : mo.status === "Cancelled" ? "border-stone-700 text-stone-500" : "border-sky-800/50 text-sky-400 bg-sky-500/10"}`}>{mo.status === "InProgress" ? "In Progress" : mo.status}</span>
+            <StatusPill status={mo.status} />
             <span>{qtyFmt(mo.qty)} {d.outputItem?.baseUom || ""}</span>
             {mo.scheduledDate && <span>· scheduled {mo.scheduledDate}</span>}
             {mo.priority === "High" && <span className="text-rose-400">· HIGH</span>}
@@ -688,7 +1056,3 @@ function LotAllocator({ m, baseUom, onSave }: { m: any; baseUom: string | null; 
     </div>
   );
 }
-
-/* ----------------------------- Drawer shell ----------------------------- */
-
-
