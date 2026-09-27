@@ -82,11 +82,19 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     pathname.startsWith("/accounting/trade/sales-orders") ||
     pathname === "/accounting/reports" || pathname.startsWith("/accounting/reports/") ||
     pathname === "/accounting/products";
+  // isChrome/isSharedEntity must be checked FIRST. Every one of the shared
+  // paths above (the Supply Chain links included) starts with /accounting or
+  // /batch, so isAccounting/isBatch were matching — and winning — before this
+  // ternary ever reached the isSharedEntity branch below it: the carve-out was
+  // computed but never actually consulted for any of them. That is the bug
+  // this fixes ("click Products & Services from Supply Chain, land in
+  // Accounting") — checking prefixes before the shared/chrome flags looks
+  // reasonable until you notice every listed shared URL matches one of them.
   const pathDepartment: Department | null =
-    isResources ? "resources"
+    (isChrome || isSharedEntity) ? null
+    : isResources ? "resources"
     : isSupplyChain ? "supplychain" : isAccounting ? "accounting" : isBatch ? "batch" : isReporting ? "reporting"
-    : (isPayables && !isSharedEntity) ? "ap"
-    : (isChrome || isSharedEntity) ? null
+    : isPayables ? "ap"
     : "ar";
   const [lastDept, setLastDept] = useState<Department>(() => {
     if (typeof window === "undefined") return "ar";
