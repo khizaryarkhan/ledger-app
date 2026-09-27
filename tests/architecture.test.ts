@@ -161,6 +161,117 @@ describe("a purchase cannot be posted without its sourcing decision", () => {
   });
 });
 
+describe("Payables' own Purchase Order acquires nothing locally — the sourcing carve-out's premise", () => {
+  /**
+   * CLAUDE.md's "Supplier sourcing" section exempts Payables' own PO
+   * (`purchase_orders`/`purchase_order_lines`, the `/payables/purchase-orders`
+   * screen) from the sourcing check above — not because it was missed, but
+   * because this path never reaches a posting or stock engine, and its
+   * `item_id` is the PROVIDER's id (QBO/Xero), not `ap_items.id`, so wiring
+   * the check in naively would 500 every item line.
+   *
+   * That is a fact about the code today, not a permanent grant, and the
+   * comment saying so is worth nothing the day it stops being true. So this
+   * asserts the PREMISE — the carve-out's named files exist, import no
+   * posting/stock engine, reference no posting/bridge table, and the table
+   * they own has no second reader — rather than merely restating the
+   * conclusion. Each of these was proven to fail on a real, temporary
+   * violation before being left green.
+   */
+  const CARVE_OUT_FILES = [
+    "app/api/payables/purchase-orders/[id]/route.ts",
+    "app/api/payables/purchase-orders/[id]/push/route.ts",
+    "lib/po-push.ts",
+  ];
+
+  it("names files that actually exist", () => {
+    // Guards against the rest of this block passing vacuously because a path
+    // was mistyped or a file moved.
+    for (const rel of CARVE_OUT_FILES) {
+      expect(() => statSync(join(ROOT, rel)), `${rel} does not exist`).not.toThrow();
+    }
+  });
+
+  it("none of them import a posting or stock engine", () => {
+    const ENGINES = [
+      "lib/accounting/documents",
+      "lib/accounting/trade-documents",
+      "lib/ledger",
+      "lib/inventory/receiving",
+      "lib/inventory/valuation",
+      "lib/inventory/shipping",
+      "lib/inventory/jobwork",
+      "lib/inventory/adjustments",
+      "lib/inventory/mo-completion",
+    ];
+    const offenders: string[] = [];
+    for (const rel of CARVE_OUT_FILES) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      for (const engine of ENGINES) {
+        if (new RegExp(`from\\s+["'][^"']*${engine}["']`).test(src)) {
+          offenders.push(`${rel} imports ${engine}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "this path is exempt only because it posts and bridges nothing — an import of a posting/stock engine here means the exemption's premise no longer holds",
+    ).toEqual([]);
+  });
+
+  it("none of them reference a posting/bridge/stock table", () => {
+    const TABLES = [
+      "apBills", "apBillLines", "journalEntries", "journalLines",
+      "inventoryLots", "inventoryMovements", "goodsReceipts",
+      "goodsReceiptLines", "tradeDocuments", "tradeDocumentLines",
+    ];
+    const offenders: string[] = [];
+    for (const rel of CARVE_OUT_FILES) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      for (const table of TABLES) {
+        if (new RegExp(`\\b${table}\\b`).test(src)) offenders.push(`${rel} references ${table}`);
+      }
+    }
+    expect(
+      offenders,
+      "this path never posts or bridges into the ledger/inventory/receiving tables — a reference here means it now does",
+    ).toEqual([]);
+  });
+
+  // The only two files allowed to read purchaseOrderLines. If a new reader
+  // appears anywhere else, the table has a second consumer this carve-out's
+  // reasoning never accounted for — that needs re-examining, not silently
+  // added to this list.
+  const ALLOWED_READERS = new Set([
+    "app/api/payables/purchase-orders/[id]/route.ts",
+    "lib/po-push.ts",
+  ]);
+
+  it("purchase_order_lines has no reader outside this path", () => {
+    const NEEDLE = /\bpurchaseOrderLines\b/;
+    const offenders: string[] = [];
+    for (const dir of ["app", "lib", "inngest", "components", "scripts"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (ALLOWED_READERS.has(rel)) continue;
+        if (NEEDLE.test(readFileSync(f, "utf8"))) offenders.push(rel);
+      }
+    }
+    expect(
+      offenders,
+      "a new reader of purchase_order_lines outside lib/po-push.ts and the Payables PO route — this changes the carve-out's premise and needs re-examining, not just adding here",
+    ).toEqual([]);
+  });
+
+  it("the allowed readers still actually read it", () => {
+    // The other side of the same coin: if this list goes stale (a rename, a
+    // rewrite), the guard above would start passing for the wrong reason.
+    for (const rel of ALLOWED_READERS) {
+      expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} no longer references purchaseOrderLines`).toMatch(/\bpurchaseOrderLines\b/);
+    }
+  });
+});
+
 describe("no GROUP BY on a view-backed table", () => {
   /**
    * `customers` and `ap_suppliers` are VIEWS over `parties` (migration 0079).

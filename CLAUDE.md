@@ -279,7 +279,8 @@ exactly the anti-pattern this rule exists to prevent.)
   Chain's nav points at) are two separate, real screens over the same
   concept. Merging them is an intentional **Phase 1b** deferral, not an
   oversight discovered mid-session — don't rediscover this and "fix" it
-  without that context.
+  without that context. Payables' own PO is also the one purchase document
+  type exempt from the sourcing policy check below — see that section for why.
 - **Customer and Supplier are shared master data, not Accounting's to own a
   third copy of** (2026-09-06): Accounting's Sales/Purchases sections link
   `Customers`/`Suppliers` straight at Receivables' `/customers` and Payables'
@@ -1608,6 +1609,29 @@ Suppliers panel, because that is where the question is asked.
     unlocated-stock rule already rejects ("drift is better than refusing to let
     physical stock move"). `billFromReceipts` is naturally exempt too — its
     lines are GR/IR clearing lines with `itemId: null`, so nothing is stranded.
+  - **Payables' own `purchase_orders`/`purchase_order_lines` (the
+    `/payables/purchase-orders` screen — see the duplication note above) is
+    exempt too, but for a different reason: it acquires nothing locally. Its
+    only outlet is `lib/po-push.ts`, which pushes a header+lines straight to
+    QuickBooks/Xero — nothing converts it to a local Bill or receipt, no
+    lot/movement/journal-entry is ever created from it, and `ap_bills.
+    purchase_order_id` is never written by any code path. Its `item_id`
+    column is also the wrong shape for the check: it holds the PROVIDER's
+    item id (QBO `ItemRef.value` / Xero `ItemCode`), not `ap_items.id`, so
+    wiring the check in naively would 500 every item line
+    (`findSourcingViolations` does `inArray(apItems.id, itemIds)` against a
+    uuid column fed a QBO/Xero string). A Bill raised later for the same
+    goods — by hand, or from a Bill created inside QuickBooks/Xero off the
+    pushed PO — IS checked: a hand-raised Bill goes through `postDocument`
+    like any other, and a provider-mirrored Bill is never posted at all (see
+    "one path per document type" below), so neither one is this exemption
+    quietly reappearing under another name. The exemption lasts only while
+    that premise does — the moment this path starts reaching a posting or
+    stock engine, or gains a second reader, it needs re-examining, not just
+    re-documenting. `tests/architecture.test.ts` asserts the premise itself
+    (the files named here still exist, still import no posting/stock engine,
+    still reference no posting/bridge table, and `purchase_order_lines` still
+    has no other reader), so it fails the moment any of that stops holding.
 - **`lib/inventory/sourcing.ts` (pure, client-safe) vs
   `lib/inventory/sourcing-server.ts` (imports `db`)** — same split, and same
   reason, as `lib/modules.ts` / `lib/modules-server.ts`. Guarded in
