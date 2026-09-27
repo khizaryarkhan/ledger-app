@@ -202,3 +202,32 @@ export function consumptionUnits(
   }
   return out;
 }
+
+/**
+ * The units a production run's OUTPUT may be counted in, each expressed as
+ * how many of the order's PACKS one of it holds.
+ *
+ * An MO output is counted in packs (`mo_outputs.qty`), a pack holding
+ * `unitContent` base units — the BOM's own figure, so it is the anchor rather
+ * than the SKU's `innerUnitPackSize`, which may not have been filled in. The
+ * SKU's higher levels are counts of the level below (additional inner = N
+ * packs; outer = N additional-inner packs, or N packs when there is none),
+ * which is the same nesting `salesOrderOptions` reads. The base unit is always
+ * offered, so a run measured in litres off a tank can be entered as litres.
+ */
+export function outputCaptureUnits(
+  baseUom: string | null,
+  out: { skuId?: string | null; skuName?: string | null; unitContent?: number | null },
+  sku?: { innerPackType?: string | null; unitsInAddlInnerPack?: any; addlInnerPackType?: string | null; unitsInOuterPack?: any; outerPackType?: string | null } | null,
+): { label: string; perPack: number }[] {
+  const content = Number(out.unitContent) || 0;
+  if (!out.skuId || !(content > 0)) return [{ label: `${baseUom || "unit"} — base`, perPack: 1 }];
+  const packName = sku?.innerPackType || out.skuName || "pack";
+  const units = [{ label: `${packName} (${content} ${baseUom || ""})`.replace(" )", ")"), perPack: 1 }];
+  const addl = Number(sku?.unitsInAddlInnerPack) || 0;
+  if (addl > 0) units.push({ label: `${sku?.addlInnerPackType || "pack"} (${addl} × ${packName})`, perPack: addl });
+  const outer = Number(sku?.unitsInOuterPack) || 0;
+  if (outer > 0) units.push({ label: `${sku?.outerPackType || "outer pack"} (${outer} × ${addl > 0 ? (sku?.addlInnerPackType || "pack") : packName})`, perPack: outer * (addl > 0 ? addl : 1) });
+  units.push({ label: `${baseUom || "unit"} — base`, perPack: 1 / content });
+  return units;
+}

@@ -16,6 +16,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
+import { outputCaptureUnits } from "@/lib/inventory/order-options";
 
 const qtyFmt = (n: any) => fmt.qty(n ?? 0);
 
@@ -375,6 +376,9 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
   const [err, setErr] = useState("");
   const [completing, setCompleting] = useState(false);
   const [tab, setTab] = useState<"input" | "output" | "ops">("input");
+  // Captured actual output, in PACKS per mo_outputs row — pre-fills Complete production.
+  const [produced, setProduced] = useState<Record<string, number>>({});
+  const [openOut, setOpenOut] = useState<string | null>(null);
 
   async function load() {
     const det = await fetch(`/api/production/mos/${moId}`).then(r => r.json()).catch(() => null);
@@ -410,6 +414,7 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
   }
   function onRunPosted(res: any) {
     setCompleting(false);
+    if (!res?.pending) setProduced({});
     if (res?.pending) { onProgressed("This completion exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals."); return; }
     if (res?.final) onCompleted(`Completed — ${res.runNo} posted.`);
     else { load(); onProgressed(`Partial completion ${res.runNo} posted — allocate the rest, or complete again.`); }
@@ -419,7 +424,7 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
 
   return (
     <>
-      {completing && <CompletionDrawer id={moId} d={d} alloc={alloc} onClose={() => setCompleting(false)} onDone={onRunPosted} />}
+      {completing && <CompletionDrawer id={moId} d={d} alloc={alloc} produced={produced} onClose={() => setCompleting(false)} onDone={onRunPosted} />}
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
         <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> All orders</button>
         <div className="flex items-center gap-2">
@@ -436,7 +441,10 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
 
         <MoTabs d={d} tab={tab} setTab={setTab} />
         {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={onOpenLot} />}
-        {tab === "output" && <OutputPanel d={d} />}
+        {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
+          ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
+              onSave={packs => { setProduced(p => { const n = { ...p }; if (packs == null) delete n[openOut]; else n[openOut] = packs; return n; }); setOpenOut(null); }} />
+          : <OutputPanel d={d} produced={produced} editable={d.mo.status === "InProgress"} onOpen={setOpenOut} />)}
         {tab === "ops" && <OperationsPanel d={d} />}
 
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
@@ -524,6 +532,9 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const [alloc, setAlloc] = useState<any>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [tab, setTab] = useState<"input" | "output" | "ops">("input");
+  // Captured actual output, in PACKS per mo_outputs row — pre-fills Complete production.
+  const [produced, setProduced] = useState<Record<string, number>>({});
+  const [openOut, setOpenOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [info, setInfo] = useState("");
   const [completing, setCompleting] = useState(false);
   async function load() {
@@ -559,6 +570,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   }
   function onCompleted(res: any) {
     setCompleting(false);
+    if (!res?.pending) setProduced({});
     if (res?.pending) setInfo("This completion exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals.");
     else setInfo(res?.final ? `Completed — ${res.runNo} posted.` : `Partial completion ${res.runNo} posted. The order stays in progress.`);
     load(); onChanged();
@@ -630,7 +642,7 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
   return (
     <>
-    {completing && d && <CompletionDrawer id={id} d={d} alloc={alloc} onClose={() => setCompleting(false)} onDone={onCompleted} />}
+    {completing && d && <CompletionDrawer id={id} d={d} alloc={alloc} produced={produced} onClose={() => setCompleting(false)} onDone={onCompleted} />}
     <Drawer title={mo ? `${mo.moNo} · ${d.outputItem?.name ?? ""}` : "Manufacturing order"} onClose={onClose} size="xl" footer={footer}>
       {!d ? <p className="text-[13px] text-stone-500">Loading…</p> : (
         <div className="space-y-4">
@@ -651,7 +663,10 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
                 onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }} />
             : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} />)}
 
-          {tab === "output" && <OutputPanel d={d} />}
+          {tab === "output" && (openOut && (d.outputs ?? []).some((o: any) => o.id === openOut)
+          ? <OutputPicker key={openOut} d={d} o={d.outputs.find((o: any) => o.id === openOut)} value={produced[openOut]} onBack={() => setOpenOut(null)}
+              onSave={packs => { setProduced(p => { const n = { ...p }; if (packs == null) delete n[openOut]; else n[openOut] = packs; return n; }); setOpenOut(null); }} />
+          : <OutputPanel d={d} produced={produced} editable={d.mo.status === "InProgress"} onOpen={setOpenOut} />)}
 
           {tab === "ops" && <OperationsPanel d={d} />}
 
@@ -671,10 +686,10 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
  * changes the good packs and the lots used. The preview is the server's own
  * costing of exactly this input, so what is confirmed is what posts.
  */
-function CompletionDrawer({ id, d, alloc, onClose, onDone }: { id: string; d: any; alloc: any; onClose: () => void; onDone: (res: any) => void }) {
+function CompletionDrawer({ id, d, alloc, produced = {}, onClose, onDone }: { id: string; d: any; alloc: any; produced?: Record<string, number>; onClose: () => void; onDone: (res: any) => void }) {
   const baseUom = d.outputItem?.baseUom || "";
   const [date, setDate] = useState(localToday());
-  const [good, setGood] = useState<Record<string, string>>(() => Object.fromEntries((d.outputs ?? []).map((o: any) => [o.skuId, String(o.remainingQty ?? o.qty)])));
+  const [good, setGood] = useState<Record<string, string>>(() => Object.fromEntries((d.outputs ?? []).map((o: any) => [o.skuId, String(produced[o.id] ?? o.remainingQty ?? o.qty)])));
   const [rejected, setRejected] = useState("");
   // Final unless this run leaves packs unmade — or the user says otherwise.
   const [finalSet, setFinalSet] = useState<boolean | null>(null);
@@ -910,35 +925,66 @@ function InputPanel({ d, alloc, busy, onAllocateAll, onOpen }: {
   );
 }
 
-/** Output: what the order produces, per pack, and every completion run so far. */
-function OutputPanel({ d }: { d: any }) {
+/**
+ * Output: one card per output pack, the same shape as Input. A card opens
+ * OutputPicker to capture what was actually produced; captured figures are
+ * held by the drawer and pre-fill "Complete production" — nothing posts here.
+ */
+function OutputPanel({ d, produced, editable, onOpen }: {
+  d: any; produced: Record<string, number>; editable: boolean; onOpen: (outputId: string) => void;
+}) {
   const baseUom = d.outputItem?.baseUom || "";
+  const captured = (d.outputs ?? []).filter((o: any) => produced[o.id] != null).length;
   return (
     <div className="space-y-4">
-      <div>
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">To produce</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {(d.outputs ?? []).map((o: any) => {
-            const done = Number(o.completedQty) || 0;
-            const pct = o.qty > 0 ? Math.min(100, (done / o.qty) * 100) : 0;
-            return (
-              <div key={o.id} className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
-                <div className="text-[13px] font-medium text-stone-100 truncate">{o.skuName || (o.skuId ? "Pack" : `${d.outputItem?.name ?? "Output"} — base unit`)}</div>
-                <div className="mt-2 text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-[20px] font-semibold tabular-nums text-stone-100">{qtyFmt(o.qty)}</span>
-                  <span className="text-[12px] text-stone-500">{o.skuId ? "packs" : (baseUom || "units")}</span>
-                </div>
-                {o.skuId && <div className="text-[11px] text-stone-500 tabular-nums">= {qtyFmt(o.qty * o.unitContent)} {baseUom}</div>}
-                <div className="mt-2 h-1 rounded-full bg-stone-800 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-                <div className="mt-1 text-[11px] text-stone-500 tabular-nums">{done > 0 ? `${qtyFmt(done)} done` : "Nothing completed yet"}</div>
+      {editable && (d.outputs ?? []).length > 0 && (
+        <p className="text-[12px] text-stone-400 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2">
+          {captured
+            ? `${captured} of ${d.outputs.length} captured — Complete production will use these figures.`
+            : "Open a pack to capture how much was actually produced. Anything not captured defaults to what remains."}
+        </p>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {(d.outputs ?? []).map((o: any) => {
+          const done = Number(o.completedQty) || 0;
+          const pct = o.qty > 0 ? Math.min(100, (done / o.qty) * 100) : 0;
+          const actual = produced[o.id];
+          const unit = o.skuId ? "packs" : (baseUom || "units");
+          const body = (
+            <>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[13px] font-medium text-stone-100 truncate">{o.skuName || (o.skuId ? "Pack" : `${d.outputItem?.name ?? "Output"} — base unit`)}</span>
+                {editable && <ChevronRight size={14} className="shrink-0 mt-0.5 text-stone-600 group-hover:text-stone-300" />}
               </div>
-            );
-          })}
-        </div>
-        {(d.outputs ?? []).length === 0 && <p className="text-[12px] text-stone-500">No output planned.</p>}
-        {d.materials?.baseTotal > 0 && <p className="text-[11px] text-stone-500 mt-1.5">Total base to produce: {qtyFmt(d.materials.baseTotal)} {baseUom}</p>}
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
+                  <div className="flex items-baseline gap-1.5"><span className="text-[20px] font-semibold tabular-nums text-stone-100">{qtyFmt(o.qty)}</span><span className="text-[12px] text-stone-500">{unit}</span></div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-stone-500">Actual</div>
+                  <div className="flex items-baseline gap-1.5">
+                    {actual != null
+                      ? <><span className="text-[20px] font-semibold tabular-nums text-emerald-400">{qtyFmt(actual)}</span><span className="text-[12px] text-stone-500">{unit}</span></>
+                      : <span className="text-[20px] font-semibold text-stone-600">—</span>}
+                  </div>
+                </div>
+              </div>
+              {o.skuId && <div className="text-[11px] text-stone-500 tabular-nums">= {qtyFmt(o.qty * o.unitContent)} {baseUom}{actual != null ? ` expected · ${qtyFmt(actual * o.unitContent)} ${baseUom} actual` : ""}</div>}
+              <div className="mt-2 h-1 rounded-full bg-stone-800 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+              <div className="mt-1 text-[11px] text-stone-500 tabular-nums">{done > 0 ? `${qtyFmt(done)} already completed · ${qtyFmt(o.remainingQty)} remaining` : "Nothing completed yet"}</div>
+            </>
+          );
+          const cls = actual != null
+            ? "group text-left rounded-lg border p-3 border-emerald-800/60 bg-emerald-950/10"
+            : "group text-left rounded-lg border p-3 border-stone-800 bg-stone-900/40";
+          return editable
+            ? <button key={o.id} onClick={() => onOpen(o.id)} className={`${cls} hover:border-stone-600 hover:bg-stone-900/80 transition-colors`}>{body}</button>
+            : <div key={o.id} className={cls}>{body}</div>;
+        })}
       </div>
+      {(d.outputs ?? []).length === 0 && <p className="text-[12px] text-stone-500">No output planned.</p>}
+      {d.materials?.baseTotal > 0 && <p className="text-[11px] text-stone-500">Total base to produce: {qtyFmt(d.materials.baseTotal)} {baseUom}</p>}
       {d.mo.expYield != null && <p className="text-[11px] text-stone-500">Expected yield {d.mo.expYield}% — loss within it stays in the product&apos;s cost; loss beyond it goes to Scrap &amp; yield loss.</p>}
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Completions</div>
@@ -962,6 +1008,80 @@ function OutputPanel({ d }: { d: any }) {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Capture one output pack's actual production, in any unit its SKU nests
+ * into (bottle, shrink, carton) or the base unit — outputCaptureUnits in
+ * lib/inventory/order-options.ts. Held as PACKS, which is what completion
+ * takes; switching unit keeps the same physical quantity.
+ */
+function OutputPicker({ d, o, value, onBack, onSave }: {
+  d: any; o: any; value: number | undefined; onBack: () => void; onSave: (packs: number | null) => void;
+}) {
+  const baseUom = d.outputItem?.baseUom || "";
+  const units = outputCaptureUnits(baseUom, o, o.pack);
+  const start = value ?? o.remainingQty ?? o.qty;
+  const [u, setU] = useState(0);
+  const [v, setV] = useState(start > 0 ? String(start) : "");
+  const packs = (Number(v) || 0) * (units[u]?.perPack ?? 1);
+  const name = o.skuName || (o.skuId ? "Pack" : `${d.outputItem?.name ?? "Output"} — base unit`);
+  const unitWord = o.skuId ? "packs" : (baseUom || "units");
+  const over = packs > (Number(o.remainingQty ?? o.qty) || 0) + 1e-6;
+
+  function setUnit(next: number) {
+    const per = units[next]?.perPack ?? 1;
+    setU(next);
+    if (packs > 0) setV(String(Number((packs / per).toFixed(6))));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <button onClick={onBack} className="inline-flex items-center gap-1 text-[12px] text-stone-400 hover:text-stone-200"><ChevronLeft size={13} /> All outputs</button>
+          <div className="mt-1 text-[15px] font-semibold text-stone-100">{name}</div>
+          {o.skuId && <div className="text-[12px] text-stone-500 tabular-nums">1 pack = {qtyFmt(o.unitContent)} {baseUom}</div>}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
+            <div className="text-[15px] font-medium tabular-nums text-stone-200">{qtyFmt(o.qty)} <span className="text-[11px] font-normal text-stone-500">{unitWord}</span></div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-stone-500">Completed</div>
+            <div className="text-[15px] font-medium tabular-nums text-stone-200">{qtyFmt(o.completedQty)} <span className="text-[11px] font-normal text-stone-500">{unitWord}</span></div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-stone-500">Remaining</div>
+            <div className="text-[15px] font-medium tabular-nums text-stone-200">{qtyFmt(o.remainingQty)} <span className="text-[11px] font-normal text-stone-500">{unitWord}</span></div>
+          </div>
+        </div>
+        <div className="mt-3">
+          <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Actually produced (good)</div>
+          <QtyUnitField qty={v} onQty={setV} unit={String(u)} onUnit={x => setUnit(Number(x))} unitPlaceholder={null}
+            options={units.map((x, i) => ({ value: String(i), label: x.label }))} qtyLabel={`Quantity of ${name} produced`} unitLabel="Counted in" />
+          {packs > 0 && (
+            <div className="mt-1 text-[11px] text-stone-500 tabular-nums">
+              = {o.skuId ? `${qtyFmt(packs)} packs · ` : ""}{qtyFmt(packs * (o.unitContent || 1))} {baseUom}
+            </div>
+          )}
+          {over && <div className="mt-1 text-[11px] text-amber-400">More than the {qtyFmt(o.remainingQty)} {unitWord} still to make — that&apos;s allowed, but check the count.</div>}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {value != null && <button onClick={() => onSave(null)} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Clear</button>}
+        <button onClick={() => onSave(Number(packs.toFixed(6)))} disabled={!(Number(v) >= 0) || v === ""}
+          className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+          Save {qtyFmt(packs)} {unitWord}
+        </button>
       </div>
     </div>
   );

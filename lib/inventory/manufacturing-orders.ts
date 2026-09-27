@@ -116,7 +116,11 @@ async function outputsForMO(orgId: string, mo: any) {
     // fallback for an order planned before it was copied.
     const uc = r.unitContent != null ? num(r.unitContent) : (r.skuId ? (unitContent.get(r.skuId) || 0) : 1);
     return { id: r.id, skuId: r.skuId, qty: num(r.qty), completedQty: num(r.completedQty), remainingQty: roundQty(Math.max(0, num(r.qty) - num(r.completedQty))),
-      skuName: sku?.skuName ?? sku?.skuCode ?? null, unitContent: uc };
+      skuName: sku?.skuName ?? sku?.skuCode ?? null, unitContent: uc,
+      // The SKU's pack nesting, so the floor can count output in cartons as
+      // well as bottles (outputCaptureUnits in lib/inventory/order-options.ts).
+      pack: sku ? { innerPackType: sku.innerPackType, unitsInAddlInnerPack: sku.unitsInAddlInnerPack, addlInnerPackType: sku.addlInnerPackType,
+        unitsInOuterPack: sku.unitsInOuterPack, outerPackType: sku.outerPackType } : null };
   });
 }
 

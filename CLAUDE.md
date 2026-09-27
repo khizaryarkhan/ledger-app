@@ -1385,6 +1385,13 @@ The product owner's lifecycle, and now the only one:
   another vendor's "bag" is a different size) + our item-SKU packs, and the
   client sends `entered × perUnit` in BASE units, so the server and
   `lot_allocations` never see a pack unit. Lots show read-only before In Progress.
+  **Output is the same shape**: a card per output pack (expected / actual);
+  opening one captures what was ACTUALLY produced, in the pack, the SKU's
+  higher levels (shrink, carton) or the base unit — `outputCaptureUnits`,
+  anchored on the MO's own `unit_content` (not the SKU's `innerUnitPackSize`,
+  which may be blank), so everything converts to PACKS. The capture is drawer
+  state only: it pre-fills Complete production's "good packs" and posts
+  nothing itself; a posted run clears it.
 
 ### Stock is issued from lots or not at all (2026-09-25)
 
