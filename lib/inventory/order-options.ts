@@ -166,3 +166,39 @@ export function ratePerOrderUnit(price: number, unitsPerOrderUnit: number, units
   if (!(unitsPerPriceUnit > 0) || !(unitsPerOrderUnit > 0)) return price;
   return price * unitsPerOrderUnit / unitsPerPriceUnit;
 }
+
+/**
+ * The units a production operator may count a LOT's consumption in — base UoM
+ * plus the packs that lot physically arrived in.
+ *
+ * Scoped to the lot's own supplier, for the same reason `orderOptions` scopes
+ * a PO line: one vendor's "bag" may be 25 kg and another's 20 kg, and the
+ * wrong factor lands as a wrong quantity consumed. A lot with no supplier on
+ * record (opening stock, production output) falls back to every link's packs
+ * — each label carries its size, so they stay distinguishable. Our own item
+ * SKUs (packaging, semi-finished packs) are offered too, narrowed to the lot's
+ * SKU when it has one. Whatever is picked, the quantity sent to the server is
+ * `entered × unitsPerOrderUnit` in base units.
+ */
+export function consumptionUnits(
+  baseUom: string | null,
+  lot: { supplierId?: string | null; skuId?: string | null },
+  supplierSkus: any[],
+  itemSkus: any[],
+): OrderOption[] {
+  const links = supplierSkus || [];
+  const fromSupplier: OrderOption[] = lot.supplierId
+    ? orderOptions(baseUom, links, lot.supplierId)
+    : [...new Set(links.map(l => l.supplierId))].flatMap(sid => orderOptions(baseUom, links, sid).slice(1));
+  const skus = (itemSkus || []).filter(s => !lot.skuId || s.id === lot.skuId);
+  const fromSkus = salesOrderOptions(baseUom, skus).slice(1);
+  const out: OrderOption[] = [];
+  const seen = new Set<string>();
+  for (const o of [baseOption(baseUom), ...fromSupplier, ...fromSkus]) {
+    const k = `${o.label}|${o.unitsPerOrderUnit}`;
+    if (seen.has(k) || !(o.unitsPerOrderUnit > 0)) continue;
+    seen.add(k);
+    out.push({ ...o, unitPrice: null, currency: null });
+  }
+  return out;
+}

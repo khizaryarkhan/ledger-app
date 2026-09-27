@@ -1375,6 +1375,16 @@ The product owner's lifecycle, and now the only one:
 - The work-in-progress account is not used while an MO is open — the allocated
   stock stays in its raw-material account until completion, which keeps total
   stock right at any month-end.
+- **An order reads as Input / Output tabs** (2026-09-27, both the guided
+  Process MO drawer and the row-click detail drawer — shared `MoTabs` /
+  `InputPanel` / `OutputPanel` in `components/mo-console.tsx`, so they can't
+  drift). Input = one card per material (expected qty); a card opens its lots
+  as cards (available, planned = FEFO share, actual). **Actual is counted in
+  any unit the lot came in** — `consumptionUnits` (`lib/inventory/order-options.ts`)
+  offers base UoM + the lot's OWN supplier's packs (scoped like `orderOptions`:
+  another vendor's "bag" is a different size) + our item-SKU packs, and the
+  client sends `entered × perUnit` in BASE units, so the server and
+  `lot_allocations` never see a pack unit. Lots show read-only before In Progress.
 
 ### Stock is issued from lots or not at all (2026-09-25)
 

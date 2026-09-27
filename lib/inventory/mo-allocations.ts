@@ -12,13 +12,14 @@
  */
 
 import { db } from "@/db";
-import { lotAllocations, inventoryLots, manufacturingOrders, stockLocations } from "@/db/schema";
+import { lotAllocations, inventoryLots, manufacturingOrders, stockLocations, apItems, itemSkus, itemSupplierSkus } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { LedgerValidationError } from "@/lib/ledger";
 import { roundQty } from "@/lib/inventory/round";
 import { ensureMoMaterials } from "@/lib/inventory/manufacturing-orders";
 import { allocatedByLot } from "@/lib/inventory/valuation";
 import { placementsForLots } from "@/lib/inventory/locations";
+import { consumptionUnits } from "@/lib/inventory/order-options";
 import { allocationError, availableInLot, fefoOrder, suggestPicks, type AllocatableLot } from "@/lib/inventory/allocation";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
@@ -31,7 +32,7 @@ async function loadMo(orgId: string, moId: string) {
 }
 
 /** Open lots of an item, with what THIS order may take from each. */
-async function lotsFor(orgId: string, itemId: string, moId: string): Promise<(AllocatableLot & { mine: number; where: string[] })[]> {
+async function lotsFor(orgId: string, itemId: string, moId: string): Promise<(AllocatableLot & { mine: number; where: string[]; supplierId: string | null; skuId: string | null })[]> {
   const lots = await db.select().from(inventoryLots)
     .where(and(eq(inventoryLots.orgId, orgId), eq(inventoryLots.itemId, itemId), eq(inventoryLots.status, "Open")));
   if (!lots.length) return [];
@@ -50,7 +51,7 @@ async function lotsFor(orgId: string, itemId: string, moId: string): Promise<(Al
   return fefoOrder(lots.map(l => ({
     id: l.id, lotNo: l.lotNo, remainingQty: num(l.remainingQty), allocatedElsewhere: elsewhere.get(l.id) ?? 0,
     expiryDate: l.expiryDate ?? null, receivedDate: l.receivedDate ?? null, unitCost: num(l.unitCost),
-    mine: mine.get(l.id) ?? 0,
+    mine: mine.get(l.id) ?? 0, supplierId: l.supplierId ?? null, skuId: l.skuId ?? null,
     where: (placements.get(l.id) ?? []).filter(p => p.qty > 0).map(p => codes.get(p.locationId) ?? "?"),
   }))).filter(l => l.remainingQty > 0);
 }
@@ -59,6 +60,16 @@ async function lotsFor(orgId: string, itemId: string, moId: string): Promise<(Al
 export async function allocationView(orgId: string, moId: string) {
   const mo = await loadMo(orgId, moId);
   const mats = await ensureMoMaterials(orgId, mo);
+  // Pack configurations, so the floor can count a lot in the unit it is
+  // physically handling ("3 bags") rather than converting to kg by hand.
+  // One query per table for every material, not one per lot.
+  const itemIds = [...new Set(mats.map(m => m.itemId))];
+  const [items, supSkus, ownSkus] = itemIds.length ? await Promise.all([
+    db.select({ id: apItems.id, baseUom: apItems.baseUom }).from(apItems).where(and(eq(apItems.orgId, orgId), inArray(apItems.id, itemIds))),
+    db.select().from(itemSupplierSkus).where(and(eq(itemSupplierSkus.orgId, orgId), inArray(itemSupplierSkus.itemId, itemIds))),
+    db.select().from(itemSkus).where(and(eq(itemSkus.orgId, orgId), inArray(itemSkus.itemId, itemIds))),
+  ]) : [[], [], []];
+  const baseOf = new Map(items.map(i => [i.id, i.baseUom ?? null]));
   const out = [];
   for (const m of mats) {
     const lots = await lotsFor(orgId, m.itemId, moId);
@@ -67,7 +78,9 @@ export async function allocationView(orgId: string, moId: string) {
     out.push({
       itemId: m.itemId, kind: m.kind, planned, allocated,
       lots: lots.map(l => ({ lotId: l.id, lotNo: l.lotNo, expiryDate: l.expiryDate, receivedDate: l.receivedDate, unitCost: l.unitCost,
-        remaining: l.remainingQty, allocatedElsewhere: roundQty(l.allocatedElsewhere), available: availableInLot(l), mine: l.mine, where: l.where })),
+        remaining: l.remainingQty, allocatedElsewhere: roundQty(l.allocatedElsewhere), available: availableInLot(l), mine: l.mine, where: l.where,
+        units: consumptionUnits(baseOf.get(m.itemId) ?? null, l, supSkus.filter(x => x.itemId === m.itemId), ownSkus.filter(x => x.itemId === m.itemId))
+          .map(u => ({ label: u.label, packLevel: u.packLevel, uom: u.orderUom, perUnit: u.unitsPerOrderUnit })) })),
       // The whole planned quantity, FEFO — the UI pre-fills from this only
       // when nothing has been chosen yet.
       suggestion: suggestPicks(lots, planned),

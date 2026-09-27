@@ -13,11 +13,11 @@
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package } from "lucide-react";
-import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
-import { localToday, ymd, fmt } from "@/lib/format";
+import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, CircleDot, ChevronLeft, ChevronRight, PlayCircle, Package, MapPin } from "lucide-react";
+import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
 
-const qtyFmt = (n: any) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
+const qtyFmt = (n: any) => fmt.qty(n ?? 0);
 
 const STATUSES = ["Draft", "Scheduled", "Released", "InProgress", "Completed", "Cancelled"] as const;
 const STATUS_LABEL: Record<string, string> = { Draft: "Draft", Scheduled: "Scheduled", Released: "Released", InProgress: "In Progress", Completed: "Completed", Cancelled: "Cancelled" };
@@ -374,11 +374,14 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [completing, setCompleting] = useState(false);
+  const [tab, setTab] = useState<"input" | "output" | "ops">("input");
 
   async function load() {
     const det = await fetch(`/api/production/mos/${moId}`).then(r => r.json()).catch(() => null);
     setD(det);
-    if (det?.mo?.status === "InProgress") setAlloc(await fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null));
+    // Loaded from Draft onward so a card can show its lots read-only before
+    // production starts; only In Progress may change them.
+    if (det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)) setAlloc(await fetch(`/api/production/mos/${moId}/allocations`).then(r => r.json()).catch(() => null));
     else setAlloc(null);
   }
   useEffect(() => { load(); }, [moId]);
@@ -431,67 +434,10 @@ function OrderStep({ moId, onBack, onOpenLot, onProgressed, onCompleted }: {
       <div className="p-5 space-y-4">
         <StageNote status={mo.status} />
 
-        {(d.outputs ?? []).length > 0 && (
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Output packs</div>
-            <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/50">
-              {d.outputs.map((o: any) => (
-                <div key={o.id} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
-                  <span className="text-stone-200">{o.skuName || (o.skuId ? "Pack" : `Base unit (${d.outputItem?.baseUom || "units"})`)}</span>
-                  <span className="text-stone-400 tabular-nums">
-                    {qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}
-                    {o.completedQty > 0 && <span className="text-emerald-400"> · {qtyFmt(o.completedQty)} done</span>}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {mo.status === "InProgress" && stocked.length > 0 && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2">
-            <span className="text-[12px] text-stone-400">
-              {unallocated.length ? `${unallocated.length} of ${stocked.length} material${stocked.length === 1 ? "" : "s"} still need lots — tap one to allocate.` : "Every material has lots allocated — ready to complete."}
-            </span>
-            {unallocated.length > 0 && (
-              <button onClick={allocateAll} disabled={busy || !alloc} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50 shrink-0">Allocate the rest by earliest expiry</button>
-            )}
-          </div>
-        )}
-
-        {(["ingredient", "packaging"] as const).map(kind => {
-          const rows2 = lines.filter((l: any) => l.kind === kind);
-          if (!rows2.length) return null;
-          const inProgress = mo.status === "InProgress";
-          return (
-            <div key={kind}>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">{kind === "ingredient" ? "Ingredients" : "Packaging"}</div>
-              <div className="rounded-lg border border-stone-800 overflow-hidden">
-                <table className="w-full text-[12px]">
-                  <thead><tr className="border-b border-stone-800">
-                    <th className={th}>Material</th><th className={`${th} text-right`}>Planned</th>
-                    <th className={`${th} text-right`}>{inProgress ? "Allocated" : "Available"}</th><th className={`${th} text-right`}>Status</th>
-                  </tr></thead>
-                  <tbody>
-                    {rows2.map((l: any) => (
-                      <tr key={l.itemId} className={`border-b border-stone-800/50 ${inProgress && l.tracked ? "cursor-pointer hover:bg-stone-950/40" : ""}`}
-                        onClick={() => inProgress && l.tracked && onOpenLot(l.itemId)}>
-                        <td className="px-3 py-1.5 text-stone-200">{l.name}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(l.required)} {l.baseUom}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{inProgress ? qtyFmt(l.allocated) : qtyFmt(l.onHand)}</td>
-                        <td className="px-3 py-1.5 text-right">
-                          <span className="inline-flex items-center justify-end gap-1"><MaterialStatus l={l} inProgress={inProgress} />{inProgress && l.tracked && <ChevronRight size={12} className="text-stone-600" />}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })}
-        {lines.length === 0 && <p className="text-[12px] text-stone-500">No materials planned (the BOM has no ingredients/packaging yet).</p>}
-        {mo.status !== "InProgress" && d.materials?.anyShort && <p className="text-[11px] text-amber-400">Some materials are short — receive or produce them before production starts; completion takes only allocated lots.</p>}
+        <MoTabs d={d} tab={tab} setTab={setTab} />
+        {tab === "input" && <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={onOpenLot} />}
+        {tab === "output" && <OutputPanel d={d} />}
+        {tab === "ops" && <OperationsPanel d={d} />}
 
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
@@ -546,7 +492,7 @@ function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBac
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
-        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> Materials</button>
+        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> Inputs</button>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center shrink-0"><Package size={15} className="text-orange-400" /></div>
           <div className="min-w-0">
@@ -559,7 +505,7 @@ function LotStep({ moId, itemId, onBack }: { moId: string; itemId: string; onBac
         {!d || !alloc ? <p className="text-[13px] text-stone-500">Loading…</p> : !m ? (
           <p className="text-[13px] text-rose-400">{err || "This material isn't part of the order."}</p>
         ) : (
-          <LotAllocator m={m} baseUom={line?.baseUom ?? null} onSave={save} />
+          <LotPicker line={line} m={m} editable={d?.mo?.status === "InProgress"} onSave={save} />
         )}
         {err && <p className="text-[12px] text-rose-400 mt-2">{err}</p>}
       </div>
@@ -577,12 +523,15 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
   const [d, setD] = useState<any>(null);
   const [alloc, setAlloc] = useState<any>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
+  const [tab, setTab] = useState<"input" | "output" | "ops">("input");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [info, setInfo] = useState("");
   const [completing, setCompleting] = useState(false);
   async function load() {
     const det = await fetch(`/api/production/mos/${id}`).then(r => r.json()).catch(() => null);
     setD(det);
-    if (det?.mo?.status === "InProgress") setAlloc(await fetch(`/api/production/mos/${id}/allocations`).then(r => r.json()).catch(() => null));
+    // Lots are shown from Draft onward (read-only until In Progress), so the
+    // floor can see what it will pick from before it starts.
+    if (det?.mo && !["Completed", "Cancelled"].includes(det.mo.status)) setAlloc(await fetch(`/api/production/mos/${id}/allocations`).then(r => r.json()).catch(() => null));
     else setAlloc(null);
   }
   useEffect(() => { load(); }, [id]);
@@ -694,124 +643,17 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
           <StageNote status={mo.status} />
 
-          {/* Output packs */}
-          {(d.outputs ?? []).length > 0 && (
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Output packs</div>
-              <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/50">
-                {d.outputs.map((o: any) => (
-                  <div key={o.id} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
-                    <span className="text-stone-200">{o.skuName || (o.skuId ? "Pack" : `Base unit (${d.outputItem?.baseUom || "units"})`)}</span>
-                    <span className="text-stone-400 tabular-nums">
-                      {qtyFmt(o.qty)} packs · {qtyFmt(o.qty * o.unitContent)} {d.outputItem?.baseUom || ""}
-                      {o.completedQty > 0 && <span className="text-emerald-400"> · {qtyFmt(o.completedQty)} done</span>}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {d.materials?.baseTotal > 0 && <p className="text-[11px] text-stone-500 mt-1">Total base to produce: {qtyFmt(d.materials.baseTotal)} {d.outputItem?.baseUom || ""}</p>}
-            </div>
-          )}
+          <MoTabs d={d} tab={tab} setTab={setTab} />
 
-          {/* Materials */}
-          {mo.status === "InProgress" && stocked.length > 0 && (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2">
-              <span className="text-[12px] text-stone-400">
-                {unallocated.length ? `${unallocated.length} of ${stocked.length} material${stocked.length === 1 ? "" : "s"} still need lots.` : "Every material has lots allocated — ready to complete."}
-              </span>
-              {unallocated.length > 0 && (
-                <button onClick={allocateAll} disabled={busy || !alloc} className="text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">Allocate the rest by earliest expiry</button>
-              )}
-            </div>
-          )}
-          {(["ingredient", "packaging"] as const).map(kind => {
-            const rows = lines.filter((l: any) => l.kind === kind);
-            if (!rows.length) return null;
-            const inProgress = mo.status === "InProgress";
-            return (
-              <div key={kind}>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">{kind === "ingredient" ? "Ingredients" : "Packaging"}</div>
-                <div className="rounded-lg border border-stone-800 overflow-hidden">
-                  <table className="w-full text-[12px]">
-                    <thead><tr className="border-b border-stone-800">
-                      <th className={th}>Material</th><th className={`${th} text-right`}>Planned</th>
-                      <th className={`${th} text-right`}>{inProgress ? "Allocated" : "Available"}</th><th className={`${th} text-right`}>Status</th>
-                    </tr></thead>
-                    <tbody>
-                      {rows.map((l: any) => {
-                        const m = alloc?.materials?.find((x: any) => x.itemId === l.itemId);
-                        const open = openItem === l.itemId;
-                        return (
-                          <Fragment key={l.itemId}>
-                            <tr className={`border-b border-stone-800/50 ${inProgress && l.tracked ? "cursor-pointer hover:bg-stone-950/40" : ""}`} onClick={() => inProgress && l.tracked && setOpenItem(open ? null : l.itemId)}>
-                              <td className="px-3 py-1.5 text-stone-200">{l.name}</td>
-                              <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(l.required)} {l.baseUom}</td>
-                              <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{inProgress ? qtyFmt(l.allocated) : qtyFmt(l.onHand)}</td>
-                              <td className="px-3 py-1.5 text-right"><MaterialStatus l={l} inProgress={inProgress} /></td>
-                            </tr>
-                            {open && m && (
-                              <tr className="border-b border-stone-800/50 bg-stone-950/40">
-                                <td colSpan={4} className="px-3 py-3">
-                                  <LotAllocator m={m} baseUom={l.baseUom} onSave={picks => saveAlloc(l.itemId, picks)} />
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-          {lines.length === 0 && <p className="text-[12px] text-stone-500">No materials planned (the BOM has no ingredients/packaging yet).</p>}
-          {mo.status !== "InProgress" && d.materials?.anyShort && <p className="text-[11px] text-amber-400">Some materials are short — receive or produce them before production starts; completion takes only allocated lots.</p>}
+          {tab === "input" && (openItem && lines.some((l: any) => l.itemId === openItem) && alloc?.materials?.some((x: any) => x.itemId === openItem)
+            ? <LotPicker key={openItem} line={lines.find((l: any) => l.itemId === openItem)} m={alloc.materials.find((x: any) => x.itemId === openItem)}
+                editable={mo.status === "InProgress"} onBack={() => setOpenItem(null)}
+                onSave={async picks => { const ok = await saveAlloc(openItem, picks); if (ok) setOpenItem(null); return ok; }} />
+            : <InputPanel d={d} alloc={alloc} busy={busy} onAllocateAll={allocateAll} onOpen={setOpenItem} />)}
 
-          {(d.operations ?? []).length > 0 && (
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Operations · labour &amp; overhead</div>
-              <div className="rounded-lg border border-stone-800 overflow-hidden">
-                <table className="w-full text-[12px]">
-                  <thead><tr className="border-b border-stone-800"><th className={th}>Operation</th><th className={`${th} text-right`}>Planned hours</th><th className={`${th} text-right`}>Rate / hour</th><th className={`${th} text-right`}>Planned cost</th></tr></thead>
-                  <tbody>
-                    {d.operations.map((o: any) => (
-                      <tr key={o.id} className="border-b border-stone-800/50">
-                        <td className="px-3 py-1.5 text-stone-200">{o.name}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(o.plannedHours)}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{fmt.num2(o.labourRate + o.overheadRate)}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{fmt.num2(o.plannedCost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {d.mo.expYield != null && <p className="text-[11px] text-stone-500">Expected yield {d.mo.expYield}% — loss within it stays in the product's cost; loss beyond it goes to Scrap &amp; yield loss.</p>}
-          {(d.completions ?? []).length > 0 && (
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Completions</div>
-              <div className="rounded-lg border border-stone-800 overflow-hidden">
-                <table className="w-full text-[12px]">
-                  <thead><tr className="border-b border-stone-800"><th className={th}>Run</th><th className={th}>Date</th><th className={`${th} text-right`}>Good</th><th className={`${th} text-right`}>Rejected</th><th className={`${th} text-right`}>Materials</th><th className={`${th} text-right`}>Labour + OH</th><th className={`${th} text-right`}>Scrap</th></tr></thead>
-                  <tbody>
-                    {d.completions.map((c: any) => (
-                      <tr key={c.id} className="border-b border-stone-800/50">
-                        <td className="px-3 py-1.5 font-mono text-[12px] text-stone-300">{c.runNo}</td>
-                        <td className="px-3 py-1.5 text-stone-400">{c.date}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-200">{qtyFmt(c.goodQty)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.rejectedQty ? qtyFmt(c.rejectedQty) : "—"}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.materialCost)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.labourCost + c.overheadCost)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.scrapCost ? fmt.num2(c.scrapCost) : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {tab === "output" && <OutputPanel d={d} />}
+
+          {tab === "ops" && <OperationsPanel d={d} />}
 
           {mo.notes && <div className="text-[12px] text-stone-400"><span className="text-stone-500">Notes: </span>{mo.notes}</div>}
           {err && <p className="text-[12px] text-rose-400">{err}</p>}
@@ -1003,56 +845,289 @@ function MaterialStatus({ l, inProgress }: { l: any; inProgress: boolean }) {
   return <span className="text-emerald-400 inline-flex items-center gap-1"><Check size={11} /> allocated</span>;
 }
 
-/**
- * One material's lots, earliest expiry first. The quantities typed are what
- * will be consumed at completion — which may differ from the plan; the status
- * says by how much.
- */
-function LotAllocator({ m, baseUom, onSave }: { m: any; baseUom: string | null; onSave: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean> }) {
-  const initial = () => {
-    const mine = Object.fromEntries((m.lots ?? []).filter((l: any) => l.mine > 0).map((l: any) => [l.lotId, String(l.mine)]));
-    return Object.keys(mine).length ? mine : Object.fromEntries((m.suggestion ?? []).map((p: any) => [p.lotId, String(p.qty)]));
-  };
-  const [qty, setQty] = useState<Record<string, string>>(initial);
-  const [saving, setSaving] = useState(false);
-  const suggested = new Map((m.suggestion ?? []).map((p: any) => [p.lotId, p.qty]));
-  const total = Object.values(qty).reduce((sm, v) => sm + (Number(v) || 0), 0);
-  const picks = Object.entries(qty).map(([lotId, v]) => ({ lotId, qty: Number(v) || 0, suggested: suggested.get(lotId) === (Number(v) || 0) })).filter(p => p.qty > 0);
+/* =========================================================================
+ * Order tabs — Input / Output / Operations. Shared by the guided Process MO
+ * drawer and the row-click detail drawer, so the two can't drift into
+ * showing an order differently.
+ * ======================================================================= */
 
-  if (!(m.lots ?? []).length) return <p className="text-[12px] text-amber-400">No open lots of this material. Receive or produce it first.</p>;
+type MoTab = "input" | "output" | "ops";
+
+function MoTabs({ d, tab, setTab }: { d: any; tab: MoTab; setTab: (t: MoTab) => void }) {
+  const tabs: [MoTab, string, number][] = [
+    ["input", "Input", (d?.materials?.lines ?? []).length],
+    ["output", "Output", (d?.outputs ?? []).length],
+    ...((d?.operations ?? []).length ? [["ops", "Operations", d.operations.length] as [MoTab, string, number]] : []),
+  ];
   return (
-    <div className="space-y-2">
+    <div role="tablist" className="flex items-center gap-1 border-b border-stone-800">
+      {tabs.map(([k, label, n]) => (
+        <TabButton key={k} active={tab === k} onClick={() => setTab(k)} label={label} count={n} />
+      ))}
+    </div>
+  );
+}
+
+/** Input: one card per material. A card opens that material's lots. */
+function InputPanel({ d, alloc, busy, onAllocateAll, onOpen }: {
+  d: any; alloc: any; busy: boolean; onAllocateAll: () => void; onOpen: (itemId: string) => void;
+}) {
+  const mo = d.mo;
+  const lines: any[] = d?.materials?.lines ?? [];
+  const stocked = lines.filter(l => l.tracked && l.required > 0);
+  const unallocated = stocked.filter(l => !(l.allocated > 0));
+  const inProgress = mo.status === "InProgress";
+  return (
+    <div className="space-y-4">
+      {inProgress && stocked.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2">
+          <span className="text-[12px] text-stone-400">
+            {unallocated.length ? `${unallocated.length} of ${stocked.length} material${stocked.length === 1 ? "" : "s"} still need lots — open one to pick its lots.` : "Every material has lots allocated — ready to complete."}
+          </span>
+          {unallocated.length > 0 && (
+            <button onClick={onAllocateAll} disabled={busy || !alloc} className="shrink-0 text-[12px] font-medium text-stone-200 bg-stone-800 hover:bg-stone-700 rounded-lg px-3 py-1.5 disabled:opacity-50">Allocate the rest by earliest expiry</button>
+          )}
+        </div>
+      )}
+      {(["ingredient", "packaging"] as const).map(kind => {
+        const group = lines.filter(l => l.kind === kind);
+        if (!group.length) return null;
+        return (
+          <div key={kind}>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">{kind === "ingredient" ? "Ingredients" : "Packaging"}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {group.map(l => (
+                <InputCard key={l.itemId} l={l} inProgress={inProgress}
+                  onOpen={l.tracked && alloc?.materials?.some((x: any) => x.itemId === l.itemId) ? () => onOpen(l.itemId) : undefined} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {lines.length === 0 && <p className="text-[12px] text-stone-500">No materials planned (the BOM has no ingredients/packaging yet).</p>}
+      {!inProgress && d.materials?.anyShort && <p className="text-[11px] text-amber-400">Some materials are short — receive or produce them before production starts; completion takes only allocated lots.</p>}
+    </div>
+  );
+}
+
+/** Output: what the order produces, per pack, and every completion run so far. */
+function OutputPanel({ d }: { d: any }) {
+  const baseUom = d.outputItem?.baseUom || "";
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">To produce</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(d.outputs ?? []).map((o: any) => {
+            const done = Number(o.completedQty) || 0;
+            const pct = o.qty > 0 ? Math.min(100, (done / o.qty) * 100) : 0;
+            return (
+              <div key={o.id} className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
+                <div className="text-[13px] font-medium text-stone-100 truncate">{o.skuName || (o.skuId ? "Pack" : `${d.outputItem?.name ?? "Output"} — base unit`)}</div>
+                <div className="mt-2 text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[20px] font-semibold tabular-nums text-stone-100">{qtyFmt(o.qty)}</span>
+                  <span className="text-[12px] text-stone-500">{o.skuId ? "packs" : (baseUom || "units")}</span>
+                </div>
+                {o.skuId && <div className="text-[11px] text-stone-500 tabular-nums">= {qtyFmt(o.qty * o.unitContent)} {baseUom}</div>}
+                <div className="mt-2 h-1 rounded-full bg-stone-800 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+                <div className="mt-1 text-[11px] text-stone-500 tabular-nums">{done > 0 ? `${qtyFmt(done)} done` : "Nothing completed yet"}</div>
+              </div>
+            );
+          })}
+        </div>
+        {(d.outputs ?? []).length === 0 && <p className="text-[12px] text-stone-500">No output planned.</p>}
+        {d.materials?.baseTotal > 0 && <p className="text-[11px] text-stone-500 mt-1.5">Total base to produce: {qtyFmt(d.materials.baseTotal)} {baseUom}</p>}
+      </div>
+      {d.mo.expYield != null && <p className="text-[11px] text-stone-500">Expected yield {d.mo.expYield}% — loss within it stays in the product&apos;s cost; loss beyond it goes to Scrap &amp; yield loss.</p>}
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-2">Completions</div>
+        {(d.completions ?? []).length === 0 ? <p className="text-[12px] text-stone-500">None yet. Complete the order (or part of it) to produce stock.</p> : (
+          <div className="rounded-lg border border-stone-800 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead><tr className="border-b border-stone-800"><th className={th}>Run</th><th className={th}>Date</th><th className={`${th} text-right`}>Good</th><th className={`${th} text-right`}>Rejected</th><th className={`${th} text-right`}>Materials</th><th className={`${th} text-right`}>Labour + OH</th><th className={`${th} text-right`}>Scrap</th></tr></thead>
+              <tbody>
+                {d.completions.map((c: any) => (
+                  <tr key={c.id} className="border-b border-stone-800/50">
+                    <td className="px-3 py-1.5 font-mono text-[12px] text-stone-300">{c.runNo}</td>
+                    <td className="px-3 py-1.5 text-stone-400">{c.date}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-200">{qtyFmt(c.goodQty)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.rejectedQty ? qtyFmt(c.rejectedQty) : "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.materialCost)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.num2(c.labourCost + c.overheadCost)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{c.scrapCost ? fmt.num2(c.scrapCost) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OperationsPanel({ d }: { d: any }) {
+  if (!(d.operations ?? []).length) return null;
+  return (
+    <div className="rounded-lg border border-stone-800 overflow-hidden">
       <table className="w-full text-[12px]">
-        <thead><tr>
-          <th className={th}>Lot</th><th className={th}>Expiry</th><th className={th}>Where</th>
-          <th className={`${th} text-right`}>Available</th><th className={`${th} text-right w-32`}>Use</th>
-        </tr></thead>
+        <thead><tr className="border-b border-stone-800"><th className={th}>Operation</th><th className={`${th} text-right`}>Planned hours</th><th className={`${th} text-right`}>Rate / hour</th><th className={`${th} text-right`}>Planned cost</th></tr></thead>
         <tbody>
-          {m.lots.map((l: any) => (
-            <tr key={l.lotId} className="border-t border-stone-800/50">
-              <td className="px-2.5 py-1 font-mono text-[12px] text-stone-300">{l.lotNo || "—"}</td>
-              <td className="px-2.5 py-1 text-stone-400">{l.expiryDate || "—"}</td>
-              <td className="px-2.5 py-1 text-stone-400">{(l.where ?? []).join(", ") || "—"}</td>
-              <td className="px-2.5 py-1 text-right text-stone-400 tabular-nums">
-                {qtyFmt(l.available)}{l.allocatedElsewhere > 0 && <span className="block text-[10px] text-stone-500">{qtyFmt(l.allocatedElsewhere)} held by other orders</span>}
-              </td>
-              <td className="px-2.5 py-1">
-                <input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={qty[l.lotId] ?? ""}
-                  onChange={e => setQty(q => ({ ...q, [l.lotId]: e.target.value }))} onClick={e => e.stopPropagation()} placeholder="0" />
-              </td>
+          {d.operations.map((o: any) => (
+            <tr key={o.id} className="border-b border-stone-800/50">
+              <td className="px-3 py-1.5 text-stone-200">{o.name}</td>
+              <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{qtyFmt(o.plannedHours)}</td>
+              <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{fmt.num2(o.labourRate + o.overheadRate)}</td>
+              <td className="px-3 py-1.5 text-right text-stone-300 tabular-nums">{fmt.num2(o.plannedCost)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[12px] text-stone-400">Using {qtyFmt(total)} {baseUom || ""} of {qtyFmt(m.planned)} planned</span>
-        <div className="flex items-center gap-2">
-          <button onClick={e => { e.stopPropagation(); setQty(Object.fromEntries((m.suggestion ?? []).map((p: any) => [p.lotId, String(p.qty)]))); }}
-            className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Suggest by earliest expiry</button>
-          <button disabled={saving} onClick={async e => { e.stopPropagation(); setSaving(true); await onSave(picks); setSaving(false); }}
-            className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-50">{saving ? "Saving…" : picks.length ? "Allocate" : "Release"}</button>
+    </div>
+  );
+}
+
+/** One input material as a card: what the order expects, and where it stands. */
+function InputCard({ l, inProgress, onOpen }: { l: any; inProgress: boolean; onOpen?: () => void }) {
+  const attention = l.tracked && (inProgress ? l.coverage === "none" || l.coverage === "partial" : !l.ok);
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[13px] font-medium text-stone-100 leading-snug">{l.name}</span>
+        {onOpen && <ChevronRight size={14} className="shrink-0 mt-0.5 text-stone-600 group-hover:text-stone-300" />}
+      </div>
+      <div className="mt-2 text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[20px] font-semibold tabular-nums text-stone-100">{qtyFmt(l.required)}</span>
+        <span className="text-[12px] text-stone-500">{l.baseUom}</span>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-stone-500 tabular-nums">{!l.tracked ? "" : inProgress ? `Allocated ${qtyFmt(l.allocated)}` : `On hand ${qtyFmt(l.onHand)}`}</span>
+        <MaterialStatus l={l} inProgress={inProgress} />
+      </div>
+    </>
+  );
+  const cls = attention
+    ? "group text-left rounded-lg border p-3 border-amber-800/60 bg-amber-950/10"
+    : "group text-left rounded-lg border p-3 border-stone-800 bg-stone-900/40";
+  return onOpen
+    ? <button onClick={onOpen} className={`${cls} hover:border-stone-600 hover:bg-stone-900/80 transition-colors`}>{body}</button>
+    : <div className={cls}>{body}</div>;
+}
+
+/**
+ * One material's lots as cards, earliest expiry first. "Planned" is the
+ * earliest-expiry share of the order's requirement; "Actual" is what will be
+ * consumed at completion, counted in any unit the lot comes in (its supplier's
+ * packs, our own SKU packs, or the base unit — lib/inventory/order-options.ts
+ * `consumptionUnits`) and sent to the server in BASE units. It may differ from
+ * the plan; the material's status says by how much.
+ */
+function LotPicker({ line, m, editable, onBack, onSave }: {
+  line: any; m: any; editable: boolean; onBack?: () => void;
+  onSave: (picks: { lotId: string; qty: number; suggested?: boolean }[]) => Promise<boolean>;
+}) {
+  const baseUom = line.baseUom || "";
+  const unitsOf = (l: any): { label: string; perUnit: number }[] => (l.units?.length ? l.units : [{ label: `${baseUom || "unit"} — base`, perUnit: 1 }]);
+  const planned = new Map<string, number>((m.suggestion ?? []).map((p: any) => [p.lotId, Number(p.qty) || 0]));
+  const lots: any[] = m.lots ?? [];
+  const hasMine = lots.some(l => l.mine > 0);
+  const seed = (from: "current" | "suggest") => Object.fromEntries(lots.map(l => {
+    const base = from === "current" && hasMine ? l.mine : (planned.get(l.lotId) ?? 0);
+    return [l.lotId, { v: base > 0 ? String(base) : "", u: 0 }];
+  }));
+  const [rows, setRows] = useState<Record<string, { v: string; u: number }>>(() => seed("current"));
+  const [saving, setSaving] = useState(false);
+
+  const baseOf = (l: any) => { const r = rows[l.lotId]; return r ? (Number(r.v) || 0) * (unitsOf(l)[r.u]?.perUnit ?? 1) : 0; };
+  const total = lots.reduce((sm, l) => sm + baseOf(l), 0);
+  const over = lots.filter(l => baseOf(l) > l.available + 1e-6);
+  const picks = lots.map(l => ({ lotId: l.lotId, qty: Number(baseOf(l).toFixed(6)) }))
+    .filter(p => p.qty > 0)
+    .map(p => ({ ...p, suggested: Math.abs((planned.get(p.lotId) ?? -1) - p.qty) < 1e-6 }));
+
+  /** Switching unit keeps the same physical quantity — 50 kg becomes 2 bags, not 50 bags. */
+  function setUnit(l: any, u: number) {
+    const cur = baseOf(l), per = unitsOf(l)[u]?.perUnit ?? 1;
+    setRows(r => ({ ...r, [l.lotId]: { u, v: cur > 0 ? String(Number((cur / per).toFixed(6))) : r[l.lotId]?.v ?? "" } }));
+  }
+
+  const matches = Math.abs(total - line.required) < 1e-6;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-[12px] text-stone-400 hover:text-stone-200"><ChevronLeft size={13} /> All inputs</button>}
+          {onBack && <div className="mt-1 text-[15px] font-semibold text-stone-100">{line.name}</div>}
+          <div className="text-[10px] uppercase tracking-wide text-stone-500">Expected</div>
+          <div className="text-[18px] font-semibold tabular-nums text-stone-100">{qtyFmt(line.required)} <span className="text-[12px] font-normal text-stone-500">{baseUom}</span></div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-[10px] uppercase tracking-wide text-stone-500">Using</div>
+          <div className={matches ? "text-[18px] font-semibold tabular-nums text-emerald-400" : total > 0 ? "text-[18px] font-semibold tabular-nums text-amber-400" : "text-[18px] font-semibold tabular-nums text-stone-300"}>
+            {qtyFmt(total)} <span className="text-[12px] font-normal text-stone-500">{baseUom}</span>
+          </div>
+          <div className="text-[11px] text-stone-500 tabular-nums">of {qtyFmt(m.planned)} planned</div>
         </div>
       </div>
+
+      {!editable && <p className="text-[12px] text-stone-400 rounded-lg border border-stone-800 px-3 py-2">Start production to allocate lots. Until then these are the lots it would pick from.</p>}
+      {!lots.length && <p className="text-[12px] text-amber-400">No open lots of this material. Receive or produce it first.</p>}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {lots.map(l => {
+          const units = unitsOf(l);
+          const r = rows[l.lotId] ?? { v: "", u: 0 };
+          const base = baseOf(l);
+          const tooMuch = base > l.available + 1e-6;
+          const cls = tooMuch
+            ? "rounded-lg border p-3 border-rose-800/70 bg-rose-950/10"
+            : base > 0 ? "rounded-lg border p-3 border-emerald-800/60 bg-emerald-950/10" : "rounded-lg border p-3 border-stone-800 bg-stone-900/40";
+          return (
+            <div key={l.lotId} className={cls}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-mono text-[13px] text-stone-100">{l.lotNo || "—"}</span>
+                <span className="text-[11px] text-stone-500">{l.expiryDate ? `Exp ${formatDateShort(l.expiryDate)}` : "No expiry"}</span>
+              </div>
+              {(l.where ?? []).length > 0 && <div className="mt-0.5 flex items-center gap-1 text-[11px] text-stone-500"><MapPin size={10} /> {l.where.join(", ")}</div>}
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-stone-500">Available</div>
+                  <div className="text-[15px] font-medium tabular-nums text-stone-200">{qtyFmt(l.available)} <span className="text-[11px] font-normal text-stone-500">{baseUom}</span></div>
+                  {l.allocatedElsewhere > 0 && <div className="text-[10px] text-stone-500">{qtyFmt(l.allocatedElsewhere)} held by other orders</div>}
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-stone-500">Planned</div>
+                  <div className="text-[15px] font-medium tabular-nums text-stone-200">
+                    {planned.get(l.lotId) ? <>{qtyFmt(planned.get(l.lotId))} <span className="text-[11px] font-normal text-stone-500">{baseUom}</span></> : "—"}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2.5">
+                <div className="text-[10px] uppercase tracking-wide text-stone-500 mb-1">Actual</div>
+                <QtyUnitField variant="cell" qtyWidth="w-24" qty={r.v} disabled={!editable}
+                  onQty={v => setRows(x => ({ ...x, [l.lotId]: { ...r, v } }))}
+                  unit={String(r.u)} onUnit={u => setUnit(l, Number(u))} unitPlaceholder={null}
+                  options={units.map((u, i) => ({ value: String(i), label: u.label }))}
+                  qtyLabel={`Quantity used from lot ${l.lotNo ?? ""}`} unitLabel="Counted in" />
+                {r.u > 0 && base > 0 && <div className="mt-1 text-[11px] text-stone-500 tabular-nums">= {qtyFmt(base)} {baseUom}</div>}
+                {tooMuch && <div className="mt-1 text-[11px] text-rose-400">Only {qtyFmt(l.available)} {baseUom} available in this lot.</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {editable && lots.length > 0 && (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={() => setRows(seed("suggest"))} className="text-[12px] text-stone-400 hover:text-stone-200 px-2 py-1">Suggest by earliest expiry</button>
+          <button disabled={saving || over.length > 0} onClick={async () => { setSaving(true); await onSave(picks); setSaving(false); }}
+            className="text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-1.5 hover:bg-emerald-700 disabled:opacity-50">
+            {saving ? "Saving…" : picks.length ? `Allocate ${qtyFmt(total)} ${baseUom}` : "Release"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
