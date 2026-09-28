@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent, Tags, Sparkles } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { Drawer } from "@/components/form-kit";
+import { fmt } from "@/lib/format";
 
 // ── QBO taxonomy ────────────────────────────────────────────────────────────
 const ACCOUNT_TYPES: Record<string, string[]> = {
@@ -368,8 +369,8 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                         </td>
                         <td className="px-3 py-2 text-stone-400 text-[12px]">{r.itemType ?? "Service"}</td>
                         <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
-                        <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{r.unitPrice != null ? Number(r.unitPrice).toFixed(2) : "—"}</td>
-                        <td className="px-3 py-2 text-right text-stone-400 tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{r.unitPrice != null ? fmt.num2(r.unitPrice) : "—"}</td>
+                        <td className="px-3 py-2 text-right text-stone-400 tabular-nums">{r.unitCost != null ? fmt.num2(r.unitCost) : "—"}</td>
                         <td className="px-3 py-2 text-stone-500 text-[12px] max-w-[160px] truncate">{acctName(r.incomeAccountId)}</td>
                         <td className="px-3 py-2">{sourceBadge(r.source)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">

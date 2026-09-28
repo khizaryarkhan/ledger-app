@@ -8,6 +8,7 @@ import { requireOrg, bad } from "@/lib/api";
 import { logEvent } from "@/lib/audit";
 import { and, desc, eq, or, SQL } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { fmt as money } from "@/lib/format";
 
 const EVENT_LABELS: Record<string, string> = {
   email_sent:        "Automated Reminder Sent",
@@ -45,7 +46,7 @@ function metaLines(meta: any): string {
   if (meta.subject)     lines.push(`Subject: ${meta.subject}`);
   if (meta.invoiceNo)   lines.push(`Invoice: ${meta.invoiceNo}`);
   if (meta.fromStage)   lines.push(`Stage: ${meta.fromStage} → ${meta.toStage ?? "?"}`);
-  if (meta.amount != null)    lines.push(`Amount: ${meta.currency ?? ""}${Number(meta.amount).toFixed(2)}`);
+  if (meta.amount != null)    lines.push(`Amount: ${meta.currency ?? ""}${money.num2(Number(meta.amount))}`);
   if (meta.promiseDate) lines.push(`Commitment date: ${meta.promiseDate}`);
   if (meta.reason)      lines.push(`Reason: ${meta.reason}`);
   if (meta.mode)        lines.push(`Mode: ${meta.mode}`);

@@ -12,6 +12,7 @@ import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Undo2, Scale, 
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
+import { fmt } from "@/lib/format";
 
 type Line = {
   accountId: string; description: string; debit: string; credit: string;
@@ -20,7 +21,6 @@ type Line = {
 };
 type Entry = any;
 
-const money = (n: number) => new Intl.NumberFormat("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const emptyLine = (): Line => ({ accountId: "", description: "", debit: "", credit: "", classId: "", locationId: "", nameType: "", nameId: "", nameLabel: "" });
 
@@ -276,7 +276,7 @@ export default function JournalPage() {
                           <td className="px-3 py-2">
                             <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${e.sourceType === "Manual" ? "bg-stone-800 text-stone-400 border-stone-700" : e.sourceType === "Reversal" ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-sky-500/10 text-sky-400 border-sky-800"}`}>{txnTypeLabel(e.sourceType)}</span>
                           </td>
-                          <td className="px-3 py-2 text-right font-semibold text-white tabular-nums">{money(total)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-white tabular-nums">{fmt.num2(total)}</td>
                           <td className="px-3 py-2 text-[12px]">
                             {e.status === "Reversed"
                               ? <span className="text-amber-500">Reversed</span>
@@ -308,8 +308,8 @@ export default function JournalPage() {
                                     <tr key={l.id} className="border-t border-stone-800/50">
                                       <td className="py-1.5 text-stone-300">{(accById.get(l.accountId) as any)?.name ?? l.accountId}</td>
                                       <td className="py-1.5 text-stone-500">{l.description ?? "—"}</td>
-                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.debit) > 0 ? money(Number(l.debit)) : ""}</td>
-                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.credit) > 0 ? money(Number(l.credit)) : ""}</td>
+                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.debit) > 0 ? fmt.num2(Number(l.debit)) : ""}</td>
+                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.credit) > 0 ? fmt.num2(Number(l.credit)) : ""}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -357,14 +357,14 @@ export default function JournalPage() {
                       <tr key={l.accountId} className="border-b border-stone-800/60">
                         <td className="px-3 py-2 text-stone-200">{l.code ? <span className="font-mono text-[11px] text-stone-500 mr-2">{l.code}</span> : null}{l.name}</td>
                         <td className="px-3 py-2 text-[12px] text-stone-500">{l.type ?? "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.debit > 0 ? money(l.debit) : ""}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.credit > 0 ? money(l.credit) : ""}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.debit > 0 ? fmt.num2(l.debit) : ""}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.credit > 0 ? fmt.num2(l.credit) : ""}</td>
                       </tr>
                     ))}
                     <tr className="bg-stone-900 font-bold">
                       <td className="px-3 py-2.5 text-white" colSpan={2}>TOTAL</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{money(tb.totalDebit)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{money(tb.totalCredit)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{fmt.num2(tb.totalDebit)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{fmt.num2(tb.totalCredit)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -513,10 +513,10 @@ export default function JournalPage() {
                 <div className="flex items-center justify-between px-3 py-2 bg-stone-950/60 border-t border-stone-800">
                   <button onClick={() => setLines(p => [...p, emptyLine()])} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">+ Add line</button>
                   <div className="flex items-center gap-4 text-[12px] tabular-nums">
-                    <span className="text-stone-500">Debits <span className="text-stone-200 font-semibold ml-1">{money(totals.dr)}</span></span>
-                    <span className="text-stone-500">Credits <span className="text-stone-200 font-semibold ml-1">{money(totals.cr)}</span></span>
+                    <span className="text-stone-500">Debits <span className="text-stone-200 font-semibold ml-1">{fmt.num2(totals.dr)}</span></span>
+                    <span className="text-stone-500">Credits <span className="text-stone-200 font-semibold ml-1">{fmt.num2(totals.cr)}</span></span>
                     <span className={`font-semibold px-2 py-0.5 rounded-full text-[11px] border ${balanced ? "text-emerald-400 bg-emerald-500/10 border-emerald-800" : "text-rose-400 bg-rose-500/10 border-rose-900"}`}>
-                      {balanced ? "Balanced ✓" : `Off by ${money(Math.abs(totals.dr - totals.cr))}`}
+                      {balanced ? "Balanced ✓" : `Off by ${fmt.num2(Math.abs(totals.dr - totals.cr))}`}
                     </span>
                   </div>
                 </div>

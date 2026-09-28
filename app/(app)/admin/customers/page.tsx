@@ -516,7 +516,7 @@ function StripeInvoiceModal({ open, onClose, onDone, onToast }: {
                 </div>
                 <div className="flex items-center justify-between mt-2">
                   <button onClick={() => setItems([...items, { description: "", amount: "" }])} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"><Plus size={12} /> Add line</button>
-                  <span className="text-xs text-stone-400">Total <span className="text-white font-medium tabular-nums">{symbol}{oneOffTotal.toFixed(2)}</span></span>
+                  <span className="text-xs text-stone-400">Total <span className="text-white font-medium tabular-nums">{symbol}{fmt.num2(oneOffTotal)}</span></span>
                 </div>
               </div>
               <div><label className={lbl}>Currency</label><select value={currency} onChange={e => setCurrency(e.target.value)} className={inp + " w-full"}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></div>

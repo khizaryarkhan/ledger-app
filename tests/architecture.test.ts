@@ -940,17 +940,79 @@ describe("money and quantity are formatted in one place", () => {
     const offenders: string[] = [];
     for (const f of scanned()) {
       const rel = relative(ROOT, f).replace(/\\/g, "/");
-      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+      const src = readFileSync(f, "utf8");
+      let matchedThisFile = false;
+      src.split("\n").forEach((line, i) => {
         if (COMMENT_LINE.test(line)) return;
         if (/new Intl\.NumberFormat/.test(line) && /style:\s*["']currency["']/.test(line)) {
           offenders.push(`${rel}:${i + 1}`);
+          matchedThisFile = true;
         }
       });
+      // The line-by-line scan above only ever sees ONE line at a time, so a
+      // call spanning several lines — `new Intl.NumberFormat(\n  "en-US",\n
+      // { style: "currency", ... }\n)` — never matches it. Collapse the whole
+      // file's whitespace and match again; a whole-file match has no precise
+      // line number to report, so it names the file instead. Skipped when the
+      // per-line scan already caught this file, so a real single-line hit
+      // isn't reported twice under two different labels.
+      if (!matchedThisFile) {
+        const collapsed = src.replace(/\s+/g, " ");
+        if (/new Intl\.NumberFormat\([^)]*?style:\s*["']currency["']/.test(collapsed)) {
+          offenders.push(rel);
+        }
+      }
     }
     expect(
       offenders,
       `these build their own currency formatter instead of calling fmt.money ` +
       `from lib/format — a copy does not receive a fix to the rule: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("no display-layer code hand-rounds money with toFixed instead of fmt", () => {
+    /**
+     * `fmt.money` / `fmt.num2` are the only decimal rule for money — minimum 2
+     * decimals, up to 6, trailing zeros beyond the 2nd stripped. A bare
+     * `.toFixed(2)` or `.toFixed(4)` on a money-shaped value hard-codes exactly
+     * that many decimals, which silently truncates a `numeric(18,6)` unit cost
+     * back to cents — the same class of bug the quantity-side guard below
+     * already catches for `.toFixed(4)` on a quantity.
+     *
+     * Scanned: components/ and app/ only. NOT lib/ — `lib/ledger.ts`,
+     * `lib/export-report.ts`'s `round2` and other posting-engine code
+     * legitimately call `.toFixed(2)`/`.toFixed(4)` to produce a string for a
+     * `numeric` DB column; that is correct engine behaviour, not a display
+     * bypass, and belongs out of this guard's reach.
+     *
+     * A line containing a literal `%` is skipped — that is a percentage/rate
+     * display (e.g. a tax rate, a yield %), not money, and out of scope here.
+     *
+     * A line seeding a controlled `<input>`'s editable state (`useState(...)`)
+     * is also skipped: an editable numeric field is read back with
+     * `parseFloat`/`Number`, so it needs a plain 2dp string, never
+     * `fmt.num2`'s locale-grouped one ("1,234.50" is not a valid `type="number"`
+     * value and would corrupt the parse on save) — that is a different
+     * concern from a read-only display, and not this guard's target.
+     */
+    const MONEY_NAME =
+      /\b(unitPrice|unitCost|subtotal|taxTotal|amountPaid|totalAmount|lineTotal|lineSubtotal|lineTax|amount|total|balance|price|cost)\b/i;
+    const offenders: string[] = [];
+    for (const f of [...sourceFiles("components"), ...sourceFiles("app")]) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (!/\.toFixed\(2\)|\.toFixed\(4\)/.test(line)) return;
+        if (line.includes("%")) return;
+        if (/useState\(/.test(line)) return;
+        if (MONEY_NAME.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `these hand-round a money value with .toFixed instead of calling fmt.money / ` +
+      `fmt.num2 from lib/format — a copy does not receive a fix to the decimal rule: ` +
+      `${offenders.join(", ")}`,
     ).toEqual([]);
   });
 
