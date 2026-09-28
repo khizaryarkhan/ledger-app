@@ -7,10 +7,13 @@
 
 import { requireOrg, ok, bad } from "@/lib/api";
 import { trialBalance } from "@/lib/ledger";
+import { requireLedgerAuthority } from "@/lib/accounting/ledger-authority";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
+  const { error: authError } = await requireLedgerAuthority([orgId!]);
+  if (authError) return authError;
 
   const url = new URL(req.url);
   const asOf = url.searchParams.get("asOf") ?? new Date().toISOString().slice(0, 10);

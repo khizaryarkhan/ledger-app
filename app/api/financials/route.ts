@@ -8,6 +8,7 @@
 
 import { requireReadScope, ok, bad } from "@/lib/api";
 import { trialBalance, profitAndLoss, balanceSheet, generalLedger } from "@/lib/accounting/financials";
+import { requireLedgerAuthority } from "@/lib/accounting/ledger-authority";
 import { db } from "@/db";
 import { organisations, orgGroups } from "@/db/schema";
 import { inArray, eq } from "drizzle-orm";
@@ -42,6 +43,14 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const asOf = url.searchParams.get("asOf");
+
+  // General Ledger is a raw transaction list, not a claim about complete
+  // books — only the summary statements need the org(s) to be the book of
+  // record, since a synced org's native journal_lines is shadow-only.
+  if (statement !== "general-ledger") {
+    const { error: authError } = await requireLedgerAuthority(orgIds);
+    if (authError) return authError;
+  }
 
   try {
     const meta = await buildMeta(orgIds, groupId ?? null);
