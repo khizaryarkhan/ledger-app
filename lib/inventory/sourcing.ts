@@ -158,6 +158,14 @@ export function pricePerBaseUnit(unitPrice: any, baseUnitsPerSupplierUnit: numbe
  * a legitimate return when a supplier link is later tidied away. Job work is
  * absent for a different reason — material sent to a knitter was never bought
  * from them, so there is nothing to authorise.
+ *
+ * `PurchaseOrder` here means the trade-document PO (`lib/accounting/
+ * trade-documents.ts`), not Payables' own `purchase_orders`/
+ * `purchase_order_lines` table. That table is outside this check's scope
+ * entirely — its `item_id` is the provider's (QBO/Xero) id, not `ap_items.id`,
+ * and its only outlet (`lib/po-push.ts`) pushes to QuickBooks/Xero without
+ * ever posting locally or creating a lot. See CLAUDE.md's "Supplier
+ * sourcing" section for the full reasoning and the tests that pin it.
  */
 export const SOURCING_ENFORCED_TYPES = new Set(["PurchaseOrder", "Bill", "Expense"]);
 
