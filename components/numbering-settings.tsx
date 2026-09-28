@@ -5,6 +5,7 @@ import { Card } from "@/components/ui";
 import { Hash, Check, Loader } from "lucide-react";
 import { formatDocNumber as preview } from "@/lib/accounting/doc-format";
 import { controlCompact, tableHead } from "@/components/form-kit";
+import { listTable, listRow, listCell } from "@/components/list-view";
 
 // Per-type transaction numbering (QBO model). Each type has its own series:
 // a prefix, a next number, and zero-padding. Numbers are auto-assigned on the
@@ -51,7 +52,7 @@ export function NumberingSettings() {
         <div className="py-6 text-center text-stone-500 text-[13px]">Loading…</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[560px]">
+          <table className={`${listTable} min-w-[560px]`}>
             <thead>
               <tr className={tableHead}>
                 <th className="text-left py-2 pr-3">Type</th>
@@ -64,13 +65,13 @@ export function NumberingSettings() {
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={r.type} className="border-b border-stone-800/60">
-                  <td className="py-2 pr-3 text-stone-200 font-medium whitespace-nowrap">{r.label}</td>
-                  <td className="py-2 px-2"><input value={r.prefix} onChange={e => patch(r.type, { prefix: e.target.value })} className={`${inputCls} w-24 font-mono`} /></td>
-                  <td className="py-2 px-2"><input type="number" min={1} value={r.nextNo} onChange={e => patch(r.type, { nextNo: Number(e.target.value) })} className={`${inputCls} w-24`} /></td>
-                  <td className="py-2 px-2"><input type="number" min={0} max={12} value={r.padding} onChange={e => patch(r.type, { padding: Number(e.target.value) })} className={`${inputCls} w-16`} /></td>
-                  <td className="py-2 px-2 font-mono text-stone-300">{preview(r.prefix, r.nextNo, r.padding)}</td>
-                  <td className="py-2 text-right">
+                <tr key={r.type} className={listRow()}>
+                  <td className={`${listCell} text-stone-200 font-medium whitespace-nowrap`}>{r.label}</td>
+                  <td className={listCell}><input value={r.prefix} onChange={e => patch(r.type, { prefix: e.target.value })} className={`${inputCls} w-24 font-mono`} /></td>
+                  <td className={listCell}><input type="number" min={1} value={r.nextNo} onChange={e => patch(r.type, { nextNo: Number(e.target.value) })} className={`${inputCls} w-24`} /></td>
+                  <td className={listCell}><input type="number" min={0} max={12} value={r.padding} onChange={e => patch(r.type, { padding: Number(e.target.value) })} className={`${inputCls} w-16`} /></td>
+                  <td className={`${listCell} font-mono text-stone-300`}>{preview(r.prefix, r.nextNo, r.padding)}</td>
+                  <td className={`${listCell} text-right`}>
                     <button onClick={() => save(r)} disabled={savingType === r.type}
                       className="inline-flex items-center gap-1.5 text-[12px] font-medium bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-lg px-3 py-1.5 disabled:opacity-50">
                       {savingType === r.type ? <Loader size={13} className="animate-spin" /> : savedType === r.type ? <Check size={13} className="text-emerald-400" /> : null}
