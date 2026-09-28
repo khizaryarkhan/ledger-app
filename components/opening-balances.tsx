@@ -6,9 +6,10 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Loader, Check, Scale } from "lucide-react";
+import { RefreshCw, Loader, Check } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { controlCompact } from "@/components/form-kit";
+import { ListPage, ListPageHeader } from "@/components/list-view";
 
 const money = fmt.num2;
 // Accounts whose normal (positive opening) side is a debit.
@@ -72,45 +73,41 @@ export function OpeningBalances() {
   const inputCls = controlCompact + " w-40 text-right tabular-nums";
 
   return (
-    <div className="p-6 max-w-3xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Scale size={18} className="text-indigo-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Opening Balances</h1>
-        </div>
+    <ListPage>
+      <ListPageHeader title="Opening Balances" subtitle="Bring balances over from your previous system. Enter each account's balance as of the start date; the difference posts to Opening Balance Equity automatically.">
+        <div className="flex items-center gap-2 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className={controlCompact} /></div>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Bring balances over from your previous system. Enter each account's balance as of the start date; the difference posts to Opening Balance Equity automatically.</p>
+      </ListPageHeader>
 
-      <div className="flex items-center gap-2 mb-4 text-[12px] text-stone-400">As of <input type="date" value={date} onChange={e => setDate(e.target.value)} className={controlCompact} /></div>
-
-      {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
-        <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-          {groups.map(g => (
-            <div key={g.cls}>
-              <div className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500 bg-stone-950/40 border-b border-stone-800">{g.cls}</div>
-              {g.accts.map(a => (
-                <div key={a.id} className="flex items-center justify-between px-4 py-1.5 border-b border-stone-800/40">
-                  <span className="text-[13px] text-stone-200">{a.code ? <span className="text-stone-500 font-mono mr-2">{a.code}</span> : null}{a.name}</span>
-                  <input type="number" step="0.01" value={vals[a.id] ?? ""} onChange={e => setVals(v => ({ ...v, [a.id]: e.target.value }))} placeholder="0.00" className={inputCls} />
-                </div>
-              ))}
+      <div className="flex-1 overflow-auto p-6 max-w-3xl">
+        {loading ? <p className="text-[13px] text-stone-500">Loading…</p> : (
+          <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
+            {groups.map(g => (
+              <div key={g.cls}>
+                <div className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500 bg-stone-950/40 border-b border-stone-800">{g.cls}</div>
+                {g.accts.map(a => (
+                  <div key={a.id} className="flex items-center justify-between px-4 py-1.5 border-b border-stone-800/40">
+                    <span className="text-[13px] text-stone-200">{a.code ? <span className="text-stone-500 font-mono mr-2">{a.code}</span> : null}{a.name}</span>
+                    <input type="number" step="0.01" value={vals[a.id] ?? ""} onChange={e => setVals(v => ({ ...v, [a.id]: e.target.value }))} placeholder="0.00" className={inputCls} />
+                  </div>
+                ))}
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-stone-950/60">
+              <span className="text-[13px] font-semibold text-stone-100">Opening Balance Equity <span className="text-[11px] text-stone-500 font-normal">(auto-balancing)</span></span>
+              <span className="text-[13px] font-semibold tabular-nums text-stone-100">{money(Math.abs(obe))} {obe > 0 ? "Cr" : obe < 0 ? "Dr" : ""}</span>
             </div>
-          ))}
-          <div className="flex items-center justify-between px-4 py-2.5 bg-stone-950/60">
-            <span className="text-[13px] font-semibold text-stone-100">Opening Balance Equity <span className="text-[11px] text-stone-500 font-normal">(auto-balancing)</span></span>
-            <span className="text-[13px] font-semibold tabular-nums text-stone-100">{money(Math.abs(obe))} {obe > 0 ? "Cr" : obe < 0 ? "Dr" : ""}</span>
           </div>
-        </div>
-      )}
+        )}
 
-      {err && <p className="text-[12px] text-rose-400 mt-3">{err}</p>}
-      {msg && <p className="text-[12px] text-emerald-400 mt-3">{msg}</p>}
-      <div className="flex items-center justify-end gap-2 mt-4">
-        <button onClick={save} disabled={saving || loading} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
-          {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Post opening balances
-        </button>
+        {err && <p className="text-[12px] text-rose-400 mt-3">{err}</p>}
+        {msg && <p className="text-[12px] text-emerald-400 mt-3">{msg}</p>}
+        <div className="flex items-center justify-end gap-2 mt-4">
+          <button onClick={save} disabled={saving || loading} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
+            {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} Post opening balances
+          </button>
+        </div>
       </div>
-    </div>
+    </ListPage>
   );
 }
