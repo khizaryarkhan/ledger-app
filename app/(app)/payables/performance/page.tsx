@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { CurrencyPills } from "@/components/currency-pills";
+import { listRow, listMoneyCell, listNumCell } from "@/components/list-view";
 import {
   BarChart3, AlertTriangle, CheckCircle2, Clock, TrendingDown,
   Receipt, Building2, Banknote, PauseCircle,
@@ -283,49 +284,49 @@ export default function APPerformancePage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-800 bg-stone-900/60">
-                  <th className="text-left font-semibold px-5 py-3">Supplier</th>
-                  <th className="text-right font-semibold px-3 py-3">Open Bills</th>
-                  <th className="text-right font-semibold px-3 py-3">Open AP</th>
-                  <th className="text-right font-semibold px-3 py-3">Overdue</th>
-                  <th className="text-right font-semibold px-3 py-3">Overdue %</th>
-                  <th className="text-right font-semibold px-3 py-3">Avg DPO</th>
-                  <th className="text-right font-semibold px-3 py-3">On Hold</th>
-                  <th className="text-right font-semibold px-5 py-3">Pending Approval</th>
+            <table className="w-full text-[13px]">
+              <thead className="sticky top-0 bg-stone-900 z-10">
+                <tr className="border-b border-stone-800 text-left">
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Supplier</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Open Bills</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right border-l border-stone-800">Open AP</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Overdue</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Overdue %</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Avg DPO</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">On Hold</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Pending Approval</th>
                 </tr>
               </thead>
               <tbody>
                 {supplierData.map((s, idx) => (
-                  <tr key={idx} className="border-b border-stone-800 hover:bg-stone-800/50">
-                    <td className="px-5 py-3">
+                  <tr key={idx} className={listRow()}>
+                    <td className="px-2 py-2">
                       <div className="flex items-center gap-2.5">
                         <div className="w-14">
                           <ScoreBar value={s.openTotal} max={maxSupplierTotal} color="bg-violet-500" />
                         </div>
-                        <span className="font-semibold text-white">{s.name}</span>
+                        <span className="font-semibold text-white text-[13px]">{s.name}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-stone-400">{s.open.length}</td>
-                    <td className="px-3 py-3 text-right font-bold tabular-nums text-white"><CurrencyPills breakdown={s.openByCcy} /></td>
-                    <td className="px-3 py-3 text-right tabular-nums">
+                    <td className={`${listNumCell} text-stone-400`}>{s.open.length}</td>
+                    <td className={listMoneyCell}><span className="font-bold text-white"><CurrencyPills breakdown={s.openByCcy} /></span></td>
+                    <td className={listNumCell}>
                       {s.overdue.length > 0
                         ? <span className="text-rose-400 font-medium"><CurrencyPills breakdown={s.overdueByCcy} /></span>
                         : <span className="text-stone-600">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-right"><OverduePct value={s.overduePct} /></td>
-                    <td className="px-3 py-3 text-right">
+                    <td className={listNumCell}><OverduePct value={s.overduePct} /></td>
+                    <td className={listNumCell}>
                       {s.avgOverdueDays > 0
                         ? <span className={`text-xs font-semibold ${s.avgOverdueDays > 60 ? "text-rose-400" : s.avgOverdueDays > 30 ? "text-amber-400" : "text-stone-300"}`}>{s.avgOverdueDays}d</span>
                         : <span className="text-stone-600 text-xs">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className={listNumCell}>
                       {s.onHold > 0
                         ? <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 font-semibold">{s.onHold}</span>
                         : <span className="text-stone-600 text-xs">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-right">
+                    <td className={listNumCell}>
                       {s.pendingApproval > 0
                         ? <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-semibold">{s.pendingApproval}</span>
                         : <span className="text-stone-600 text-xs">—</span>}

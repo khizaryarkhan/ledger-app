@@ -15,14 +15,16 @@ import {
 import {
   Badge,
   Button,
-  Card,
   Input,
   Select,
   Modal,
-  EmptyState,
 } from "@/components/ui";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
 import { formatDate } from "@/lib/format";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead,
+  listTable, listRow, listCheckCell, listCheckbox, type ListColumn,
+} from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -92,10 +94,6 @@ function statusBadgeColor(status: QueryStatus): string {
   return map[status];
 }
 
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-stone-800 rounded ${className}`} />;
-}
-
 function StatCard({
   label,
   value,
@@ -128,8 +126,6 @@ const CATEGORIES: QueryCategory[] = [
   "Goods Not Received",
   "Other",
 ];
-
-const STATUSES: QueryStatus[] = ["Open", "Under Review", "Resolved"];
 
 // ── Raise Query Modal ─────────────────────────────────────────────────────────
 
@@ -286,6 +282,9 @@ function RaiseQueryModal({
 }
 
 // ── Detail Drawer ─────────────────────────────────────────────────────────────
+// Note: this is a small, purpose-built read/act side panel (view + resolve +
+// activity feed) predating the shared Drawer sweep — left as-is here since
+// this task's scope is the list/table shell, not drawer consolidation.
 
 interface DetailDrawerProps {
   query: SupplierQuery | null;
@@ -485,17 +484,19 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
   return { from: new Date(2000, 0, 1), to: now };
 }
 
-// ── Column definitions ─────────────────────────────────────────────────────────
-
-const QUERY_COLS: ColDef[] = [
-  { key: "category",          label: "Category",        sortValue: (r) => r.category ?? "", filterLabel: (r) => r.category ?? "" },
-  { key: "supplierName",      label: "Supplier",        sortValue: (r) => r.supplierName ?? "", filterLabel: (r) => r.supplierName ?? "" },
-  { key: "relatedRef",        label: "Related Bill / PO", sortValue: (r) => r.relatedBillNumber ?? r.relatedPoNumber ?? "", noFilter: true },
-  { key: "reason",            label: "Reason",          sortValue: (r) => r.reason ?? "", noFilter: true },
-  { key: "assignedToName",    label: "Assigned To",     sortValue: (r) => r.assignedToName ?? "", filterLabel: (r) => r.assignedToName ?? "" },
-  { key: "status",            label: "Status",          sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
-  { key: "createdAt",         label: "Created",         sortValue: (r) => r.createdAt ?? "", noFilter: true },
-  { key: "resolvedAt",        label: "Resolved",        sortValue: (r) => r.resolvedAt ?? "", noFilter: true },
+// ── Column definitions — sort + funnel filter per column, board-style ─────────
+// Status/Category/Supplier used to be header selects; there is no card view
+// here, so (as on invoices/page.tsx) they move to column filters only. The
+// created-date range stays a header control for the custom-period logic.
+const QUERY_COLS: ListColumn<SupplierQuery>[] = [
+  { key: "category",       label: "Category",          sort: r => r.category, filter: { kind: "multi", value: r => r.category } },
+  { key: "supplierName",   label: "Supplier",          sort: r => r.supplierName, filter: { kind: "multi", value: r => r.supplierName } },
+  { key: "relatedRef",     label: "Related Bill / PO", sort: r => r.relatedBillNumber ?? r.relatedPoNumber ?? "" },
+  { key: "reason",         label: "Reason",            sort: r => r.reason },
+  { key: "assignedToName", label: "Assigned To",       sort: r => r.assignedToName, filter: { kind: "multi", value: r => r.assignedToName } },
+  { key: "status",         label: "Status",            sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  { key: "createdAt",      label: "Created",           sort: r => r.createdAt },
+  { key: "resolvedAt",     label: "Resolved",          sort: r => r.resolvedAt },
 ];
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -507,9 +508,6 @@ export default function SupplierQueriesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("");
   const [raiseOpen, setRaiseOpen] = useState(false);
   const [selectedQuery, setSelectedQuery] = useState<SupplierQuery | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -578,15 +576,16 @@ export default function SupplierQueriesPage() {
           q.relatedBillNumber?.toLowerCase().includes(s)
       );
     }
-    if (statusFilter) rows = rows.filter((q) => q.status === statusFilter);
-    if (categoryFilter)
-      rows = rows.filter((q) => q.category === categoryFilter);
-    if (supplierFilter)
-      rows = rows.filter((q) => q.supplierId === supplierFilter);
     return rows;
-  }, [queries, search, statusFilter, categoryFilter, supplierFilter, periodFrom, periodTo]);
+  }, [queries, search, periodFrom, periodTo]);
 
-  const dt = useDataTable(filtered, QUERY_COLS, { defaultSort: "createdAt", defaultDir: "desc" });
+  const lv = useListView(filtered, QUERY_COLS, { storageKey: "payables-supplier-queries", defaultSort: "createdAt", defaultDir: "desc" });
+
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((q: any) => q.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
   const stats = useMemo(
     () => ({
@@ -624,246 +623,93 @@ export default function SupplierQueriesPage() {
     await load();
   }
 
-  const clearFilters =
-    search || statusFilter || categoryFilter || supplierFilter;
+  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
+  const toggleAll = () => { setSelected(allSelected ? new Set() : new Set(lv.rows.map((r: any) => r.id))); };
+  const toggleOne = (id: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const pageFiltered = !!search;
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Supplier Queries</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {loading ? "Loading…" : `${dt.rows.length} quer${dt.rows.length !== 1 ? "ies" : "y"}`}
-            <span className="text-stone-400"> · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</span>
-          </p>
+    <ListPage>
+      <ListPageHeader title="Supplier Queries"
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} quer${lv.rows.length !== 1 ? "ies" : "y"}`} · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search queries…"
+            className={`${control} h-8 w-56 pl-7 pr-2 text-xs`} />
         </div>
-        <button
-          onClick={() => setRaiseOpen(true)}
-          className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-        >
-          <Plus size={15} />
-          Raise Query
-        </button>
-      </div>
+        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Created date period" className="w-auto h-8 text-xs">
+          {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </SelectField>
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
+            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
+              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
+          </>
+        )}
+        <ListDivider />
+        <Button icon={Plus} size="sm" onClick={() => setRaiseOpen(true)}>Raise Query</Button>
+      </ListPageHeader>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <StatCard
-          label="Open"
-          value={stats.open}
-          color="text-rose-400"
-          icon={AlertCircle}
-        />
-        <StatCard
-          label="Under Review"
-          value={stats.underReview}
-          color="text-amber-400"
-          icon={Clock}
-        />
-        <StatCard
-          label="Resolved"
-          value={stats.resolved}
-          color="text-emerald-400"
-          icon={CheckCircle2}
-        />
-        <StatCard
-          label="Total"
-          value={stats.total}
-          color="text-stone-300"
-          icon={HelpCircle}
-        />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 py-3 border-b border-stone-800 shrink-0">
+        <StatCard label="Open" value={stats.open} color="text-rose-400" icon={AlertCircle} />
+        <StatCard label="Under Review" value={stats.underReview} color="text-amber-400" icon={Clock} />
+        <StatCard label="Resolved" value={stats.resolved} color="text-emerald-400" icon={CheckCircle2} />
+        <StatCard label="Total" value={stats.total} color="text-stone-300" icon={HelpCircle} />
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-800 bg-rose-500/10 text-rose-400 text-sm shrink-0">
           <AlertCircle size={14} /> {error}
-          <button
-            onClick={load}
-            className="ml-auto text-rose-300 hover:text-white underline text-xs"
-          >
-            Retry
-          </button>
+          <button onClick={load} className="ml-auto text-rose-300 hover:text-white underline text-xs">Retry</button>
         </div>
       )}
 
-      <Card padding="none">
-        {/* Period tabs */}
-        <div className="flex items-center gap-0 border-b border-stone-800 px-3 pt-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setPeriod(p.id)}
-              className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
-                period === p.id
-                  ? "border-violet-500 text-violet-400"
-                  : "border-transparent text-stone-500 hover:text-stone-300"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-          {period === "custom" && (
-            <div className="ml-3 flex items-center gap-2">
-              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
-              <span className="text-stone-600 text-xs">→</span>
-              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
-            </div>
-          )}
+      <ListToolbar lv={lv} noun="query" plural="queries" filtered={pageFiltered} />
+      <ListChips lv={lv} />
+
+      {loading ? (
+        <div className="flex-1 overflow-auto p-5 space-y-2">
+          {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />)}
         </div>
-
-        {/* Filters */}
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            placeholder="Search queries…"
-            icon={Search}
-            className="w-56"
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e: any) => setStatusFilter(e.target.value)}
-            placeholder="All statuses"
-            options={STATUSES}
-          />
-          <Select
-            value={categoryFilter}
-            onChange={(e: any) => setCategoryFilter(e.target.value)}
-            placeholder="All categories"
-            options={CATEGORIES}
-          />
-          <Select
-            value={supplierFilter}
-            onChange={(e: any) => setSupplierFilter(e.target.value)}
-            placeholder="All suppliers"
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-          />
-          {clearFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={X}
-              onClick={() => {
-                setSearch("");
-                setStatusFilter("");
-                setCategoryFilter("");
-                setSupplierFilter("");
-              }}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-
-        <ActiveFiltersBar dt={dt} cols={QUERY_COLS} />
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-5 space-y-2">
-              {[...Array(6)].map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : dt.rows.length === 0 ? (
-            <EmptyState
-              icon={HelpCircle}
-              title="No queries found"
-              description={
-                queries.length === 0
-                  ? "No supplier queries have been raised yet."
-                  : "Try adjusting your filters."
-              }
-              action={
-                queries.length === 0 ? (
-                  <button
-                    onClick={() => setRaiseOpen(true)}
-                    className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-                  >
-                    <Plus size={14} />
-                    Raise First Query
-                  </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-4 py-2.5 w-10">
-                    <input
-                      type="checkbox"
-                      checked={dt.rows.length > 0 && dt.rows.every((r) => selected.has(r.id))}
-                      onChange={() => {
-                        const allSel = dt.rows.every((r) => selected.has(r.id));
-                        setSelected(allSel ? new Set() : new Set(dt.rows.map((r) => r.id)));
-                      }}
-                      className="rounded border-stone-600 text-violet-500 focus:ring-violet-500"
-                    />
-                  </th>
-                  {QUERY_COLS.map((col) => (
-                    <ColHeader key={col.key} col={col} dt={dt} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((q) => (
-                  <tr
-                    key={q.id}
-                    onClick={() => setSelectedQuery(q)}
-                    className={`border-b border-stone-800 cursor-pointer transition-colors ${
-                      selected.has(q.id) ? "bg-violet-500/10" : "hover:bg-stone-800/50"
-                    }`}
-                  >
-                    <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); setSelected((prev) => { const n = new Set(prev); n.has(q.id) ? n.delete(q.id) : n.add(q.id); return n; }); }}>
-                      <input type="checkbox" checked={selected.has(q.id)} onChange={() => {}}
-                        className="rounded border-stone-600 text-violet-500 focus:ring-violet-500" />
+      ) : (
+        <ListScroll lv={lv} empty={queries.length === 0 ? "No supplier queries have been raised yet." : "No queries match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((q: any) => {
+                const isSel = selected.has(q.id);
+                return (
+                  <tr key={q.id} onClick={() => setSelectedQuery(q)} className={`${listRow(isSel)} cursor-pointer`}>
+                    <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(q.id)} className={listCheckbox} aria-label={`Select query for ${q.supplierName}`} />
                     </td>
-                    <td className="px-3 py-3">
-                      <Badge variant={categoryBadgeColor(q.category)}>
-                        {q.category}
-                      </Badge>
+                    <td className="px-2 py-2"><Badge variant={categoryBadgeColor(q.category)} size="sm">{q.category}</Badge></td>
+                    <td className="px-2 py-2 font-medium text-white text-[13px] max-w-[140px] truncate">{q.supplierName}</td>
+                    <td className="px-2 py-2 font-mono text-[12px] text-violet-400">
+                      {q.relatedBillNumber || q.relatedPoNumber || <span className="text-stone-600 font-sans not-italic">—</span>}
                     </td>
-                    <td className="px-3 py-3 font-medium text-white max-w-[140px] truncate">
-                      {q.supplierName}
-                    </td>
-                    <td className="px-3 py-3 font-mono text-[12px] text-violet-400">
-                      {q.relatedBillNumber || q.relatedPoNumber || (
-                        <span className="text-stone-600 font-sans not-italic">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] max-w-[200px] truncate">
-                      {q.reason}
-                    </td>
-                    <td className="px-3 py-3 text-stone-300 text-[13px]">
-                      {q.assignedToName}
-                    </td>
-                    <td className="px-3 py-3">
-                      <Badge variant={statusBadgeColor(q.status)}>
-                        {q.status}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">
-                      {formatDate(q.createdAt)}
-                    </td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">
-                      {q.resolvedAt ? (
-                        <span className="text-emerald-400">{formatDate(q.resolvedAt)}</span>
-                      ) : (
-                        "—"
-                      )}
+                    <td className="px-2 py-2 text-stone-400 text-[12px] max-w-[200px] truncate">{q.reason}</td>
+                    <td className="px-2 py-2 text-stone-300 text-[12px]">{q.assignedToName}</td>
+                    <td className="px-2 py-2"><Badge variant={statusBadgeColor(q.status)} size="sm">{q.status}</Badge></td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">{formatDate(q.createdAt)}</td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">
+                      {q.resolvedAt ? <span className="text-emerald-400">{formatDate(q.resolvedAt)}</span> : "—"}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </Card>
+                );
+              })}
+            </tbody>
+          </table>
+        </ListScroll>
+      )}
 
       {/* Raise Query Modal */}
       <RaiseQueryModal
@@ -880,6 +726,6 @@ export default function SupplierQueriesPage() {
         onClose={() => setSelectedQuery(null)}
         onResolve={handleResolve}
       />
-    </div>
+    </ListPage>
   );
 }

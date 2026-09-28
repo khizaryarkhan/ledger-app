@@ -7,13 +7,16 @@ import {
   Plus,
   ShoppingCart,
   AlertCircle,
-  X,
   CloudUpload,
   Loader2,
 } from "lucide-react";
-import { Card, Badge, Button, Input, Select, Modal, EmptyState } from "@/components/ui";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { Badge, Button, Input, Select, Modal } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,10 +90,6 @@ function approvalStatusBadge(status: POApprovalStatus): string {
     Rejected: "red",
   };
   return map[status] ?? "neutral";
-}
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-stone-800 rounded ${className}`} />;
 }
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
@@ -284,32 +283,31 @@ function CreatePOModal({
   );
 }
 
-// ── Column definitions ─────────────────────────────────────────────────────────
-
-const PO_COLS: ColDef[] = [
-  { key: "poNumber",      label: "PO #",      sortValue: (r) => r.poNumber },
-  { key: "supplierName",  label: "Supplier",   sortValue: (r) => r.supplierName ?? "", filterLabel: (r) => r.supplierName ?? "—" },
-  { key: "poDate",        label: "PO Date",    sortValue: (r) => r.poDate ?? "" },
-  { key: "total",         label: "Total",      sortValue: (r) => r.total ?? 0, align: "right" as const, noFilter: true },
-  { key: "status",        label: "Status",     sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
-  { key: "approvalStatus",label: "Approval",   sortValue: (r) => r.approvalStatus ?? "", filterLabel: (r) => r.approvalStatus ?? "" },
-  { key: "pushStatus",    label: "Push",       sortValue: (r) => r.pushStatus ?? "", filterLabel: (r) => r.pushStatus ?? "", align: "center" as const },
-  { key: "createdAt",     label: "Created",    sortValue: (r) => r.createdAt ?? "", noFilter: true },
+// ── Column definitions — sort + funnel filter per column, board-style ─────────
+// Status/Supplier used to be header selects; there is no card view here to
+// justify keeping them as selects too, so (as on invoices/page.tsx) they move
+// to column filters only. The PO-date range stays a header control — it needs
+// the same custom period logic invoices.tsx keeps for invoice date.
+const PO_COLS: ListColumn<PurchaseOrder>[] = [
+  { key: "poNumber",       label: "PO #",      sort: r => r.poNumber },
+  { key: "supplierName",   label: "Supplier",  sort: r => r.supplierName, filter: { kind: "multi", value: r => r.supplierName } },
+  { key: "poDate",         label: "PO Date",   sort: r => r.poDate },
+  { key: "total",          label: "Total",     sort: r => Number(r.total ?? 0), descFirst: true, align: "right",
+    money: r => ({ amount: Number(r.total ?? 0), currency: r.currency }) },
+  { key: "status",         label: "Status",    sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  { key: "approvalStatus", label: "Approval",  sort: r => r.approvalStatus, filter: { kind: "multi", value: r => r.approvalStatus } },
+  { key: "pushStatus",     label: "Push",      sort: r => r.pushStatus, align: "center", filter: { kind: "multi", value: r => r.pushStatus } },
+  { key: "createdAt",      label: "Created",   sort: r => r.createdAt },
 ];
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS: POStatus[] = ["Draft", "Pending Approval", "Approved", "Cancelled", "Closed"];
-
 export default function PurchaseOrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -323,17 +321,10 @@ export default function PurchaseOrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [poRes, supRes] = await Promise.all([
-        fetch("/api/payables/purchase-orders"),
-        fetch("/api/payables/suppliers"),
-      ]);
+      const poRes = await fetch("/api/payables/purchase-orders");
       if (!poRes.ok) throw new Error("Failed to load purchase orders");
       const poData = await poRes.json();
       setOrders(Array.isArray(poData) ? poData : poData.purchaseOrders ?? []);
-      if (supRes.ok) {
-        const supData = await supRes.json();
-        setSuppliers(Array.isArray(supData) ? supData : supData.suppliers ?? []);
-      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -342,7 +333,6 @@ export default function PurchaseOrdersPage() {
   }
 
   useEffect(() => { load(); }, []);
-
   const { from: periodFrom, to: periodTo } = useMemo(() => {
     if (period === "custom") return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
     if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
@@ -367,12 +357,16 @@ export default function PurchaseOrdersPage() {
           r.supplierName.toLowerCase().includes(s)
       );
     }
-    if (statusFilter) rows = rows.filter((r) => r.status === statusFilter);
-    if (supplierFilter) rows = rows.filter((r) => r.supplierId === supplierFilter);
     return rows;
-  }, [orders, search, statusFilter, supplierFilter, periodFrom, periodTo]);
+  }, [orders, search, periodFrom, periodTo]);
 
-  const dt = useDataTable(baseFiltered, PO_COLS, { defaultSort: "poDate", defaultDir: "desc" });
+  const lv = useListView(baseFiltered, PO_COLS, { storageKey: "payables-purchase-orders", defaultSort: "poDate", defaultDir: "desc", summary: "total" });
+
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
   const stats = useMemo(() => ({
     draft: orders.filter((o) => o.status === "Draft").length,
@@ -381,10 +375,10 @@ export default function PurchaseOrdersPage() {
     pushedToAccounting: orders.filter((o) => o.pushStatus === "Pushed").length,
   }), [orders]);
 
-  const allSelected = dt.rows.length > 0 && dt.rows.every((r) => selected.has(r.id));
+  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set(dt.rows.map((r) => r.id)));
+    else setSelected(new Set(lv.rows.map((r: any) => r.id)));
   };
   const toggleOne = (id: string) => {
     setSelected((prev) => {
@@ -394,28 +388,34 @@ export default function PurchaseOrdersPage() {
     });
   };
 
+  const pageFiltered = !!search;
+
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Purchase Orders</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {loading ? "Loading…" : `${dt.rows.length} order${dt.rows.length !== 1 ? "s" : ""}`}
-            <span className="text-stone-400"> · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</span>
-          </p>
+    <ListPage>
+      <ListPageHeader title="Purchase Orders"
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} order${lv.rows.length !== 1 ? "s" : ""}`} · PO date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO # or supplier…"
+            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-        >
-          <Plus size={15} />
-          New PO
-        </button>
-      </div>
+        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="PO date period" className="w-auto h-8 text-xs">
+          {PERIODS.map(p => <option key={p.id} value={p.id}>PO date: {p.label}</option>)}
+        </SelectField>
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
+            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
+              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
+          </>
+        )}
+        <ListDivider />
+        <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New PO</Button>
+      </ListPageHeader>
 
       {/* Stats Row */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-800 flex-wrap shrink-0">
         <StatCard label="Draft"              value={stats.draft}              color="text-stone-300" />
         <StatCard label="Pending Approval"   value={stats.pendingApproval}    color="text-orange-400" />
         <StatCard label="Approved"           value={stats.approved}           color="text-emerald-400" />
@@ -423,155 +423,49 @@ export default function PurchaseOrdersPage() {
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-800 bg-rose-500/10 text-rose-400 text-sm shrink-0">
           <AlertCircle size={14} /> {error}
           <button onClick={load} className="ml-auto text-rose-300 hover:text-white underline text-xs">Retry</button>
         </div>
       )}
 
-      <Card padding="none">
-        {/* Period tabs */}
-        <div className="flex items-center gap-0 border-b border-stone-800 px-3 pt-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setPeriod(p.id)}
-              className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
-                period === p.id
-                  ? "border-violet-500 text-violet-400"
-                  : "border-transparent text-stone-500 hover:text-stone-300"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-          {period === "custom" && (
-            <div className="ml-3 flex items-center gap-2">
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none"
-              />
-              <span className="text-stone-600 text-xs">→</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none"
-              />
-            </div>
-          )}
+      <ListToolbar lv={lv} noun="order" plural="orders" filtered={pageFiltered} />
+      <ListChips lv={lv} />
+
+      {loading ? (
+        <div className="flex-1 overflow-auto p-5 space-y-2">
+          {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />)}
         </div>
-
-        {/* Filters */}
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            placeholder="Search PO # or supplier…"
-            icon={Search}
-            className="w-72"
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e: any) => setStatusFilter(e.target.value)}
-            placeholder="All statuses"
-            options={STATUS_OPTIONS}
-          />
-          <Select
-            value={supplierFilter}
-            onChange={(e: any) => setSupplierFilter(e.target.value)}
-            placeholder="All suppliers"
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-          />
-          {(search || statusFilter || supplierFilter) && (
-            <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearch(""); setStatusFilter(""); setSupplierFilter(""); }}>
-              Clear
-            </Button>
-          )}
-        </div>
-
-        <ActiveFiltersBar dt={dt} cols={PO_COLS} />
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-5 space-y-2">
-              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
-          ) : dt.rows.length === 0 ? (
-            <EmptyState
-              icon={ShoppingCart}
-              title="No purchase orders found"
-              description={
-                orders.length === 0
-                  ? "Create your first purchase order to get started."
-                  : "Try adjusting your filters."
-              }
-              action={
-                orders.length === 0 ? (
-                  <button
-                    onClick={() => setShowCreate(true)}
-                    className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-                  >
-                    <Plus size={14} />
-                    New PO
-                  </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-4 py-2.5 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleAll}
-                      className="rounded border-stone-600 text-violet-500 focus:ring-violet-500"
-                    />
-                  </th>
-                  {PO_COLS.map((col) => (
-                    <ColHeader key={col.key} col={col} dt={dt} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((po) => (
-                  <tr
-                    key={po.id}
-                    onClick={() => router.push(`/payables/purchase-orders/${po.id}`)}
-                    className={`border-b border-stone-800 cursor-pointer transition-colors ${
-                      selected.has(po.id) ? "bg-violet-500/10" : "hover:bg-stone-800/50"
-                    }`}
-                  >
-                    <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); toggleOne(po.id); }}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(po.id)}
-                        onChange={() => toggleOne(po.id)}
-                        className="rounded border-stone-600 text-violet-500 focus:ring-violet-500"
-                      />
+      ) : (
+        <ListScroll lv={lv} empty={orders.length === 0 ? "No purchase orders yet — create one to get started." : "No purchase orders match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((po: any) => {
+                const isSel = selected.has(po.id);
+                return (
+                  <tr key={po.id} onClick={() => router.push(`/payables/purchase-orders/${po.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
+                    <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(po.id)} className={listCheckbox} aria-label={`Select PO ${po.poNumber}`} />
                     </td>
-                    <td className="px-3 py-3 font-mono text-[12px] text-violet-400">{po.poNumber}</td>
-                    <td className="px-3 py-3 font-medium text-white">{po.supplierName}</td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">{formatDate(po.poDate)}</td>
-                    <td className="px-3 py-3 text-right text-stone-300 tabular-nums text-[13px] font-semibold">{fmt.money(po.total, po.currency)}</td>
-                    <td className="px-3 py-3"><Badge variant={poStatusBadge(po.status)}>{po.status}</Badge></td>
-                    <td className="px-3 py-3"><Badge variant={approvalStatusBadge(po.approvalStatus)}>{po.approvalStatus}</Badge></td>
-                    <td className="px-3 py-3 text-center"><PushStatusIcon status={po.pushStatus} /></td>
-                    <td className="px-3 py-3 text-stone-500 text-[12px] whitespace-nowrap">{formatDate(po.createdAt)}</td>
+                    <td className="px-2 py-2 font-mono text-[12px] text-violet-400 whitespace-nowrap">{po.poNumber}</td>
+                    <td className="px-2 py-2 font-medium text-white text-[13px]">{po.supplierName}</td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">{formatDate(po.poDate)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-stone-300 text-[13px] font-semibold border-l border-stone-800">{fmt.money(po.total, po.currency)}</td>
+                    <td className="px-2 py-2"><Badge variant={poStatusBadge(po.status)} size="sm">{po.status}</Badge></td>
+                    <td className="px-2 py-2"><Badge variant={approvalStatusBadge(po.approvalStatus)} size="sm">{po.approvalStatus}</Badge></td>
+                    <td className="px-2 py-2 text-center"><PushStatusIcon status={po.pushStatus} /></td>
+                    <td className={`${listNumCell} text-stone-500 text-[12px]`}>{formatDate(po.createdAt)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </Card>
+                );
+              })}
+            </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="order" plural="orders" selectable />}
+          </table>
+        </ListScroll>
+      )}
 
       <CreatePOModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={load} />
-    </div>
+    </ListPage>
   );
 }
