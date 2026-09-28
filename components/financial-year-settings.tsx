@@ -5,6 +5,7 @@ import { Card } from "@/components/ui";
 import { CalendarRange, Check, Loader, Lock, Unlock, AlertTriangle } from "lucide-react";
 import { controlInset, tableHead } from "@/components/form-kit";
 import { ymd } from "@/lib/format";
+import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -132,7 +133,7 @@ export function FinancialYearSettings() {
               {/* History */}
               {st.closes.length > 0 && (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-[13px] min-w-[480px]">
+                  <table className={`${listTable} min-w-[480px]`}>
                     <thead>
                       <tr className={tableHead}>
                         <th className="text-left py-2 pr-3">Period</th>
@@ -143,13 +144,13 @@ export function FinancialYearSettings() {
                     </thead>
                     <tbody>
                       {st.closes.map(c => (
-                        <tr key={c.id} className="border-b border-stone-800/60">
-                          <td className="py-2 pr-3 text-stone-300 whitespace-nowrap">{c.periodStart} → {c.periodEnd}</td>
-                          <td className={`py-2 px-2 text-right tabular-nums ${c.netProfit >= 0 ? "text-stone-200" : "text-rose-400"}`}>{money(c.netProfit)}</td>
-                          <td className="py-2 px-2">
+                        <tr key={c.id} className={listRow()}>
+                          <td className={`${listCell} text-stone-300 whitespace-nowrap`}>{c.periodStart} → {c.periodEnd}</td>
+                          <td className={`${listNumCell} ${c.netProfit >= 0 ? "text-stone-200" : "text-rose-400"}`}>{money(c.netProfit)}</td>
+                          <td className={listCell}>
                             <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${c.status === "Closed" ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-stone-800 text-stone-400 border-stone-700"}`}>{c.status}</span>
                           </td>
-                          <td className="py-2 text-right">
+                          <td className={`${listCell} text-right`}>
                             {c.status === "Closed" && (
                               <button onClick={() => reopen(c)} disabled={busy} className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-amber-400 disabled:opacity-50">
                                 <Unlock size={12} /> Reopen

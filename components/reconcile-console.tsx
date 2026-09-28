@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Landmark, Loader, Check, X } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { controlCompact, controlInset, tableHead } from "@/components/form-kit";
+import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 
 const money = fmt.num2;
 
@@ -90,19 +91,19 @@ export function ReconcileConsole() {
           {msg && <p className="text-[12px] text-emerald-400 mb-2">{msg}</p>}
 
           <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[560px]">
+            <table className={`${listTable} min-w-[560px]`}>
               <thead><tr className={tableHead}>
                 <th className="w-10 text-center px-2 py-2.5">Clr</th><th className="text-left px-4 py-2.5">Date</th><th className="text-left px-4 py-2.5">Doc</th><th className="text-left px-4 py-2.5">Description</th><th className="text-right px-4 py-2.5">Amount</th>
               </tr></thead>
               <tbody>
                 {view.lines.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-stone-500">Nothing left to reconcile on this account.</td></tr>}
                 {view.lines.map((l: any) => (
-                  <tr key={l.lineId} className={`border-b border-stone-800/60 cursor-pointer hover:bg-stone-800/20 ${ticked[l.lineId] ? "bg-emerald-500/5" : ""}`} onClick={() => setTicked(t => ({ ...t, [l.lineId]: !t[l.lineId] }))}>
+                  <tr key={l.lineId} className={`${listRow(!!ticked[l.lineId])} cursor-pointer`} onClick={() => setTicked(t => ({ ...t, [l.lineId]: !t[l.lineId] }))}>
                     <td className="text-center"><input type="checkbox" checked={!!ticked[l.lineId]} onChange={() => {}} className="accent-emerald-600" /></td>
-                    <td className="px-4 py-2 text-stone-400">{l.date}</td>
-                    <td className="px-4 py-2 font-mono text-[12px] text-stone-300">{l.docNumber || "—"}</td>
-                    <td className="px-4 py-2 text-stone-200">{l.description}</td>
-                    <td className={`px-4 py-2 text-right tabular-nums ${l.amount < 0 ? "text-rose-300" : "text-stone-200"}`}>{money(l.amount)}</td>
+                    <td className={`${listCell} text-stone-400`}>{l.date}</td>
+                    <td className={`${listCell} font-mono text-[12px] text-stone-300`}>{l.docNumber || "—"}</td>
+                    <td className={`${listCell} text-stone-200`}>{l.description}</td>
+                    <td className={`${listNumCell} ${l.amount < 0 ? "text-rose-300" : "text-stone-200"}`}>{money(l.amount)}</td>
                   </tr>
                 ))}
               </tbody>

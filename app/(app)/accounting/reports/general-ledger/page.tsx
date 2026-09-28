@@ -6,9 +6,15 @@ import { useSearchParams } from "next/navigation";
 import { BookOpen, Loader } from "lucide-react";
 import { txnTypeLabel } from "@/lib/accounting/doc-format";
 import { useData } from "@/components/data-provider";
+import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 
 const today = () => new Date().toISOString().slice(0, 10);
 function fyStart() { const n = new Date(); const y = n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1; return `${y}-07-01`; }
+// NOT fmt.num2 — this report's negative figures are parenthesized
+// ("(100.00)"), a display convention distinct from fmt's leading-minus
+// rule. Kept exactly as it was (this is a visual-consistency pass on the
+// table shell, not a change to the money-display rule); flagged in the
+// handback report as a candidate for its own follow-up.
 const money = (n: number) => (n < 0 ? `(${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 export default function GeneralLedgerPage() {
@@ -106,44 +112,44 @@ function GeneralLedgerInner() {
                 <div className="text-[12px] text-stone-500">Opening <span className="tabular-nums text-stone-300">{money(a.opening)}</span></div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-[13px] min-w-[720px]">
+                <table className={`${listTable} min-w-[720px]`}>
                   <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                      <th className="text-left px-4 py-2">Date</th>
-                      <th className="text-left px-4 py-2">Type</th>
-                      <th className="text-left px-4 py-2">No.</th>
-                      <th className="text-left px-4 py-2">Name / Memo</th>
-                      <th className="text-right px-4 py-2">Debit</th>
-                      <th className="text-right px-4 py-2">Credit</th>
-                      <th className="text-right px-4 py-2">Balance</th>
+                    <tr className="text-[11px] font-medium text-stone-500 border-b border-stone-800">
+                      <th className="text-left px-2 py-2">Date</th>
+                      <th className="text-left px-2 py-2">Type</th>
+                      <th className="text-left px-2 py-2">No.</th>
+                      <th className="text-left px-2 py-2">Name / Memo</th>
+                      <th className="text-right px-2 py-2">Debit</th>
+                      <th className="text-right px-2 py-2">Credit</th>
+                      <th className="text-right px-2 py-2">Balance</th>
                       {showFx && anyFx && (
                         <>
-                          <th className="text-right px-4 py-2">Foreign amount</th>
-                          <th className="text-left px-4 py-2">Ccy</th>
-                          <th className="text-right px-4 py-2">Rate</th>
+                          <th className="text-right px-2 py-2">Foreign amount</th>
+                          <th className="text-left px-2 py-2">Ccy</th>
+                          <th className="text-right px-2 py-2">Rate</th>
                         </>
                       )}
                     </tr>
                   </thead>
                   <tbody>
                     {a.rows.map((r: any, i: number) => (
-                      <tr key={i} className="border-b border-stone-800/50">
-                        <td className="px-4 py-1.5 text-stone-400 whitespace-nowrap">{r.date}</td>
-                        <td className="px-4 py-1.5">
+                      <tr key={i} className={listRow()}>
+                        <td className={`${listCell} text-stone-400 whitespace-nowrap`}>{r.date}</td>
+                        <td className={listCell}>
                           <span className="text-[11px] font-medium text-teal-300 bg-teal-500/10 border border-teal-800/40 rounded px-1.5 py-0.5">{txnTypeLabel(r.sourceType)}</span>
                         </td>
-                        <td className="px-4 py-1.5 font-mono text-[12px]">
+                        <td className={`${listCell} font-mono text-[12px]`}>
                           {r.entryId ? <Link href={`/accounting/transactions/${r.entryId}`} className="text-teal-400 hover:underline">{r.docNumber}</Link> : <span className="text-stone-400">{r.docNumber}</span>}
                         </td>
-                        <td className="px-4 py-1.5 text-stone-300 max-w-[280px] truncate">{r.name ? <span className="text-stone-200">{r.name}</span> : null}{r.name && r.memo ? " · " : ""}{r.memo ? <span className="text-stone-500">{r.memo}</span> : (!r.name ? <span className="text-stone-600">—</span> : null)}</td>
-                        <td className="px-4 py-1.5 text-right tabular-nums text-stone-300">{r.debit ? money(r.debit) : ""}</td>
-                        <td className="px-4 py-1.5 text-right tabular-nums text-stone-300">{r.credit ? money(r.credit) : ""}</td>
-                        <td className="px-4 py-1.5 text-right tabular-nums text-stone-200">{money(r.balance)}</td>
+                        <td className={`${listCell} text-stone-300 max-w-[280px] truncate`}>{r.name ? <span className="text-stone-200">{r.name}</span> : null}{r.name && r.memo ? " · " : ""}{r.memo ? <span className="text-stone-500">{r.memo}</span> : (!r.name ? <span className="text-stone-600">—</span> : null)}</td>
+                        <td className={`${listNumCell} text-stone-300`}>{r.debit ? money(r.debit) : ""}</td>
+                        <td className={`${listNumCell} text-stone-300`}>{r.credit ? money(r.credit) : ""}</td>
+                        <td className={`${listNumCell} text-stone-200`}>{money(r.balance)}</td>
                         {showFx && anyFx && (
                           <>
-                            <td className="px-4 py-1.5 text-right tabular-nums text-stone-400">{r.currency ? money(r.fxDebit || r.fxCredit || 0) : ""}</td>
-                            <td className="px-4 py-1.5 text-stone-500">{r.currency ?? ""}</td>
-                            <td className="px-4 py-1.5 text-right tabular-nums text-stone-500">{r.currency ? r.exchangeRate : ""}</td>
+                            <td className={`${listNumCell} text-stone-400`}>{r.currency ? money(r.fxDebit || r.fxCredit || 0) : ""}</td>
+                            <td className={`${listCell} text-stone-500`}>{r.currency ?? ""}</td>
+                            <td className={`${listNumCell} text-stone-500`}>{r.currency ? r.exchangeRate : ""}</td>
                           </>
                         )}
                       </tr>
