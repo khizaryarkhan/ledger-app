@@ -414,6 +414,43 @@ into, not a preference.
   - Production at the time: ACC, EDC and EDC London had Accounting unticked
     deliberately (`billing_audit_logs`, `organisation_modules_updated`) and zero
     native journal entries, so enforcing it removed nothing in use.
+  - **The registry is now complete, not partial (2026-09-28).** `/api/production`
+    (the real Manufacturing Order backend), `/api/inventory` (bar the shared
+    `items`/`items/[id]`/`skus`/`supplier-skus` master data) and `/api/resources`
+    were entirely missing from `API_OWNERS` — every one of their routes already
+    called `requireModule()` itself, so nothing broke at runtime, but a
+    bookmarked/typed URL to them (or to `/supply-chain`/`/resources`, missing
+    from `PAGE_OWNERS` for the same reason) rendered with no gate at all. All
+    are registered now, changing no runtime behaviour, only closing the gap.
+  - **`tests/module-gating.test.ts`'s reverse-completeness check is what closes
+    this class of gap for good.** The tests above only ever checked ONE
+    direction — that a registered rule names a real path. They never checked
+    the reverse: that every real route under `app/api/**/route.ts` and
+    `app/(app)/**/page.tsx` is accounted for. It now globs both trees and
+    requires each real route to be either matched by a `PAGE_OWNERS`/
+    `API_OWNERS` rule (owned or explicit `owner: null`) or named in the test's
+    own `UNOWNED_API`/`UNOWNED_PAGES` allowlist, each entry a `{ path, why }`
+    pair — no bare strings, every entry must justify itself. Also asserted:
+    every OWNED api route calls `requireOrg`/`requireModule`/`requireReadScope`/
+    `verifyOAuthState` somewhere in its source (so a future registered-but-
+    unenforced route is caught too), no allowlist entry is stale (matches no
+    real route), and no allowlist entry is an ancestor of an owned rule's path
+    (a broad entry like `/api/mobile` must never be able to shadow a more
+    specific path registered as owned later). All were proven against the
+    pre-fix registry first — the reverse check correctly reported every one of
+    `/api/production/*`, `/api/inventory/*` (bar the four master-data routes),
+    `/api/resources/*`, `/supply-chain/*` and `/resources/*` as unaccounted for
+    before the registry entries above were added.
+  - **`/api/mobile` is in the allowlist, deliberately deferred, not gated.**
+    The mobile client has no module-awareness yet — gating it now would break
+    the mobile Receivables screen for any org with that module disabled, since
+    the client never checks `enabledModules` before calling these routes. A
+    companion mobile-client fix is required before `/api/mobile/**` can be
+    safely added to `API_OWNERS`; don't gate it without that fix landing first.
+  - `findRule(rules, pathname)` (`lib/modules.ts`) is the shared path-matcher
+    both `moduleForPage`/`moduleForApi` and the reverse-completeness test use —
+    written once so the test's notion of "matches a rule" can never drift from
+    the real runtime lookup.
 - **Keep the two files separate.** `lib/modules-server.ts` imports `db` —
   importing that from a client component would bundle server code into the
   client. Anything a client component needs (the admin modules card, the
