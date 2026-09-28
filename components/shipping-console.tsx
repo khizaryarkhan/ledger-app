@@ -20,12 +20,18 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON } from "@/lib/inventory/round";
 import { salesOrderOptions } from "@/lib/inventory/order-options";
-import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 const money = fmt.num2;
 const qtyFmt = (n: any) => fmt.qty(n ?? 0);
 
 export function ShippingConsole() {
+  const { orgSettings } = useData() as any;
+  const ccy = orgSettings?.currency ?? "EUR";
   const [rows, setRows] = useState<any[] | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -52,70 +58,99 @@ export function ShippingConsole() {
     if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not void shipment."); return; }
     load();
   }
-  const selected = (rows ?? []).filter(r => sel[r.id]);
+
+  const listRows = rows ?? [];
+  const SHIP_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "shipmentNo", label: "Shipment #", sort: r => r.shipmentNo, filter: { kind: "text", value: r => r.shipmentNo } },
+    { key: "customer", label: "Customer", sort: r => r.customerLabel, filter: { kind: "multi", value: r => r.customerLabel } },
+    { key: "date", label: "Date", sort: r => r.shipmentDate },
+    { key: "cogs", label: "COGS", align: "right", sort: r => r.cogsTotal, descFirst: true, money: r => ({ amount: r.cogsTotal, currency: ccy }) },
+    { key: "saleValue", label: "Sale value", align: "right", sort: r => r.saleTotal, descFirst: true, money: r => ({ amount: r.saleTotal, currency: ccy }) },
+    { key: "invoiced", label: "Invoiced", align: "right", sort: r => r.invoicedAmount, descFirst: true, money: r => ({ amount: r.invoicedAmount, currency: ccy }) },
+    { key: "open", label: "Awaiting invoice", align: "right", sort: r => r.open, descFirst: true, money: r => ({ amount: r.open, currency: ccy }) },
+  ], [ccy]);
+  const lv = useListView(listRows, SHIP_COLS, { storageKey: "shipping", defaultSort: "date", defaultDir: "desc", summary: "open" });
+
+  // Batch actions must never silently act on rows hidden by a filter — prune
+  // the selection the same way customers/page.tsx does.
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
+    setSel(prev => {
+      const stale = Object.keys(prev).filter(id => !visibleIds.has(id));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      stale.forEach(id => delete next[id]);
+      return next;
+    });
+  }, [lv.rows]);
+
+  const selectableIds = useMemo(() => new Set(lv.rows.filter((r: any) => r.open > 0.005).map((r: any) => r.id)), [lv.rows]);
+  const allSelected = selectableIds.size > 0 && [...selectableIds].every(id => sel[id]);
+  const someSelected = [...selectableIds].some(id => sel[id]);
+  function toggleAll() {
+    setSel(s => {
+      const next = { ...s };
+      selectableIds.forEach(id => { if (allSelected) delete next[id]; else next[id] = true; });
+      return next;
+    });
+  }
+
+  const selected = listRows.filter(r => sel[r.id]);
   const selCustomers = [...new Set(selected.map(r => r.customerId ?? "—"))];
   const canInvoice = selected.length > 0 && selCustomers.length === 1 && selected.every(r => r.open > 0.005);
 
   return (
-    <div className="p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center"><Truck size={18} className="text-violet-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Shipping</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {Object.values(sel).some(Boolean) && (
-            <button disabled={!canInvoice} onClick={() => setInvoicing(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40" title={canInvoice ? "" : "Select uninvoiced shipments from one customer"}>
-              <FileText size={14} /> Invoice {selected.length} shipment{selected.length > 1 ? "s" : ""}
-            </button>
-          )}
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Ship stock</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Fulfil customer orders — against a Sales Order or ad-hoc. COGS is recognised here (Dr COGS / Cr Inventory). Then tick shipments and create an Invoice for the revenue.</p>
-      {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
+    <ListPage>
+      <ListPageHeader title="Shipping" subtitle="Fulfil customer orders — against a Sales Order or ad-hoc. COGS is recognised here (Dr COGS / Cr Inventory). Then tick shipments and create an Invoice for the revenue.">
+        {Object.values(sel).some(Boolean) && (
+          <button disabled={!canInvoice} onClick={() => setInvoicing(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40" title={canInvoice ? "" : "Select uninvoiced shipments from one customer"}>
+            <FileText size={14} /> Invoice {selected.length} shipment{selected.length > 1 ? "s" : ""}
+          </button>
+        )}
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Ship stock</button>
+      </ListPageHeader>
+      {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <ShipDrawer customers={customers} items={items} onClose={() => { setShowNew(false); load(); }} />}
       {invoicing && <InvoiceDrawer shipments={selected} onClose={() => setInvoicing(false)} onDone={() => { setInvoicing(false); setSel({}); load(); }} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[760px]">
-            <thead>
-              <tr className="border-b border-stone-800">
-                <th className="w-8" />
-                <th className={th}>Shipment #</th>
-                <th className={th}>Customer</th>
-                <th className={th}>Date</th>
-                <th className={`${th} !text-right`}>COGS</th>
-                <th className={`${th} !text-right`}>Sale value</th>
-                <th className={`${th} !text-right`}>Invoiced</th>
-                <th className={`${th} !text-right`}>Awaiting invoice</th>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && rows.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-500">No shipments yet — record one with Ship stock.</td></tr>}
-              {(rows ?? []).map(r => (
-                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-950/40">
-                  <td className="pl-3">{r.open > 0.005 && <input type="checkbox" checked={!!sel[r.id]} onChange={e => setSel(s => ({ ...s, [r.id]: e.target.checked }))} className="accent-emerald-600" />}</td>
-                  <td className="px-4 py-2.5 font-mono text-[12px] text-stone-200">{r.shipmentNo || r.id.slice(0, 8)}</td>
-                  <td className="px-4 py-2.5 text-stone-200">{r.customerLabel || "—"}</td>
-                  <td className="px-4 py-2.5 text-stone-400">{r.shipmentDate}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{money(r.cogsTotal)}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{money(r.saleTotal)}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{money(r.invoicedAmount)}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums"><span className={r.open > 0.005 ? "text-amber-400" : "text-stone-500"}>{money(r.open)}</span></td>
-                  <td className="px-2 py-2.5"><button onClick={() => voidRow(r.id, r.shipmentNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void shipment"><Trash2 size={13} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      {rows === null ? (
+        <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="shipment" selected={selected.length} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty={listRows.length === 0 ? "No shipments yet — record one with Ship stock." : "No shipments match the current filters."}>
+            <table className={listTable}>
+              <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} trailing={1} />
+              <tbody>
+                {lv.rows.map((r: any) => {
+                  const canSel = r.open > 0.005;
+                  const isSel = !!sel[r.id];
+                  return (
+                    <tr key={r.id} className={listRow(isSel)}>
+                      <td className={listCheckCell}>
+                        {canSel && <input type="checkbox" checked={isSel} onChange={e => setSel(s => ({ ...s, [r.id]: e.target.checked }))} className={listCheckbox} aria-label={`Select ${r.shipmentNo || r.id}`} />}
+                      </td>
+                      <td className="px-2 py-2 font-mono text-[12px] text-stone-200">{r.shipmentNo || r.id.slice(0, 8)}</td>
+                      <td className="px-2 py-2 text-stone-200">{r.customerLabel || "—"}</td>
+                      <td className="px-2 py-2 text-stone-400">{r.shipmentDate}</td>
+                      <td className={`${listNumCell} text-stone-400`}>{money(r.cogsTotal)}</td>
+                      <td className={`${listNumCell} text-stone-300`}>{money(r.saleTotal)}</td>
+                      <td className={`${listNumCell} text-stone-400`}>{money(r.invoicedAmount)}</td>
+                      <td className={listMoneyCell}><span className={r.open > 0.005 ? "text-amber-400 font-medium" : "text-stone-500"}>{money(r.open)}</span></td>
+                      <td className="px-2 py-2"><button onClick={() => voidRow(r.id, r.shipmentNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void shipment"><Trash2 size={13} /></button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="shipment" selectable trailing={1} />}
+            </table>
+          </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }
 

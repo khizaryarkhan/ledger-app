@@ -7,9 +7,13 @@
  * record" picker (People links to Employees; Equipment has none).
  */
 
-import { useEffect, useState } from "react";
-import { Plus, RefreshCw, Users, Wrench, X, Loader, Check, Trash2 } from "lucide-react";
-import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, RefreshCw, Loader, Check, Trash2 } from "lucide-react";
+import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [rows, setRows] = useState<any[] | null>(null);
@@ -27,53 +31,53 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
     }
   }, [type]);
 
-  const list = rows ?? [];
-  const Icon = type === "person" ? Users : Wrench;
   const label = type === "person" ? "People" : "Equipment";
+  const listRows = rows ?? [];
+  const RES_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "name", label: "Name", sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+    { key: "category", label: "Category", sort: r => r.category, filter: { kind: "multi", value: r => r.category } },
+    { key: "dailyCapacity", label: "Daily capacity", align: "right", sort: r => r.dailyCapacity, sum: r => r.dailyCapacity },
+    { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  ], []);
+  const lv = useListView(listRows, RES_COLS, { storageKey: `resources-${type}`, defaultSort: "name" });
 
   return (
-    <div className="p-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center"><Icon size={18} className="text-pink-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">{label}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New {type === "person" ? "person" : "equipment"}</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">
-        {type === "person" ? "People available to schedule against Projects and production orders." : "Machines/equipment available to schedule against production orders."}
-      </p>
+    <ListPage>
+      <ListPageHeader title={label} subtitle={type === "person" ? "People available to schedule against Projects and production orders." : "Machines/equipment available to schedule against production orders."}>
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New {type === "person" ? "person" : "equipment"}</button>
+      </ListPageHeader>
 
       {showNew && <ResourceDrawer type={type} employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
       {openId && <ResourceDrawer type={type} employees={employees} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
 
-      {rows === null ? <p className="text-[13px] text-stone-500">Loading…</p> : list.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-stone-800 p-10 text-center text-stone-500 text-[13px]">No {label.toLowerCase()} yet — add one.</div>
+      {rows === null ? (
+        <p className="px-4 py-8 text-center text-[13px] text-stone-500">Loading…</p>
       ) : (
-        <div className="rounded-lg border border-stone-800 overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead><tr className="border-b border-stone-800 bg-stone-950/40">
-              <th className={th}>Name</th><th className={th}>Category</th><th className={`${th} text-right`}>Daily capacity</th><th className={th}>Status</th>
-            </tr></thead>
-            <tbody>
-              {list.map(r => (
-                <tr key={r.id} onClick={() => setOpenId(r.id)} className="border-b border-stone-800/50 hover:bg-stone-900/60 cursor-pointer">
-                  <td className="px-3 py-2 text-stone-100">{r.name}{r.employee ? <span className="text-stone-500"> · linked to {r.employee.name}</span> : null}</td>
-                  <td className="px-3 py-2 text-stone-400">{r.category || "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-stone-300">{r.dailyCapacity}</td>
-                  <td className="px-3 py-2">
-                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${r.status === "active" ? "border-emerald-800/50 text-emerald-400 bg-emerald-500/10" : "border-stone-700 text-stone-500"}`}>{r.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <ListToolbar lv={lv} noun={type === "person" ? "person" : "resource"} plural={type === "person" ? "people" : "resources"} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty={listRows.length === 0 ? `No ${label.toLowerCase()} yet — add one.` : `No ${label.toLowerCase()} match the current filters.`}>
+            <table className={listTable}>
+              <ListHead lv={lv} />
+              <tbody>
+                {lv.rows.map((r: any) => (
+                  <tr key={r.id} onClick={() => setOpenId(r.id)} className={`${listRow()} cursor-pointer`}>
+                    <td className="px-2 py-2 text-stone-100">{r.name}{r.employee ? <span className="text-stone-500"> · linked to {r.employee.name}</span> : null}</td>
+                    <td className="px-2 py-2 text-stone-400">{r.category || "—"}</td>
+                    <td className={`${listNumCell} text-stone-300`}>{r.dailyCapacity}</td>
+                    <td className="px-2 py-2">
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${r.status === "active" ? "border-emerald-800/50 text-emerald-400 bg-emerald-500/10" : "border-stone-700 text-stone-500"}`}>{r.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun={type === "person" ? "person" : "resource"} plural={type === "person" ? "people" : "resources"} />}
+            </table>
+          </ListScroll>
+        </>
       )}
-    </div>
+    </ListPage>
   );
 }
 
