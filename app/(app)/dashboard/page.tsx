@@ -10,6 +10,12 @@ import { ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, Circle, AlertTriang
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
 import { classifyCompositionByCurrency } from "@/lib/receivable-composition";
+import { listRow } from "@/components/list-view";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, for the
+// one table-shaped dashboard widget ("AR by Rep") — the rest of this page is
+// cards/charts, not tables, so it doesn't take the full list-view shell.
+const widgetTh = "font-medium text-stone-500 whitespace-nowrap px-2 py-2 text-[11px]";
 
 // ── Shared open-balance helper ───────────────────────────────────────────────
 // Uses qboBalance as the authoritative figure (set directly by the AR snapshot
@@ -350,21 +356,21 @@ function ArHealthWidget({ invoices, customers, projects, reps, communications }:
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="border-b border-stone-800">
-                  <th className="text-left py-1.5 font-semibold text-stone-500 pr-3">Rep</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Open AR</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500 pr-3">Overdue</th>
-                  <th className="text-right py-1.5 font-semibold text-stone-500">% Overdue</th>
+                  <th className={`${widgetTh} text-left`}>Rep</th>
+                  <th className={`${widgetTh} text-right`}>Open AR</th>
+                  <th className={`${widgetTh} text-right`}>Overdue</th>
+                  <th className={`${widgetTh} text-right`}>% Overdue</th>
                 </tr>
               </thead>
               <tbody>
                 {repPortfolio.map(({ rep, openAR, overdueAR, currency }: any) => {
                   const overdPct = openAR > 0 ? (overdueAR / openAR) * 100 : 0;
                   return (
-                    <tr key={rep.id} className="border-b border-stone-800 last:border-0">
-                      <td className="py-2 font-medium text-stone-200 pr-3">{rep.name}</td>
-                      <td className="py-2 text-right tabular-nums text-stone-300 pr-3">{fmt.money(openAR, currency)}</td>
-                      <td className={`py-2 text-right tabular-nums pr-3 font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, currency)}</td>
-                      <td className={`py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-500"}`}>
+                    <tr key={rep.id} className={listRow()}>
+                      <td className="px-2 py-2 font-medium text-stone-200">{rep.name}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-stone-300">{fmt.money(openAR, currency)}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums font-semibold ${overdueAR > 0 ? "text-rose-400" : "text-emerald-400"}`}>{fmt.money(overdueAR, currency)}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums font-medium ${overdPct > 50 ? "text-rose-400" : overdPct > 25 ? "text-amber-400" : "text-stone-500"}`}>
                         {overdPct.toFixed(0)}%
                       </td>
                     </tr>

@@ -10,6 +10,16 @@ import {
   Users, Mail, CheckSquare, TrendingUp, TrendingDown, Target,
   AlertTriangle, BarChart3, Minus, Phone, Clock,
 } from "lucide-react";
+import { listRow, listNumCell } from "@/components/list-view";
+
+// This is a computed rep scorecard (pre-aggregated multi-currency totals,
+// a fixed business-rule sort order, no per-column filters), not a filterable
+// record list — see the handback report for why it takes the shared visual
+// tokens only, not the full useListView shell. Mirrors list-view.tsx's
+// (unexported) thCls header style so the table still reads as the same
+// design system.
+const th = "px-2 py-2.5 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
+const thRight = "px-2 py-2.5 text-right text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function ScoreBar({ value, max, color = "bg-stone-600" }: { value: number; max: number; color?: string }) {
@@ -278,45 +288,45 @@ export default function PerformancePage() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-stone-400 border-b border-stone-800 bg-stone-900/60">
-                <th className="text-left font-semibold px-5 py-3">Rep</th>
-                <th className="text-right font-semibold px-3 py-3">Customers</th>
-                <th className="text-right font-semibold px-3 py-3">Open AR</th>
-                <th className="text-right font-semibold px-3 py-3">Overdue</th>
-                <th className="text-right font-semibold px-3 py-3">Overdue %</th>
-                <th className="text-right font-semibold px-3 py-3">90+ Days</th>
-                <th className="text-right font-semibold px-3 py-3">Avg DPD</th>
-                <th className="text-right font-semibold px-3 py-3">Cash {periodLabel === "This month" ? "MTD" : "WTD"}</th>
-                <th className="text-right font-semibold px-3 py-3">Emails</th>
-                <th className="text-right font-semibold px-3 py-3">Replies</th>
-                <th className="text-right font-semibold px-5 py-3">Tasks</th>
+            <thead className="sticky top-0 bg-stone-900">
+              <tr className="border-b border-stone-800">
+                <th className={th}>Rep</th>
+                <th className={thRight}>Customers</th>
+                <th className={thRight}>Open AR</th>
+                <th className={thRight}>Overdue</th>
+                <th className={thRight}>Overdue %</th>
+                <th className={thRight}>90+ Days</th>
+                <th className={thRight}>Avg DPD</th>
+                <th className={thRight}>Cash {periodLabel === "This month" ? "MTD" : "WTD"}</th>
+                <th className={thRight}>Emails</th>
+                <th className={thRight}>Replies</th>
+                <th className={thRight}>Tasks</th>
               </tr>
             </thead>
             <tbody>
               {repData.map((r: any) => (
-                <tr key={r.rep.id} className="border-b border-stone-800 hover:bg-stone-800/50">
-                  <td className="px-5 py-3">
+                <tr key={r.rep.id} className={listRow()}>
+                  <td className="px-2 py-2">
                     <div className="font-semibold text-white">{r.rep.name}</div>
                     {r.rep.email && <div className="text-[11px] text-stone-400">{r.rep.email}</div>}
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-400">{r.custCount}</td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums text-white"><CurrencyPills breakdown={r.openARByCcy} /></td>
-                  <td className="px-3 py-3 text-right tabular-nums text-rose-400 font-medium"><CurrencyPills breakdown={r.overdueARByCcy} /></td>
-                  <td className="px-3 py-3 text-right">
+                  <td className={`${listNumCell} text-stone-400`}>{r.custCount}</td>
+                  <td className={`${listNumCell} font-bold text-white`}><CurrencyPills breakdown={r.openARByCcy} /></td>
+                  <td className={`${listNumCell} text-rose-400 font-medium`}><CurrencyPills breakdown={r.overdueARByCcy} /></td>
+                  <td className={listNumCell}>
                     <Chip value={r.overduePct} good={20} warn={50} />
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-400 text-xs">
+                  <td className={`${listNumCell} text-stone-400 text-xs`}>
                     {r.at90plus > 0 ? <span className="text-rose-400 font-medium"><CurrencyPills breakdown={r.at90plusByCcy} /></span> : <span className="text-stone-600">—</span>}
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td className={listNumCell}>
                     {r.avgDPD > 0 ? (
                       <span className={`text-xs font-semibold ${r.avgDPD > 60 ? "text-rose-400" : r.avgDPD > 30 ? "text-amber-400" : "text-stone-300"}`}>
                         {r.avgDPD}d
                       </span>
                     ) : <span className="text-stone-600 text-xs">—</span>}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2 py-2">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-16">
                         <ScoreBar value={r.cashCollected} max={maxCash} color="bg-emerald-500" />
@@ -324,7 +334,7 @@ export default function PerformancePage() {
                       <span className="text-xs font-semibold text-emerald-400 tabular-nums"><CurrencyPills breakdown={r.cashCollByCcy} /></span>
                     </div>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2 py-2">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-12">
                         <ScoreBar value={r.emailsSent} max={maxEmails} color="bg-stone-500" />
@@ -332,8 +342,8 @@ export default function PerformancePage() {
                       <span className="text-xs tabular-nums text-stone-400">{r.emailsSent}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-stone-400 text-xs">{r.repliesReceived}</td>
-                  <td className="px-5 py-3 text-right">
+                  <td className={`${listNumCell} text-stone-400 text-xs`}>{r.repliesReceived}</td>
+                  <td className={listNumCell}>
                     <div className="flex items-center gap-1 justify-end">
                       <span className="text-xs tabular-nums text-stone-400">{r.openTasks} open</span>
                       {r.overdueTasks > 0 && (
@@ -345,20 +355,20 @@ export default function PerformancePage() {
               ))}
 
               {/* Totals row */}
-              <tr className="bg-stone-900 text-white">
-                <td className="px-5 py-3 font-bold text-sm">TOTAL</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.custCount, 0)}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.openARByCcy} /></td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.overdueARByCcy} /></td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">
+              <tr className="border-t-2 border-stone-800 bg-stone-900/60 text-white">
+                <td className="px-2 py-2.5 font-bold text-sm">TOTAL</td>
+                <td className={`${listNumCell} font-bold`}>{repData.reduce((s: number, r: any) => s + r.custCount, 0)}</td>
+                <td className={`${listNumCell} font-bold`}><CurrencyPills breakdown={totals.openARByCcy} /></td>
+                <td className={`${listNumCell} font-bold`}><CurrencyPills breakdown={totals.overdueARByCcy} /></td>
+                <td className={`${listNumCell} font-bold`}>
                   {totals.openAR > 0 ? ((totals.overdueAR / totals.openAR) * 100).toFixed(0) : 0}%
                 </td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.at90plusByCcy} /></td>
-                <td className="px-3 py-3" />
-                <td className="px-3 py-3 text-right font-bold tabular-nums"><CurrencyPills breakdown={totals.cashCollByCcy} /></td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{totals.emailsSent}</td>
-                <td className="px-3 py-3 text-right font-bold tabular-nums">{repData.reduce((s: number, r: any) => s + r.repliesReceived, 0)}</td>
-                <td className="px-5 py-3 text-right font-bold tabular-nums">{totals.openTasks}</td>
+                <td className={`${listNumCell} font-bold`}><CurrencyPills breakdown={totals.at90plusByCcy} /></td>
+                <td className="px-2 py-2.5" />
+                <td className={`${listNumCell} font-bold`}><CurrencyPills breakdown={totals.cashCollByCcy} /></td>
+                <td className={`${listNumCell} font-bold`}>{totals.emailsSent}</td>
+                <td className={`${listNumCell} font-bold`}>{repData.reduce((s: number, r: any) => s + r.repliesReceived, 0)}</td>
+                <td className={`${listNumCell} font-bold`}>{totals.openTasks}</td>
               </tr>
             </tbody>
           </table>

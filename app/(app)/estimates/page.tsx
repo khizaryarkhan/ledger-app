@@ -1,9 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { Card, Badge, Input, EmptyState } from "@/components/ui";
+import { Badge, Input } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
-import { Search, ClipboardList } from "lucide-react";
+import { Search } from "lucide-react";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 
 type Estimate = {
   estimate: {
@@ -67,19 +71,25 @@ export default function EstimatesPage() {
 
   const statuses = useMemo(() => Array.from(new Set(rows.map(r => r.estimate.status))).sort(), [rows]);
 
-  return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Estimates</h1>
-          <p className="text-sm text-stone-400 mt-0.5">Quotes and proposals synced from QuickBooks</p>
-        </div>
-      </div>
+  const EST_COLS = useMemo<ListColumn<Estimate>[]>(() => [
+    { key: "number",   label: "Estimate #", sort: r => r.estimate.estimateNumber },
+    { key: "customer", label: "Customer",   sort: r => r.customerName ?? "" },
+    { key: "project",  label: "Project",    sort: r => r.projectName ?? "" },
+    { key: "date",     label: "Date",       sort: r => r.estimate.estimateDate },
+    { key: "expiry",   label: "Expiry",     sort: r => r.estimate.expiryDate ?? "" },
+    { key: "status",   label: "Status" },
+    { key: "total",    label: "Total", align: "right", sort: r => r.estimate.total, descFirst: true,
+      money: r => ({ amount: r.estimate.total, currency: r.estimate.currency }) },
+  ], []);
 
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
+  const lv = useListView(filtered, EST_COLS, { storageKey: "estimates", summary: "total" });
+  const pageFiltered = !!(search || statusFilter);
+
+  return (
+    <ListPage>
+      <ListPageHeader title="Estimates" subtitle="Quotes and proposals synced from QuickBooks">
         <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
           <Input
             placeholder="Search estimates…"
             value={search}
@@ -95,99 +105,75 @@ export default function EstimatesPage() {
           <option value="">All statuses</option>
           {statuses.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-      </div>
+      </ListPageHeader>
 
-      {/* Summary strip */}
-      {!loading && rows.length > 0 && (
-        <div className="flex gap-4 text-sm text-stone-400">
-          <span>{filtered.length} estimate{filtered.length !== 1 ? "s" : ""}</span>
-          <span>
-            Total: <span className="text-stone-100 font-medium">
-              {fmt.money(filtered.reduce((s, r) => s + r.estimate.total, 0), filtered[0]?.estimate.currency ?? "GBP")}
-            </span>
-          </span>
-        </div>
-      )}
-
-      {/* Table */}
-      <Card className="overflow-hidden p-0">
-        {loading ? (
-          <div className="p-8 text-center text-stone-400 text-sm">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={ClipboardList}
-            title="No estimates found"
-            description={rows.length === 0 ? "Run a full QBO sync to import estimates." : "Try adjusting your filters."}
-          />
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-700 text-stone-400 text-xs uppercase tracking-wide">
-                <th className="px-4 py-3 text-left">Estimate #</th>
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-4 py-3 text-left">Project</th>
-                <th className="px-4 py-3 text-left">Date</th>
-                <th className="px-4 py-3 text-left">Expiry</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => {
-                const est = r.estimate;
-                const isExp = expanded === est.id;
-                return (
-                  <React.Fragment key={est.id}>
-                    <tr
-                      onClick={() => setExpanded(isExp ? null : est.id)}
-                      className="border-b border-stone-800 hover:bg-stone-800/40 cursor-pointer transition-colors"
-                    >
-                      <td className="px-4 py-3 font-medium text-stone-100">{est.estimateNumber}</td>
-                      <td className="px-4 py-3 text-stone-300">{r.customerName || "—"}</td>
-                      <td className="px-4 py-3 text-stone-400">{r.projectName || "—"}</td>
-                      <td className="px-4 py-3 text-stone-400">{formatDate(est.estimateDate)}</td>
-                      <td className="px-4 py-3 text-stone-400">{est.expiryDate ? formatDate(est.expiryDate) : "—"}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={STATUS_COLORS[est.status] ?? "default"}>{est.status}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-stone-100">{fmt.money(est.total, est.currency)}</td>
-                    </tr>
-                    {isExp && est.lineItems?.length > 0 && (
-                      <tr className="bg-stone-900 border-b border-stone-800">
-                        <td colSpan={7} className="px-8 py-3">
-                          <table className="w-full text-xs text-stone-400">
-                            <thead>
-                              <tr className="border-b border-stone-700">
-                                <th className="pb-1.5 text-left">Description</th>
-                                <th className="pb-1.5 text-right">Qty</th>
-                                <th className="pb-1.5 text-right">Unit Price</th>
-                                <th className="pb-1.5 text-right">Amount</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {est.lineItems.map((li: any, i: number) => (
-                                <tr key={i} className="border-b border-stone-800/50">
-                                  <td className="py-1">{li.description || "—"}</td>
-                                  <td className="py-1 text-right">{li.qty}</td>
-                                  <td className="py-1 text-right">{fmt.money(li.unitPrice, est.currency)}</td>
-                                  <td className="py-1 text-right">{fmt.money(li.amount, est.currency)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {est.notes && (
-                            <p className="mt-2 text-stone-400 text-xs italic">Note: {est.notes}</p>
-                          )}
+      {loading ? (
+        <div className="p-8 text-center text-stone-400 text-sm">Loading…</div>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="estimate" filtered={pageFiltered} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty={rows.length === 0 ? "No estimates found — run a full QBO sync to import estimates." : "No estimates match the current filters."}>
+            <table className={listTable}>
+              <ListHead lv={lv} />
+              <tbody>
+                {lv.rows.map(r => {
+                  const est = r.estimate;
+                  const isExp = expanded === est.id;
+                  return (
+                    <React.Fragment key={est.id}>
+                      <tr
+                        onClick={() => setExpanded(isExp ? null : est.id)}
+                        className={`${listRow(isExp)} cursor-pointer`}
+                      >
+                        <td className="px-2 py-2 font-medium text-stone-100">{est.estimateNumber}</td>
+                        <td className="px-2 py-2 text-stone-300">{r.customerName || "—"}</td>
+                        <td className="px-2 py-2 text-stone-400">{r.projectName || "—"}</td>
+                        <td className="px-2 py-2 text-stone-400">{formatDate(est.estimateDate)}</td>
+                        <td className="px-2 py-2 text-stone-400">{est.expiryDate ? formatDate(est.expiryDate) : "—"}</td>
+                        <td className="px-2 py-2">
+                          <Badge variant={STATUS_COLORS[est.status] ?? "default"}>{est.status}</Badge>
                         </td>
+                        <td className={listMoneyCell}><span className="font-medium text-stone-100">{fmt.money(est.total, est.currency)}</span></td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    </div>
+                      {isExp && est.lineItems?.length > 0 && (
+                        <tr className="bg-stone-900 border-b border-stone-800">
+                          <td colSpan={7} className="px-8 py-3">
+                            <table className="w-full text-xs text-stone-400">
+                              <thead>
+                                <tr className="border-b border-stone-700">
+                                  <th className="pb-1.5 text-left">Description</th>
+                                  <th className="pb-1.5 text-right">Qty</th>
+                                  <th className="pb-1.5 text-right">Unit Price</th>
+                                  <th className="pb-1.5 text-right">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {est.lineItems.map((li: any, i: number) => (
+                                  <tr key={i} className="border-b border-stone-800/50">
+                                    <td className="py-1">{li.description || "—"}</td>
+                                    <td className="py-1 text-right">{li.qty}</td>
+                                    <td className="py-1 text-right">{fmt.money(li.unitPrice, est.currency)}</td>
+                                    <td className="py-1 text-right">{fmt.money(li.amount, est.currency)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {est.notes && (
+                              <p className="mt-2 text-stone-400 text-xs italic">Note: {est.notes}</p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="estimate" />}
+            </table>
+          </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }

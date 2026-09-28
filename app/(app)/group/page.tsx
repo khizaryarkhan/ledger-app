@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { Network, Loader2, Building2, ArrowRight } from "lucide-react";
 import { fmt } from "@/lib/format";
+import {
+  useListView, ListToolbar, ListChips, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 type Row = { id: string; invoiceNumber: string; orgName: string; customerName: string; currency: string; outstanding: number; dueDate: string | null; days: number; stage: string; status: string };
 type OrgRoll = { orgId: string; orgName: string; outstanding: number; count: number };
@@ -21,9 +25,21 @@ const money = (n: number, ccy: string) => {
 };
 const totals = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1]);
 
+const GROUP_COLS: ListColumn<Row>[] = [
+  { key: "invoice",     label: "Invoice",      sort: r => r.invoiceNumber, filter: { kind: "text", value: r => r.invoiceNumber } },
+  { key: "org",         label: "Organization", sort: r => r.orgName, filter: { kind: "multi", value: r => r.orgName } },
+  { key: "customer",    label: "Customer",     sort: r => r.customerName, filter: { kind: "text", value: r => r.customerName } },
+  { key: "stage",       label: "Stage",        sort: r => r.stage, filter: { kind: "multi", value: r => r.stage } },
+  { key: "days",        label: "Overdue",      sort: r => r.days, descFirst: true, align: "right" },
+  { key: "outstanding", label: "Outstanding",  sort: r => r.outstanding, descFirst: true, align: "right",
+    money: r => ({ amount: r.outstanding, currency: r.currency }) },
+];
+
 export default function GroupConsolidatedPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Hooks run unconditionally, before the loading/error early returns below.
+  const lv = useListView(data?.rows ?? [], GROUP_COLS, { storageKey: "group-receivables", summary: "outstanding" });
 
   useEffect(() => {
     fetch("/api/group/receivables")
@@ -133,41 +149,35 @@ export default function GroupConsolidatedPage() {
 
       {/* Invoice table */}
       <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+        <ListToolbar lv={lv} noun="invoice" />
+        <ListChips lv={lv} />
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[720px]">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                <th className="text-left px-4 py-2.5">Invoice</th>
-                <th className="text-left px-4 py-2.5">Organization</th>
-                <th className="text-left px-4 py-2.5">Customer</th>
-                <th className="text-left px-4 py-2.5">Stage</th>
-                <th className="text-right px-4 py-2.5">Overdue</th>
-                <th className="text-right px-4 py-2.5">Outstanding</th>
-              </tr>
-            </thead>
+          <table className={`${listTable} min-w-[720px]`}>
+            <ListHead lv={lv} />
             <tbody>
-              {data.rows.length === 0 && (
+              {lv.rows.length === 0 && (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">No open receivables across this group.</td></tr>
               )}
-              {data.rows.map((r) => (
-                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/40">
-                  <td className="px-4 py-2">
-                    <Link href={`/invoices/${r.id}`} className="font-mono text-[12px] text-stone-300 hover:text-white hover:underline inline-flex items-center gap-1">
+              {lv.rows.map((r) => (
+                <tr key={r.id} className={listRow()}>
+                  <td className="px-2 py-2">
+                    <Link href={`/invoices/${r.id}`} className="font-mono text-[12px] text-stone-300 hover:text-white hover:underline inline-flex items-center gap-1 group">
                       #{r.invoiceNumber} <ArrowRight size={11} className="opacity-0 group-hover:opacity-100" />
                     </Link>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-2">
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-800/50">{r.orgName}</span>
                   </td>
-                  <td className="px-4 py-2 text-stone-300 max-w-[200px] truncate" title={r.customerName}>{r.customerName}</td>
-                  <td className="px-4 py-2 text-stone-400">{r.stage}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${r.days > 90 ? "text-rose-400" : r.days > 60 ? "text-orange-400" : r.days > 30 ? "text-amber-400" : r.days > 0 ? "text-stone-300" : "text-emerald-400"}`}>
+                  <td className="px-2 py-2 text-stone-300 max-w-[200px] truncate" title={r.customerName}>{r.customerName}</td>
+                  <td className="px-2 py-2 text-stone-400">{r.stage}</td>
+                  <td className={`${listNumCell} ${r.days > 90 ? "text-rose-400" : r.days > 60 ? "text-orange-400" : r.days > 30 ? "text-amber-400" : r.days > 0 ? "text-stone-300" : "text-emerald-400"}`}>
                     {r.days > 0 ? `+${r.days}d` : "current"}
                   </td>
-                  <td className="px-4 py-2 text-right font-semibold text-stone-100 tabular-nums">{money(r.outstanding, r.currency)}</td>
+                  <td className={listMoneyCell}><span className="font-semibold text-stone-100">{money(r.outstanding, r.currency)}</span></td>
                 </tr>
               ))}
             </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="invoice" />}
           </table>
         </div>
         {data.truncated && <div className="px-4 py-2 text-[11px] text-stone-500 border-t border-stone-800">Showing the 500 most-overdue invoices. Summary totals above cover all.</div>}

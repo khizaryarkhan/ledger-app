@@ -2,29 +2,28 @@
 
 import { useState, useMemo } from "react";
 import { useData } from "@/components/data-provider";
-import { Card, EmptyState } from "@/components/ui";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
-import { CheckSquare, Circle, Check } from "lucide-react";
+import { Circle, Check } from "lucide-react";
 import { fmt } from "@/lib/format";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, type ListColumn,
+} from "@/components/list-view";
 
 const PRIORITY_ORDER: Record<string, number> = { Urgent: 4, High: 3, Medium: 2, Low: 1 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  Urgent: "bg-rose-50 text-rose-700 ring-rose-200",
-  High: "bg-orange-50 text-orange-700 ring-orange-200",
-  Medium: "bg-amber-50 text-amber-700 ring-amber-200",
-  Low: "bg-stone-100 text-stone-600 ring-stone-200",
+  Urgent: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
+  High: "bg-orange-500/15 text-orange-300 ring-orange-500/30",
+  Medium: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
+  Low: "bg-stone-800 text-stone-400 ring-stone-700",
 };
 
-const TASK_COLS: ColDef[] = [
-  { key: "title", label: "Task", sortValue: (r: any) => r.title, noFilter: true },
-  { key: "priority", label: "Priority", sortValue: (r: any) => PRIORITY_ORDER[r.priority] ?? 0, filterLabel: (r: any) => r.priority ?? "Medium" },
-  { key: "dueDate", label: "Due Date", sortValue: (r: any) => r.dueDate ?? "", noFilter: true },
-];
+const FILTERS = ["open", "completed", "all"] as const;
+type TaskFilter = (typeof FILTERS)[number];
 
 export default function TasksPage() {
   const { tasks, toggleTask } = useData() as any;
-  const [filter, setFilter] = useState<"open" | "completed" | "all">("open");
+  const [filter, setFilter] = useState<TaskFilter>("open");
 
   const filtered = useMemo(() => {
     if (filter === "open") return tasks.filter((t: any) => !t.completed);
@@ -32,80 +31,83 @@ export default function TasksPage() {
     return tasks;
   }, [tasks, filter]);
 
-  const dt = useDataTable(filtered, TASK_COLS, { defaultSort: "priority", defaultDir: "desc" });
+  const TASK_COLS = useMemo<ListColumn<any>[]>(() => [
+    {
+      key: "task", label: "Task", sort: r => r.title,
+      // The toggle-complete control lives inside this cell rather than a
+      // separate leading column — ListHead has no slot for a column before
+      // the sortable/filterable ones, only `trailing` ones after.
+      // (See the handback report — this is the one gap that would need a
+      // list-view.tsx change, which is out of scope here.)
+    },
+    { key: "priority", label: "Priority", sort: r => PRIORITY_ORDER[r.priority] ?? 0, descFirst: true,
+      filter: { kind: "multi", value: r => r.priority ?? "Medium" } },
+    { key: "dueDate", label: "Due Date", sort: r => r.dueDate ?? "" },
+  ], []);
+
+  const lv = useListView(filtered, TASK_COLS, { storageKey: "tasks", defaultSort: "priority", defaultDir: "desc" });
 
   return (
-    <div className="p-6 max-w-[1100px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Tasks</h1>
-          <p className="text-sm text-stone-500 mt-1">{dt.rows.length} {filter !== "all" ? filter : ""} tasks</p>
-        </div>
-        <div className="flex bg-stone-100 rounded-md p-0.5 text-xs font-medium">
-          {(["open", "completed", "all"] as const).map((v) => {
+    <ListPage>
+      <ListPageHeader title="Tasks" subtitle={<>{lv.rows.length} {filter !== "all" ? filter : ""} task{lv.rows.length !== 1 ? "s" : ""}</>}>
+        <div className="flex bg-stone-800 rounded-md p-0.5 text-xs font-medium">
+          {FILTERS.map((v) => {
             const label = v === "open" ? "Open" : v === "completed" ? "Completed" : "All";
             return (
-              <button key={v} onClick={() => setFilter(v as any)}
-                className={`px-3 py-1.5 rounded ${filter === v ? "bg-white text-stone-900 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}>
+              <button key={v} onClick={() => setFilter(v)}
+                className={`px-3 py-1.5 rounded ${filter === v ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
                 {label}
               </button>
             );
           })}
         </div>
-      </div>
+      </ListPageHeader>
 
-      {dt.rows.length === 0 ? (
-        <Card>
-          <EmptyState icon={CheckSquare} title="No tasks" description="Tasks created from invoices and customers will appear here." />
-        </Card>
-      ) : (
-        <Card padding="none">
-          <ActiveFiltersBar dt={dt} cols={TASK_COLS} />
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-200 bg-stone-50/50">
-                {/* Checkbox column */}
-                <th className="w-10 px-4 py-2.5" />
-                {TASK_COLS.map(col => <ColHeader key={col.key} col={col} dt={dt} />)}
-              </tr>
-            </thead>
-            <tbody>
-              {dt.rows.map((t: any) => (
-                <tr key={t.id} className={`border-b border-stone-100 last:border-0 hover:bg-stone-50 ${t.completed ? "opacity-60" : ""}`}>
-                  <td className="px-4 py-3 w-10">
-                    <button onClick={() => toggleTask(t.id, !t.completed)} className="flex-shrink-0 mt-0.5">
+      <ListToolbar lv={lv} noun="task" filtered={filter !== "all"} />
+      <ListChips lv={lv} />
+
+      <ListScroll lv={lv} empty={tasks.length === 0 ? "No tasks — tasks created from invoices and customers will appear here." : "No tasks match the current filters."}>
+        <table className={listTable}>
+          <ListHead lv={lv} />
+          <tbody>
+            {lv.rows.map((t: any) => (
+              <tr key={t.id} className={listRow()}>
+                <td className="px-2 py-2">
+                  <div className={`flex items-start gap-2 ${t.completed ? "opacity-60" : ""}`}>
+                    <button onClick={() => toggleTask(t.id, !t.completed)} className="flex-shrink-0 mt-0.5" aria-label={t.completed ? "Mark incomplete" : "Mark complete"}>
                       {t.completed
-                        ? <Check size={16} className="text-emerald-600" />
-                        : <Circle size={16} className="text-stone-300 hover:text-stone-500" />}
+                        ? <Check size={16} className="text-emerald-500" />
+                        : <Circle size={16} className="text-stone-600 hover:text-stone-400" />}
                     </button>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className={`font-medium ${t.completed ? "text-stone-400 line-through" : "text-stone-900"}`}>{t.title}</div>
-                    {t.description && <div className="text-[12px] text-stone-500 mt-0.5">{t.description}</div>}
-                    {(t.labels ?? []).length > 0 && (
-                      <div className="flex gap-1 mt-1 flex-wrap">
-                        {(t.labels as string[]).map(l => (
-                          <span key={l} className="text-[11px] px-1.5 py-0.5 rounded ring-1 ring-inset bg-stone-100 text-stone-600 ring-stone-200">{l}</span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-3">
-                    {t.priority && (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset font-medium ${PRIORITY_COLORS[t.priority] ?? "bg-stone-100 text-stone-600 ring-stone-200"}`}>
-                        {t.priority}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-[12px] text-stone-500 whitespace-nowrap">
-                    {t.dueDate ? fmt.relative(t.dueDate) : <span className="text-stone-300">—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      )}
-    </div>
+                    <div>
+                      <div className={`font-medium text-[13px] ${t.completed ? "text-stone-500 line-through" : "text-stone-200"}`}>{t.title}</div>
+                      {t.description && <div className="text-[12px] text-stone-500 mt-0.5">{t.description}</div>}
+                      {(t.labels ?? []).length > 0 && (
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {(t.labels as string[]).map(l => (
+                            <span key={l} className="text-[11px] px-1.5 py-0.5 rounded ring-1 ring-inset bg-stone-800 text-stone-400 ring-stone-700">{l}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-2 py-2">
+                  {t.priority && (
+                    <span className={`text-[11px] px-2 py-0.5 rounded-md ring-1 ring-inset font-medium ${PRIORITY_COLORS[t.priority] ?? "bg-stone-800 text-stone-400 ring-stone-700"}`}>
+                      {t.priority}
+                    </span>
+                  )}
+                </td>
+                <td className="px-2 py-2 text-[12px] text-stone-500 whitespace-nowrap">
+                  {t.dueDate ? fmt.relative(t.dueDate) : <span className="text-stone-700">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {lv.rows.length > 0 && <ListFoot lv={lv} noun="task" />}
+        </table>
+      </ListScroll>
+    </ListPage>
   );
 }
