@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Badge, Button, Card, Input, EmptyState, Modal } from "@/components/ui";
 import { formatDateShort, fmt } from "@/lib/format";
+import { listRow, listMoneyCell, listNumCell } from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -644,58 +645,41 @@ function BillsTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-stone-800 bg-stone-900/40">
-            <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Supplier
-            </th>
-            <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Bill #
-            </th>
-            <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Due Date
-            </th>
-            <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Amount
-            </th>
-            <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Currency
-            </th>
-            <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-              Status
-            </th>
-            {isDraft && <th className="px-4 py-2.5 w-10" />}
+      <table className="w-full text-[13px]">
+        <thead className="sticky top-0 bg-stone-900 z-10">
+          <tr className="border-b border-stone-800 text-left">
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Supplier</th>
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Bill #</th>
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Due Date</th>
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right border-l border-stone-800">Amount</th>
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Currency</th>
+            <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Status</th>
+            {isDraft && <th className="px-2 py-2 w-10" />}
           </tr>
         </thead>
         <tbody>
           {bills.map((bill) => (
-            <tr
-              key={bill.id}
-              className="border-b border-stone-800 last:border-0 hover:bg-stone-800/30 transition-colors"
-            >
-              <td className="px-4 py-3 font-medium text-white max-w-[160px] truncate">
+            <tr key={bill.id} className={listRow()}>
+              <td className="px-2 py-2 font-medium text-white max-w-[160px] truncate">
                 {bill.supplierName}
               </td>
-              <td className="px-4 py-3 font-mono text-[12px] text-violet-400">
+              <td className="px-2 py-2 font-mono text-[12px] text-violet-400">
                 {bill.billNumber}
               </td>
-              <td className="px-4 py-3 text-stone-400 text-[13px] whitespace-nowrap">
+              <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">
                 {formatDateShort(bill.dueDate)}
               </td>
-              <td className="px-4 py-3 text-right font-semibold text-white tabular-nums text-[13px]">
-                {fmt.money(bill.amount, bill.currency)}
-              </td>
-              <td className="px-4 py-3 text-stone-300 text-[13px]">
+              <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmt.money(bill.amount, bill.currency)}</span></td>
+              <td className="px-2 py-2 text-stone-300 text-[12px]">
                 {bill.currency}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2 py-2">
                 <span className="inline-flex items-center gap-1 rounded-md ring-1 ring-inset font-medium text-[11px] px-2 py-0.5 bg-stone-800 text-stone-300 ring-stone-700">
                   {bill.status}
                 </span>
               </td>
               {isDraft && (
-                <td className="px-4 py-3">
+                <td className={listNumCell}>
                   <button
                     onClick={() => onRemove(bill.id)}
                     disabled={removingBill === bill.id}

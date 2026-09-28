@@ -7,13 +7,15 @@ import {
   AlertCircle,
   Loader2,
   RefreshCw,
-  Banknote,
   Search,
-  X,
 } from "lucide-react";
-import { Badge, Card, Button, Input, Select, EmptyState } from "@/components/ui";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { Badge, Button } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,10 +54,6 @@ function statusBadge(status: RunStatus): string {
   return map[status];
 }
 
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-stone-800 rounded ${className}`} />;
-}
-
 function AmountStatCard({
   label, count, amount, currency, color,
 }: {
@@ -74,21 +72,22 @@ function AmountStatCard({
   );
 }
 
-// ── Column definitions ─────────────────────────────────────────────────────────
-
-const RUN_COLS: ColDef[] = [
-  { key: "runNumber",      label: "Run #",         sortValue: (r) => r.runNumber },
-  { key: "currency",       label: "Currency",       sortValue: (r) => r.currency ?? "", filterLabel: (r) => r.currency ?? "" },
-  { key: "scheduledDate",  label: "Scheduled Date", sortValue: (r) => r.scheduledDate ?? "", noFilter: true },
-  { key: "billCount",      label: "Bills",          sortValue: (r) => r.billCount ?? 0, align: "right" as const, noFilter: true },
-  { key: "totalAmount",    label: "Total Amount",   sortValue: (r) => r.totalAmount ?? 0, align: "right" as const, noFilter: true },
-  { key: "status",         label: "Status",         sortValue: (r) => r.status ?? "", filterLabel: (r) => r.status ?? "" },
-  { key: "createdByName",  label: "Created By",     sortValue: (r) => r.createdByName ?? "", filterLabel: (r) => r.createdByName ?? "" },
-  { key: "approvedByName", label: "Approved By",    sortValue: (r) => r.approvedByName ?? "", filterLabel: (r) => r.approvedByName ?? "—" },
-  { key: "createdAt",      label: "Created",        sortValue: (r) => r.createdAt ?? "", noFilter: true },
+// ── Column definitions — sort + funnel filter per column, board-style ─────────
+// Status used to be a header select; there is no card view here, so (as on
+// invoices/page.tsx) it moves to a column filter only. The scheduled-date
+// range stays a header control for the same custom-period-logic reason.
+const RUN_COLS: ListColumn<PaymentRun>[] = [
+  { key: "runNumber",      label: "Run #",         sort: r => r.runNumber },
+  { key: "currency",       label: "Currency",       sort: r => r.currency, filter: { kind: "multi", value: r => r.currency } },
+  { key: "scheduledDate",  label: "Scheduled Date", sort: r => r.scheduledDate },
+  { key: "billCount",      label: "Bills",          sort: r => r.billCount ?? 0, descFirst: true, align: "right", sum: r => r.billCount ?? 0 },
+  { key: "totalAmount",    label: "Total Amount",   sort: r => Number(r.totalAmount ?? 0), descFirst: true, align: "right",
+    money: r => ({ amount: Number(r.totalAmount ?? 0), currency: r.currency }) },
+  { key: "status",         label: "Status",         sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  { key: "createdByName",  label: "Created By",     sort: r => r.createdByName, filter: { kind: "multi", value: r => r.createdByName } },
+  { key: "approvedByName", label: "Approved By",    sort: r => r.approvedByName, filter: { kind: "multi", value: r => r.approvedByName } },
+  { key: "createdAt",      label: "Created",        sort: r => r.createdAt },
 ];
-
-const STATUS_OPTIONS: RunStatus[] = ["Draft", "Pending Approval", "Approved", "Scheduled", "Posted", "Cancelled"];
 
 type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
 const PERIODS: { id: PeriodId; label: string }[] = [
@@ -117,7 +116,6 @@ export default function PaymentRunsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -193,11 +191,16 @@ export default function PaymentRunsPage() {
           r.createdByName.toLowerCase().includes(s)
       );
     }
-    if (statusFilter) rows = rows.filter((r) => r.status === statusFilter);
     return rows;
-  }, [runs, search, statusFilter, periodFrom, periodTo]);
+  }, [runs, search, periodFrom, periodTo]);
 
-  const dt = useDataTable(baseFiltered, RUN_COLS, { defaultSort: "createdAt", defaultDir: "desc" });
+  const lv = useListView(baseFiltered, RUN_COLS, { storageKey: "payables-payment-runs", defaultSort: "createdAt", defaultDir: "desc", summary: "totalAmount" });
+
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
   const stats = useMemo(() => {
     const defaultCurrency = runs[0]?.currency ?? "USD";
@@ -210,166 +213,92 @@ export default function PaymentRunsPage() {
     };
   }, [runs]);
 
+  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
+  const toggleAll = () => { setSelected(allSelected ? new Set() : new Set(lv.rows.map((r: any) => r.id))); };
+  const toggleOne = (id: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const pageFiltered = !!search;
+
   return (
-    <div className="p-6 max-w-[1300px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Payment Runs</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {loading ? "Loading…" : `${dt.rows.length} run${dt.rows.length !== 1 ? "s" : ""}`}
-            <span className="text-stone-400"> · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</span>
-          </p>
+    <ListPage>
+      <ListPageHeader title="Payment Runs"
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} run${lv.rows.length !== 1 ? "s" : ""}`} · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search run # or creator…"
+            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            disabled={loading}
-            className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-stone-800 hover:bg-stone-700 text-stone-200 ring-1 ring-stone-700 transition-colors disabled:opacity-50"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            Refresh
-          </button>
-          <button
-            onClick={handleNewRun}
-            disabled={creating}
-            className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
-          >
-            {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} />}
-            New Payment Run
-          </button>
-        </div>
-      </div>
+        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Scheduled date period" className="w-auto h-8 text-xs">
+          {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </SelectField>
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
+            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
+              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
+          </>
+        )}
+        <ListDivider />
+        <Button variant="secondary" size="sm" icon={loading ? Loader2 : RefreshCw} onClick={load} disabled={loading}>Refresh</Button>
+        <Button icon={creating ? Loader2 : Plus} size="sm" onClick={handleNewRun} disabled={creating}>New Payment Run</Button>
+      </ListPageHeader>
 
       {/* Stats */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-800 flex-wrap shrink-0">
         <AmountStatCard label="Draft"            count={stats.draft.count}           amount={stats.draft.amount}           currency={stats.currency} color="text-stone-300" />
         <AmountStatCard label="Pending Approval" count={stats.pendingApproval.count} amount={stats.pendingApproval.amount} currency={stats.currency} color="text-orange-400" />
         <AmountStatCard label="Approved"         count={stats.approved.count}        amount={stats.approved.amount}        currency={stats.currency} color="text-violet-400" />
         <AmountStatCard label="Posted"           count={stats.posted.count}          amount={stats.posted.amount}          currency={stats.currency} color="text-emerald-400" />
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-800 bg-rose-500/10 text-rose-400 text-sm shrink-0">
           <AlertCircle size={14} /> {error}
           <button onClick={load} className="ml-auto text-rose-300 hover:text-white underline text-xs">Retry</button>
         </div>
       )}
 
-      <Card padding="none">
-        {/* Period tabs */}
-        <div className="flex items-center gap-0 border-b border-stone-800 px-3 pt-1">
-          {PERIODS.map((p) => (
-            <button key={p.id} onClick={() => setPeriod(p.id)}
-              className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
-                period === p.id ? "border-violet-500 text-violet-400" : "border-transparent text-stone-500 hover:text-stone-300"
-              }`}>{p.label}</button>
-          ))}
-          {period === "custom" && (
-            <div className="ml-3 flex items-center gap-2">
-              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
-              <span className="text-stone-600 text-xs">→</span>
-              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-stone-700 bg-stone-800 text-stone-300 focus:border-violet-500 focus:outline-none" />
-            </div>
-          )}
+      <ListToolbar lv={lv} noun="run" plural="runs" filtered={pageFiltered} />
+      <ListChips lv={lv} />
+
+      {loading ? (
+        <div className="flex-1 overflow-auto p-5 space-y-2">
+          {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />)}
         </div>
-
-        {/* Filters */}
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            placeholder="Search run # or creator…"
-            icon={Search}
-            className="w-64"
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e: any) => setStatusFilter(e.target.value)}
-            placeholder="All statuses"
-            options={STATUS_OPTIONS}
-          />
-          {(search || statusFilter) && (
-            <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearch(""); setStatusFilter(""); }}>
-              Clear
-            </Button>
-          )}
-        </div>
-
-        <ActiveFiltersBar dt={dt} cols={RUN_COLS} />
-
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-5 space-y-2">
-              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
-          ) : dt.rows.length === 0 ? (
-            <EmptyState
-              icon={Banknote}
-              title="No payment runs"
-              description={runs.length === 0 ? "Create a payment run to batch bill payments." : "Try adjusting your filters."}
-              action={
-                runs.length === 0 ? (
-                  <button
-                    onClick={handleNewRun}
-                    disabled={creating}
-                    className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
-                  >
-                    <Plus size={14} />
-                    New Payment Run
-                  </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-4 py-2.5 w-10">
-                    <input type="checkbox"
-                      checked={dt.rows.length > 0 && dt.rows.every((r) => selected.has(r.id))}
-                      onChange={() => { const all = dt.rows.every((r) => selected.has(r.id)); setSelected(all ? new Set() : new Set(dt.rows.map((r) => r.id))); }}
-                      className="rounded border-stone-600 text-violet-500 focus:ring-violet-500" />
-                  </th>
-                  {RUN_COLS.map((col) => (
-                    <ColHeader key={col.key} col={col} dt={dt} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((run) => (
-                  <tr
-                    key={run.id}
-                    onClick={() => router.push(`/payables/payment-runs/${run.id}`)}
-                    className={`border-b border-stone-800 cursor-pointer transition-colors ${selected.has(run.id) ? "bg-violet-500/10" : "hover:bg-stone-800/50"}`}
-                  >
-                    <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); setSelected((prev) => { const n = new Set(prev); n.has(run.id) ? n.delete(run.id) : n.add(run.id); return n; }); }}>
-                      <input type="checkbox" checked={selected.has(run.id)} onChange={() => {}}
-                        className="rounded border-stone-600 text-violet-500 focus:ring-violet-500" />
+      ) : (
+        <ListScroll lv={lv} empty={runs.length === 0 ? "Create a payment run to batch bill payments." : "No payment runs match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((run: any) => {
+                const isSel = selected.has(run.id);
+                return (
+                  <tr key={run.id} onClick={() => router.push(`/payables/payment-runs/${run.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
+                    <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(run.id)} className={listCheckbox} aria-label={`Select run ${run.runNumber}`} />
                     </td>
-                    <td className="px-3 py-3 font-mono text-[12px] text-violet-400">{run.runNumber}</td>
-                    <td className="px-3 py-3 text-stone-300 font-medium">{run.currency}</td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">{formatDate(run.scheduledDate)}</td>
-                    <td className="px-3 py-3 text-right text-stone-300 tabular-nums">{run.billCount}</td>
-                    <td className="px-3 py-3 text-right font-semibold text-white tabular-nums text-[13px]">
-                      {fmt.money(run.totalAmount, run.currency)}
-                    </td>
-                    <td className="px-3 py-3"><Badge variant={statusBadge(run.status)}>{run.status}</Badge></td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px]">{run.createdByName}</td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px]">
-                      {run.approvedByName ?? <span className="text-stone-600 italic">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-stone-400 text-[13px] whitespace-nowrap">{formatDate(run.createdAt)}</td>
+                    <td className="px-2 py-2 font-mono text-[12px] text-violet-400 whitespace-nowrap">{run.runNumber}</td>
+                    <td className="px-2 py-2 text-stone-300 font-medium text-[13px]">{run.currency}</td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">{formatDate(run.scheduledDate)}</td>
+                    <td className={`${listNumCell} text-stone-300`}>{run.billCount}</td>
+                    <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmt.money(run.totalAmount, run.currency)}</span></td>
+                    <td className="px-2 py-2"><Badge variant={statusBadge(run.status)} size="sm">{run.status}</Badge></td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px]">{run.createdByName}</td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px]">{run.approvedByName ?? <span className="text-stone-600 italic">—</span>}</td>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">{formatDate(run.createdAt)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </Card>
-    </div>
+                );
+              })}
+            </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="run" plural="runs" selectable />}
+          </table>
+        </ListScroll>
+      )}
+    </ListPage>
   );
 }
