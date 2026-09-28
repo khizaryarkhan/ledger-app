@@ -1188,3 +1188,56 @@ describe("a due date is never rendered through new Date()", () => {
     expect(offenders, "use formatDateShort / formatDate from lib/format — they read a date-only value literally").toEqual([]);
   });
 });
+
+describe("only the shared promise-sweep server writes invoicePromises.status", () => {
+  /**
+   * Root cause of the "kept promises never marked Met in production" bug
+   * (2026-09-28): two independent inline copies of this update existed —
+   * inngest/functions/chase.ts (the ONLY one actually scheduled — Inngest cron
+   * "0 8 * * *") and app/api/cron/route.ts (correct and complete, but nothing
+   * schedules that bare route) — and they had already drifted apart. This
+   * guard is proven to fail against both pre-fix files: the old chase.ts set
+   * `status: "Broken"` directly with no kept sweep at all, and the old
+   * cron/route.ts set both `status: "Met"` and `status: "Broken"` directly.
+   * Both are now thin callers of lib/promise-sweep-server.ts, the one place
+   * allowed to make this write.
+   */
+  const ALLOWED = "lib/promise-sweep-server.ts";
+  const WINDOW = 400; // generous — covers a chained .update(invoicePromises)...set({...}) split across lines
+
+  it("no other file under app/, lib/ or inngest/ sets invoicePromises status to Met or Broken", () => {
+    const offenders: string[] = [];
+    for (const dir of ["app", "lib", "inngest"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (rel === ALLOWED) continue;
+        const src = readFileSync(f, "utf8");
+        let idx = src.indexOf("invoicePromises");
+        while (idx !== -1) {
+          const window = src.slice(idx, idx + WINDOW);
+          if (/status:\s*["'](Met|Broken)["']/.test(window)) {
+            offenders.push(rel);
+            break;
+          }
+          idx = src.indexOf("invoicePromises", idx + 1);
+        }
+      }
+    }
+    expect(offenders, "flip invoice_promises.status only via lib/promise-sweep-server.ts").toEqual([]);
+  });
+
+  it("both scheduled and manual sweep callers import the shared server module", () => {
+    expect(importers("inngest", "promise-sweep-server")).toContain("inngest/functions/chase.ts");
+    expect(importers("app", "promise-sweep-server")).toContain("app/api/cron/route.ts");
+  });
+
+  it("the classification rule itself stays free of the database", () => {
+    // Same split, same reason, as lib/modules.ts / lib/modules-server.ts and
+    // lib/inventory/sourcing.ts / sourcing-server.ts: the pure rule must be
+    // unit-testable with no database, which is what let this bug be pinned in
+    // tests/promise-sweep.test.ts at all.
+    const pure = readFileSync(join(ROOT, "lib/promise-sweep.ts"), "utf8");
+    expect(pure).not.toMatch(/from\s+["']@\/db/);
+    expect(pure).not.toMatch(/from\s+["']drizzle-orm/);
+  });
+});
