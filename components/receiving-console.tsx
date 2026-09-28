@@ -10,15 +10,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
-import { Plus, RefreshCw, PackageCheck, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes } from "lucide-react";
+import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON } from "@/lib/inventory/round";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 const money = fmt.num2;
 
 export function ReceivingConsole() {
+  const { orgSettings } = useData() as any;
+  const ccy = orgSettings?.currency ?? "EUR";
   const [rows, setRows] = useState<any[] | null>(null);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -47,69 +53,98 @@ export function ReceivingConsole() {
     if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not void receipt."); return; }
     load();
   }
+
+  const listRows = rows ?? [];
+  const RECV_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "receiptNo", label: "Receipt #", sort: r => r.receiptNo, filter: { kind: "text", value: r => r.receiptNo } },
+    { key: "supplier", label: "Supplier", sort: r => r.supplierLabel, filter: { kind: "multi", value: r => r.supplierLabel } },
+    { key: "date", label: "Date", sort: r => r.receiptDate },
+    { key: "grirTotal", label: "Received value", align: "right", sort: r => r.grirTotal, descFirst: true, money: r => ({ amount: r.grirTotal, currency: ccy }) },
+    { key: "billedAmount", label: "Billed", align: "right", sort: r => r.billedAmount, descFirst: true, money: r => ({ amount: r.billedAmount, currency: ccy }) },
+    { key: "open", label: "Awaiting bill", align: "right", sort: r => r.open, descFirst: true, money: r => ({ amount: r.open, currency: ccy }) },
+  ], [ccy]);
+  const lv = useListView(listRows, RECV_COLS, { storageKey: "receiving", defaultSort: "date", defaultDir: "desc", summary: "open" });
+
+  // Batch actions must never silently act on rows hidden by a filter — prune
+  // the selection the same way customers/page.tsx does.
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
+    setSel(prev => {
+      const stale = Object.keys(prev).filter(id => !visibleIds.has(id));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      stale.forEach(id => delete next[id]);
+      return next;
+    });
+  }, [lv.rows]);
+
+  const selectableIds = useMemo(() => new Set(lv.rows.filter((r: any) => r.open > 0.005).map((r: any) => r.id)), [lv.rows]);
+  const allSelected = selectableIds.size > 0 && [...selectableIds].every(id => sel[id]);
+  const someSelected = [...selectableIds].some(id => sel[id]);
+  function toggleAll() {
+    setSel(s => {
+      const next = { ...s };
+      selectableIds.forEach(id => { if (allSelected) delete next[id]; else next[id] = true; });
+      return next;
+    });
+  }
+
   const selectedIds = Object.keys(sel).filter(k => sel[k]);
-  const selectedReceipts = (rows ?? []).filter(r => sel[r.id]);
+  const selectedReceipts = listRows.filter(r => sel[r.id]);
   const selSuppliers = [...new Set(selectedReceipts.map(r => r.supplierId ?? "—"))];
   const canBill = selectedReceipts.length > 0 && selSuppliers.length === 1 && selectedReceipts.every(r => r.open > 0.005);
 
   return (
-    <div className="p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-cyan-500/15 flex items-center justify-center"><PackageCheck size={18} className="text-cyan-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Receiving</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {selectedIds.length > 0 && (
-            <button disabled={!canBill} onClick={() => setBilling(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40" title={canBill ? "" : "Select unbilled receipts from one supplier"}>
-              <FileText size={14} /> Bill {selectedIds.length} receipt{selectedIds.length > 1 ? "s" : ""}
-            </button>
-          )}
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Receive stock</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Record goods received into stock — against a PO or ad-hoc. Then tick received receipts and create a Bill to clear the GR/IR accrual to Accounts Payable.</p>
-      {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
+    <ListPage>
+      <ListPageHeader title="Receiving" subtitle="Record goods received into stock — against a PO or ad-hoc. Then tick received receipts and create a Bill to clear the GR/IR accrual to Accounts Payable.">
+        {selectedIds.length > 0 && (
+          <button disabled={!canBill} onClick={() => setBilling(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-stone-100 text-stone-900 rounded-lg px-3.5 py-2 hover:bg-white disabled:opacity-40" title={canBill ? "" : "Select unbilled receipts from one supplier"}>
+            <FileText size={14} /> Bill {selectedIds.length} receipt{selectedIds.length > 1 ? "s" : ""}
+          </button>
+        )}
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Receive stock</button>
+      </ListPageHeader>
+      {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[720px]">
-            <thead>
-              <tr className="border-b border-stone-800">
-                <th className="w-8" />
-                <th className={th}>Receipt #</th>
-                <th className={th}>Supplier</th>
-                <th className={th}>Date</th>
-                <th className={`${th} !text-right`}>Received value</th>
-                <th className={`${th} !text-right`}>Billed</th>
-                <th className={`${th} !text-right`}>Awaiting bill</th>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No goods receipts yet — record one with Receive stock.</td></tr>}
-              {(rows ?? []).map(r => (
-                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/20">
-                  <td className="pl-3">{r.open > 0.005 && <input type="checkbox" checked={!!sel[r.id]} onChange={e => setSel(s => ({ ...s, [r.id]: e.target.checked }))} className="accent-emerald-600" />}</td>
-                  <td className="px-4 py-2.5 font-mono text-[12px] text-stone-200">{r.receiptNo || r.id.slice(0, 8)}</td>
-                  <td className="px-4 py-2.5 text-stone-200">{r.supplierLabel || "—"}</td>
-                  <td className="px-4 py-2.5 text-stone-400">{r.receiptDate}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{money(r.grirTotal)}</td>
-                  <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{money(r.billedAmount)}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums"><span className={r.open > 0.005 ? "text-amber-400" : "text-stone-500"}>{money(r.open)}</span></td>
-                  <td className="px-2 py-2.5"><button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void receipt"><Trash2 size={13} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      {rows === null ? (
+        <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="receipt" selected={selectedIds.length} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty={listRows.length === 0 ? "No goods receipts yet — record one with Receive stock." : "No receipts match the current filters."}>
+            <table className={listTable}>
+              <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} trailing={1} />
+              <tbody>
+                {lv.rows.map((r: any) => {
+                  const canSel = r.open > 0.005;
+                  const isSel = !!sel[r.id];
+                  return (
+                    <tr key={r.id} className={listRow(isSel)}>
+                      <td className={listCheckCell}>
+                        {canSel && <input type="checkbox" checked={isSel} onChange={e => setSel(s => ({ ...s, [r.id]: e.target.checked }))} className={listCheckbox} aria-label={`Select ${r.receiptNo || r.id}`} />}
+                      </td>
+                      <td className="px-2 py-2 font-mono text-[12px] text-stone-200">{r.receiptNo || r.id.slice(0, 8)}</td>
+                      <td className="px-2 py-2 text-stone-200">{r.supplierLabel || "—"}</td>
+                      <td className="px-2 py-2 text-stone-400">{r.receiptDate}</td>
+                      <td className={`${listNumCell} text-stone-300`}>{money(r.grirTotal)}</td>
+                      <td className={`${listNumCell} text-stone-400`}>{money(r.billedAmount)}</td>
+                      <td className={listMoneyCell}><span className={r.open > 0.005 ? "text-amber-400 font-medium" : "text-stone-500"}>{money(r.open)}</span></td>
+                      <td className="px-2 py-2"><button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void receipt"><Trash2 size={13} /></button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="receipt" selectable trailing={1} />}
+            </table>
+          </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }
 

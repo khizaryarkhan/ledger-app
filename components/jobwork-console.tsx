@@ -14,14 +14,19 @@
  * line — never silently folded into the received lots' unit cost.
  */
 
-import { useEffect, useState } from "react";
-import { Plus, RefreshCw, Shirt, X, Loader, Check, Trash2, PackageCheck, RotateCcw, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, RefreshCw, X, Loader, Check, Trash2, PackageCheck, RotateCcw, AlertTriangle } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
-import { controlInset, fieldLabel, tableHead, Drawer } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
+import { controlInset, fieldLabel, Drawer } from "@/components/form-kit";
 import { Modal } from "@/components/ui";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 
 const inputCls = controlInset;
 const labelCls = fieldLabel;
@@ -48,6 +53,8 @@ function StatusPill({ o }: { o: any }) {
 }
 
 export function JobWorkConsole() {
+  const { orgSettings } = useData() as any;
+  const ccy = orgSettings?.currency ?? "EUR";
   const [orders, setOrders] = useState<any[] | null>(null);
   const [vendors, setVendors] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -84,64 +91,65 @@ export function JobWorkConsole() {
     load();
   }
 
+  const listRows = orders ?? [];
+  const JOBWORK_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "order", label: "Order", sort: r => r.docNumber, filter: { kind: "text", value: r => r.docNumber } },
+    { key: "vendor", label: "Vendor", sort: r => r.vendorLabel, filter: { kind: "multi", value: r => r.vendorLabel } },
+    { key: "sent", label: "Sent", sort: r => Number(r.sentQty) },
+    { key: "received", label: "Received", sort: r => Number(r.receivedQty ?? 0) },
+    { key: "amount", label: "Amount", align: "right", sort: r => Number(r.sentAmount) + Number(r.processingFeeAmount ?? 0), descFirst: true,
+      money: r => ({ amount: Number(r.sentAmount) + Number(r.processingFeeAmount ?? 0), currency: ccy }) },
+    { key: "status", label: "Status", filter: { kind: "multi", value: r => r.status } },
+  ], [ccy]);
+  const lv = useListView(listRows, JOBWORK_COLS, { storageKey: "jobwork", summary: "amount" });
+
   return (
-    <div className="p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center"><Shirt size={18} className="text-sky-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Job Work</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={orders === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Send to job worker</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Send your own material to a vendor for external processing (knitting, dyeing, ...) and receive it back transformed — still owned throughout, no purchase or sale. A dispatch can come back across several partial receipts; close the order once no more are expected to recognize any wastage.</p>
-      {voidErr && <div className="mb-4 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
+    <ListPage>
+      <ListPageHeader title="Job Work" subtitle="Send your own material to a vendor for external processing (knitting, dyeing, ...) and receive it back transformed — still owned throughout, no purchase or sale. A dispatch can come back across several partial receipts; close the order once no more are expected to recognize any wastage.">
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={orders === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> Send to job worker</button>
+      </ListPageHeader>
+      {voidErr && <div className="mx-4 mt-3 text-[12.5px] text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg px-3 py-2">{voidErr}</div>}
 
       {showNew && <DispatchDrawer vendors={vendors} items={items} salesOrders={salesOrders} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}
       {receiving && <ReceiveDrawer order={receiving} items={items} onClose={() => setReceiving(null)} onDone={() => { setReceiving(null); load(); }} />}
       {closing && <CloseModal order={closing} onClose={() => setClosing(null)} onDone={() => { setClosing(null); load(); }} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[760px]">
-            <thead>
-              <tr className={tableHead}>
-                <th className="px-4 py-2.5">Order</th>
-                <th className="px-4 py-2.5">Vendor</th>
-                <th className="px-4 py-2.5">Sent</th>
-                <th className="px-4 py-2.5">Received</th>
-                <th className="px-4 py-2.5 text-right">Amount</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5"></th>
+      {orders === null ? (
+        <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : (
+        <>
+      <ListToolbar lv={lv} noun="order" />
+      <ListChips lv={lv} />
+      <ListScroll lv={lv} empty={listRows.length === 0 ? "No job work orders yet." : "No job work orders match the current filters."}>
+        <table className={listTable}>
+          <ListHead lv={lv} trailing={1} />
+          <tbody>
+            {lv.rows.map((o: any) => (
+              <tr key={o.id} className={listRow()}>
+                <td className="px-2 py-2 font-medium text-stone-200">{o.docNumber}</td>
+                <td className="px-2 py-2 text-stone-300">{o.vendorLabel ?? "—"}</td>
+                <td className="px-2 py-2 text-stone-300">{qtyFmt(Number(o.sentQty))} {o.sentItem?.name ?? ""}</td>
+                <td className="px-2 py-2 text-stone-300">{o.receivedQty ? `${qtyFmt(Number(o.receivedQty))} / ${qtyFmt(Number(o.sentQty))} ${o.receivedItem?.name ?? ""}` : "—"}</td>
+                <td className={listMoneyCell}>{money(Number(o.sentAmount) + Number(o.processingFeeAmount ?? 0))}</td>
+                <td className="px-2 py-2"><StatusPill o={o} /></td>
+                <td className="px-2 py-2">
+                  <div className="flex items-center justify-end gap-3">
+                    {o.status !== "Closed" && <button onClick={() => setReceiving(o)} className="text-[12px] font-medium text-emerald-400 hover:underline">Receive…</button>}
+                    {o.status !== "Closed" && <button onClick={() => setClosing(o)} title="Close — no more receipts expected" className="text-stone-500 hover:text-amber-400"><PackageCheck size={14} /></button>}
+                    {o.status === "Closed" && <button onClick={() => reopenOrder(o.id, o.docNumber)} title="Reopen" className="text-stone-500 hover:text-sky-400"><RotateCcw size={14} /></button>}
+                    <button onClick={() => voidOrder(o.id, o.docNumber)} title="Void" className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {(orders ?? []).map(o => (
-                <tr key={o.id} className="border-b border-stone-800/60 hover:bg-stone-800/30">
-                  <td className="px-4 py-2.5 font-medium text-stone-200">{o.docNumber}</td>
-                  <td className="px-4 py-2.5 text-stone-300">{o.vendorLabel ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-stone-300">{qtyFmt(Number(o.sentQty))} {o.sentItem?.name ?? ""}</td>
-                  <td className="px-4 py-2.5 text-stone-300">{o.receivedQty ? `${qtyFmt(Number(o.receivedQty))} / ${qtyFmt(Number(o.sentQty))} ${o.receivedItem?.name ?? ""}` : "—"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-stone-300">{money(Number(o.sentAmount) + Number(o.processingFeeAmount ?? 0))}</td>
-                  <td className="px-4 py-2.5"><StatusPill o={o} /></td>
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      {o.status !== "Closed" && <button onClick={() => setReceiving(o)} className="text-[12px] font-medium text-emerald-400 hover:underline">Receive…</button>}
-                      {o.status !== "Closed" && <button onClick={() => setClosing(o)} title="Close — no more receipts expected" className="text-stone-500 hover:text-amber-400"><PackageCheck size={14} /></button>}
-                      {o.status === "Closed" && <button onClick={() => reopenOrder(o.id, o.docNumber)} title="Reopen" className="text-stone-500 hover:text-sky-400"><RotateCcw size={14} /></button>}
-                      <button onClick={() => voidOrder(o.id, o.docNumber)} title="Void" className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {orders && orders.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No job work orders yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+            ))}
+          </tbody>
+          {lv.rows.length > 0 && <ListFoot lv={lv} noun="order" trailing={1} />}
+        </table>
+      </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }
 

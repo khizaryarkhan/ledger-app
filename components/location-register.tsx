@@ -12,8 +12,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Plus, Pencil, Trash2, Star, Loader2, AlertTriangle } from "lucide-react";
-import { Button, Badge, Card, Modal, EmptyState, Toast } from "@/components/ui";
-import { Field, SelectField, Section, control, th } from "@/components/form-kit";
+import { Button, Badge, Modal, EmptyState, Toast } from "@/components/ui";
+import { Field, SelectField, Section, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 type LocationType = { value: string; label: string; hint: string };
 
@@ -147,54 +151,54 @@ export function LocationRegister() {
   );
   const activeHint = types.find(t => t.value === form.type)?.hint;
 
+  // Enriched with the derived fields the list sorts/filters on — the parent
+  // lookup stays against the FULL `rows`, never the filtered list, so a
+  // location inside a parent that a filter hides still names it correctly.
+  const enriched = useMemo(() => rows.map(r => ({
+    ...r, typeLabel: typeLabel(r.type), parentName: rows.find(p => p.id === r.parentId)?.name ?? null,
+  })), [rows, types]);
+  const LOC_COLS = useMemo<ListColumn<typeof enriched[number]>[]>(() => [
+    { key: "code", label: "Code", sort: r => r.code, filter: { kind: "text", value: r => r.code } },
+    { key: "name", label: "Name", sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+    { key: "type", label: "Type", sort: r => r.typeLabel, filter: { kind: "multi", value: r => r.typeLabel } },
+    { key: "parent", label: "Inside", sort: r => r.parentName },
+    { key: "onHand", label: "On hand", align: "right", sort: r => r.onHandQty, descFirst: true, sum: r => r.onHandQty },
+    { key: "lots", label: "Lots", align: "right", sort: r => r.lotCount, descFirst: true, sum: r => r.lotCount },
+    { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  ], []);
+  const lv = useListView(enriched, LOC_COLS, { storageKey: "stock-locations", defaultSort: "name" });
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[18px] font-semibold text-stone-100 flex items-center gap-2">
-            <MapPin size={18} className="text-orange-400" /> Stock Locations
-          </h1>
-          <p className="text-[13px] text-stone-400 mt-1">
-            The physical places stock sits. Receipts land in one, shipments leave from one,
-            and a transfer moves stock between them without changing what it cost.
-          </p>
-        </div>
+    <ListPage>
+      <ListPageHeader title="Stock Locations" subtitle="The physical places stock sits. Receipts land in one, shipments leave from one, and a transfer moves stock between them without changing what it cost.">
         <Button icon={Plus} onClick={() => open(null)}>New location</Button>
-      </div>
+      </ListPageHeader>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[13px] text-stone-500 py-10 justify-center">
           <Loader2 size={15} className="animate-spin" /> Loading locations…
         </div>
       ) : rows.length === 0 ? (
-        <EmptyState
-          icon={MapPin}
-          title="No stock locations yet"
-          description="Add the places you actually keep stock — a raw material store, the production floor, a finished goods warehouse. The first one you add becomes the default."
-          action={<Button icon={Plus} onClick={() => open(null)}>New location</Button>}
-        />
+        <div className="p-6">
+          <EmptyState
+            icon={MapPin}
+            title="No stock locations yet"
+            description="Add the places you actually keep stock — a raw material store, the production floor, a finished goods warehouse. The first one you add becomes the default."
+            action={<Button icon={Plus} onClick={() => open(null)}>New location</Button>}
+          />
+        </div>
       ) : (
-        <Card padding="none">
-          <table className="w-full text-[13px]">
-            <thead className="border-b border-stone-800">
-              <tr>
-                <th className={th}>Code</th>
-                <th className={th}>Name</th>
-                <th className={th}>Type</th>
-                <th className={th}>Inside</th>
-                <th className={`${th} text-right`}>On hand</th>
-                <th className={`${th} text-right`}>Lots</th>
-                <th className={th}>Status</th>
-                <th className={th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => {
-                const parent = rows.find(p => p.id === r.parentId);
-                return (
-                  <tr key={r.id} className="border-b border-stone-800/60 last:border-0 hover:bg-stone-900/40">
-                    <td className="px-2.5 py-2.5 font-mono text-[12px] text-stone-300">{r.code}</td>
-                    <td className="px-2.5 py-2.5 text-stone-200">
+        <>
+          <ListToolbar lv={lv} noun="location" />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty="No locations match the current filters.">
+            <table className={listTable}>
+              <ListHead lv={lv} trailing={1} />
+              <tbody>
+                {lv.rows.map(r => (
+                  <tr key={r.id} className={listRow()}>
+                    <td className="px-2 py-2 font-mono text-[12px] text-stone-300">{r.code}</td>
+                    <td className="px-2 py-2 text-stone-200">
                       <span className="inline-flex items-center gap-1.5">
                         {r.name}
                         {r.isDefault && (
@@ -204,20 +208,20 @@ export function LocationRegister() {
                         )}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2.5 text-stone-400">{typeLabel(r.type)}</td>
-                    <td className="px-2.5 py-2.5 text-stone-500">{parent?.name ?? "—"}</td>
-                    <td className="px-2.5 py-2.5 text-right tabular-nums text-stone-200">
+                    <td className="px-2 py-2 text-stone-400">{r.typeLabel}</td>
+                    <td className="px-2 py-2 text-stone-500">{r.parentName ?? "—"}</td>
+                    <td className={`${listNumCell} text-stone-200`}>
                       {r.onHandQty ? r.onHandQty.toLocaleString() : <span className="text-stone-600">—</span>}
                     </td>
-                    <td className="px-2.5 py-2.5 text-right tabular-nums text-stone-500">
+                    <td className={`${listNumCell} text-stone-500`}>
                       {r.lotCount || <span className="text-stone-600">—</span>}
                     </td>
-                    <td className="px-2.5 py-2.5">
+                    <td className="px-2 py-2">
                       {r.status === "Active"
                         ? <span className="text-stone-400">Active</span>
                         : <Badge variant="neutral" size="xs">Inactive</Badge>}
                     </td>
-                    <td className="px-2.5 py-2.5">
+                    <td className="px-2 py-2">
                       <div className="flex items-center justify-end gap-1">
                         {!r.isDefault && r.status === "Active" && (
                           <button
@@ -250,11 +254,12 @@ export function LocationRegister() {
                       </div>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="location" trailing={1} />}
+            </table>
+          </ListScroll>
+        </>
       )}
 
       <Modal
@@ -376,6 +381,6 @@ export function LocationRegister() {
       </Modal>
 
       <Toast toast={toast} onClose={() => setToast(null)} />
-    </div>
+    </ListPage>
   );
 }
