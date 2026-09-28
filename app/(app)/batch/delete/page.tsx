@@ -7,6 +7,12 @@ import { EntityPicker, useBatchEntities } from "../_components/entity-picker";
 import { pollBatchJob } from "../_components/poll-job";
 import { Modal } from "@/components/ui";
 import { Trash2, Loader2, Search, AlertTriangle, ArrowLeft } from "lucide-react";
+import { listTable, listRow, listNumCell, listCheckbox, listCheckCell } from "@/components/list-view";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, so this
+// ad-hoc table reads as the same design system as the shared list shell.
+const th = "px-2 py-2 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
+const thRight = "px-2 py-2 text-right text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 interface Match { id: string; syncToken: string; docNumber: string; date: string; createTime?: string | null; name: string; amount: number | null; }
 
@@ -177,38 +183,42 @@ function DeleteInner() {
             </button>
           </div>
           <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[420px] overflow-y-auto">
-            <table className="w-full text-[13px]">
+            <table className={listTable}>
               <thead className="sticky top-0 bg-stone-900">
-                <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                  <th className="px-3 py-2 w-8">
+                <tr className="border-b border-stone-800">
+                  <th className="px-3 py-2.5 w-10">
                     <input
                       type="checkbox"
                       checked={rows.length > 0 && selected.size === rows.length}
                       ref={(el) => { if (el) el.indeterminate = selected.size > 0 && selected.size < rows.length; }}
                       onChange={() => setSelected(selected.size === rows.length ? new Set() : new Set(rows.map((r) => r.id)))}
-                      className="rounded border-stone-600 bg-stone-800 text-rose-500 focus:ring-0"
+                      className={listCheckbox}
+                      aria-label="Select all"
                     />
                   </th>
-                  <th className="text-left px-4 py-2 font-semibold">Reference</th>
-                  <th className="text-left px-4 py-2 font-semibold">Date</th>
-                  <th className="text-left px-4 py-2 font-semibold">Created</th>
-                  <th className="text-left px-4 py-2 font-semibold">Name</th>
-                  <th className="text-right px-4 py-2 font-semibold">Amount</th>
+                  <th className={th}>Reference</th>
+                  <th className={th}>Date</th>
+                  <th className={th}>Created</th>
+                  <th className={th}>Name</th>
+                  <th className={thRight}>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/30 cursor-pointer" onClick={() => toggle(r.id)}>
-                    <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} className="rounded border-stone-600 bg-stone-800 text-rose-500 focus:ring-0" />
-                    </td>
-                    <td className="px-4 py-1.5 text-stone-200">{r.docNumber}</td>
-                    <td className="px-4 py-1.5 text-stone-400 tabular-nums">{r.date}</td>
-                    <td className="px-4 py-1.5 text-stone-400 tabular-nums whitespace-nowrap">{fmtCreated(r.createTime)}</td>
-                    <td className="px-4 py-1.5 text-stone-400">{r.name}</td>
-                    <td className="px-4 py-1.5 text-right text-stone-300 tabular-nums">{r.amount != null ? r.amount.toLocaleString() : "—"}</td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const isSel = selected.has(r.id);
+                  return (
+                    <tr key={r.id} className={`${listRow(isSel)} cursor-pointer`} onClick={() => toggle(r.id)}>
+                      <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSel} onChange={() => toggle(r.id)} className={listCheckbox} aria-label={`Select ${r.docNumber}`} />
+                      </td>
+                      <td className="px-2 py-2 text-stone-200">{r.docNumber}</td>
+                      <td className="px-2 py-2 text-stone-400 tabular-nums">{r.date}</td>
+                      <td className="px-2 py-2 text-stone-400 tabular-nums whitespace-nowrap">{fmtCreated(r.createTime)}</td>
+                      <td className="px-2 py-2 text-stone-400">{r.name}</td>
+                      <td className={`${listNumCell} text-stone-300`}>{r.amount != null ? r.amount.toLocaleString() : "—"}</td>
+                    </tr>
+                  );
+                })}
                 {rows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">No records matched.</td></tr>}
               </tbody>
             </table>

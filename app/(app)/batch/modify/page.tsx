@@ -6,6 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { EntityPicker, useBatchEntities } from "../_components/entity-picker";
 import { pollBatchJob } from "../_components/poll-job";
 import { PencilRuler, DownloadCloud, FileSpreadsheet, Loader2, CheckCircle2, XCircle, ArrowLeft, CalendarRange, AlertCircle } from "lucide-react";
+import { listTable, listRow } from "@/components/list-view";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, so this
+// ad-hoc table reads as the same design system as the shared list shell.
+const th = "px-2 py-2 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 type Step = "pick" | "map" | "running" | "result";
 type DateType = "transaction" | "updated";
@@ -320,9 +325,9 @@ function ModifyInner() {
           </div>
           {result.errorCount > 0 && (
             <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[320px] overflow-y-auto">
-              <table className="w-full text-[13px]">
-                <thead className="sticky top-0 bg-stone-900"><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800"><th className="text-left px-4 py-2 w-16">Row</th><th className="text-left px-4 py-2">Reason</th></tr></thead>
-                <tbody>{result.results.filter((r: any) => !r.ok).map((r: any) => <tr key={r.row} className="border-b border-stone-800/60"><td className="px-4 py-1.5 text-stone-400">{r.row}</td><td className="px-4 py-1.5 text-rose-300">{r.error}</td></tr>)}</tbody>
+              <table className={listTable}>
+                <thead className="sticky top-0 bg-stone-900"><tr className="border-b border-stone-800"><th className={`${th} w-16`}>Row</th><th className={th}>Reason</th></tr></thead>
+                <tbody>{result.results.filter((r: any) => !r.ok).map((r: any) => <tr key={r.row} className={listRow()}><td className="px-2 py-2 text-stone-400">{r.row}</td><td className="px-2 py-2 text-rose-300">{r.error}</td></tr>)}</tbody>
               </table>
             </div>
           )}
