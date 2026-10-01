@@ -10,6 +10,7 @@ import { PromiseDisputePanel } from "@/components/promise-dispute-panel";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, sourceLabel, sourceBadgeVariant } from "@/lib/format";
 import { ArrowLeft, Mail, CreditCard, AlertOctagon, CalendarClock, CheckSquare, FileText, Clock, Download, Loader, Trash2, ChevronDown, ExternalLink } from "lucide-react";
+import { isPaidOrClosed as isInvoicePaidOrClosed } from "@/lib/receivable-composition";
 
 // Each of these maps to one of QBO's three preconditions for issuing a payment
 // link (see QboPayLinkReason in lib/qbo-token.ts) — a different fix per case,
@@ -121,7 +122,7 @@ export default function InvoiceDetailPage() {
   const customerContacts = contacts.filter(c => c.customerId === inv.customerId);
   const invComms = useMemo(() => communications.filter(c => c.invoiceId === id), [communications, id]);
   const invTasks = useMemo(() => tasks.filter(t => t.invoiceId === id), [tasks, id]);
-  const isPaidOrClosed = ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
+  const isPaidOrClosed = isInvoicePaidOrClosed(inv);
   const out = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
   const df = orgSettings?.dateFormat || "DD MMM YYYY";
 
@@ -442,7 +443,7 @@ export default function InvoiceDetailPage() {
             projName: projects.find((p: any) => p.id === inv.projectId)?.name ?? null,
             bal: Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0))),
             days: daysOverdue(inv.dueDate),
-            email: inv.billingEmail ?? null,
+            email: resolvedEmail,
           }]}
           ccy={inv.currency ?? "EUR"}
           orgName={orgSettings?.displayName ?? orgSettings?.name}

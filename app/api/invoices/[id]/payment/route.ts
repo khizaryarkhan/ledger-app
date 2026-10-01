@@ -26,7 +26,10 @@ import { LedgerValidationError } from "@/lib/ledger";
 
 const Schema = z.object({
   amount: z.number().positive(),
-  paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // YYYY-MM-DD
+  // Required, not defaulted: the server has no way to know the caller's local
+  // "today" (CLAUDE.md: a date is a date, never new Date()/UTC-derived), so a
+  // caller that omits it gets a 400 instead of a silently-wrong UTC date.
+  paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -46,8 +49,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
     if (!inv.customerId) return bad("This invoice has no customer, so a payment can't be applied to it.", 409);
 
-    const date = paidDate || new Date().toISOString().slice(0, 10);
-
     // Deposit-to defaults to Undeposited Funds — the same thing QuickBooks does
     // when a payment is received without naming a bank account. The user can
     // move it to a real bank account later via a Deposit.
@@ -57,7 +58,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const posted = await postDocument(orgId!, {
       type: "Payment",
-      date,
+      date: paidDate,
       partyId: inv.customerId,
       bankAccountId: undeposited,
       amount,

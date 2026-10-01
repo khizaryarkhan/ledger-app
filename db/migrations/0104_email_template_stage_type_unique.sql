@@ -1,0 +1,12 @@
+-- One template per (org, collection stage, escalation type). Previously
+-- enforced only in the automations page's client-side React state (disabling
+-- already-taken options in a <select>) — two admins/tabs could create a
+-- duplicate and whichever row Postgres happened to return last from an
+-- unordered db.select() would silently win, with no error or log.
+--
+-- COALESCE(escalation_type, '') so two GENERIC templates (escalation_type IS
+-- NULL) for the same stage still collide too — a plain unique index treats
+-- two NULLs as distinct and would let that duplicate straight through.
+-- WHERE collection_stage IS NOT NULL keeps unassigned draft templates
+-- (collection_stage null) out of the constraint entirely.
+CREATE UNIQUE INDEX "email_templates_org_stage_type_unique" ON "email_templates" ("org_id", "collection_stage", COALESCE("escalation_type", '')) WHERE "collection_stage" IS NOT NULL;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { DISPUTE_CATEGORIES } from "@/lib/portal-response";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -50,14 +51,6 @@ type SubmittedSummary = {
   notes: { invoiceNumber: string }[];
 };
 
-const DISPUTE_CATEGORIES = [
-  "Wrong Amount",
-  "Already Paid",
-  "Goods / Service Issue",
-  "Duplicate Invoice",
-  "Other",
-];
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function money(n: number, ccy: string) {
@@ -66,23 +59,58 @@ function money(n: number, ccy: string) {
   }).format(n);
 }
 
+// A due/invoice date is a CALENDAR DATE, not an instant — this page runs in the
+// CUSTOMER's own browser (opened from a chase email), so `new Date("2026-09-15")`
+// (parsed as UTC midnight, then read with local getters) reads a day early for
+// any debtor west of Greenwich. Every helper below reads the YYYY-MM-DD
+// components literally and never constructs a `Date` from a bare date string.
+// Mirrors lib/format.ts's `dateParts`/`formatDateShort` approach (see CLAUDE.md
+// "A date is a date").
+
+/** Literal YYYY-MM-DD out of a date-only string, with no Date construction. */
+function dateOnlyStr(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d.trim());
+  return m ? m[0] : null;
+}
+
+/** The viewer's LOCAL calendar date as YYYY-MM-DD (never UTC). */
+function localToday(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
 function fmtDate(d: string | null | undefined) {
-  if (!d) return "—";
-  try { return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
-  catch { return d; }
+  const ds = dateOnlyStr(d);
+  if (!ds) return d || "—";
+  const [y, m, day] = ds.split("-");
+  const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${day} ${MONTH_SHORT[Number(m) - 1]} ${y}`;
 }
 
 function isOverdue(dueDate: string | null): boolean {
-  if (!dueDate) return false;
-  return new Date(dueDate) < new Date(new Date().toDateString());
+  const ds = dateOnlyStr(dueDate);
+  if (!ds) return false;
+  return ds < localToday();
 }
 
 function daysOverdue(dueDate: string): number {
-  const diff = new Date(new Date().toDateString()).getTime() - new Date(dueDate).getTime();
-  return Math.max(0, Math.ceil(diff / 86400000));
+  const ds = dateOnlyStr(dueDate);
+  if (!ds) return 0;
+  const [y1, m1, d1] = ds.split("-").map(Number);
+  const [y2, m2, d2] = localToday().split("-").map(Number);
+  // Both sides are pure calendar dates (no timezone of their own), so diffing
+  // via Date.UTC with explicit numeric fields is safe — it never touches the
+  // viewer's local timezone offset the way `new Date(dueDate)` would.
+  const t1 = Date.UTC(y1, m1 - 1, d1);
+  const t2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.max(0, Math.round((t2 - t1) / 86400000));
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => localToday();
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -316,7 +344,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         </div>
 
         {/* KPI strip */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:24 }}>
           <Kpi label="Outstanding"      value={money(totalOutstanding, currency)} />
           <Kpi label="Overdue"          value={overdueInvs.length > 0 ? money(totalOverdue, currency) : "—"} accent={overdueInvs.length > 0 ? "red" : undefined} />
           <Kpi label="Open invoices"    value={String(invoices.length)} />

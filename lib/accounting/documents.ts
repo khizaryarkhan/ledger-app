@@ -778,7 +778,29 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
 
   // Mirror native invoices into the Receivable module and native bills into the
   // Payables module, and keep any invoices a payment just settled in sync.
-  if (entry && type === "Invoice") await bridgeNativeInvoice(orgId, entry.id, entry.docNumber, input, home).catch(e => console.error("[bridge invoice]", e));
+  //
+  // The Invoice bridge must NOT fail silently: a native Invoice that posts to
+  // A/R but never reaches the `invoices` table is invisible to the Collections
+  // Board, the Invoice list and AR Aging — exactly the "posted but missing
+  // from its subledger" failure mode lib/accounting/reconcile.ts's
+  // `ar_posted_unbridged` check exists to catch after the fact. A bare
+  // `.catch(console.error)` here used to swallow ANY error from
+  // bridgeNativeInvoice (a DB write failure, a bug, a transient neon-http
+  // hiccup — not just the already-guarded missing-partyId case) into a
+  // server log line nobody watches in real time, while the caller still got
+  // back a success response. We can't roll back the journal entry itself
+  // (neon-http has no transactions and inventory/links may already be
+  // committed above), so the entry stands, but the caller must be told the
+  // receivable did not make it into collections rather than being told it
+  // succeeded.
+  if (entry && type === "Invoice") {
+    try {
+      await bridgeNativeInvoice(orgId, entry.id, entry.docNumber, input, home);
+    } catch (e) {
+      console.error(`[bridge invoice] entry ${entry.id} (${entry.docNumber ?? "no doc #"}) posted to the ledger but failed to mirror into collections:`, e);
+      err(`Invoice ${entry.docNumber ?? entry.id} was posted to the ledger, but could not be recorded in Receivables (${e instanceof Error ? e.message : "unknown error"}). The journal entry was NOT rolled back — re-open it and save again, or run the reconciliation check (ar_posted_unbridged) before assuming it is missing.`);
+    }
+  }
   if (entry && type === "Bill") await bridgeNativeBill(orgId, entry.id, entry.docNumber, input, home).catch(e => console.error("[bridge bill]", e));
   if (entry && type === "Payment") {
     for (const id of [...new Set(pendingLinks.filter(pl => pl.toType === "Invoice").map(pl => pl.toId))]) await syncNativeInvoicePaid(orgId, id).catch(() => {});
@@ -894,7 +916,16 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     ]);
     for (const id of affected) await syncNativeInvoicePaid(orgId, id).catch(() => {});
   } else if (type === "Invoice") {
-    await bridgeNativeInvoice(orgId, entryId, input.docNumber?.trim() || entry.docNumber, input, home).catch(e => console.error("[bridge invoice edit]", e));
+    // Same "must not fail silently" reasoning as the create path above — an
+    // edit that changes the GL entry but fails to re-sync the `invoices` row
+    // would leave collections showing stale amounts with no indication
+    // anything went wrong.
+    try {
+      await bridgeNativeInvoice(orgId, entryId, input.docNumber?.trim() || entry.docNumber, input, home);
+    } catch (e) {
+      console.error(`[bridge invoice edit] entry ${entryId} was updated but failed to mirror into collections:`, e);
+      err(`This invoice's ledger entry was updated, but the change could not be saved to Receivables (${e instanceof Error ? e.message : "unknown error"}). Re-open it and save again, or run the reconciliation check before assuming the totals are wrong.`);
+    }
   } else if (type === "Bill") {
     await bridgeNativeBill(orgId, entryId, input.docNumber?.trim() || entry.docNumber, input, home).catch(e => console.error("[bridge bill edit]", e));
   }

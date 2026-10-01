@@ -10,6 +10,8 @@ import { TransactionsTab } from "@/components/transactions-tab";
 import { ContactsPanel } from "@/components/contacts-panel";
 import { AssignedResourcesPanel } from "@/components/assigned-resources-panel";
 import { fmt, daysOverdue, getDueStatus } from "@/lib/format";
+import { sumByCurrency, MoneyStack } from "@/components/list-view";
+import { isPaidOrClosed } from "@/lib/receivable-composition";
 import { ArrowLeft, FileText, Mail, Download, ArrowUpRight, FileEdit, Link2, MessageSquare, Users, Plus, Phone } from "lucide-react";
 
 export default function ProjectDetailPage() {
@@ -60,9 +62,12 @@ export default function ProjectDetailPage() {
     [contacts, customer.id]
   );
 
-  const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.collectionStage !== "Closed" && i.txnType !== "CreditMemo");
-  const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-  const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+  const open = projInvoices.filter((i: any) => !isPaidOrClosed(i) && i.txnType !== "CreditMemo");
+  // Per-currency, never a plain sum across mixed currencies (CLAUDE.md fix #5).
+  const outstandingByCcy = sumByCurrency(open, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+  const overdueByCcy = sumByCurrency(open.filter((i: any) => daysOverdue(i.dueDate) > 0), (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+  const outstanding = Object.values(outstandingByCcy).reduce((s, v) => s + v, 0);
+  const overdue = Object.values(overdueByCcy).reduce((s, v) => s + v, 0);
   const region = (regions ?? []).find((r: any) => r.id === project?.regionId)?.name || null;
   // Same rule as projects list — computed from AR, not DB status field
   const effectiveStatus = project.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
@@ -109,11 +114,11 @@ export default function ProjectDetailPage() {
             <Badge variant={effectiveStatus === "Active" ? "green" : effectiveStatus === "On Hold" ? "orange" : "neutral"}>
               {effectiveStatus}
             </Badge>
-            {outstanding > 0 && (
-              <span className="text-sm font-semibold tabular-nums text-stone-300">
-                {fmt.money(outstanding, customer.currency)} outstanding
+            {Object.entries(outstandingByCcy).map(([ccy, amt]) => (
+              <span key={ccy} className="text-sm font-semibold tabular-nums text-stone-300">
+                {fmt.money(amt, ccy)} outstanding
               </span>
-            )}
+            ))}
           </div>
           <div className="flex items-center gap-2 text-sm text-stone-500 flex-wrap">
             <span className="font-mono text-xs">{project.code}</span>
@@ -160,11 +165,13 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Outstanding</div>
-          <div className="text-xl font-semibold text-stone-100 tabular-nums">{fmt.money(outstanding, customer.currency)}</div>
+          <div className="text-xl font-semibold text-stone-100 tabular-nums"><MoneyStack totals={outstandingByCcy} /></div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdue, customer.currency)}</div>
+          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>
+            <MoneyStack totals={overdueByCcy} />
+          </div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open invoices</div>
@@ -212,7 +219,7 @@ export default function ProjectDetailPage() {
               {projInvoices.map((inv: any) => {
                 const out = inv.total - (inv.paid || 0);
                 const dueStatus = getDueStatus(inv);
-                const isPaid = inv.paymentStatus === "Paid" || inv.collectionStage === "Closed";
+                const isPaid = isPaidOrClosed(inv);
                 return (
                   <tr key={inv.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
                     <td className="px-4 py-3">

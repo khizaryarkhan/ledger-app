@@ -6,88 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button } from "@/components/ui";
 import { CustomerModal } from "@/components/forms";
-import { fmt, daysOverdue } from "@/lib/format";
+import { daysOverdue } from "@/lib/format";
 import { Search, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "lucide-react";
-import { SelectField, control, Drawer } from "@/components/form-kit";
+import { SelectField, control } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
-  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+  sumByCurrency, MoneyStack, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
 } from "@/components/list-view";
 import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
-
-
-function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { regions, countries, reclassifyCustomers } = useData() as any;
-  const [repId, setRepId] = useState("");
-  const [regionId, setRegionId] = useState("");
-  const [countryId, setCountryId] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // Always fetch fresh reps when the modal opens so newly-created users appear immediately
-  const [freshReps, setFreshReps] = useState<any[]>([]);
-  useEffect(() => {
-    fetch("/api/org/assignable-reps").then(r => r.json()).then(setFreshReps).catch(() => {});
-  }, []);
-
-  const handleApply = async () => {
-    if (!repId && !regionId && !countryId) return;
-    setSaving(true);
-    try {
-      const repVal = repId === "null" ? null : repId || undefined;
-      const regVal = regionId === "null" ? null : regionId || undefined;
-      const ctyVal = countryId === "null" ? null : countryId || undefined;
-      await reclassifyCustomers(ids, repVal, regVal, ctyVal);
-      onClose();
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <Drawer
-      onClose={onClose}
-      title="Reclassify customers"
-      subtitle={<>Make changes to all <strong className="text-stone-300">{ids.length}</strong> selected customer{ids.length > 1 ? "s" : ""}.</>}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
-            {saving ? "Applying…" : "Apply"}
-          </Button>
-        </div>
-      }
-    >
-        <div className="space-y-3">
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Rep to</label>
-            <select value={repId} onChange={e => setRepId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign rep</option>
-              {freshReps.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Region to</label>
-            <select value={regionId} onChange={e => setRegionId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign region</option>
-              {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Country to</label>
-            <select value={countryId} onChange={e => setCountryId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign country</option>
-              {(countries ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        </div>
-
-    </Drawer>
-  );
-}
+import { ReclassifyDrawer } from "@/components/reclassify-drawer";
+import { isPaidOrClosed } from "@/lib/receivable-composition";
 
 const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle, repGroups, regionGroups, onAssign, busy }: { c: any; isSelected: boolean; onToggle: (id: string) => void; repGroups: AssignGroup[]; regionGroups: AssignGroup[]; onAssign: (id: string, field: "rep" | "region", value: string | null) => void; busy: boolean }) {
   return (
@@ -124,11 +52,15 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle, repGr
           <div className="grid grid-cols-3 gap-2 pt-3 border-t border-stone-800">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Outstanding</div>
-              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">{fmt.money(c.outstanding, c.invoiceCurrency)}</div>
+              <div className="text-sm font-semibold text-white tabular-nums mt-0.5">
+                <MoneyStack totals={c.outstandingByCcy} />
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Overdue</div>
-              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-400" : "text-white"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</div>
+              <div className={`text-sm font-semibold tabular-nums mt-0.5 ${c.overdue > 0 ? "text-rose-400" : "text-white"}`}>
+                <MoneyStack totals={c.overdueByCcy} />
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Open inv.</div>
@@ -195,16 +127,22 @@ export default function CustomersPage() {
   const enriched = useMemo(() => {
     return customers.map((c: any) => {
       const custInvoices = invoices.filter((i: any) => i.customerId === c.id);
-      const open = custInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-      const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-      const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+      const open = custInvoices.filter((i: any) => !isPaidOrClosed(i) && i.txnType !== "CreditMemo");
+      const overdueInvoices = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
+      // Per-currency, never a plain sum across mixed currencies (CLAUDE.md fix #5).
+      const outstandingByCcy = sumByCurrency(open, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+      const overdueByCcy = sumByCurrency(overdueInvoices, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+      // A single numeric total, kept ONLY for sort/filter/status — never rendered
+      // directly (that would reintroduce the mixed-currency bug).
+      const outstanding = Object.values(outstandingByCcy).reduce((s, v) => s + v, 0);
+      const overdue = Object.values(overdueByCcy).reduce((s, v) => s + v, 0);
       const region = regions.find((r: any) => r.id === c.regionId);
       const country = (countries ?? []).find((x: any) => x.id === c.countryId);
       // Compute status from outstanding — always real-time, no sync delay needed.
       // "On Hold" is a manual override and is preserved regardless of AR balance.
       const effectiveStatus = c.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
       const invoiceCurrency = open[0]?.currency ?? "?";
-      return { ...c, outstanding, overdue, openCount: open.length, repName: c.repId ? repNameById.get(c.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus, invoiceCurrency };
+      return { ...c, outstanding, overdue, outstandingByCcy, overdueByCcy, openCount: open.length, repName: c.repId ? repNameById.get(c.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus, invoiceCurrency };
     });
   }, [customers, invoices, regions, repNameById]);
 
@@ -382,8 +320,10 @@ export default function CustomersPage() {
                       <Badge variant={c.effectiveStatus === "Active" ? "green" : c.effectiveStatus === "On Hold" ? "orange" : "neutral"} size="sm">{c.effectiveStatus}</Badge>
                     </td>
                     <td className={`${listNumCell} text-stone-400 text-[12px]`}>{c.openCount}</td>
-                    <td className={`${listNumCell} text-[12px] ${c.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>{fmt.money(c.overdue, c.invoiceCurrency)}</td>
-                    <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(c.outstanding, c.invoiceCurrency)}</span></td>
+                    <td className={`${listNumCell} text-[12px] ${c.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>
+                      <MoneyStack totals={c.overdueByCcy} />
+                    </td>
+                    <td className={listMoneyCell}><MoneyStack totals={c.outstandingByCcy} className="font-medium text-stone-300 text-[13px]" /></td>
                   </tr>
                 );
               })}
@@ -425,7 +365,8 @@ export default function CustomersPage() {
 
       {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}
       {showReclassify && (
-        <ReclassifyModal
+        <ReclassifyDrawer
+          entityType="customer"
           ids={Array.from(selected)}
           onClose={() => { setShowReclassify(false); setSelected(new Set()); }}
         />

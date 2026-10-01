@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { invoices, customers, projects, users, reps as repsTable, communications, contacts } from "@/db/schema";
+import { invoices, customers, projects, users, reps as repsTable, communications, contacts, organisations } from "@/db/schema";
 import { requireOrg, bad } from "@/lib/api";
 import { sendEmail, type MailAttachment } from "@/lib/mailer";
 import { getOrgQboToken, fetchQboInvoiceLink, stampQboPayButton } from "@/lib/qbo-token";
@@ -11,7 +11,7 @@ import { eq, and, ilike, ne, gte, lte, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { fmt as numberFormat } from "@/lib/format";
+import { fmt as numberFormat, daysOverdue, formatDateShort } from "@/lib/format";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -185,10 +185,6 @@ function openBal(i: any): number {
   return Math.max(0, (i.total ?? 0) - (i.paid ?? 0));
 }
 
-function daysOverdue(dueDate: string): number {
-  return Math.floor((Date.now() - new Date(dueDate).getTime()) / 86_400_000);
-}
-
 // Aliased import: this module already has its own local `fmt` used throughout,
 // and `fmt.money` inside a function called `fmt` would have recursed.
 function fmt(n: number, ccy = "EUR") {
@@ -269,6 +265,7 @@ async function fetchOpenInvoices(
   orgId: string,
   projectId?: string,
   customerId?: string,
+  opts?: { includeCreditMemos?: boolean },
 ) {
   const rows = await db
     .select({
@@ -302,8 +299,15 @@ async function fetchOpenInvoices(
     .where(
       and(
         eq(invoices.orgId, orgId),
+        // Soft-deleted invoices (QBO reported them gone) were never excluded
+        // here — every portfolio list, chase tool and this statement
+        // generator could surface a document that no longer exists.
+        isNull(invoices.deletedAt),
         ne(invoices.paymentStatus, "Paid"),
-        ne(invoices.txnType, "CreditMemo"),
+        // CreditMemo rows are excluded by default — every caller except the
+        // statement PDF fallback (see its call site) expects a list of plain
+        // open invoices, not a mix that can include a negative balance.
+        ...(opts?.includeCreditMemos ? [] : [ne(invoices.txnType, "CreditMemo")]),
         ...(projectId  ? [eq(invoices.projectId,  projectId)]  : []),
         ...(customerId ? [eq(invoices.customerId, customerId)] : []),
       )
@@ -353,6 +357,32 @@ async function fetchXeroPdf(token: { accessToken: string; tenantId: string }, xe
   }
 }
 
+/**
+ * A credit memo's balance can be genuinely negative (an unapplied credit) —
+ * the module-level `openBal` above clamps every row to >= 0, which is right
+ * for the portfolio/chase tools that never expect a negative number, but
+ * would silently turn a credit into 0 here. Scoped to the statement PDF only
+ * so those other callers are untouched.
+ */
+function statementRowBalance(i: { txnType: string | null; qboBalance: number | null; total: number | null; paid: number | null }): number {
+  if (i.txnType === "CreditMemo") return i.qboBalance != null ? Number(i.qboBalance) : 0;
+  return openBal(i);
+}
+
+/**
+ * Per-currency totals — invoices (and, via statementRowBalance, credit
+ * memos) can be in different currencies for the same customer/project, and
+ * summing them into one number under a single currency label misstates the
+ * total. Mirrors lib/statement-pdf.ts's fmtCcyMap.
+ */
+function fmtCcyTotals(map: Record<string, number>): string {
+  const parts = Object.entries(map)
+    .filter(([, v]) => Math.abs(v) > 0.005)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (!parts.length) return fmt(0);
+  return parts.map(([c, v]) => fmt(v, c)).join("   ·   ");
+}
+
 // ── PDF statement generator (pdf-lib — no filesystem, Vercel-safe) ────────────
 async function generateStatementPDF(
   rows: Awaited<ReturnType<typeof fetchOpenInvoices>>,
@@ -370,6 +400,7 @@ async function generateStatementPDF(
   const stone600 = rgb(0.42, 0.40, 0.38);
   const stone200 = rgb(0.90, 0.89, 0.88);
   const red      = rgb(0.86, 0.15, 0.15);
+  const green    = rgb(0.05, 0.55, 0.37);
   const white    = rgb(1, 1, 1);
 
   let page = pdfDoc.addPage([W, H]);
@@ -408,8 +439,9 @@ async function generateStatementPDF(
 
   // Rows
   rows.forEach((inv, idx) => {
-    const bal  = openBal(inv);
-    const days = daysOverdue(inv.dueDate);
+    const isCm = inv.txnType === "CreditMemo";
+    const bal  = statementRowBalance(inv);
+    const days = isCm ? 0 : daysOverdue(inv.dueDate);
     const rowH = inv.projectName ? 26 : 18;
 
     ensureSpace(rowH + 4);
@@ -425,27 +457,39 @@ async function generateStatementPDF(
     if (inv.projectName) {
       page.drawText(inv.projectName, { x: colX.customer, y: textY - 7, size: 6.5, font: regular, color: stone600, maxWidth: 200 });
     }
-    page.drawText(inv.invoiceDate, { x: colX.date, y: textY, size: 8, font: regular, color: stone900 });
+    // formatDateShort reads a date-only string literally rather than parsing
+    // it as a UTC instant — this file already imports daysOverdue, which
+    // relies on the same lib/format module, so dates and "Nd overdue" now
+    // agree instead of the dates being drawn as raw strings.
+    page.drawText(formatDateShort(inv.invoiceDate), { x: colX.date, y: textY, size: 8, font: regular, color: stone900 });
 
-    if (days > 0) {
+    if (isCm) {
+      page.drawText("Credit on account", { x: colX.due, y: textY, size: 7.5, font: regular, color: green });
+    } else if (days > 0) {
       page.drawText(`${days}d overdue`, { x: colX.due, y: textY, size: 8, font: bold, color: red });
     } else {
-      page.drawText(inv.dueDate, { x: colX.due, y: textY, size: 8, font: regular, color: stone900 });
+      page.drawText(formatDateShort(inv.dueDate), { x: colX.due, y: textY, size: 8, font: regular, color: stone900 });
     }
 
-    page.drawText(fmt(bal, inv.currency || "EUR"), { x: colX.bal, y: textY, size: 8, font: bold, color: stone900 });
+    page.drawText(fmt(bal, inv.currency || "EUR"), { x: colX.bal, y: textY, size: 8, font: bold, color: isCm ? green : stone900 });
 
     // Row divider
     page.drawLine({ start: { x: margin, y: y - rowH + 4 }, end: { x: W - margin, y: y - rowH + 4 }, thickness: 0.4, color: stone200 });
     y -= rowH;
   });
 
-  // Total footer
+  // Total footer — grouped per currency, since invoices (and any unapplied
+  // credit memos) can genuinely be in more than one.
   ensureSpace(30);
-  const total = rows.reduce((s, i) => s + openBal(i), 0);
+  const totalsByCcy: Record<string, number> = {};
+  for (const i of rows) {
+    const ccy = i.currency || "EUR";
+    totalsByCcy[ccy] = (totalsByCcy[ccy] ?? 0) + statementRowBalance(i);
+  }
   page.drawRectangle({ x: margin, y: y - 22, width: W - margin * 2, height: 26, color: stone900 });
   page.drawText("TOTAL OUTSTANDING", { x: margin + 5, y: y - 12, size: 9, font: bold, color: white });
-  page.drawText(fmt(total), { x: colX.bal, y: y - 12, size: 9, font: bold, color: white });
+  const totalLabel = fmtCcyTotals(totalsByCcy);
+  page.drawText(totalLabel, { x: W - margin - 5 - bold.widthOfTextAtSize(totalLabel, 9), y: y - 12, size: 9, font: bold, color: white });
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
@@ -643,10 +687,16 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
     ] as const))
   );
 
+  const [orgRow] = await db
+    .select({ name: organisations.name, displayName: organisations.displayName, logoUrl: organisations.logoUrl })
+    .from(organisations).where(eq(organisations.id, orgId)).limit(1);
+
   // HTML email body — shared branded template (single source of truth)
   const body = renderInvoiceEmail({
     subject,
     dateStr,
+    orgName: orgRow?.displayName || orgRow?.name,
+    logoUrl: orgRow?.logoUrl,
     total,
     rows: rows.map(i => ({
       invoiceNumber: i.invoiceNumber,
@@ -692,7 +742,20 @@ async function toolSendInvoices(orgId: string, args: any, visibleRepIds: Set<str
   }
   // Fall back to a single statement PDF if not connected or all fetches failed
   if (attachments.length === 0) {
-    const statementBuf = await generateStatementPDF(rows, subject);
+    // Unapplied credit memos net against what this customer owes on the AR
+    // Aging report — app/api/customers/[id]/statement/route.ts documents
+    // this as deliberate. fetchOpenInvoices excludes CreditMemo rows by
+    // default because its other callers (portfolio lists, chase tools)
+    // aren't built to handle one, so they're fetched separately here rather
+    // than widening that shared query's contract for everyone.
+    const statementCustomerId = rows[0]?.customerId;
+    let statementRows = rows;
+    if (statementCustomerId) {
+      const withCms = await fetchOpenInvoices(orgId, undefined, statementCustomerId, { includeCreditMemos: true });
+      const unappliedCms = withCms.filter(i => i.txnType === "CreditMemo" && (i.qboBalance ?? 0) < -0.005);
+      statementRows = [...rows, ...unappliedCms];
+    }
+    const statementBuf = await generateStatementPDF(statementRows, subject);
     attachments = [{ filename: `${label.replace(/[^a-zA-Z0-9 ]/g, "")}_Statement.pdf`, content: statementBuf, contentType: "application/pdf" }];
   }
 

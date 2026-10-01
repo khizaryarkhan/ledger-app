@@ -8,28 +8,18 @@ import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
+import { fillTemplate, greetingName, buildTemplateMaps, pickTemplate } from "@/lib/email-template";
+import { fmt, daysOverdue as daysFromDate } from "@/lib/format";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-function daysFromDate(dateStr: string): number {
-  const due = new Date(dateStr + "T12:00:00Z").getTime();
-  return Math.floor((Date.now() - due) / 86400000);
-}
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
 }
 
 const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
-
-function fillTemplate(template: string, name: string, invoiceLines: string[], ref: string): string {
-  return template
-    .replace(/\{name\}/gi, name)
-    .replace(/\{invoicelines\}/gi, invoiceLines.join("\n"))
-    .replace(/\{ref\}/gi, ref);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CRON HANDLER
@@ -75,10 +65,16 @@ export async function GET(req: Request) {
         .from(emailTemplates)
         .where(and(eq(emailTemplates.orgId, orgId), eq(emailTemplates.isActive, true)));
 
-      const templateByStage = new Map(
-        orgTemplates.filter((t) => t.collectionStage).map((t) => [t.collectionStage!, t]),
-      );
-      if (templateByStage.size === 0) continue;
+      // See lib/email-template.ts's buildTemplateMaps for why this is split
+      // into a generic map and an escalation-type-specific one.
+      const { byStage: templateByStage, byStageAndType: templateByStageAndType } = buildTemplateMaps(orgTemplates);
+      if (templateByStage.size === 0 && templateByStageAndType.size === 0) continue;
+
+      // Org branding — once per org per cron run, not per invoice.
+      const [orgRow] = await db
+        .select({ name: organisations.name, displayName: organisations.displayName, logoUrl: organisations.logoUrl })
+        .from(organisations).where(eq(organisations.id, orgId)).limit(1);
+      const orgBranding = { name: orgRow?.displayName || orgRow?.name, logoUrl: orgRow?.logoUrl };
 
       // Only load contacts that are due for a send right now.
       // next_send_at IS NULL  → never sent, fire immediately
@@ -120,10 +116,15 @@ export async function GET(req: Request) {
           const sortedByOverdue = [...relatedInvoices].sort(
             (a, b) => daysFromDate(b.dueDate) - daysFromDate(a.dueDate),
           );
-          const matchedInv = sortedByOverdue.find((inv) => templateByStage.has(inv.collectionStage));
+          const matchedInv = sortedByOverdue.find((inv) =>
+            !!pickTemplate(templateByStageAndType, templateByStage, inv.collectionStage, inv.escalationType),
+          );
           if (!matchedInv) { skipped++; continue; }
 
-          const template     = templateByStage.get(matchedInv.collectionStage)!;
+          const template = pickTemplate(
+            templateByStageAndType, templateByStage,
+            matchedInv.collectionStage, matchedInv.escalationType,
+          )!;
           const intervalDays = template.sendIntervalDays ?? 7;
 
           // Entity ref + names (for the branded email rows)
@@ -144,15 +145,15 @@ export async function GET(req: Request) {
             const balance    = inv.total - (inv.paid || 0);
             const d          = daysFromDate(inv.dueDate);
             const overdueStr = d > 0 ? `${d} days overdue` : d === 0 ? "due today" : `due in ${Math.abs(d)} days`;
-            return `  • ${inv.invoiceNumber} — Balance: ${balance.toLocaleString("en-IE", { style: "currency", currency: inv.currency || "EUR" })} (${overdueStr})`;
+            return `  • ${inv.invoiceNumber} — Balance: ${fmt.money(balance, inv.currency || "EUR")} (${overdueStr})`;
           });
 
-          const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
+          const greeting = greetingName(contact.name);
           const emailRef = genEmailRef();
-          const subject  = fillTemplate(template.subject, greeting, invoiceLines, entityRef) + ` | Ref ${emailRef}`;
+          const subject  = fillTemplate(template.subject, { name: greeting, ref: entityRef, invoiceLines }) + ` | Ref ${emailRef}`;
           // Template body becomes the intro message; the branded table lists the
           // invoices (so we strip {invoicelines} to avoid duplicating the list).
-          const introText = fillTemplate(template.body, greeting, [], entityRef);
+          const introText = fillTemplate(template.body, { name: greeting, ref: entityRef, invoiceLines: [] });
 
           // Single-use "View & Respond" portal link → rendered as the branded button.
           let portalUrl: string | null = null;
@@ -173,6 +174,7 @@ export async function GET(req: Request) {
           const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
           const bodyHtml = renderInvoiceEmail({
             subject, dateStr, portalUrl, intro: introText,
+            orgName: orgBranding?.name, logoUrl: orgBranding?.logoUrl,
             total: relatedInvoices.reduce((s, i) => s + (i.total - (i.paid || 0)), 0),
             rows: relatedInvoices.map((i) => ({
               invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,

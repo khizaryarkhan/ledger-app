@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { fmt } from "@/lib/format";
 import { Drawer } from "@/components/form-kit";
+import { ESCALATION_TYPE_LABELS } from "@/lib/escalation-types";
 
 // ─────────────────────────────────────────────
 // REMINDER PROGRAMME TAB
@@ -984,10 +985,16 @@ type EmailTemplate = {
   subject: string;
   body: string;
   collectionStage: string | null;
+  // Optional narrower match on top of collectionStage — lets "Escalated"
+  // carry different wording per escalation type (Legal, Retention, ...)
+  // instead of every type sharing one generic template.
+  escalationType: string | null;
   isActive: boolean;
   isDefault: boolean;
   sendIntervalDays: number;
 };
+
+const ESCALATED_STAGE = "Escalated";
 
 const FREQUENCY_OPTIONS = [
   { label: "Every week",       days: 7   },
@@ -1002,6 +1009,7 @@ const BLANK_TEMPLATE: Omit<EmailTemplate, "id" | "isActive"> = {
   subject: "",
   body: "",
   collectionStage: null,
+  escalationType: null,
   isDefault: false,
   sendIntervalDays: 7,
 };
@@ -1075,6 +1083,7 @@ function EmailTemplates() {
         subject:          editing.subject.trim(),
         body:             editing.body.trim(),
         collectionStage:  editing.collectionStage || null,
+        escalationType:   editing.collectionStage === ESCALATED_STAGE ? (editing.escalationType || null) : null,
         isActive:         editing.isActive,
         sendIntervalDays: editing.sendIntervalDays ?? 7,
       };
@@ -1133,10 +1142,20 @@ function EmailTemplates() {
     }
   };
 
-  // Stages already assigned to a template (for warning duplicate assignment)
+  // Stages already assigned to a template (for warning duplicate assignment).
+  // Keyed on stage + escalation type together — "Escalated" can hold one
+  // template per escalation type plus one generic (null) fallback, so it
+  // isn't blocked as "already assigned" the moment ANY Escalated template
+  // exists. Every other stage still allows exactly one, as before.
+  const otherTemplates = templates.filter((t) => t.id !== (editing?.id ?? ""));
   const assignedStages = new Set(
-    templates.filter((t) => t.collectionStage && t.id !== (editing?.id ?? "")).map((t) => t.collectionStage!)
+    otherTemplates.filter((t) => t.collectionStage && t.collectionStage !== ESCALATED_STAGE).map((t) => t.collectionStage!)
   );
+  const assignedEscalationTypes = new Set(
+    otherTemplates.filter((t) => t.collectionStage === ESCALATED_STAGE && t.escalationType).map((t) => t.escalationType!)
+  );
+  // Whether the GENERIC (no escalation type) Escalated template is already taken.
+  const genericEscalatedTaken = otherTemplates.some((t) => t.collectionStage === ESCALATED_STAGE && !t.escalationType);
 
   // ── Render ────────────────────────────────
   return (
@@ -1221,7 +1240,7 @@ function EmailTemplates() {
             <div className="shrink-0 mt-0.5">
               {t.collectionStage ? (
                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  {t.collectionStage}
+                  {t.collectionStage}{t.escalationType ? ` · ${t.escalationType}` : ""}
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-800 text-stone-500 border border-stone-700">
@@ -1330,7 +1349,8 @@ function EmailTemplates() {
               <div>
                 <label className="block text-[12px] font-semibold text-stone-400 mb-1">Collection stage</label>
                 <p className="text-[11px] text-stone-500 mb-1.5">
-                  Choose the invoice stage that triggers this template. Only one template per stage.
+                  Choose the invoice stage that triggers this template. One template per stage —
+                  except Escalated, which can also hold one template per escalation type.
                 </p>
                 <select
                   value={editing.collectionStage ?? ""}
@@ -1345,6 +1365,34 @@ function EmailTemplates() {
                   ))}
                 </select>
               </div>
+
+              {/* Escalation type — only meaningful for the Escalated stage.
+                  Optional: leaving it unset keeps this template as the
+                  generic fallback every escalation type used to share. */}
+              {editing.collectionStage === ESCALATED_STAGE && (
+                <div>
+                  <label className="block text-[12px] font-semibold text-stone-400 mb-1">Escalation type (optional)</label>
+                  <p className="text-[11px] text-stone-500 mb-1.5">
+                    Narrow this template to one escalation type (e.g. Legal, Retention) instead of
+                    every escalated invoice getting the same generic wording. Leave unset for the
+                    fallback used by any type without its own template.
+                  </p>
+                  <select
+                    value={editing.escalationType ?? ""}
+                    onChange={(e) => setEditing((p) => p && ({ ...p, escalationType: e.target.value || null }))}
+                    className="w-full h-9 px-3 text-sm rounded-lg border border-stone-700 focus:border-emerald-500 focus:outline-none bg-stone-800 text-white"
+                  >
+                    <option value="" disabled={genericEscalatedTaken}>
+                      — Any (generic fallback) —{genericEscalatedTaken ? " (already assigned)" : ""}
+                    </option>
+                    {ESCALATION_TYPE_LABELS.map((label) => (
+                      <option key={label} value={label} disabled={assignedEscalationTypes.has(label)}>
+                        {label}{assignedEscalationTypes.has(label) ? " (already assigned)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Subject */}
               <div>

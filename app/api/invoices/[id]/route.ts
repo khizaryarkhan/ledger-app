@@ -8,8 +8,15 @@ import { recomputeInvoiceState } from "@/lib/portal";
 import { linksForAny } from "@/lib/accounting/links";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
+
+  // Reps may only read invoices in their own book (see the list endpoints —
+  // scope has to hold on a direct-by-id fetch too, since the id is client-supplied).
+  if (!(await isInvoiceInScope(orgId!, (session?.user as any)?.id ?? null, params.id))) {
+    return bad("Not found", 404);
+  }
+
   const [inv] = await db.select().from(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!))).limit(1);
   if (!inv) return bad("Not found", 404);
   // Whatever settled this invoice — a native Payment (transaction_links) or a
@@ -51,8 +58,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // escalatedAt arrives as an ISO string from JSON when the client echoes it back — coerce.
   if (typeof body.escalatedAt === "string") body.escalatedAt = new Date(body.escalatedAt);
 
+  // Allowlist editable columns — never let the client rewrite id/orgId/createdAt
+  // or a GL-derived/single-writer field (paid/total/qboBalance/journalEntryId/
+  // customerId/...) via a blind spread of the request body. This is exactly the
+  // set of fields the collections UI (board, invoice detail, automations, rep
+  // portal) actually sends on this route.
+  const EDITABLE = [
+    "collectionStage", "disputeReason", "disputeDate", "promiseDate",
+    "escalatedToUserId", "escalatedToName", "escalatedToEmail",
+    "escalationType", "escalationNote", "escalatedAt", "billingEmail",
+  ] as const;
+  const set: Record<string, any> = { updatedAt: new Date() };
+  for (const k of EDITABLE) if (k in body) set[k] = body[k];
+
   const [updated] = await db.update(invoices)
-    .set({ ...body, updatedAt: new Date() })
+    .set(set)
     .where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!)))
     .returning();
   if (!updated) return bad("Not found", 404);
@@ -168,8 +188,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
+
+  // Reps may only delete invoices in their own book (see the list endpoints —
+  // scope has to hold on writes too, since the id is client-supplied).
+  if (!(await isInvoiceInScope(orgId!, (session?.user as any)?.id ?? null, params.id))) {
+    return bad("Not found", 404);
+  }
+
   await db.delete(invoices).where(and(eq(invoices.id, params.id), eq(invoices.orgId, orgId!)));
   return ok({ ok: true });
 }

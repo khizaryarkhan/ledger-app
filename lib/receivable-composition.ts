@@ -11,6 +11,16 @@
  * before the generic ones (in collection, not yet due).
  */
 
+/**
+ * The single rule for "is this invoice settled?" — Paid, Written Off, or its
+ * collection stage is Closed. Used everywhere an invoice's open/closed state
+ * gates a computation (outstanding balance, aging, composition) so the same
+ * invoice can't read as open on one screen and closed on another.
+ */
+export function isPaidOrClosed(i: { paymentStatus?: string | null; collectionStage?: string | null }): boolean {
+  return i.paymentStatus === "Paid" || i.paymentStatus === "Written Off" || i.collectionStage === "Closed";
+}
+
 export type CompDrillColor = "rose" | "amber" | "sky" | "stone" | "white";
 
 export type CompItem = {

@@ -71,6 +71,25 @@ export async function POST(req: Request, { params }: { params: { token: string }
       )).catch(() => {});
   }
 
+  // Supersede any prior Active promise on an invoice that just got a new one —
+  // mirrors supersedePromises() in app/api/invoices/[id]/response/route.ts.
+  // Without this, the daily chase sweep (inngest/functions/chase.ts) selects
+  // every row where status = "Active" AND promiseDate < today, not just the
+  // latest, so a stale prior promise with a past date would get wrongly
+  // flipped to "Broken" even after the customer made a valid newer commitment.
+  // Must run BEFORE the new promiseRows are inserted below, so it can only
+  // ever touch the OLD Active row(s), never the one just submitted.
+  const promisedInvoiceIds = [...new Set(promiseRows.map((p: any) => p.invoiceId))];
+  if (promisedInvoiceIds.length > 0) {
+    await db.update(invoicePromises)
+      .set({ status: "Superseded" })
+      .where(and(
+        eq(invoicePromises.orgId, orgId),
+        inArray(invoicePromises.invoiceId, promisedInvoiceIds),
+        eq(invoicePromises.status, "Active"),
+      )).catch(err => console.error("portal: failed to supersede prior promise:", err?.message));
+  }
+
   // Persist events
   if (promiseRows.length > 0) await db.insert(invoicePromises).values(promiseRows);
   if (disputeRows.length > 0) await db.insert(invoiceDisputes).values(disputeRows);

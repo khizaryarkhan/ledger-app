@@ -1,5 +1,5 @@
 import { requireOrg, bad } from "@/lib/api";
-import { formatDateShort } from "@/lib/format";
+import { formatDateShort, daysOverdue } from "@/lib/format";
 import { db } from "@/db";
 import { customers, invoices, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -40,9 +40,24 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return openBal(i) > 0.005;
   }).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  const totalBalance = open.reduce((s, i) => s + openBal(i), 0);
-  const currency = open[0]?.currency || customer.currency || "EUR";
-  const fmt = (n: number) => numberFormat.money(n, currency);
+  // Invoices can genuinely be in different currencies for the same customer —
+  // summing them all into one number under open[0]'s currency silently hid
+  // whichever other currency was present. Group per currency instead, the
+  // same approach lib/statement-pdf.ts's fmtCcyMap already uses.
+  const balancesByCcy: Record<string, number> = {};
+  for (const inv of open) {
+    const ccy = inv.currency || customer.currency || "EUR";
+    balancesByCcy[ccy] = (balancesByCcy[ccy] ?? 0) + openBal(inv);
+  }
+  const fmt = (n: number, ccy?: string | null) => numberFormat.money(n, ccy || customer.currency || "EUR");
+  const fmtTotal = (map: Record<string, number>): string => {
+    const parts = Object.entries(map)
+      .filter(([, v]) => Math.abs(v) > 0.005)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    if (!parts.length) return fmt(0);
+    return parts.map(([c, v]) => fmt(v, c)).join(" · ");
+  };
+  const totalDisplay = fmtTotal(balancesByCcy);
   // A statement the DEBTOR receives: invoice and due dates read literally
   // (lib/format), not as a UTC-midnight Date that only looks right because
   // the server happens to run in UTC.
@@ -50,11 +65,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   const orgName = org?.displayName || org?.name || "Your Company";
+  const logoHtml = org?.logoUrl
+    ? `<img src="${org.logoUrl}" alt="${orgName}" style="max-height:44px;max-width:220px;object-fit:contain;display:block;margin-bottom:8px" />`
+    : "";
 
   const rows = open.map(inv => {
     const isCm = inv.txnType === "CreditMemo";
     const balance = openBal(inv);
-    const daysOv = Math.floor((Date.now() - new Date(inv.dueDate + "T12:00:00Z").getTime()) / 86400000);
+    const daysOv = daysOverdue(inv.dueDate);
     const status = isCm ? "Credit on Account"
       : daysOv > 0 ? `${daysOv} days overdue`
       : daysOv === 0 ? "Due today"
@@ -65,9 +83,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         <td>${inv.invoiceNumber}</td>
         <td>${fmtDate(inv.invoiceDate)}</td>
         <td>${isCm ? "—" : fmtDate(inv.dueDate)}</td>
-        <td class="amount">${isCm ? "—" : fmt(inv.total)}</td>
-        <td class="amount">${isCm ? "—" : fmt(inv.paid || 0)}</td>
-        <td class="amount bold" style="color:${isCm ? "#16a34a" : "inherit"}">${fmt(balance)}</td>
+        <td class="amount">${isCm ? "—" : fmt(inv.total, inv.currency)}</td>
+        <td class="amount">${isCm ? "—" : fmt(inv.paid || 0, inv.currency)}</td>
+        <td class="amount bold" style="color:${isCm ? "#16a34a" : "inherit"}">${fmt(balance, inv.currency)}</td>
         <td style="color:${statusColor};font-size:11px;font-weight:600">${status}</td>
       </tr>`;
   }).join("");
@@ -107,6 +125,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 <body>
 <div class="header">
   <div>
+    ${logoHtml}
     <div class="statement-label">Statement of Account</div>
     <div class="org-name">${orgName}</div>
   </div>
@@ -125,7 +144,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
 <div class="meta-grid">
   <div class="meta-item"><label>Open invoices</label><span>${open.length}</span></div>
-  <div class="meta-item"><label>Total outstanding</label><span style="color:#dc2626;font-size:16px;font-weight:700">${fmt(totalBalance)}</span></div>
+  <div class="meta-item"><label>Total outstanding</label><span style="color:#dc2626;font-size:16px;font-weight:700">${totalDisplay}</span></div>
 </div>
 
 ${open.length === 0 ? '<p style="color:#78716c;padding:24px 0">No outstanding invoices — account is clear.</p>' : `
@@ -147,7 +166,7 @@ ${open.length === 0 ? '<p style="color:#78716c;padding:24px 0">No outstanding in
   <tfoot>
     <tr class="total-row">
       <td colspan="5">Total Outstanding</td>
-      <td class="amount bold">${fmt(totalBalance)}</td>
+      <td class="amount bold">${totalDisplay}</td>
       <td></td>
     </tr>
   </tfoot>

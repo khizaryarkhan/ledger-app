@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { emailTemplates } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
 import { z } from "zod";
 
@@ -15,6 +15,7 @@ const Schema = z.object({
   subject:          z.string().min(1).max(512),
   body:             z.string().min(1),
   collectionStage:  z.string().max(64).nullable().optional(),
+  escalationType:   z.string().max(64).nullable().optional(),
   isActive:         z.boolean().optional().default(true),
   sendIntervalDays: z.number().int().min(1).optional().default(7),
 });
@@ -41,6 +42,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
   }
 
+  // Server-side half of the "one template per (org, stage, escalation type)"
+  // rule — the DB partial unique index (migration 0104) is what actually
+  // closes the race, but a friendly 400 here beats a raw constraint violation
+  // for the common (non-racing) case. Draft templates (no collectionStage)
+  // are outside the constraint entirely, same as the index.
+  const stage = parsed.data.collectionStage ?? null;
+  if (stage) {
+    const escalationType = parsed.data.escalationType ?? null;
+    const [dup] = await db
+      .select({ id: emailTemplates.id })
+      .from(emailTemplates)
+      .where(and(
+        eq(emailTemplates.orgId, orgId!),
+        eq(emailTemplates.collectionStage, stage),
+        escalationType === null ? isNull(emailTemplates.escalationType) : eq(emailTemplates.escalationType, escalationType),
+      ))
+      .limit(1);
+    if (dup) {
+      return NextResponse.json(
+        { error: "A template for this stage/escalation type already exists" },
+        { status: 400 },
+      );
+    }
+  }
+
   const [created] = await db
     .insert(emailTemplates)
     .values({
@@ -49,6 +75,7 @@ export async function POST(req: Request) {
       subject:          parsed.data.subject,
       body:             parsed.data.body,
       collectionStage:  parsed.data.collectionStage ?? null,
+      escalationType:   parsed.data.escalationType ?? null,
       isActive:         parsed.data.isActive ?? true,
       sendIntervalDays: parsed.data.sendIntervalDays ?? 7,
     })

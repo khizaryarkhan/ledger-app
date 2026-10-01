@@ -11,6 +11,7 @@ import { Search, Plus, Trash2, X, Download, Send } from "lucide-react";
 import { DEFAULT_STAGES, resolveStageLabel, type Stage } from "@/lib/stages";
 import { SelectField, control } from "@/components/form-kit";
 import { StageLabel } from "@/components/stage-label";
+import { isPaidOrClosed } from "@/lib/receivable-composition";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   sumByCurrency, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -78,6 +79,15 @@ export default function InvoicesPage() {
     if (primaryContact) return primaryContact.email;
     const customer = customers?.find((c: any) => c.id === inv.customerId);
     return customer?.email || null;
+  }
+
+  /** Resolve outstanding balance the SAME way for the table's Outstanding
+   *  column and the batch-email modal: provider balance when known, else
+   *  total - paid, zeroed once the invoice is settled (fix for the two
+   *  surfaces silently disagreeing — see CLAUDE.md task brief). */
+  function resolveBalance(inv: any): number {
+    if (isPaidOrClosed(inv)) return 0;
+    return Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0)));
   }
 
   const handleDownloadPdf = async (e: React.MouseEvent, inv: any) => {
@@ -148,7 +158,6 @@ export default function InvoicesPage() {
 
   const filtered = useMemo(() => {
     let res = invoices.map((i: any) => {
-      const isPaidOrClosed = ["Paid", "Written Off"].includes(i.paymentStatus) || i.collectionStage === "Closed";
       const customer = customers.find((c: any) => c.id === i.customerId);
       const project  = projects.find((p: any) => p.id === i.projectId);
       const repId    = customer?.repId ?? project?.repId;
@@ -159,9 +168,9 @@ export default function InvoicesPage() {
         project,
         rep:    reps?.find((r: any) => r.id === repId) ?? null,
         region: regions?.find((r: any) => r.id === regionId) ?? null,
-        isClosed: isPaidOrClosed,
+        isClosed: isPaidOrClosed(i),
         stageLabel: resolveStageLabel(i.collectionStage, stages),
-        outstanding: isPaidOrClosed ? 0 : i.total - (i.paid || 0),
+        outstanding: resolveBalance(i),
         daysOverdue: daysOverdue(i.dueDate),
         dueStatus: getDueStatus(i),
         resolvedEmail: resolveEmail(i),
@@ -432,7 +441,7 @@ export default function InvoicesPage() {
             custId: inv.customerId,
             custName: customers.find((c: any) => c.id === inv.customerId)?.name ?? "Customer",
             projName: projects.find((p: any) => p.id === inv.projectId)?.name ?? null,
-            bal: Number(inv.qboBalance ?? inv.xeroBalance ?? Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0))),
+            bal: resolveBalance(inv),
             days: daysOverdue(inv.dueDate),
             email: resolveEmail(inv),
           }));

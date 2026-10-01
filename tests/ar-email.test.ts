@@ -85,6 +85,69 @@ describe("table integrity", () => {
   });
 });
 
+describe("HTML escaping — customer/project names and free text", () => {
+  it("escapes a customer name so it can't corrupt the row markup", () => {
+    const html = render([row({ customerName: "Acme <script>alert(1)</script> & Co" })]);
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("Acme &lt;script&gt;alert(1)&lt;/script&gt; &amp; Co");
+  });
+
+  it("escapes a project name the same way", () => {
+    const html = render([row({ projectName: 'Phase <2> "West"' })]);
+    expect(html).toContain("Phase &lt;2&gt; &quot;West&quot;");
+    expect(html).not.toContain('Phase <2> "West"');
+  });
+
+  it("escapes the subject", () => {
+    const html = renderInvoiceEmail({
+      subject: "Reminder <b>URGENT</b> & Overdue", dateStr: "1 Jan 2026", total: 10, rows: [row()],
+    });
+    expect(html).toContain("Reminder &lt;b&gt;URGENT&lt;/b&gt; &amp; Overdue");
+    expect(html).not.toContain("<b>URGENT</b>");
+  });
+
+  it("escapes the intro before converting newlines to <br>", () => {
+    const html = renderInvoiceEmail({
+      subject: "Open Invoices", dateStr: "1 Jan 2026", total: 10, rows: [row()],
+      intro: "Hi <b>there</b>,\nSecond line",
+    });
+    expect(html).toContain("Hi &lt;b&gt;there&lt;/b&gt;,<br>Second line");
+  });
+});
+
+describe("dates render through formatDateShort, not the raw ISO string", () => {
+  it("shows the invoice date and a not-yet-due date as '15 Sep 2026', not '2026-09-15'", () => {
+    const html = render([row({ invoiceDate: "2026-08-04", dueDate: "2026-09-15", daysOverdue: 0 })]);
+    expect(html).toContain("15 Sep 2026");
+    expect(html).toContain("04 Aug 2026");
+    expect(html).not.toContain("2026-09-15");
+    expect(html).not.toContain("2026-08-04");
+  });
+});
+
+describe("org branding", () => {
+  it("renders nothing extra when neither orgName nor logoUrl is set — no visual change for an org that hasn't configured either", () => {
+    const html = renderInvoiceEmail({ subject: "Open Invoices", dateStr: "1 Jan 2026", total: 10, rows: [row()] });
+    expect(html).not.toContain("<img");
+  });
+
+  it("renders the org name when set and there's no logo", () => {
+    const html = renderInvoiceEmail({
+      subject: "Open Invoices", dateStr: "1 Jan 2026", total: 10, rows: [row()], orgName: "Acme Ltd",
+    });
+    expect(html).toContain("Acme Ltd");
+    expect(html).not.toContain("<img");
+  });
+
+  it("renders the logo (escaped) when set, preferring it over the name text", () => {
+    const html = renderInvoiceEmail({
+      subject: "Open Invoices", dateStr: "1 Jan 2026", total: 10, rows: [row()],
+      orgName: "Acme Ltd", logoUrl: 'https://cdn.test/logo.png?a=1&b=2',
+    });
+    expect(html).toContain('<img src="https://cdn.test/logo.png?a=1&amp;b=2"');
+  });
+});
+
 describe("appendPayButton — the composer's safety net", () => {
   const count = (html: string) => (html.match(/Pay invoice/g) ?? []).length;
 

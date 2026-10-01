@@ -819,7 +819,10 @@ describe("money and quantity are formatted in one place", () => {
   const COMMENT_LINE = /^\s*(\/\/|\*|\/\*)/;
 
   function scanned() {
-    return [...sourceFiles("components"), ...sourceFiles("lib"), ...sourceFiles("app")]
+    // inngest/ added after chase.ts's own `.toLocaleString(..., {style:"currency"})`
+    // slipped past this guard entirely — the daily chase email a debtor reads,
+    // not merely an internal report, was rounding cents away undetected.
+    return [...sourceFiles("components"), ...sourceFiles("lib"), ...sourceFiles("app"), ...sourceFiles("inngest")]
       .filter(f => !/\/app\/(api\/)?portal\//.test(f.replace(/\\/g, "/")))
       // lib/format.ts IS the definition.
       .filter(f => !f.replace(/\\/g, "/").endsWith("lib/format.ts"));
@@ -831,7 +834,10 @@ describe("money and quantity are formatted in one place", () => {
       const rel = relative(ROOT, f).replace(/\\/g, "/");
       readFileSync(f, "utf8").split("\n").forEach((line, i) => {
         if (COMMENT_LINE.test(line)) return;
-        if (/new Intl\.NumberFormat/.test(line) && /style:\s*["']currency["']/.test(line)) {
+        // Both `new Intl.NumberFormat(...)` and the equivalent
+        // `.toLocaleString(..., {style:"currency"})` are the same violation —
+        // the latter slipped past this guard for years in inngest/chase.ts.
+        if (/(new Intl\.NumberFormat|\.toLocaleString)\(/.test(line) && /style:\s*["']currency["']/.test(line)) {
           offenders.push(`${rel}:${i + 1}`);
         }
       });
@@ -1180,7 +1186,15 @@ describe("a due date is never rendered through new Date()", () => {
     const offenders: string[] = [];
     for (const f of [...sourceFiles("components"), ...sourceFiles("app")]) {
       const rel = relative(ROOT, f).replace(/\\/g, "/");
-      if (rel.includes("/portal/")) continue;   // the customer portal keeps its own formatters (CLAUDE.md)
+      // NOTE: there is no portal-wide exemption here, deliberately. CLAUDE.md's
+      // documented portal exception ("A statement the DEBTOR receives") is
+      // scoped to the money/decimal-place display convention (100 vs 100.00) —
+      // see the separate "money and quantity are formatted in one place" guard
+      // above, which does exempt app/(api/)?portal/**. It says nothing about
+      // timezone-unsafe date parsing, and a blanket `/portal/` skip here once
+      // masked exactly that: a portal PDF route built `new Date(dueDate)` off
+      // a plain YYYY-MM-DD string, the same UTC-midnight bug this guard exists
+      // to catch everywhere else.
       if (TIMESTAMP_OK[rel]) continue;
       const src = readFileSync(f, "utf8");
       if (DUE_TO_DATE.test(src) || FMTDATE_ON_DATE.test(src)) offenders.push(rel);

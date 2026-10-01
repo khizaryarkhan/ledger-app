@@ -46,7 +46,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
   const [cust] = await db
     .select({ name: customers.name })
-    .from(customers).where(eq(customers.id, row.customerId)).limit(1);
+    .from(customers)
+    .where(and(eq(customers.id, row.customerId), eq(customers.orgId, row.orgId)))
+    .limit(1);
 
   const ids = (row.invoiceIds as string[]) ?? [];
   let invList: any[] = [];

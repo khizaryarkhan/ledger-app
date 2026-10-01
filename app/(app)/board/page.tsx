@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { fmt, daysOverdue, matchesDueFilter, DUE_FILTERS_OPEN, localToday, isWithinAsAt } from "@/lib/format";
 import { Users, Briefcase, ChevronRight, LayoutGrid, List as ListIcon, Search } from "lucide-react";
-import { DEFAULT_STAGES, STAGE_COLOR_CLASSES, resolveStageLabel, Stage } from "@/lib/stages";
+import { DEFAULT_STAGES, resolveStageLabel, Stage, isExceptionStage, stageChipClass, stageDotClass } from "@/lib/stages";
 import { BoardList, type BoardRow } from "@/components/board-list";
 import { SelectField, control } from "@/components/form-kit";
 
@@ -101,13 +101,20 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
     stageCounts[resolved] = (stageCounts[resolved] || 0) + 1;
   });
   const dominantLabel = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? (stages[0]?.label ?? "New");
-  const dominantStage = (stages as Stage[]).find(s => s.label === dominantLabel);
-  const badgeCls = STAGE_COLOR_CLASSES[dominantStage?.color ?? "stone"]?.badge ?? "bg-stone-100 text-stone-700";
+  // Colour means EXCEPTION, nothing else (lib/stages.ts) — a filled chip only
+  // for Disputed/Escalated/On Hold, quiet text + hue dot otherwise. Matches
+  // the List view's dominant-stage band (components/board-list.tsx).
+  const dominantIsException = isExceptionStage(dominantLabel, stages);
 
   // Per-invoice customer-response signals — so a single disputed/promised
   // invoice never hides behind the entity's dominant stage.
   const disputedCount = open.filter((i: any) => i.hasOpenDispute).length;
   const promisedCount = open.filter((i: any) => !i.hasOpenDispute && i.promiseDate).length;
+  // "Committed" is stage key "Promised", configured amber in DEFAULT_STAGES —
+  // look up its OWN configured colour rather than hardcoding a hue that
+  // disagrees with how this stage renders everywhere else (List view,
+  // stage-label.tsx, Settings → Stages).
+  const promisedLabel = (stages as Stage[]).find(s => s.key === "Promised")?.label ?? "Committed";
 
   return (
     <Link href={href}
@@ -128,7 +135,12 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
 
       <div className="flex items-center justify-between mt-2">
         <div className="text-base font-semibold tabular-nums text-white">{fmt.money(outstanding, invoiceCurrency)}</div>
-        <div className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeCls}`}>{dominantLabel}</div>
+        <div className={`inline-flex items-center gap-1.5 text-[10px] font-medium ${
+          dominantIsException ? `rounded-full px-2 py-0.5 ${stageChipClass(dominantLabel, stages)}` : "px-1 py-0.5 text-stone-300"
+        }`}>
+          {!dominantIsException && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDotClass(dominantLabel, stages)}`} />}
+          {dominantLabel}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mt-2 text-[11px] text-stone-400">
@@ -147,7 +159,7 @@ function CollectionCard({ entity, invoices, href, draggingId, setDraggingId, sta
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20 font-semibold">⚠ {disputedCount} disputed</span>
           )}
           {promisedCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20 font-semibold">📅 {promisedCount} committed</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${stageChipClass(promisedLabel, stages)}`}>📅 {promisedCount} committed</span>
           )}
         </div>
       )}
@@ -510,7 +522,12 @@ export default function BoardPage() {
                 {/* Column header */}
                 <div className="p-3 border-b border-stone-800 flex-shrink-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${STAGE_COLOR_CLASSES[stages.find(s => s.label === stage)?.color ?? "stone"]?.badge ?? "bg-stone-800 text-stone-300"}`}>{stage}</span>
+                    <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${
+                      isExceptionStage(stage, stages) ? `rounded-full px-2 py-0.5 ${stageChipClass(stage, stages)}` : "px-1 py-0.5 text-stone-300"
+                    }`}>
+                      {!isExceptionStage(stage, stages) && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stageDotClass(stage, stages)}`} />}
+                      {stage}
+                    </span>
                     <span className="text-[11px] text-stone-500 font-mono">{items.length}</span>
                   </div>
                   <CurrencyPills breakdown={stageCurrencyTotals[stage] || {}} className="text-sm font-semibold text-white tabular-nums" />

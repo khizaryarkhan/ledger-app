@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { useSession } from "next-auth/react";
 import { Card, Badge } from "@/components/ui";
-import { fmt, daysOverdue, getAgingBucket, daysFromNow, today, localToday, isWithinAsAt } from "@/lib/format";
-import { ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, Circle, AlertTriangle, Mail, X, Printer } from "lucide-react";
+import { fmt, daysOverdue, getAgingBucket, daysFromNow, localToday, isWithinAsAt } from "@/lib/format";
+import { ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, Circle, AlertTriangle, Mail, Printer } from "lucide-react";
+import { Drawer } from "@/components/form-kit";
 import { ResponsesDashboardWidget } from "@/components/responses-dashboard-widget";
 import { CurrencyPills } from "@/components/currency-pills";
 import { classifyCompositionByCurrency } from "@/lib/receivable-composition";
@@ -631,150 +632,136 @@ function DrillDownPanel({ drillDown, onClose, customers, projects, dominantCcy }
     drillDown.color === "amber" ? "bg-amber-400" :
     drillDown.color === "sky"   ? "bg-sky-400"   : "bg-stone-300";
 
+  const byCcy: Record<string, number> = {};
+  drillDown.items.forEach(i => { const c = i.currency || dominantCcy; byCcy[c] = (byCcy[c] || 0) + openBal(i); });
+
   return (
-    <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
-      {/* Backdrop */}
-      <div className="flex-1 bg-black/60" onClick={onClose} />
-      {/* Panel */}
-      <div className="w-[560px] bg-stone-950 border-l border-stone-800 flex flex-col h-full shadow-2xl">
-        {/* Header */}
-        <div className={`px-5 py-4 border-b border-stone-800 ${
-          drillDown.color === "rose"  ? "bg-rose-500/5"  :
-          drillDown.color === "amber" ? "bg-amber-500/5" :
-          drillDown.color === "sky"   ? "bg-sky-500/5"   : ""
-        }`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-white">{drillDown.title}</h2>
-              <p className="text-[11px] text-stone-400 mt-0.5">{drillDown.subtitle}</p>
-            </div>
-            <button onClick={onClose} className="text-stone-500 hover:text-white mt-0.5 flex-shrink-0" aria-label="Close">
-              <X size={16} />
-            </button>
-          </div>
-          <div className="mt-3 flex items-center gap-3 flex-wrap">
-            {(() => {
-              const byCcy: Record<string, number> = {};
-              drillDown.items.forEach(i => { const c = i.currency || dominantCcy; byCcy[c] = (byCcy[c] || 0) + openBal(i); });
-              return <CurrencyPills breakdown={byCcy} className={`text-lg font-semibold tabular-nums ${colorClass}`} />;
-            })()}
+    <Drawer
+      title={drillDown.title}
+      subtitle={
+        <div>
+          <p className="text-[11px] text-stone-400">{drillDown.subtitle}</p>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <CurrencyPills breakdown={byCcy} className={`text-lg font-semibold tabular-nums ${colorClass}`} />
             <span className="text-[11px] text-stone-500">
               across {drillDown.items.length} invoice{drillDown.items.length !== 1 ? "s" : ""} · {groups.length} customer{groups.length !== 1 ? "s" : ""}
             </span>
           </div>
         </div>
-
-        {/* Collapse/expand all */}
-        {groups.length > 1 && (
-          <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-stone-600 font-semibold">By customer · largest first</span>
-            <button onClick={toggleAll} className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 transition-colors">
-              {allExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              {allExpanded ? "Collapse all" : "Expand all"}
-            </button>
-          </div>
-        )}
-
-        {/* Grouped invoice list */}
-        <div className="flex-1 overflow-y-auto px-4 pb-4 pt-1 space-y-1.5">
-          {groups.length === 0 ? (
-            <div className="py-12 text-center text-sm text-stone-500">No invoices in this bucket</div>
-          ) : (
-            groups.map(cg => {
-              const collapsed = collapsedCust.has(cg.key);
-              const pct = bucketTotal > 0 ? (cg.total / bucketTotal) * 100 : 0;
-              return (
-                <div key={cg.key} className="rounded-lg border border-stone-800 overflow-hidden">
-                  {/* Customer band */}
-                  <button
-                    onClick={() => toggleCust(cg.key)}
-                    className="w-full flex flex-col gap-1 px-3 py-2 bg-stone-900 hover:bg-stone-800/80 transition-colors text-left"
-                  >
-                    <div className="w-full flex items-center gap-2">
-                      <ChevronRight size={12} className={`text-stone-500 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
-                      <span className="text-[13px] font-medium text-white flex-1 truncate">{cg.name}</span>
-                      <span className="text-[10px] text-stone-500 shrink-0">
-                        {cg.projects.reduce((s, p) => s + p.items.length, 0)} inv
-                      </span>
-                      <span className="text-[11px] text-stone-500 tabular-nums w-9 text-right shrink-0">{pct.toFixed(0)}%</span>
-                      <span className="text-[13px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(cg.total, cg.ccy)}</span>
-                    </div>
-                    {/* Share of the bucket — same pattern as "Largest Open Balances" */}
-                    <div className="h-1 bg-stone-800 rounded-full overflow-hidden ml-5">
-                      <div className={`h-full ${barBgClass}`} style={{ width: `${Math.max(pct, 1)}%` }} />
-                    </div>
-                  </button>
-
-                  {/* Projects + invoices */}
-                  {!collapsed && cg.projects.map(pg => (
-                    <div key={pg.key}>
-                      {(pg.name !== "No project" || cg.projects.length > 1) && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 pl-7 bg-stone-900/40 border-t border-stone-800/60">
-                          <span className="text-[11px] text-stone-400 flex-1 truncate">{pg.name}</span>
-                          <span className="text-[11px] text-stone-500 tabular-nums">{fmt.money(pg.total, pg.ccy)}</span>
-                        </div>
-                      )}
-                      {pg.items
-                        .slice()
-                        .sort((a, b) => openBal(b) - openBal(a))
-                        .map(inv => {
-                          const daysToPromise = inv.promiseDate ? -daysOverdue(inv.promiseDate) : null;
-                          const isOverduePromise = daysToPromise !== null && daysToPromise < 0;
-                          return (
-                            <Link
-                              key={inv.id}
-                              href={`/invoices/${inv.id}`}
-                              onClick={onClose}
-                              className="flex items-start gap-3 px-3 py-2 pl-7 border-t border-stone-800/60 hover:bg-stone-800/50 group"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[11px] text-stone-400 font-mono">{inv.invoiceNumber}</span>
-                                  {inv.promiseDate && (
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                                      isOverduePromise
-                                        ? "bg-rose-500/15 text-rose-400"
-                                        : daysToPromise === 0
-                                        ? "bg-amber-500/15 text-amber-300"
-                                        : "bg-emerald-500/10 text-emerald-400"
-                                    }`}>
-                                      {isOverduePromise
-                                        ? `${Math.abs(daysToPromise!)}d overdue`
-                                        : daysToPromise === 0
-                                        ? "Due today"
-                                        : `in ${daysToPromise}d`}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-600">
-                                  {inv.promiseDate && <span>Committed {fmt.shortDate(inv.promiseDate)}</span>}
-                                  <span>Invoice due {fmt.shortDate(inv.dueDate)}</span>
-                                </div>
-                              </div>
-                              <div className="text-right flex-shrink-0">
-                                <div className="text-[12px] font-semibold text-white tabular-nums">
-                                  {fmt.money(openBal(inv), inv.currency ?? dominantCcy)}
-                                </div>
-                                <ChevronRight size={11} className="text-stone-700 group-hover:text-stone-400 mt-1 ml-auto" />
-                              </div>
-                            </Link>
-                          );
-                        })}
-                    </div>
-                  ))}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-stone-800 flex items-center justify-between">
+      }
+      onClose={onClose}
+      size="lg"
+      footer={
+        <div className="flex items-center justify-between w-full">
           <span className="text-[11px] text-stone-500">Sorted by open balance (largest first)</span>
-          <button onClick={onClose} className="text-[11px] text-stone-500 hover:text-stone-300">Close</button>
+          <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-3.5 py-2 rounded-lg hover:bg-stone-800">Close</button>
         </div>
+      }
+    >
+      {/* Collapse/expand all */}
+      {groups.length > 1 && (
+        <div className="pb-2 flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wider text-stone-600 font-semibold">By customer · largest first</span>
+          <button onClick={toggleAll} className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 transition-colors">
+            {allExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        </div>
+      )}
+
+      {/* Grouped invoice list */}
+      <div className="space-y-1.5">
+        {groups.length === 0 ? (
+          <div className="py-12 text-center text-sm text-stone-500">No invoices in this bucket</div>
+        ) : (
+          groups.map(cg => {
+            const collapsed = collapsedCust.has(cg.key);
+            const pct = bucketTotal > 0 ? (cg.total / bucketTotal) * 100 : 0;
+            return (
+              <div key={cg.key} className="rounded-lg border border-stone-800 overflow-hidden">
+                {/* Customer band */}
+                <button
+                  onClick={() => toggleCust(cg.key)}
+                  className="w-full flex flex-col gap-1 px-3 py-2 bg-stone-900 hover:bg-stone-800/80 transition-colors text-left"
+                >
+                  <div className="w-full flex items-center gap-2">
+                    <ChevronRight size={12} className={`text-stone-500 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`} />
+                    <span className="text-[13px] font-medium text-white flex-1 truncate">{cg.name}</span>
+                    <span className="text-[10px] text-stone-500 shrink-0">
+                      {cg.projects.reduce((s, p) => s + p.items.length, 0)} inv
+                    </span>
+                    <span className="text-[11px] text-stone-500 tabular-nums w-9 text-right shrink-0">{pct.toFixed(0)}%</span>
+                    <span className="text-[13px] font-semibold text-stone-200 tabular-nums shrink-0">{fmt.money(cg.total, cg.ccy)}</span>
+                  </div>
+                  {/* Share of the bucket — same pattern as "Largest Open Balances" */}
+                  <div className="h-1 bg-stone-800 rounded-full overflow-hidden ml-5">
+                    <div className={`h-full ${barBgClass}`} style={{ width: `${Math.max(pct, 1)}%` }} />
+                  </div>
+                </button>
+
+                {/* Projects + invoices */}
+                {!collapsed && cg.projects.map(pg => (
+                  <div key={pg.key}>
+                    {(pg.name !== "No project" || cg.projects.length > 1) && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 pl-7 bg-stone-900/40 border-t border-stone-800/60">
+                        <span className="text-[11px] text-stone-400 flex-1 truncate">{pg.name}</span>
+                        <span className="text-[11px] text-stone-500 tabular-nums">{fmt.money(pg.total, pg.ccy)}</span>
+                      </div>
+                    )}
+                    {pg.items
+                      .slice()
+                      .sort((a, b) => openBal(b) - openBal(a))
+                      .map(inv => {
+                        const daysToPromise = inv.promiseDate ? -daysOverdue(inv.promiseDate) : null;
+                        const isOverduePromise = daysToPromise !== null && daysToPromise < 0;
+                        return (
+                          <Link
+                            key={inv.id}
+                            href={`/invoices/${inv.id}`}
+                            onClick={onClose}
+                            className="flex items-start gap-3 px-3 py-2 pl-7 border-t border-stone-800/60 hover:bg-stone-800/50 group"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] text-stone-400 font-mono">{inv.invoiceNumber}</span>
+                                {inv.promiseDate && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                    isOverduePromise
+                                      ? "bg-rose-500/15 text-rose-400"
+                                      : daysToPromise === 0
+                                      ? "bg-amber-500/15 text-amber-300"
+                                      : "bg-emerald-500/10 text-emerald-400"
+                                  }`}>
+                                    {isOverduePromise
+                                      ? `${Math.abs(daysToPromise!)}d overdue`
+                                      : daysToPromise === 0
+                                      ? "Due today"
+                                      : `in ${daysToPromise}d`}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-[10px] text-stone-600">
+                                {inv.promiseDate && <span>Committed {fmt.shortDate(inv.promiseDate)}</span>}
+                                <span>Invoice due {fmt.shortDate(inv.dueDate)}</span>
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <div className="text-[12px] font-semibold text-white tabular-nums">
+                                {fmt.money(openBal(inv), inv.currency ?? dominantCcy)}
+                              </div>
+                              <ChevronRight size={11} className="text-stone-700 group-hover:text-stone-400 mt-1 ml-auto" />
+                            </div>
+                          </Link>
+                        );
+                      })}
+                  </div>
+                ))}
+              </div>
+            );
+          })
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -908,7 +895,7 @@ export default function DashboardPage() {
 
     const brokenPromises = effectiveInvoices.filter((i: any) =>
       i.promiseDate && !i.hasOpenDispute &&
-      new Date(i.promiseDate) < new Date() &&
+      daysOverdue(i.promiseDate) > 0 &&
       i.paymentStatus !== "Paid"
     );
     if (brokenPromises.length > 0) {
@@ -925,7 +912,7 @@ export default function DashboardPage() {
     const neglected90 = effectiveInvoices.filter((i: any) => {
       if (i.paymentStatus === "Paid" || i.paymentStatus === "Written Off") return false;
       if (i.txnType === "CreditMemo") return false;
-      const days = Math.floor((Date.now() - new Date(i.dueDate + "T12:00:00Z").getTime()) / 86400000);
+      const days = daysOverdue(i.dueDate);
       return days > 90;
     });
     if (neglected90.length > 0) {
@@ -1252,7 +1239,7 @@ export default function DashboardPage() {
                 onClick={() => !snapshotLoading && setDrillDown({ title: "Total Receivable", subtitle: `All open invoices as at ${fmt.date(new Date(asAt + "T12:00:00"))}`, color: "white", items: stats.openItems })}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">Total Receivable</div>
-                  <div className="text-[10px] text-stone-400">As at {new Date(asAt + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}</div>
+                  <div className="text-[10px] text-stone-400">As at {fmt.date(asAt)}</div>
                 </div>
                 {snapshotLoading ? <><S /><Sub /></> : <>
                   <div className="text-3xl font-semibold text-white tracking-tight">
@@ -1718,7 +1705,7 @@ export default function DashboardPage() {
           {myTasks.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">All caught up</div> : (
             <div className="space-y-2">
               {myTasks.map(t => {
-                const overdue = new Date(t.dueDate) < new Date(today());
+                const overdue = t.dueDate < localToday();
                 const href = t.invoiceId ? `/invoices/${t.invoiceId}` : "/tasks";
                 return (
                   <Link key={t.id} href={href} className="w-full flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-stone-800/60">

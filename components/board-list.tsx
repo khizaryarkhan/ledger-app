@@ -349,7 +349,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                         <span className="text-[11px] font-semibold text-stone-300">{entryType}</span>
                         <span className="text-[11px] text-stone-600">· {n.sender || "Staff"}</span>
                       </div>
-                      <span className="text-[11px] text-stone-600 tabular-nums shrink-0">{ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })} {ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+                      <span className="text-[11px] text-stone-600 tabular-nums shrink-0">{fmt.dateTime(ts)}</span>
                     </div>
                     <div className="text-[12px] text-stone-300 whitespace-pre-wrap leading-relaxed">{n.body}</div>
                   </div>
@@ -796,7 +796,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
   // same defect the Dashboard widget had (classifyCompositionByCurrency).
   const compositions = useMemo(() => classifyCompositionByCurrency(
     rows.map(r => ({ ...compItem(r), amount: r.bal, currency: r.inv.currency ?? null })), homeCcy,
-  ), [rows]);
+  ), [rows, homeCcy]);
 
   // Clicking a composition segment replaces the working filter set with
   // exactly the filter(s) that reproduce that segment — a fresh "show me
@@ -2785,8 +2785,6 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                               <div className="text-[12px] text-stone-600 text-center py-6">No activity yet</div>
                             ) : [...feedForInv(inv)].sort((a: any, b: any) => new Date(a.sentAt ?? a.createdAt).getTime() - new Date(b.sentAt ?? b.createdAt).getTime()).map((n: any) => {
                               const ts = new Date(n.sentAt ?? n.createdAt);
-                              const dateStr = ts.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
-                              const timeStr = ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
                               // Per-channel config
                               type ChanCfg = { icon: React.ReactNode; border: string; label: string; labelCls: string; bg: string };
@@ -2841,7 +2839,7 @@ export function BoardList({ rows, stages, updateInvoice, refresh, toast, comment
                                       {cfg.icon}
                                       <span>{cfg.label}</span>
                                     </div>
-                                    <span className="text-[11px] text-stone-600 tabular-nums flex-shrink-0">{dateStr} {timeStr}</span>
+                                    <span className="text-[11px] text-stone-600 tabular-nums flex-shrink-0">{fmt.dateTime(ts)}</span>
                                   </div>
                                   {n.channel === "StageChange" ? (() => {
                                     const [fromStage, toRaw] = (n.subject ?? "").split(" → ");

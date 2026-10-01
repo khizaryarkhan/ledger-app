@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Button } from "@/components/ui";
-import { fmt, daysOverdue, daysFromNow } from "@/lib/format";
+import { fmt, daysOverdue, daysFromNow, localToday, ymd, formatDate } from "@/lib/format";
 import { CurrencyPills } from "@/components/currency-pills";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { exportArReport, exportSalesReport } from "@/lib/export-report";
@@ -96,7 +96,7 @@ function MiniBar({ pct, color = "bg-stone-500" }: { pct: number; color?: string 
   );
 }
 
-function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakdown }: any) {
+function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakdown, effectiveInvoices }: any) {
   const [period, setPeriod] = useState<PeriodId>("last-12m");
   const [breakdown, setBreakdown] = useState<"customer" | "project" | "rep" | "region">(fixedBreakdown ?? "customer");
   // Sync breakdown when the sidebar selection changes
@@ -153,11 +153,14 @@ function SalesReport({ invoices, customers, projects, regions, reps, fixedBreakd
   const growth       = priorNet > 0 ? ((netRevenue - priorNet) / priorNet) * 100 : null;
   const avgInvoice   = periodInvoices.length > 0 ? grossRevenue / periodInvoices.length : 0;
 
-  // Open AR for DSO (gross — collectionStage is NOT a payment status, never filter on it)
+  // Open AR for DSO (gross — collectionStage is NOT a payment status, never filter on it).
+  // Derived from effectiveInvoices — the same as-at-date-filtered, ar-snapshot-
+  // backed data the Aging tabs on this page use — not the raw invoices prop, so
+  // this KPI moves with the date picker instead of always reading "right now".
   const openAR = useMemo(() =>
-    invoices.filter((i: any) => !["Paid","Written Off"].includes(i.paymentStatus) && i.txnType !== "CreditMemo")
+    (effectiveInvoices ?? invoices).filter((i: any) => !["Paid","Written Off"].includes(i.paymentStatus) && i.txnType !== "CreditMemo")
       .reduce((s: number, i: any) => s + (i.qboBalance != null ? Number(i.qboBalance) : Math.max(0, Number(i.total || 0) - Number(i.paid || 0))), 0),
-    [invoices]
+    [effectiveInvoices, invoices]
   );
   const net90d = useMemo(() => {
     const d90 = new Date(Date.now() - 90 * 86400000);
@@ -515,9 +518,29 @@ const BUCKET_LABELS: Record<string, string> = {
   "Current": "CURRENT", "1-30": "1 - 30", "31-60": "31 - 60", "61-90": "61 - 90", "90+": "91 AND OVER"
 };
 
-/** Days overdue relative to a specific reference date (not necessarily today) */
+/** A YYYY-MM-DD as UTC midnight — a stable anchor for whole-day arithmetic.
+ *  Mirrors lib/format.ts's internal (unexported) helper of the same name. */
+const ymdToUtcMs = (s: string) =>
+  Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+
+/**
+ * Days overdue relative to a specific reference date (not necessarily today).
+ *
+ * `asAt` is always constructed by call sites as `new Date(asAtDate + "T23:59:59")`
+ * — a LOCAL-time parse — while `dueDate` is a bare YYYY-MM-DD string. Subtracting
+ * `new Date(dueDate)` (UTC midnight) from that mixed a UTC-anchored operand with
+ * a locally-anchored one, misclassifying invoices due exactly on the as-at date
+ * as overdue in negative-UTC-offset timezones.
+ *
+ * Fix: reduce both sides to their calendar-date components — `ymd(asAt)` reads
+ * `asAt` back via local getters, recovering the exact YYYY-MM-DD it was built
+ * from — then compare as UTC midnights, the same anchoring lib/format.ts's
+ * `daysOverdue` uses for "today".
+ */
 function daysOverdueAt(dueDate: string, asAt: Date): number {
-  return Math.floor((asAt.getTime() - new Date(dueDate).getTime()) / 86400000);
+  const due = String(dueDate).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return 0;
+  return Math.round((ymdToUtcMs(ymd(asAt)) - ymdToUtcMs(due)) / 86400000);
 }
 
 function getBucket(inv: any, asAt: Date): string {
@@ -692,6 +715,13 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
           </tr>
         </thead>
         <tbody>
+          {data.length === 0 && (
+            <tr>
+              <td colSpan={BUCKETS.length + 2} className="px-4 py-8 text-center text-stone-400 text-sm">
+                Fully collected — nothing outstanding as at this date
+              </td>
+            </tr>
+          )}
           {data.map(({ customer, projects: projMap, directInvoices, totals }) => {
             const isOpen = expanded.has(customer.id);
             const hasProjects = Object.keys(projMap).length > 0 || directInvoices.length > 0;
@@ -791,13 +821,15 @@ function AgingByCustomer({ invoices, customers, projects, regionFilter, asAt }: 
           })}
 
           {/* Grand total */}
-          <tr className="bg-stone-900 text-white">
-            <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
-              <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
-            </td>
-          </tr>
+          {data.length > 0 && (
+            <tr className="bg-stone-900 text-white">
+              <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
+              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -895,6 +927,13 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
           </tr>
         </thead>
         <tbody>
+          {data.length === 0 && (
+            <tr>
+              <td colSpan={BUCKETS.length + 2} className="px-4 py-8 text-center text-stone-400 text-sm">
+                Fully collected — nothing outstanding as at this date
+              </td>
+            </tr>
+          )}
           {data.map(({ project, customer, invoices: projInvs, buckets }) => {
             const isOpen = expanded.has(project.id);
             return [
@@ -935,13 +974,15 @@ function AgingByProject({ invoices, customers, projects, regionFilter, asAt }: a
             ];
           })}
 
-          <tr className="bg-stone-900 text-white">
-            <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
-            {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
-            <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
-              <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
-            </td>
-          </tr>
+          {data.length > 0 && (
+            <tr className="bg-stone-900 text-white">
+              <td className="px-4 py-3 font-bold text-sm">TOTAL</td>
+              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={invoices} bucket={b} asAtDate={asAtDate} highlight />)}
+              <td className="px-4 py-3 text-right font-bold tabular-nums text-sm">
+                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; invoices.forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -1146,6 +1187,13 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
             <th className="text-right font-semibold px-4 py-2.5">% of AR</th>
           </tr></thead>
           <tbody>
+            {data.length === 0 && (
+              <tr>
+                <td colSpan={BUCKETS.length + 5} className="px-4 py-8 text-center text-stone-400 text-sm">
+                  Fully collected — nothing outstanding as at this date
+                </td>
+              </tr>
+            )}
             {data.map(r => (
               <tr key={r.region} className="border-b border-stone-800 hover:bg-stone-800/50">
                 <td className="px-4 py-2.5 font-medium text-white">{r.region}</td>
@@ -1158,16 +1206,18 @@ function RegionalReport({ invoices, customers, projects, regions, regionFilter, 
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
-            <tr className="bg-stone-900 text-white">
-              <td className="px-4 py-3 font-bold">TOTAL</td>
-              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.customers.size, 0)}</td>
-              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} />)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">
-                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
-              </td>
-              <td className="px-4 py-3 text-right font-bold">100%</td>
-            </tr>
+            {data.length > 0 && (
+              <tr className="bg-stone-900 text-white">
+                <td className="px-4 py-3 font-bold">TOTAL</td>
+                <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.customers.size, 0)}</td>
+                <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} />)}
+                <td className="px-4 py-3 text-right font-bold tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
+                <td className="px-4 py-3 text-right font-bold">100%</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1309,6 +1359,13 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
             <th className="text-right font-semibold px-4 py-2.5">% of AR</th>
           </tr></thead>
           <tbody>
+            {data.length === 0 && (
+              <tr>
+                <td colSpan={BUCKETS.length + 5} className="px-4 py-8 text-center text-stone-400 text-sm">
+                  Fully collected — nothing outstanding as at this date
+                </td>
+              </tr>
+            )}
             {data.map(r => (
               <tr key={r.rep.id} className="border-b border-stone-800 hover:bg-stone-800/50">
                 <td className="px-4 py-2.5 font-medium text-white">{r.rep.name}</td>
@@ -1321,16 +1378,18 @@ function AgingByRep({ invoices, customers, projects, reps, regionFilter, asAt }:
                 <td className="px-4 py-2.5 text-right text-stone-500 tabular-nums">{grandTotal.total > 0 ? (r.buckets.total / grandTotal.total * 100).toFixed(1) : 0}%</td>
               </tr>
             ))}
-            <tr className="bg-stone-900 text-white">
-              <td className="px-4 py-3 font-bold">TOTAL</td>
-              <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
-              <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
-              {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} highlight />)}
-              <td className="px-4 py-3 text-right font-bold tabular-nums">
-                <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
-              </td>
-              <td className="px-4 py-3 text-right font-bold">100%</td>
-            </tr>
+            {data.length > 0 && (
+              <tr className="bg-stone-900 text-white">
+                <td className="px-4 py-3 font-bold">TOTAL</td>
+                <td className="px-3 py-3 text-right font-bold">{new Set(data.flatMap(r => [...r.custSet])).size}</td>
+                <td className="px-3 py-3 text-right font-bold">{data.reduce((s, r) => s + r.invoices.length, 0)}</td>
+                {BUCKETS.map(b => <AggregateBucketCell key={b} invoices={data.flatMap(r => r.invoices)} bucket={b} asAtDate={asAtDate} highlight />)}
+                <td className="px-4 py-3 text-right font-bold tabular-nums">
+                  <CurrencyPills breakdown={(() => { const m: Record<string,number> = {}; data.flatMap(r => r.invoices).forEach((inv: any) => { const ib = invBuckets(inv, asAtDate); if (ib.total) { const c = inv.currency || "EUR"; m[c] = (m[c]||0) + ib.total; } }); return m; })()} />
+                </td>
+                <td className="px-4 py-3 text-right font-bold">100%</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1401,7 +1460,7 @@ export default function ReportsPage() {
   const [report, setReport] = useState<ReportId>("aging-customer");
   const [regionFilter, setRegionFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localToday();
   const [asAtDate, setAsAtDate] = useState(todayIso);
 
   // AR snapshot — single source of truth for every aging tab. For historical
@@ -1417,7 +1476,7 @@ export default function ReportsPage() {
   useEffect(() => {
     setSnapshotLoading(true);
     setSnapshotError(false);
-    fetch(`/api/reports/ar-snapshot?asOf=${asAtDate}`)
+    fetch(`/api/reports/ar-snapshot?asOf=${asAtDate}${asAtDate === todayIso ? "&live=1" : ""}`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => setSnapshotInvoices(Array.isArray(data) ? data : []))
       .catch(() => { setSnapshotError(true); setSnapshotInvoices(null); })
@@ -1640,6 +1699,7 @@ export default function ReportsPage() {
           {isSalesReport && (
             <SalesReport
               invoices={invoices}
+              effectiveInvoices={effectiveInvoices}
               customers={customers}
               projects={projects}
               regions={regions}
@@ -1660,7 +1720,7 @@ export default function ReportsPage() {
                 </div>
                 <div className="text-sm text-stone-500 mt-0.5">{orgSettings?.displayName || orgSettings?.name || "AR Collection Manager"}</div>
                 <div className="text-xs text-stone-400 mt-0.5">
-                  As at {new Date(asAtDate + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
+                  As at {formatDate(asAtDate, orgSettings?.dateFormat)}
                   {asAtDate !== todayIso && <span className="ml-1.5 text-amber-500 font-semibold">(historical)</span>}
                 </div>
               </div>

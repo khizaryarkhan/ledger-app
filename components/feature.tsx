@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Modal, Button, Input, Select, Card, EmptyState } from "./ui";
 import { daysFromNow, daysOverdue, fmt, localToday, today } from "@/lib/format";
+import { fillTemplate, greetingName } from "@/lib/email-template";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { useData } from "./data-provider";
@@ -237,18 +238,23 @@ ${senderName}`;
   };
 
   const renderTemplate = (tpl: string) => {
+    // fillTemplate (lib/email-template.ts) is the SAME substitution the chase
+    // automation and bulk send use — a template built with {name}/{ref} in
+    // Settings now resolves here too, instead of showing that literal text.
     const senderName = session?.user?.name || "";
     const contactName = primaryContact?.name?.split(" ")[0] || "there";
-    const vars: Record<string, string> = {
-      contactName, customerName: customer?.name || "",
+    const customerName = customer?.name || "";
+    return fillTemplate(tpl, {
+      name: contactName,
+      customerName,
+      ref: refNumber || "",
+      invoiceLines: [],
       invoiceNumber: invoice?.invoiceNumber || "",
       amount: invoice ? fmt.money(invoice.total - (invoice.paid || 0), invoice.currency) : "",
-      dueDate: invoice?.dueDate || "",
+      dueDate: invoice?.dueDate ? fmt.date(invoice.dueDate) : "",
       daysOverdue: invoice ? String(Math.max(0, daysOverdue(invoice.dueDate))) : "0",
       senderName,
-      referenceNumber: refNumber || "",
-    };
-    return Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), tpl);
+    });
   };
 
   const applyTemplate = (id: string) => {
@@ -971,10 +977,12 @@ ${senderName}`;
     return cust?.email || null;
   }
 
-  function resolveContactFirstName(inv: any): string {
+  // Full name lookup — greetingName (lib/email-template.ts) turns this into
+  // the actual greeting (first name, or the "Sir/Madam" fallback), the same
+  // rule every other AR email path uses.
+  function resolveContactName(inv: any): string {
     const primary = (contacts as any[]).find((c: any) => c.customerId === inv.customerId && c.isPrimary);
-    const fullName = primary?.name || (customers as any[]).find((c: any) => c.id === inv.customerId)?.name || "";
-    return fullName.split(" ")[0] || "Sir/Madam";
+    return primary?.name || (customers as any[]).find((c: any) => c.id === inv.customerId)?.name || "";
   }
 
   function resolveRef(inv: any): string {
@@ -990,14 +998,22 @@ ${senderName}`;
     const isPaidOrClosed =
       ["Paid", "Written Off"].includes(inv.paymentStatus) || inv.collectionStage === "Closed";
     const outstanding = isPaidOrClosed ? 0 : inv.total - (inv.paid || 0);
-    const vars: Record<string, string> = {
-      name:          resolveContactFirstName(inv),
+    const cust = (customers as any[]).find((c: any) => c.id === inv.customerId);
+    // fillTemplate (lib/email-template.ts) is the SAME substitution the chase
+    // automation, cron paths and EmailComposer use — a template authored with
+    // any of the newer tokens ({contactName}, {customerName}, {daysOverdue},
+    // {senderName}, ...) now resolves here too, instead of mailing customers
+    // the literal unsubstituted placeholder text.
+    return fillTemplate(template, {
+      name:          greetingName(resolveContactName(inv)),
+      customerName:  cust?.name || "",
+      ref:           resolveRef(inv),
       invoiceNumber: inv.invoiceNumber,
       amount:        fmt.money(outstanding, inv.currency),
       dueDate:       fmt.date(inv.dueDate),
-      ref:           resolveRef(inv),
-    };
-    return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+      daysOverdue:   String(Math.max(0, daysOverdue(inv.dueDate))),
+      senderName,
+    });
   }
 
   function countEmails(emailStr: string | null): number {
@@ -1202,7 +1218,9 @@ ${senderName}`;
                   >
                     <option value="">— Pick a template to pre-fill —</option>
                     {orgTemplates.map((t: any) => (
-                      <option key={t.id} value={t.id}>{t.name}{t.collectionStage ? ` (${t.collectionStage})` : ""}</option>
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.collectionStage ? ` (${t.collectionStage}${t.escalationType ? ` · ${t.escalationType}` : ""})` : ""}
+                      </option>
                     ))}
                   </select>
                 </div>

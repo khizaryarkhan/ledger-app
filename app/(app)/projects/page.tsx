@@ -5,94 +5,16 @@ import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Badge, Button } from "@/components/ui";
 import { ProjectModal } from "@/components/forms";
-import { fmt, daysOverdue } from "@/lib/format";
+import { daysOverdue } from "@/lib/format";
 import { Plus, Trash2, X, RefreshCw, Search } from "lucide-react";
-import { SelectField, control, Drawer } from "@/components/form-kit";
+import { SelectField, control } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
-  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+  sumByCurrency, MoneyStack, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
 } from "@/components/list-view";
 import { InlineAssign, type AssignGroup } from "@/components/inline-assign";
-
-function ReclassifyModal({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { regions, countries, reclassifyProjects } = useData() as any;
-  const [repId, setRepId] = useState("");
-  const [regionId, setRegionId] = useState("");
-  const [countryId, setCountryId] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // Always fetch fresh reps when the modal opens so newly-created users appear immediately
-  const [freshReps, setFreshReps] = useState<any[]>([]);
-  useEffect(() => {
-    fetch("/api/org/assignable-reps").then(r => r.json()).then(setFreshReps).catch(() => {});
-  }, []);
-
-  const handleApply = async () => {
-    if (!repId && !regionId && !countryId) return;
-    setSaving(true);
-    try {
-      const repVal = repId === "null" ? null : repId || undefined;
-      const regVal = regionId === "null" ? null : regionId || undefined;
-      const ctyVal = countryId === "null" ? null : countryId || undefined;
-      await reclassifyProjects(ids, repVal, regVal, ctyVal);
-      onClose();
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <Drawer
-      onClose={onClose}
-      title="Reclassify projects"
-      subtitle={<>Make changes to all <strong className="text-stone-300">{ids.length}</strong> selected project{ids.length > 1 ? "s" : ""}.</>}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving || (!repId && !regionId && !countryId)}>
-            {saving ? "Applying…" : "Apply"}
-          </Button>
-        </div>
-      }
-    >
-        <div className="space-y-3">
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Rep / ED/RM to</label>
-            <select value={repId} onChange={e => setRepId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign</option>
-              {freshReps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd").length > 0 && (
-                freshReps.filter((r: any) => r.tier !== "ed" && r.tier !== "rd")
-                  .map((r: any) => <option key={r.id} value={r.id}>{r.name} (PM)</option>)
-              )}
-              {freshReps.filter((r: any) => r.tier === "ed" || r.tier === "rd").length > 0 && (
-                freshReps.filter((r: any) => r.tier === "ed" || r.tier === "rd")
-                  .map((r: any) => <option key={r.id} value={r.id}>{r.name} (ED/RM)</option>)
-              )}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Region to</label>
-            <select value={regionId} onChange={e => setRegionId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign region</option>
-              {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">Change Country to</label>
-            <select value={countryId} onChange={e => setCountryId(e.target.value)}
-              className="w-full h-9 px-3 text-sm rounded-md border border-stone-700 bg-stone-800 text-stone-300 focus:border-emerald-500 focus:outline-none">
-              <option value="">— No change —</option>
-              <option value="null">Unassign country</option>
-              {(countries ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        </div>
-
-    </Drawer>
-  );
-}
+import { ReclassifyDrawer } from "@/components/reclassify-drawer";
+import { isPaidOrClosed } from "@/lib/receivable-composition";
 
 const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusColor, repGroups, regionGroups, onAssign, busy }: { p: any; isSelected: boolean; onToggle: (id: string) => void; statusColor: (s: string) => string; repGroups: AssignGroup[]; regionGroups: AssignGroup[]; onAssign: (id: string, field: "rep" | "region", value: string | null) => void; busy: boolean }) {
   const td = "px-2 py-2";
@@ -123,8 +45,10 @@ const ProjectRow = memo(function ProjectRow({ p, isSelected, onToggle, statusCol
       <td className={`${td} text-stone-500 text-[12px]`}>{p.countryName || "—"}</td>
       <td className={td}><Badge variant={statusColor(p.effectiveStatus) as any} size="sm">{p.effectiveStatus}</Badge></td>
       <td className={`${listNumCell} text-stone-400 text-[12px]`}>{p.openCount}</td>
-      <td className={`${listNumCell} text-[12px] ${p.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>{fmt.money(p.overdue, p.customer?.currency)}</td>
-      <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(p.outstanding, p.customer?.currency)}</span></td>
+      <td className={`${listNumCell} text-[12px] ${p.overdue > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>
+        <MoneyStack totals={p.overdueByCcy} />
+      </td>
+      <td className={listMoneyCell}><MoneyStack totals={p.outstandingByCcy} className="font-medium text-stone-300 text-[13px]" /></td>
     </tr>
   );
 });
@@ -169,14 +93,20 @@ export default function ProjectsPage() {
   const enriched = useMemo(() => projects.map((p: any) => {
     const customer = customers.find((c: any) => c.id === p.customerId);
     const projInvoices = invoices.filter((i: any) => i.projectId === p.id);
-    const open = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-    const outstanding = open.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-    const overdue = open.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
+    const open = projInvoices.filter((i: any) => !isPaidOrClosed(i) && i.txnType !== "CreditMemo");
+    const overdueInvoices = open.filter((i: any) => daysOverdue(i.dueDate) > 0);
+    // Per-currency, never a plain sum across mixed currencies (CLAUDE.md fix #5).
+    const outstandingByCcy = sumByCurrency(open, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+    const overdueByCcy = sumByCurrency(overdueInvoices, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+    // A single numeric total, kept ONLY for sort/filter/status — never rendered
+    // directly (that would reintroduce the mixed-currency bug).
+    const outstanding = Object.values(outstandingByCcy).reduce((s, v) => s + v, 0);
+    const overdue = Object.values(overdueByCcy).reduce((s, v) => s + v, 0);
     const region = regions.find((r: any) => r.id === p.regionId);
     const country = (countries ?? []).find((x: any) => x.id === p.countryId);
     // Compute status from outstanding — real-time, same logic as customers.
     const effectiveStatus = p.status === "On Hold" ? "On Hold" : outstanding > 0 ? "Active" : "Inactive";
-    return { ...p, customer, openCount: open.length, outstanding, overdue, repName: p.repId ? repNameById.get(p.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus };
+    return { ...p, customer, openCount: open.length, outstanding, overdue, outstandingByCcy, overdueByCcy, repName: p.repId ? repNameById.get(p.repId) : undefined, regionName: region?.name, countryName: country?.name, effectiveStatus };
   }), [projects, customers, invoices, regions, countries, repNameById]);
 
   const filtered = useMemo(() => {
@@ -293,7 +223,8 @@ export default function ProjectsPage() {
 
       {showCreate && <ProjectModal onClose={() => setShowCreate(false)} />}
       {showReclassify && (
-        <ReclassifyModal
+        <ReclassifyDrawer
+          entityType="project"
           ids={Array.from(selected)}
           onClose={() => { setShowReclassify(false); setSelected(new Set()); }}
         />

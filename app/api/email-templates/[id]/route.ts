@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { emailTemplates } from "@/db/schema";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, isNull } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
 import { z } from "zod";
 
@@ -15,6 +15,7 @@ const PatchSchema = z.object({
   subject:          z.string().min(1).max(512).optional(),
   body:             z.string().min(1).optional(),
   collectionStage:  z.string().max(64).nullable().optional(),
+  escalationType:   z.string().max(64).nullable().optional(),
   isActive:         z.boolean().optional(),
   isDefault:        z.boolean().optional(),
   sendIntervalDays: z.number().int().min(1).optional(),
@@ -31,6 +32,40 @@ export async function PATCH(
   const parsed = PatchSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
+  }
+
+  // Server-side half of the "one template per (org, stage, escalation type)"
+  // rule — mirrors the POST check. A PATCH can touch just one of the two
+  // fields, so the resulting stage/escalationType is the CURRENT row's
+  // values with this request's fields merged on top, not the request alone.
+  const [current] = await db
+    .select({ collectionStage: emailTemplates.collectionStage, escalationType: emailTemplates.escalationType })
+    .from(emailTemplates)
+    .where(and(eq(emailTemplates.id, params.id), eq(emailTemplates.orgId, orgId!)))
+    .limit(1);
+  if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const finalStage = parsed.data.collectionStage !== undefined ? parsed.data.collectionStage : current.collectionStage;
+  const finalEscalationType = parsed.data.escalationType !== undefined ? parsed.data.escalationType : current.escalationType;
+  if (finalStage) {
+    const [dup] = await db
+      .select({ id: emailTemplates.id })
+      .from(emailTemplates)
+      .where(and(
+        eq(emailTemplates.orgId, orgId!),
+        eq(emailTemplates.collectionStage, finalStage),
+        finalEscalationType === null
+          ? isNull(emailTemplates.escalationType)
+          : eq(emailTemplates.escalationType, finalEscalationType),
+        ne(emailTemplates.id, params.id),
+      ))
+      .limit(1);
+    if (dup) {
+      return NextResponse.json(
+        { error: "A template for this stage/escalation type already exists" },
+        { status: 400 },
+      );
+    }
   }
 
   // When marking a template as default, clear the flag on all others first.

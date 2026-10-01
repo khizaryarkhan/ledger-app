@@ -1271,6 +1271,10 @@ export const emailTemplates = pgTable("email_templates", {
   subject:         varchar("subject", { length: 512 }).notNull(),
   body:            text("body").notNull(),
   collectionStage: varchar("collection_stage", { length: 64 }),  // null = unassigned draft
+  // Optional narrower match on top of collectionStage — a label from
+  // lib/escalation-types.ts. Null = matches the stage generically (every
+  // escalation type falls back to this when no type-specific template exists).
+  escalationType:  varchar("escalation_type", { length: 64 }),
   isActive:        boolean("is_active").notNull().default(true),
   isDefault:       boolean("is_default").notNull().default(false),
   // How often (in days) the cron should send this template to each contact.
@@ -1279,7 +1283,17 @@ export const emailTemplates = pgTable("email_templates", {
   sendIntervalDays: integer("send_interval_days").notNull().default(7),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  // One template per (org, collection stage, escalation type) — see migration
+  // 0104. The real DB index wraps escalation_type in COALESCE(...,'') so two
+  // GENERIC (escalation_type IS NULL) templates for the same stage collide
+  // too; drizzle's index builder can't express that COALESCE, so — same
+  // precedent as stock_locations_org_code_unique's lower(code) — this plain
+  // column list only documents which columns are covered, not the exact SQL.
+  orgStageTypeUnique: uniqueIndex("email_templates_org_stage_type_unique")
+    .on(t.orgId, t.collectionStage, t.escalationType)
+    .where(sql`${t.collectionStage} IS NOT NULL`),
+}));
 
 // =========================================================================
 // ESTIMATES (QBO Estimates / quotes)

@@ -31,6 +31,7 @@ import { genEmailRef } from "@/lib/email-ref";
 import { fillTemplate, greetingName } from "@/lib/email-template";
 import { createPortalToken } from "@/lib/portal";
 import { fetchQboInvoiceLink } from "@/lib/qbo-token";
+import { daysOverdue } from "@/lib/format";
 
 /** One invoice as the email template needs it. Plain JSON — it is persisted in
  *  batch_jobs.input and read back by a worker in a different process. */
@@ -68,9 +69,6 @@ export type SendJobOptions = {
   orgName: string;
   logoUrl: string | null;
 };
-
-const daysOverdue = (due: string | null) =>
-  due ? Math.floor((Date.now() - new Date(due).getTime()) / 86_400_000) : 0;
 
 /**
  * Load the selected invoices and group them for sending. Org-scoped, and the
@@ -198,6 +196,7 @@ export async function sendGroupEmail(
   const html = renderInvoiceEmail({
     subject, dateStr: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
     total, currency: group.rows[0]?.currency ?? "USD", portalUrl, intro,
+    orgName: opts.orgName, logoUrl: opts.logoUrl,
     rows: group.rows.map(r => ({
       invoiceNumber: r.invoiceNumber, customerName: r.custName, projectName: r.projName,
       invoiceDate: r.invoiceDate, dueDate: r.dueDate, balance: r.bal, currency: r.currency,

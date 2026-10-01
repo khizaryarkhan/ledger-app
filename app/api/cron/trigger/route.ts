@@ -32,13 +32,10 @@ import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
 import { renderInvoiceEmail } from "@/lib/ar-email";
+import { fillTemplate, greetingName, buildTemplateMaps, pickTemplate } from "@/lib/email-template";
+import { fmt, daysOverdue as daysFromDate } from "@/lib/format";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-
-function daysFromDate(dateStr: string): number {
-  const due = new Date(dateStr + "T12:00:00Z").getTime();
-  return Math.floor((Date.now() - due) / 86400000);
-}
 
 const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
@@ -47,24 +44,6 @@ function shouldTrigger(daysOverdue: number): boolean {
   if (daysOverdue <= -1 && daysOverdue >= -3) return true; // 1–3 days before due
   if (daysOverdue >= 1) return true;                        // any overdue amount
   return false;
-}
-
-/**
- * Fill template placeholders.
- * {name}         → contact first name (or Sir/Madam)
- * {invoiceLines} → bullet list of invoice numbers, balances, overdue status
- * {ref}          → entity code (customer / project)
- */
-function fillTemplate(
-  template: string,
-  name: string,
-  invoiceLines: string[],
-  ref: string,
-): string {
-  return template
-    .replace(/\{name\}/gi, name)
-    .replace(/\{invoicelines\}/gi, invoiceLines.join("\n"))
-    .replace(/\{ref\}/gi, ref);
 }
 
 // ─── handler ─────────────────────────────────────────────────────────────────
@@ -91,11 +70,15 @@ export async function POST(req: Request) {
     .from(emailTemplates)
     .where(and(eq(emailTemplates.orgId, orgId!), eq(emailTemplates.isActive, true)));
 
-  const templateByStage = new Map(
-    orgTemplates
-      .filter((t) => t.collectionStage)
-      .map((t) => [t.collectionStage!, t]),
-  );
+  // See lib/email-template.ts's buildTemplateMaps for why this is split
+  // into a generic map and an escalation-type-specific one.
+  const { byStage: templateByStage, byStageAndType: templateByStageAndType } = buildTemplateMaps(orgTemplates);
+
+  // Org branding — once per request (single-org route).
+  const [orgRow] = await db
+    .select({ name: organisations.name, displayName: organisations.displayName, logoUrl: organisations.logoUrl })
+    .from(organisations).where(eq(organisations.id, orgId!)).limit(1);
+  const orgBranding = { name: orgRow?.displayName || orgRow?.name, logoUrl: orgRow?.logoUrl };
 
   // 3. Load all auto contacts for this org
   const autoContacts = await db
@@ -147,11 +130,16 @@ export async function POST(req: Request) {
     const sortedByOverdue = [...triggeredInvoices].sort(
       (a, b) => daysFromDate(b.dueDate) - daysFromDate(a.dueDate)
     );
-    const matchedInv = sortedByOverdue.find((inv) => templateByStage.has(inv.collectionStage));
+    const matchedInv = sortedByOverdue.find((inv) =>
+      !!pickTemplate(templateByStageAndType, templateByStage, inv.collectionStage, inv.escalationType),
+    );
 
     if (!matchedInv) { skipped++; continue; } // no template configured for any of these stages
 
-    const template = templateByStage.get(matchedInv.collectionStage)!;
+    const template = pickTemplate(
+      templateByStageAndType, templateByStage,
+      matchedInv.collectionStage, matchedInv.escalationType,
+    )!;
 
     // Entity info
     // {ref} = project full name (not QBO code) for projects; customer code for customers
@@ -175,19 +163,19 @@ export async function POST(req: Request) {
       const balance = inv.total - (inv.paid || 0);
       const d = daysFromDate(inv.dueDate);
       const overdueStr = d > 0 ? `${d} days overdue` : d === 0 ? "due today" : `due in ${Math.abs(d)} days`;
-      return `  • ${inv.invoiceNumber} — Balance: ${balance.toLocaleString("en-IE", { style: "currency", currency: inv.currency || "EUR" })} (${overdueStr})`;
+      return `  • ${inv.invoiceNumber} — Balance: ${fmt.money(balance, inv.currency || "EUR")} (${overdueStr})`;
     });
 
-    const greeting = contact.name?.split(" ")[0] || "Sir/Madam";
+    const greeting = greetingName(contact.name);
     const invRefs  = triggeredInvoices.map((inv) => inv.invoiceNumber);
 
     // Subject: fill placeholders + append invoice refs
     const emailRef = genEmailRef();
-    const subjectParts = [fillTemplate(template.subject, greeting, invoiceLines, entityRef)];
+    const subjectParts = [fillTemplate(template.subject, { name: greeting, ref: entityRef, invoiceLines })];
     subjectParts.push(`Ref ${emailRef}`);
     const subject = subjectParts.join(" | ");
 
-    const introText = fillTemplate(template.body, greeting, [], entityRef);
+    const introText = fillTemplate(template.body, { name: greeting, ref: entityRef, invoiceLines: [] });
 
     // Self-service "View & Respond" portal link (single-use) → branded button
     let portalUrl: string | null = null;
@@ -209,6 +197,7 @@ export async function POST(req: Request) {
     const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const bodyHtml = renderInvoiceEmail({
       subject, dateStr, portalUrl, intro: introText,
+      orgName: orgBranding?.name, logoUrl: orgBranding?.logoUrl,
       total: triggeredInvoices.reduce((s, i) => s + (i.total - (i.paid || 0)), 0),
       rows: triggeredInvoices.map((i) => ({
         invoiceNumber: i.invoiceNumber, customerName: custName, projectName: projName,

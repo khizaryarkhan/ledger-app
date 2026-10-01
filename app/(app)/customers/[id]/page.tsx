@@ -11,6 +11,8 @@ import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { TransactionsTab } from "@/components/transactions-tab";
 import { ContactsPanel } from "@/components/contacts-panel";
 import { fmt, daysOverdue, getDueStatus, getAgingBucket } from "@/lib/format";
+import { sumByCurrency, MoneyStack } from "@/components/list-view";
+import { isPaidOrClosed } from "@/lib/receivable-composition";
 import { ArrowLeft, Mail, Phone, Plus, Users, FileText, Briefcase, Zap } from "lucide-react";
 
 export default function CustomerDetailPage() {
@@ -42,9 +44,12 @@ export default function CustomerDetailPage() {
   const custComms = useMemo(() => communications.filter(c => c.customerId === id), [communications, id]);
   const custTasks = tasks.filter(t => t.customerId === id);
 
-  const open = custInvoices.filter(i => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-  const invoiceOutstanding = open.reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
-  const overdue = open.filter(i => daysOverdue(i.dueDate) > 0).reduce((s, i) => s + (i.total - (i.paid || 0)), 0);
+  const open = custInvoices.filter(i => !isPaidOrClosed(i) && i.txnType !== "CreditMemo");
+  // Per-currency, never a plain sum across mixed currencies (CLAUDE.md fix #5).
+  const outstandingByCcy = sumByCurrency(open, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+  const overdueByCcy = sumByCurrency(open.filter((i: any) => daysOverdue(i.dueDate) > 0), (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+  const invoiceOutstanding = Object.values(outstandingByCcy).reduce((s, v) => s + v, 0);
+  const overdue = Object.values(overdueByCcy).reduce((s, v) => s + v, 0);
   const invCcy = open[0]?.currency ?? customer.currency ?? "USD";
   const buckets: Record<string, number> = { "Current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
   open.forEach(i => { buckets[getAgingBucket(i)] += i.total - (i.paid || 0); });
@@ -153,7 +158,9 @@ export default function CustomerDetailPage() {
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Overdue</div>
-          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>{fmt.money(overdue, invCcy)}</div>
+          <div className={`text-xl font-semibold tabular-nums ${overdue > 0 ? "text-rose-400" : "text-stone-100"}`}>
+            <MoneyStack totals={overdueByCcy} />
+          </div>
         </Card>
         <Card padding="md">
           <div className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold mb-2">Open invoices</div>
@@ -187,7 +194,12 @@ export default function CustomerDetailPage() {
       {tab === "overview" && (
         <div className="grid grid-cols-3 gap-3">
           <Card className="col-span-2">
-            <h3 className="text-sm font-semibold text-stone-100 mb-4">Aging breakdown</h3>
+            <div className="flex items-baseline justify-between mb-4">
+              <h3 className="text-sm font-semibold text-stone-100">Aging breakdown <span className="font-normal text-stone-500">— by invoice</span></h3>
+              <span className="text-[11px] text-stone-500" title="Open invoices only — excludes journal entries, deposits and unapplied payments/credits that the headline Outstanding figure includes.">
+                may differ from Outstanding above
+              </span>
+            </div>
             <div className="space-y-2.5">
               {["Current", "1-30", "31-60", "61-90", "90+"].map((b, i) => {
                 const colors = ["bg-emerald-500", "bg-amber-400", "bg-orange-500", "bg-rose-500", "bg-rose-700"];
@@ -271,10 +283,12 @@ export default function CustomerDetailPage() {
           <div className="grid grid-cols-2 gap-3">
             {custProjects.map(p => {
               const projInvoices = invoices.filter((i: any) => i.projectId === p.id);
-              const projOpen = projInvoices.filter((i: any) => i.paymentStatus !== "Paid" && i.paymentStatus !== "Written Off" && i.txnType !== "CreditMemo");
-              const projOut = projOpen.reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-              const projOverdue = projOpen.filter((i: any) => daysOverdue(i.dueDate) > 0).reduce((s: number, i: any) => s + (i.total - (i.paid || 0)), 0);
-              const projCcy = projOpen[0]?.currency ?? invCcy;
+              const projOpen = projInvoices.filter((i: any) => !isPaidOrClosed(i) && i.txnType !== "CreditMemo");
+              // Per-currency, never a plain sum across mixed currencies (CLAUDE.md fix #5).
+              const projOutByCcy = sumByCurrency(projOpen, (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+              const projOverdueByCcy = sumByCurrency(projOpen.filter((i: any) => daysOverdue(i.dueDate) > 0), (i: any) => ({ amount: i.total - (i.paid || 0), currency: i.currency }));
+              const projOut = Object.values(projOutByCcy).reduce((s, v) => s + v, 0);
+              const projOverdue = Object.values(projOverdueByCcy).reduce((s, v) => s + v, 0);
               // Live status from open AR — same rule as the Customers/Projects
               // lists, so it never looks stale waiting on a sync/backfill.
               const projStatus = p.status === "On Hold" ? "On Hold" : projOut > 0 ? "Active" : "Inactive";
@@ -293,8 +307,10 @@ export default function CustomerDetailPage() {
                     <div className="flex items-center justify-between pt-3 border-t border-stone-800 mt-3">
                       <span className="text-xs text-stone-500">{projInvoices.length} invoice{projInvoices.length !== 1 ? "s" : ""}</span>
                       <div className="text-right">
-                        <div className="text-sm font-semibold tabular-nums text-stone-100">{fmt.money(projOut, projCcy)}</div>
-                        {projOverdue > 0 && <div className="text-[11px] text-rose-400 font-medium tabular-nums">{fmt.money(projOverdue, projCcy)} overdue</div>}
+                        <div className="text-sm font-semibold tabular-nums text-stone-100"><MoneyStack totals={projOutByCcy} /></div>
+                        {Object.entries(projOverdueByCcy).map(([ccy, amt]) => (
+                          <div key={ccy} className="text-[11px] text-rose-400 font-medium tabular-nums">{fmt.money(amt, ccy)} overdue</div>
+                        ))}
                       </div>
                     </div>
                   </Card>

@@ -4,7 +4,7 @@
  * Pure function (no db/network) so it's safe to import on client or server.
  */
 
-import { fmt } from "@/lib/format";
+import { fmt, formatDateShort } from "@/lib/format";
 
 export type ArEmailRow = {
   invoiceNumber: string;
@@ -27,10 +27,18 @@ function money(n: number, ccy = "EUR") {
   return fmt.money(n, ccy);
 }
 
-/** Minimal attribute escape so a stray quote in a URL can't break out of href="". */
-function escapeAttr(v: string) {
+/**
+ * Escape a value before it's interpolated into HTML — text node or
+ * attribute alike (both need the same four characters escaped). Applied to
+ * every value that isn't a hardcoded constant: customer/project name, the
+ * subject, and the intro — all of which can carry a QBO/Xero-synced name or
+ * admin-authored text containing "<", ">", "&", or a stray quote that would
+ * otherwise corrupt the rendered email or break out of an attribute.
+ */
+function escapeHtml(v: string) {
   return v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+const escapeAttr = escapeHtml;
 
 const DEFAULT_INTRO =
   "Hi,\n\nPlease find attached the statement of open invoices along with the invoice copies for your reference.\nKindly share the tentative payment dates at your earliest convenience.\nFeel free to reach out for any queries.";
@@ -43,8 +51,24 @@ export function renderInvoiceEmail(opts: {
   currency?: string;
   portalUrl?: string | null;
   intro?: string;
+  /** Org's own name/logo, when set — rendered above the subject so the
+   *  highest-volume customer-facing email isn't the one unbranded surface
+   *  in an otherwise white-labelled app. Absent = renders exactly as before
+   *  (no visual change for an org that hasn't set either). */
+  orgName?: string | null;
+  logoUrl?: string | null;
 }): string {
-  const introHtml = (opts.intro ?? DEFAULT_INTRO).replace(/\n/g, "<br>");
+  // Escaped before the newline→<br> conversion — the intro is admin-authored
+  // text with customer/ref values already substituted in, not markup, so the
+  // only formatting affordance it gets is line breaks.
+  const introHtml = escapeHtml(opts.intro ?? DEFAULT_INTRO).replace(/\n/g, "<br>");
+  const subjectHtml = escapeHtml(opts.subject);
+
+  const branding = opts.logoUrl
+    ? `<img src="${escapeAttr(opts.logoUrl)}" alt="${escapeAttr(opts.orgName || "")}" style="height:28px;display:block;margin-bottom:10px;" />`
+    : opts.orgName
+      ? `<div style="font-size:12px;font-weight:600;color:#a8a29e;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;">${escapeHtml(opts.orgName)}</div>`
+      : "";
 
   // Currency for the total: use the explicit option, else fall back to the
   // currency of the invoices themselves (NOT a hard-coded EUR default) so the
@@ -80,14 +104,19 @@ export function renderInvoiceEmail(opts: {
 
   const rowsHtml = opts.rows.map(i => {
     const style = i.daysOverdue > 0 ? "color:#dc2626;font-weight:600;" : "color:#374151;";
-    const label = i.daysOverdue > 0 ? `${i.daysOverdue}d overdue` : `Due ${i.dueDate}`;
+    // formatDateShort, not the raw "YYYY-MM-DD" string — every other
+    // customer-facing surface (statements, PDFs, portal, reports) shows
+    // "15 Sep 2026"; this was the one place still showing it literally.
+    const label = i.daysOverdue > 0 ? `${i.daysOverdue}d overdue` : `Due ${formatDateShort(i.dueDate)}`;
+    const customerName = i.customerName ? escapeHtml(i.customerName) : "—";
+    const projectName = i.projectName ? escapeHtml(i.projectName) : "";
     return `
       <tr style="border-bottom:1px solid #e5e7eb;">
-        <td style="padding:10px 12px;font-size:13px;color:#374151;">#${i.invoiceNumber}</td>
+        <td style="padding:10px 12px;font-size:13px;color:#374151;">#${escapeHtml(i.invoiceNumber)}</td>
         <td style="padding:10px 12px;font-size:13px;color:#374151;">
-          ${i.customerName ?? "—"}${i.projectName ? `<br><span style="font-size:11px;color:#6b7280;">${i.projectName}</span>` : ""}
+          ${customerName}${projectName ? `<br><span style="font-size:11px;color:#6b7280;">${projectName}</span>` : ""}
         </td>
-        <td style="padding:10px 12px;font-size:13px;color:#374151;">${i.invoiceDate}</td>
+        <td style="padding:10px 12px;font-size:13px;color:#374151;">${formatDateShort(i.invoiceDate)}</td>
         <td style="padding:10px 12px;font-size:13px;${style}">${label}</td>
         <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#111827;text-align:right;">${money(i.balance, i.currency)}</td>
         ${anyPay ? `<td style="padding:10px 12px;text-align:right;">${i.payUrl ? payButton(i.payUrl) : ""}</td>` : ""}
@@ -97,8 +126,9 @@ export function renderInvoiceEmail(opts: {
   return `
     <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#fff;">
       <div style="background:#1c1917;padding:24px 32px;">
-        <h1 style="color:#fff;margin:0;font-size:20px;font-weight:600;">${opts.subject}</h1>
-        <p style="color:#a8a29e;margin:6px 0 0;font-size:13px;">As of ${opts.dateStr}</p>
+        ${branding}
+        <h1 style="color:#fff;margin:0;font-size:20px;font-weight:600;">${subjectHtml}</h1>
+        <p style="color:#a8a29e;margin:6px 0 0;font-size:13px;">As of ${escapeHtml(opts.dateStr)}</p>
       </div>
       <div style="padding:24px 32px;">
         <p style="font-size:14px;color:#374151;margin:0 0 20px;line-height:1.7;">${introHtml}</p>
