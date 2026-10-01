@@ -47,6 +47,23 @@ async function entityRefName(ref: any, refs: RefResolver): Promise<string | unde
 const taxable = (ref: any): number | undefined =>
   ref?.value == null ? undefined : (ref.value === "NON" || ref.value === "0" ? 0 : 1);
 
+/**
+ * "Custom Field Name (N)" / "Custom Field Value (N)" for up to 3 slots —
+ * mirrors whatever QBO already has on the record (Name is the org's own
+ * Definition label, e.g. "PO Number"; StringValue is the only type QBO's
+ * public API exposes custom fields as on sales/purchase forms). Read-only on
+ * Name; see readCustomFieldEdits (builders.ts) for how Value round-trips back.
+ */
+function putCustomFields(row: Row, r: any) {
+  const fields: any[] = Array.isArray(r.CustomField) ? r.CustomField : [];
+  for (let i = 0; i < 3; i++) {
+    const cf = fields[i];
+    if (!cf) continue;
+    if (cf.Name != null && cf.Name !== "") row[`Custom Field Name (${i + 1})`] = cf.Name;
+    if (cf.StringValue != null && cf.StringValue !== "") row[`Custom Field Value (${i + 1})`] = cf.StringValue;
+  }
+}
+
 // ── Sales transactions (Invoice / Estimate / CreditMemo / SalesReceipt / RefundReceipt) ──
 
 export interface SalesRowOpts {
@@ -90,6 +107,7 @@ export function makeSalesRowMapper(opts: SalesRowOpts) {
     putAddress(header, "Shipping Address", r.ShipAddr);
     if (opts.depositToCol) set(opts.depositToCol, await refDisplayName(r.DepositToAccountRef, "Account", refs));
     if (opts.paymentMethodCol) set(opts.paymentMethodCol, await refDisplayName(r.PaymentMethodRef, "PaymentMethod", refs));
+    putCustomFields(header, r);
 
     // Discount line (if any) → header discount columns.
     const discountLine = (r.Line || []).find((l: any) => l.DetailType === "DiscountLineDetail");
@@ -151,6 +169,7 @@ export function makeVendorRowMapper(opts: VendorRowOpts) {
     set("Currency Code", r.CurrencyRef?.value);
     set("Location", await refDisplayName(r.DepartmentRef, "Department", refs));
     if (opts.addrPrefix) putAddress(header, opts.addrPrefix, r.VendorAddr);
+    putCustomFields(header, r);
 
     return expenseLinesToRows(r, header, refs);
   };

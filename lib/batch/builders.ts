@@ -85,6 +85,30 @@ function address(row: SheetRow, prefix: string) {
   };
 }
 
+/**
+ * Read "Custom Field Value (1/2/3)" from the header row into a sparse,
+ * 0-indexed map (only positions the sheet actually set). "Custom Field Name
+ * (N)" is informational-only on export (QBO owns that name at the org level,
+ * via the field's Definition, not per-transaction) and is never read here.
+ *
+ * We deliberately do NOT know the real QBO DefinitionId at build time — that
+ * only exists once a record has been read back from QBO. So this is carried
+ * on the payload as `__customFieldEdits` (stripped before anything is sent)
+ * for shapeModifyPayload (commit-one.ts) to apply onto the EXISTING record's
+ * CustomField array, matched by position. A brand-new document with no
+ * existing CustomField array has nowhere to apply a typed value to, so it is
+ * silently a no-op there — setting a custom field for the first time still
+ * has to happen in QuickBooks directly.
+ */
+export function readCustomFieldEdits(h: SheetRow): Record<number, string> | undefined {
+  let out: Record<number, string> | undefined;
+  for (let i = 0; i < 3; i++) {
+    const v = str(h[`Custom Field Value (${i + 1})`]);
+    if (v != null) (out ??= {})[i] = v;
+  }
+  return out;
+}
+
 // ── sales transactions (Invoice / Estimate / CreditMemo / SalesReceipt / RefundReceipt) ──
 
 export interface SalesOpts {
@@ -190,6 +214,9 @@ export function makeSalesBuilder(opts: SalesOpts) {
     if (!company.isUS && usedRealTaxCode) {
       payload.GlobalTaxCalculation = "TaxExcluded";
     }
+
+    const cfEdits = readCustomFieldEdits(h);
+    if (cfEdits) (payload as any).__customFieldEdits = cfEdits;
 
     const qboId = opts.idColumn ? str(h[opts.idColumn]) : undefined;
     return { payload: qboId ? { ...payload, Id: qboId } : payload, qboId };
@@ -312,6 +339,9 @@ export function makeVendorTxnBuilder(opts: VendorTxnOpts) {
     if (opts.entity === "Bill") payload.DueDate = dateStr(first(doc, "Due Date"));
     if (opts.withStatus) payload.POStatus = str(first(doc, "Purchase Order Status"));
     if (str(first(doc, "Currency Code"))) payload.CurrencyRef = { value: str(first(doc, "Currency Code")) };
+
+    const cfEdits = readCustomFieldEdits(h);
+    if (cfEdits) (payload as any).__customFieldEdits = cfEdits;
 
     const qboId = opts.idColumn ? str(h[opts.idColumn]) : undefined;
     return { payload: qboId ? { ...payload, Id: qboId } : payload, qboId };

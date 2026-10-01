@@ -49,7 +49,14 @@ export type CommitResult =
  * edited the sheet" means, and it's the fix — but a full update also resets
  * any header field QBO tracks that we don't send. Our builders don't model
  * CustomField, so it's preserved from the existing record rather than
- * blanked (mirrors field-edit's merge, going the other direction).
+ * blanked (mirrors field-edit's merge, going the other direction) — except
+ * where the sheet typed a new value for an existing custom field slot (see
+ * `__customFieldEdits`, set by readCustomFieldEdits in builders.ts): that
+ * value is spliced into the matching position of the EXISTING CustomField
+ * array, keeping its real DefinitionId/Name — the builder never invents one.
+ * A typed value at a position the existing record doesn't have is a no-op:
+ * setting a custom field for the first time still has to happen in
+ * QuickBooks directly, since only QBO knows that slot's DefinitionId.
  */
 export function shapeModifyPayload(
   payload: any,
@@ -59,10 +66,17 @@ export function shapeModifyPayload(
 ): any {
   const hasLines = Array.isArray(payload.Line) && payload.Line.length > 0;
   const out = { ...payload, Id: String(id), SyncToken: String(syncToken ?? "0") };
+  const customFieldEdits = out.__customFieldEdits as Record<number, string> | undefined;
+  delete out.__customFieldEdits;
 
   if (hasLines) {
-    if (Array.isArray(existing?.CustomField) && existing.CustomField.length && out.CustomField == null) {
-      out.CustomField = existing.CustomField;
+    const existingCF = Array.isArray(existing?.CustomField) ? existing.CustomField : [];
+    if (customFieldEdits && existingCF.length) {
+      out.CustomField = existingCF.map((cf: any, i: number) =>
+        customFieldEdits[i] != null ? { ...cf, StringValue: customFieldEdits[i] } : cf,
+      );
+    } else if (existingCF.length && out.CustomField == null) {
+      out.CustomField = existingCF;
     }
     // sparse deliberately NOT set — see function comment.
   } else {
@@ -82,6 +96,15 @@ export async function commitOneDoc(
 ): Promise<CommitResult> {
   const built = await entity.build(doc, resolver);
   let payload = built.payload;
+
+  // __customFieldEdits only means anything once there's an EXISTING record to
+  // apply it onto (shapeModifyPayload, below, consumes and strips it). A
+  // create has no existing record, so it's stripped here instead — otherwise
+  // it would leak into the literal JSON QBO receives for a new document.
+  if (operation !== "modify" && payload && typeof payload === "object" && "__customFieldEdits" in payload) {
+    const { __customFieldEdits, ...rest } = payload;
+    payload = rest;
+  }
 
   if (operation === "modify") {
     const id = doc.rows[0]["Id"] ?? doc.rows[0]["QBO Id"];
@@ -161,7 +184,11 @@ export async function commitDocsBatch(
   const built = await Promise.all(docs.map(async (doc): Promise<{ payload: any; error?: string }> => {
     try {
       const b = await entity.build(doc, resolver);
-      return { payload: b.payload };
+      // This path is create-only (see function doc comment) — there's no
+      // existing record for __customFieldEdits to apply onto, so it's
+      // stripped here rather than leaking into the literal JSON QBO receives.
+      const { __customFieldEdits, ...payload } = b.payload ?? {};
+      return { payload };
     } catch (e: any) {
       return { payload: null, error: e?.message || "Build failed" };
     }
