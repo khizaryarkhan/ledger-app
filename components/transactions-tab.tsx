@@ -6,6 +6,7 @@ import { Card, Badge } from "@/components/ui";
 import { fmt, formatDateShort } from "@/lib/format";
 import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send, ClipboardList } from "lucide-react";
 import { tableHead } from "@/components/form-kit";
+import { listTable, listRow, listCell, listNumCell, listCheckCell, listCheckbox } from "@/components/list-view";
 
 type Txn = {
   id: string;
@@ -223,7 +224,7 @@ export function TransactionsTab({
 
       {/* Table */}
       <Card padding="none">
-        <table className="w-full text-[13px]">
+        <table className={listTable}>
           <thead>
             <tr className={tableHead}>
               {onSendSelected && (
@@ -233,7 +234,7 @@ export function TransactionsTab({
                     checked={allSelected}
                     ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
                     onChange={toggleAll}
-                    className="rounded border-stone-600 bg-stone-800 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                    className={listCheckbox}
                     title="Select all open invoices"
                   />
                 </th>
@@ -263,45 +264,43 @@ export function TransactionsTab({
                 <tr
                   key={r.id}
                   onClick={isSelectable ? () => toggleRow(r.refId) : undefined}
-                  className={`border-b border-stone-800/60 transition-colors ${
-                    isSelectable ? "cursor-pointer" : ""
-                  } ${isSelected ? "bg-emerald-900/20 hover:bg-emerald-900/30" : "hover:bg-stone-800/40"}`}
+                  className={`${listRow(isSelected)} ${isSelectable ? "cursor-pointer" : ""}`}
                 >
                   {onSendSelected && (
-                    <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                    <td className={listCheckCell} onClick={e => e.stopPropagation()}>
                       {isSelectable && (
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleRow(r.refId)}
-                          className="rounded border-stone-600 bg-stone-800 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          className={listCheckbox}
                         />
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-3 text-stone-300 tabular-nums text-[12px]">
+                  <td className={`${listCell} text-stone-300 tabular-nums text-[12px]`}>
                     {formatDateShort(r.txnDate)}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={listCell}>
                     <div className="flex items-center gap-2">
                       {typeIcon(r.type)}
                       <span className="text-stone-200">{r.type}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-stone-400 tabular-nums text-[12px]">{r.number || "—"}</td>
-                  <td className="px-4 py-3 text-stone-500 text-[12px] truncate max-w-[300px]">{r.memo || ""}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-medium ${r.amount < 0 ? "text-amber-400" : "text-stone-100"}`}>
+                  <td className={`${listCell} text-stone-400 tabular-nums text-[12px]`}>{r.number || "—"}</td>
+                  <td className={`${listCell} text-stone-500 text-[12px] truncate max-w-[300px]`}>{r.memo || ""}</td>
+                  <td className={`${listNumCell} font-medium ${r.amount < 0 ? "text-amber-400" : "text-stone-100"}`}>
                     {fmt.money(r.amount, r.currency)}
                   </td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${
+                  <td className={`${listNumCell} font-semibold ${
                     showBalance
                       ? (r.type === "Invoice" ? "text-rose-400" : "text-amber-400")
                       : "text-stone-600"
                   }`}>
                     {showBalance ? fmt.money(r.balance, r.currency) : "—"}
                   </td>
-                  <td className="px-4 py-3">{statusBadge(r.status)}</td>
-                  <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                  <td className={listCell}>{statusBadge(r.status)}</td>
+                  <td className={`${listCell} text-right`} onClick={e => e.stopPropagation()}>
                     {(r.type === "Invoice" || r.type === "Credit Memo") && (
                       <Link href={`/invoices/${r.refId}`} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">
                         View

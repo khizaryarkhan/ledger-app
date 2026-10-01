@@ -6,6 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { EntityPicker } from "../_components/entity-picker";
 import { pollBatchJob } from "../_components/poll-job";
 import { UploadCloud, FileSpreadsheet, Download, ArrowLeft, CheckCircle2, XCircle, Loader2, AlertCircle } from "lucide-react";
+import { listTable, listRow } from "@/components/list-view";
+
+// Header-cell style mirroring components/list-view.tsx's (unexported) thCls,
+// so these ad-hoc tables read as the same design system as the shared shell
+// without depending on a private constant.
+const th = "px-2 py-2 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 interface RefInfo {
   columns: { column: string; kind: string }[];
@@ -386,20 +392,20 @@ function UploadInner() {
           <div>
             <div className="text-sm font-medium text-stone-300 mb-2">Column mapping</div>
             <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[360px] overflow-y-auto">
-              <table className="w-full text-[13px]">
+              <table className={listTable}>
                 <thead className="sticky top-0 bg-stone-900">
-                  <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                    <th className="text-left px-4 py-2 font-semibold">QuickBooks field</th>
-                    <th className="text-left px-4 py-2 font-semibold">Your column</th>
+                  <tr className="border-b border-stone-800">
+                    <th className={th}>QuickBooks field</th>
+                    <th className={th}>Your column</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.entity.columns.map((col) => {
                     const c = col.trim();
                     return (
-                      <tr key={c} className="border-b border-stone-800/60">
-                        <td className="px-4 py-1.5 text-stone-300">{c}</td>
-                        <td className="px-4 py-1.5">
+                      <tr key={c} className={listRow()}>
+                        <td className="px-2 py-2 text-stone-300">{c}</td>
+                        <td className="px-2 py-2">
                           <select
                             value={mapping[c] || ""}
                             onChange={(e) => setMapping((m) => ({ ...m, [c]: e.target.value }))}
@@ -556,18 +562,18 @@ function UploadInner() {
             <div>
               <div className="text-sm font-medium text-stone-300 mb-2">Errors</div>
               <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[320px] overflow-y-auto">
-                <table className="w-full text-[13px]">
+                <table className={listTable}>
                   <thead className="sticky top-0 bg-stone-900">
-                    <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                      <th className="text-left px-4 py-2 font-semibold w-16">Row</th>
-                      <th className="text-left px-4 py-2 font-semibold">Reason</th>
+                    <tr className="border-b border-stone-800">
+                      <th className={`${th} w-16`}>Row</th>
+                      <th className={th}>Reason</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.results.filter((r) => !r.ok).map((r) => (
-                      <tr key={r.row} className="border-b border-stone-800/60">
-                        <td className="px-4 py-1.5 text-stone-400 tabular-nums">{r.row}</td>
-                        <td className="px-4 py-1.5 text-rose-300">{r.error}</td>
+                      <tr key={r.row} className={listRow()}>
+                        <td className="px-2 py-2 text-stone-400 tabular-nums">{r.row}</td>
+                        <td className="px-2 py-2 text-rose-300">{r.error}</td>
                       </tr>
                     ))}
                   </tbody>

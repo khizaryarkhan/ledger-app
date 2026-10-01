@@ -9,10 +9,14 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, GitMerge, ArrowRight } from "lucide-react";
+import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, Check, ArrowRight } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, controlInset, tableHead, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 const inputCls = controlInset;
 
@@ -47,55 +51,51 @@ export function BomRegister() {
     return list;
   }, [rows, q]);
 
-  return (
-    <div className="p-6 max-w-6xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center"><GitMerge size={18} className="text-violet-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Bill of Materials</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New BOM</button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Recipes that define what inputs are consumed to produce which outputs. A production Build against a BOM moves inventory cost from the inputs to the finished output.</p>
+  const BOM_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "expand", label: "" },
+    { key: "code", label: "BOM ID", sort: r => r.code, filter: { kind: "text", value: r => r.code } },
+    { key: "output", label: "Output item", sort: r => r.outputItemName || r.name, filter: { kind: "text", value: r => r.outputItemName || r.name } },
+    { key: "processingStep", label: "Processing step", sort: r => r.processingStep, filter: { kind: "multi", value: r => r.processingStep } },
+    { key: "batchType", label: "Batch type", sort: r => r.batchType, filter: { kind: "multi", value: r => r.batchType } },
+    { key: "batchSize", label: "Batch size", align: "right", sort: r => Number(r.batchSize ?? 1) },
+    { key: "expYield", label: "Exp. yield", align: "right", sort: r => r.expYield },
+    { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  ], []);
+  const lv = useListView(filtered, BOM_COLS, { storageKey: "boms", defaultSort: "code" });
 
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
+  return (
+    <ListPage>
+      <ListPageHeader title="Bill of Materials" subtitle="Recipes that define what inputs are consumed to produce which outputs. A production Build against a BOM moves inventory cost from the inputs to the finished output.">
+        <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search BOM ID, name or output…" className={`${inputCls} pl-9`} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search BOM ID, name or output…" className={`${inputCls} pl-9 w-56`} />
         </div>
-      </div>
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New BOM</button>
+      </ListPageHeader>
 
       {showNew && <NewBomDrawer items={items} onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[820px]">
-            <thead>
-              <tr className={tableHead}>
-                <th className="w-8" />
-                <th className="text-left px-4 py-2.5">BOM ID</th>
-                <th className="text-left px-4 py-2.5">Output item</th>
-                <th className="text-left px-4 py-2.5">Processing step</th>
-                <th className="text-left px-4 py-2.5">Batch type</th>
-                <th className="text-right px-4 py-2.5">Batch size</th>
-                <th className="text-right px-4 py-2.5">Exp. yield</th>
-                <th className="text-left px-4 py-2.5">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && filtered.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500">No BOMs yet — create one with the New BOM button.</td></tr>}
-              {filtered.map(r => (
-                <BomRow key={r.id} bom={r} items={items} open={expanded === r.id} onToggle={() => setExpanded(expanded === r.id ? null : r.id)} onChanged={load} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      {rows === null ? (
+        <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="BOM" plural="BOMs" filtered={!!q.trim()} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty="No BOMs yet — create one with the New BOM button.">
+            <table className={listTable}>
+              <ListHead lv={lv} />
+              <tbody>
+                {lv.rows.map((r: any) => (
+                  <BomRow key={r.id} bom={r} items={items} open={expanded === r.id} onToggle={() => setExpanded(expanded === r.id ? null : r.id)} onChanged={load} />
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="BOM" plural="BOMs" />}
+            </table>
+          </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }
 

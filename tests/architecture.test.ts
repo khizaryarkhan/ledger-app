@@ -161,6 +161,117 @@ describe("a purchase cannot be posted without its sourcing decision", () => {
   });
 });
 
+describe("Payables' own Purchase Order acquires nothing locally — the sourcing carve-out's premise", () => {
+  /**
+   * CLAUDE.md's "Supplier sourcing" section exempts Payables' own PO
+   * (`purchase_orders`/`purchase_order_lines`, the `/payables/purchase-orders`
+   * screen) from the sourcing check above — not because it was missed, but
+   * because this path never reaches a posting or stock engine, and its
+   * `item_id` is the PROVIDER's id (QBO/Xero), not `ap_items.id`, so wiring
+   * the check in naively would 500 every item line.
+   *
+   * That is a fact about the code today, not a permanent grant, and the
+   * comment saying so is worth nothing the day it stops being true. So this
+   * asserts the PREMISE — the carve-out's named files exist, import no
+   * posting/stock engine, reference no posting/bridge table, and the table
+   * they own has no second reader — rather than merely restating the
+   * conclusion. Each of these was proven to fail on a real, temporary
+   * violation before being left green.
+   */
+  const CARVE_OUT_FILES = [
+    "app/api/payables/purchase-orders/[id]/route.ts",
+    "app/api/payables/purchase-orders/[id]/push/route.ts",
+    "lib/po-push.ts",
+  ];
+
+  it("names files that actually exist", () => {
+    // Guards against the rest of this block passing vacuously because a path
+    // was mistyped or a file moved.
+    for (const rel of CARVE_OUT_FILES) {
+      expect(() => statSync(join(ROOT, rel)), `${rel} does not exist`).not.toThrow();
+    }
+  });
+
+  it("none of them import a posting or stock engine", () => {
+    const ENGINES = [
+      "lib/accounting/documents",
+      "lib/accounting/trade-documents",
+      "lib/ledger",
+      "lib/inventory/receiving",
+      "lib/inventory/valuation",
+      "lib/inventory/shipping",
+      "lib/inventory/jobwork",
+      "lib/inventory/adjustments",
+      "lib/inventory/mo-completion",
+    ];
+    const offenders: string[] = [];
+    for (const rel of CARVE_OUT_FILES) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      for (const engine of ENGINES) {
+        if (new RegExp(`from\\s+["'][^"']*${engine}["']`).test(src)) {
+          offenders.push(`${rel} imports ${engine}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "this path is exempt only because it posts and bridges nothing — an import of a posting/stock engine here means the exemption's premise no longer holds",
+    ).toEqual([]);
+  });
+
+  it("none of them reference a posting/bridge/stock table", () => {
+    const TABLES = [
+      "apBills", "apBillLines", "journalEntries", "journalLines",
+      "inventoryLots", "inventoryMovements", "goodsReceipts",
+      "goodsReceiptLines", "tradeDocuments", "tradeDocumentLines",
+    ];
+    const offenders: string[] = [];
+    for (const rel of CARVE_OUT_FILES) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      for (const table of TABLES) {
+        if (new RegExp(`\\b${table}\\b`).test(src)) offenders.push(`${rel} references ${table}`);
+      }
+    }
+    expect(
+      offenders,
+      "this path never posts or bridges into the ledger/inventory/receiving tables — a reference here means it now does",
+    ).toEqual([]);
+  });
+
+  // The only two files allowed to read purchaseOrderLines. If a new reader
+  // appears anywhere else, the table has a second consumer this carve-out's
+  // reasoning never accounted for — that needs re-examining, not silently
+  // added to this list.
+  const ALLOWED_READERS = new Set([
+    "app/api/payables/purchase-orders/[id]/route.ts",
+    "lib/po-push.ts",
+  ]);
+
+  it("purchase_order_lines has no reader outside this path", () => {
+    const NEEDLE = /\bpurchaseOrderLines\b/;
+    const offenders: string[] = [];
+    for (const dir of ["app", "lib", "inngest", "components", "scripts"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (ALLOWED_READERS.has(rel)) continue;
+        if (NEEDLE.test(readFileSync(f, "utf8"))) offenders.push(rel);
+      }
+    }
+    expect(
+      offenders,
+      "a new reader of purchase_order_lines outside lib/po-push.ts and the Payables PO route — this changes the carve-out's premise and needs re-examining, not just adding here",
+    ).toEqual([]);
+  });
+
+  it("the allowed readers still actually read it", () => {
+    // The other side of the same coin: if this list goes stale (a rename, a
+    // rewrite), the guard above would start passing for the wrong reason.
+    for (const rel of ALLOWED_READERS) {
+      expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} no longer references purchaseOrderLines`).toMatch(/\bpurchaseOrderLines\b/);
+    }
+  });
+});
+
 describe("no GROUP BY on a view-backed table", () => {
   /**
    * `customers` and `ap_suppliers` are VIEWS over `parties` (migration 0079).
@@ -832,20 +943,82 @@ describe("money and quantity are formatted in one place", () => {
     const offenders: string[] = [];
     for (const f of scanned()) {
       const rel = relative(ROOT, f).replace(/\\/g, "/");
-      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+      const src = readFileSync(f, "utf8");
+      let matchedThisFile = false;
+      src.split("\n").forEach((line, i) => {
         if (COMMENT_LINE.test(line)) return;
         // Both `new Intl.NumberFormat(...)` and the equivalent
         // `.toLocaleString(..., {style:"currency"})` are the same violation —
         // the latter slipped past this guard for years in inngest/chase.ts.
         if (/(new Intl\.NumberFormat|\.toLocaleString)\(/.test(line) && /style:\s*["']currency["']/.test(line)) {
           offenders.push(`${rel}:${i + 1}`);
+          matchedThisFile = true;
         }
       });
+      // The line-by-line scan above only ever sees ONE line at a time, so a
+      // call spanning several lines — `new Intl.NumberFormat(\n  "en-US",\n
+      // { style: "currency", ... }\n)` — never matches it. Collapse the whole
+      // file's whitespace and match again; a whole-file match has no precise
+      // line number to report, so it names the file instead. Skipped when the
+      // per-line scan already caught this file, so a real single-line hit
+      // isn't reported twice under two different labels.
+      if (!matchedThisFile) {
+        const collapsed = src.replace(/\s+/g, " ");
+        if (/new Intl\.NumberFormat\([^)]*?style:\s*["']currency["']/.test(collapsed)) {
+          offenders.push(rel);
+        }
+      }
     }
     expect(
       offenders,
       `these build their own currency formatter instead of calling fmt.money ` +
       `from lib/format — a copy does not receive a fix to the rule: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("no display-layer code hand-rounds money with toFixed instead of fmt", () => {
+    /**
+     * `fmt.money` / `fmt.num2` are the only decimal rule for money — minimum 2
+     * decimals, up to 6, trailing zeros beyond the 2nd stripped. A bare
+     * `.toFixed(2)` or `.toFixed(4)` on a money-shaped value hard-codes exactly
+     * that many decimals, which silently truncates a `numeric(18,6)` unit cost
+     * back to cents — the same class of bug the quantity-side guard below
+     * already catches for `.toFixed(4)` on a quantity.
+     *
+     * Scanned: components/ and app/ only. NOT lib/ — `lib/ledger.ts`,
+     * `lib/export-report.ts`'s `round2` and other posting-engine code
+     * legitimately call `.toFixed(2)`/`.toFixed(4)` to produce a string for a
+     * `numeric` DB column; that is correct engine behaviour, not a display
+     * bypass, and belongs out of this guard's reach.
+     *
+     * A line containing a literal `%` is skipped — that is a percentage/rate
+     * display (e.g. a tax rate, a yield %), not money, and out of scope here.
+     *
+     * A line seeding a controlled `<input>`'s editable state (`useState(...)`)
+     * is also skipped: an editable numeric field is read back with
+     * `parseFloat`/`Number`, so it needs a plain 2dp string, never
+     * `fmt.num2`'s locale-grouped one ("1,234.50" is not a valid `type="number"`
+     * value and would corrupt the parse on save) — that is a different
+     * concern from a read-only display, and not this guard's target.
+     */
+    const MONEY_NAME =
+      /\b(unitPrice|unitCost|subtotal|taxTotal|amountPaid|totalAmount|lineTotal|lineSubtotal|lineTax|amount|total|balance|price|cost)\b/i;
+    const offenders: string[] = [];
+    for (const f of [...sourceFiles("components"), ...sourceFiles("app")]) {
+      const rel = relative(ROOT, f).replace(/\\/g, "/");
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        if (COMMENT_LINE.test(line)) return;
+        if (!/\.toFixed\(2\)|\.toFixed\(4\)/.test(line)) return;
+        if (line.includes("%")) return;
+        if (/useState\(/.test(line)) return;
+        if (MONEY_NAME.test(line)) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(
+      offenders,
+      `these hand-round a money value with .toFixed instead of calling fmt.money / ` +
+      `fmt.num2 from lib/format — a copy does not receive a fix to the decimal rule: ` +
+      `${offenders.join(", ")}`,
     ).toEqual([]);
   });
 
@@ -1200,5 +1373,58 @@ describe("a due date is never rendered through new Date()", () => {
       if (DUE_TO_DATE.test(src) || FMTDATE_ON_DATE.test(src)) offenders.push(rel);
     }
     expect(offenders, "use formatDateShort / formatDate from lib/format — they read a date-only value literally").toEqual([]);
+  });
+});
+
+describe("only the shared promise-sweep server writes invoicePromises.status", () => {
+  /**
+   * Root cause of the "kept promises never marked Met in production" bug
+   * (2026-09-28): two independent inline copies of this update existed —
+   * inngest/functions/chase.ts (the ONLY one actually scheduled — Inngest cron
+   * "0 8 * * *") and app/api/cron/route.ts (correct and complete, but nothing
+   * schedules that bare route) — and they had already drifted apart. This
+   * guard is proven to fail against both pre-fix files: the old chase.ts set
+   * `status: "Broken"` directly with no kept sweep at all, and the old
+   * cron/route.ts set both `status: "Met"` and `status: "Broken"` directly.
+   * Both are now thin callers of lib/promise-sweep-server.ts, the one place
+   * allowed to make this write.
+   */
+  const ALLOWED = "lib/promise-sweep-server.ts";
+  const WINDOW = 400; // generous — covers a chained .update(invoicePromises)...set({...}) split across lines
+
+  it("no other file under app/, lib/ or inngest/ sets invoicePromises status to Met or Broken", () => {
+    const offenders: string[] = [];
+    for (const dir of ["app", "lib", "inngest"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (rel === ALLOWED) continue;
+        const src = readFileSync(f, "utf8");
+        let idx = src.indexOf("invoicePromises");
+        while (idx !== -1) {
+          const window = src.slice(idx, idx + WINDOW);
+          if (/status:\s*["'](Met|Broken)["']/.test(window)) {
+            offenders.push(rel);
+            break;
+          }
+          idx = src.indexOf("invoicePromises", idx + 1);
+        }
+      }
+    }
+    expect(offenders, "flip invoice_promises.status only via lib/promise-sweep-server.ts").toEqual([]);
+  });
+
+  it("both scheduled and manual sweep callers import the shared server module", () => {
+    expect(importers("inngest", "promise-sweep-server")).toContain("inngest/functions/chase.ts");
+    expect(importers("app", "promise-sweep-server")).toContain("app/api/cron/route.ts");
+  });
+
+  it("the classification rule itself stays free of the database", () => {
+    // Same split, same reason, as lib/modules.ts / lib/modules-server.ts and
+    // lib/inventory/sourcing.ts / sourcing-server.ts: the pure rule must be
+    // unit-testable with no database, which is what let this bug be pinned in
+    // tests/promise-sweep.test.ts at all.
+    const pure = readFileSync(join(ROOT, "lib/promise-sweep.ts"), "utf8");
+    expect(pure).not.toMatch(/from\s+["']@\/db/);
+    expect(pure).not.toMatch(/from\s+["']drizzle-orm/);
   });
 });

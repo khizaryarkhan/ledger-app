@@ -6,9 +6,15 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
-import { controlCompact, tableHead } from "@/components/form-kit";
+import { controlCompact } from "@/components/form-kit";
+import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
+// Home-currency-relative figures (booked/revalued/G-L are computed per FX
+// row, not summed across currencies into one pot) — kept on fmt.num2 exactly
+// as before rather than ListColumn's `money` typing. See stock-reports.tsx
+// for the fuller explanation.
+const footCls = "border-t-2 border-stone-800 bg-stone-900/60 font-semibold";
 
 export function FxExposureReport() {
   const [data, setData] = useState<any>(null);
@@ -34,7 +40,19 @@ export function FxExposureReport() {
     const revalued = rate > 0 ? Math.round(r.foreignBalance * rate * 100) / 100 : r.homeCarrying;
     return { ...r, revalued, gl: Math.round((revalued - r.homeCarrying) * 100) / 100 };
   }), [rows, rates]);
-  const totalGL = useMemo(() => withGL.reduce((s: number, r: any) => s + r.gl, 0), [withGL]);
+  const COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "account",  label: "Account", sort: r => r.accountName, filter: { kind: "text", value: r => r.accountName } },
+    { key: "ccy",      label: "Ccy",     sort: r => r.currency, filter: { kind: "multi", value: r => r.currency } },
+    { key: "foreign",  label: "Foreign balance", align: "right", sort: r => Number(r.foreignBalance) || 0, descFirst: true },
+    { key: "booked",   label: `Booked (${home})`, align: "right", sort: r => Number(r.homeCarrying) || 0, descFirst: true },
+    { key: "rate",     label: "Rate now", align: "right" },
+    { key: "revalued", label: "Revalued", align: "right", sort: r => Number(r.revalued) || 0, descFirst: true },
+    { key: "gl",       label: "Unrealised G/(L)", align: "right", sort: r => Number(r.gl) || 0, descFirst: true },
+  ], [home]);
+  const lv = useListView(withGL, COLS, { storageKey: "fx-exposure" });
+  // Reflects the filtered set, matching the rest of the app's list-view
+  // footers (a filter narrows what the total totals).
+  const totalGL = useMemo(() => lv.rows.reduce((s: number, r: any) => s + r.gl, 0), [lv.rows]);
 
   return (
     <div className="p-6 max-w-5xl">
@@ -51,33 +69,29 @@ export function FxExposureReport() {
       <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
 
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
-        <table className="w-full text-[13px] min-w-[720px]">
-          <thead><tr className={tableHead}>
-            <th className="text-left px-4 py-2.5">Account</th><th className="text-left px-4 py-2.5">Ccy</th>
-            <th className="text-right px-4 py-2.5">Foreign balance</th><th className="text-right px-4 py-2.5">Booked ({home})</th>
-            <th className="text-right px-4 py-2.5">Rate now</th><th className="text-right px-4 py-2.5">Revalued</th><th className="text-right px-4 py-2.5">Unrealised G/(L)</th>
-          </tr></thead>
+        <table className={`${listTable} min-w-[720px]`}>
+          <ListHead lv={lv} />
           <tbody>
             {data === null && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-            {data !== null && withGL.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No foreign-currency balances.</td></tr>}
-            {withGL.map((r: any) => (
-              <tr key={r.accountId + r.currency} className="border-b border-stone-800/60">
-                <td className="px-4 py-2 text-stone-200">{r.accountName}</td>
-                <td className="px-4 py-2 text-stone-400 font-mono">{r.currency}</td>
-                <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.foreignBalance)}</td>
-                <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.homeCarrying)}</td>
-                <td className="px-4 py-2 text-right"><input type="number" value={rates[r.currency] ?? ""} onChange={e => setRates(p => ({ ...p, [r.currency]: e.target.value }))} className={`${controlCompact} w-24 text-right font-mono`} /></td>
-                <td className="px-4 py-2 text-right text-stone-300 tabular-nums">{money(r.revalued)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${r.gl > 0 ? "text-emerald-400" : r.gl < 0 ? "text-rose-400" : "text-stone-500"}`}>{money(r.gl)}</td>
+            {data !== null && lv.rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No foreign-currency balances.</td></tr>}
+            {lv.rows.map((r: any) => (
+              <tr key={r.accountId + r.currency} className={listRow()}>
+                <td className={`${listCell} text-stone-200`}>{r.accountName}</td>
+                <td className={`${listCell} text-stone-400 font-mono`}>{r.currency}</td>
+                <td className={`${listNumCell} text-stone-300`}>{money(r.foreignBalance)}</td>
+                <td className={`${listNumCell} text-stone-300`}>{money(r.homeCarrying)}</td>
+                <td className={listNumCell}><input type="number" value={rates[r.currency] ?? ""} onChange={e => setRates(p => ({ ...p, [r.currency]: e.target.value }))} className={`${controlCompact} w-24 text-right font-mono`} /></td>
+                <td className={`${listNumCell} text-stone-300`}>{money(r.revalued)}</td>
+                <td className={`${listMoneyCell} ${r.gl > 0 ? "text-emerald-400" : r.gl < 0 ? "text-rose-400" : "text-stone-500"}`}>{money(r.gl)}</td>
               </tr>
             ))}
-            {data !== null && withGL.length > 0 && (
-              <tr className="border-t border-stone-700 bg-stone-950/40 font-semibold">
-                <td className="px-4 py-2.5 text-stone-200" colSpan={6}>Total unrealised FX gain / (loss)</td>
-                <td className={`px-4 py-2.5 text-right tabular-nums ${totalGL > 0 ? "text-emerald-400" : totalGL < 0 ? "text-rose-400" : "text-stone-100"}`}>{money(totalGL)}</td>
-              </tr>
-            )}
           </tbody>
+          {data !== null && lv.rows.length > 0 && (
+            <tfoot><tr className={footCls}>
+              <td className="px-2 py-2.5 text-stone-200" colSpan={6}>Total unrealised FX gain / (loss)</td>
+              <td className={`${listMoneyCell} ${totalGL > 0 ? "text-emerald-400" : totalGL < 0 ? "text-rose-400" : "text-stone-100"}`}>{money(totalGL)}</td>
+            </tr></tfoot>
+          )}
         </table>
       </div></div>
       <p className="text-[11px] text-stone-500 mt-3">This is a position report. Posting the revaluation to the ledger (and recognising realised FX at settlement) is a scheduled enhancement.</p>

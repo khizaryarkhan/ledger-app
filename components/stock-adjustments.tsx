@@ -9,18 +9,26 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardCheck, TrendingDown, RefreshCw, Trash2 } from "lucide-react";
-import { ListPage, ListPageHeader } from "@/components/list-view";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 import { Button, Toast } from "@/components/ui";
-import { Drawer, DrawerFooter, Field, Section, SelectField, controlInset, cell, th, tableHead, t } from "@/components/form-kit";
+import { Drawer, DrawerFooter, Field, Section, SelectField, controlInset, cell, th, t } from "@/components/form-kit";
 import { fmt, localToday } from "@/lib/format";
 import { kindOf } from "@/lib/inventory/item-kinds";
+import { useData } from "@/components/data-provider";
 
 const REASONS = [
   ["NRV", "Net realisable value below cost"], ["Expiry", "Expired / near expiry"], ["Damage", "Damaged"], ["Recall", "Recalled"], ["Other", "Other"],
 ] as const;
 
+type Adjustment = { id: string; docNumber: string | null; date: string; kind: string; memo: string | null; amount: number };
+
 export function StockAdjustments() {
-  const [rows, setRows] = useState<any[] | null>(null);
+  const { orgSettings } = useData() as any;
+  const ccy = orgSettings?.currency ?? "EUR";
+  const [rows, setRows] = useState<Adjustment[] | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [open, setOpen] = useState<"count" | "writedown" | null>(null);
   const [toast, setToast] = useState<any>(null);
@@ -37,6 +45,17 @@ export function StockAdjustments() {
     setToast({ message: "Adjustment voided", type: "success" }); load();
   }
 
+  const listRows = rows ?? [];
+  const kindLabel = (k: string) => k === "WriteDown" ? "Write-down" : "Count";
+  const ADJ_COLS = useMemo<ListColumn<Adjustment>[]>(() => [
+    { key: "docNumber", label: "No.", sort: r => r.docNumber, filter: { kind: "text", value: r => r.docNumber } },
+    { key: "date", label: "Date", sort: r => r.date, descFirst: true },
+    { key: "kind", label: "Kind", sort: r => kindLabel(r.kind), filter: { kind: "multi", value: r => kindLabel(r.kind) } },
+    { key: "memo", label: "Memo", sort: r => r.memo, filter: { kind: "text", value: r => r.memo } },
+    { key: "amount", label: "Value", align: "right", sort: r => r.amount, descFirst: true, money: r => ({ amount: r.amount, currency: ccy }) },
+  ], [ccy]);
+  const lv = useListView(listRows, ADJ_COLS, { storageKey: "stock-adjustments", defaultSort: "date", defaultDir: "desc", summary: "amount" });
+
   return (
     <ListPage>
       <ListPageHeader title="Stock Adjustments" subtitle="Counts and write-downs. Each moves stock or its cost lot by lot, and posts one entry.">
@@ -44,30 +63,33 @@ export function StockAdjustments() {
         <Button variant="secondary" icon={TrendingDown} onClick={() => setOpen("writedown")}>Write down a lot</Button>
         <Button icon={ClipboardCheck} onClick={() => setOpen("count")}>Count stock</Button>
       </ListPageHeader>
-      <div className="flex-1 overflow-auto p-6">
-        <div className="rounded-lg border border-stone-800 overflow-hidden max-w-5xl">
-          <table className="w-full text-[13px]">
-            <thead><tr className={tableHead}>
-              <th className="text-left px-4 py-2.5">No.</th><th className="text-left px-4 py-2.5">Date</th><th className="text-left px-4 py-2.5">Kind</th>
-              <th className="text-left px-4 py-2.5">Memo</th><th className="text-right px-4 py-2.5">Value</th><th className="w-10" />
-            </tr></thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows?.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">No counts or write-downs yet.</td></tr>}
-              {rows?.map(r => (
-                <tr key={r.id} className="border-b border-stone-800/60">
-                  <td className="px-4 py-2 font-mono text-[12px] text-stone-300">{r.docNumber || "—"}</td>
-                  <td className="px-4 py-2 text-stone-400">{r.date}</td>
-                  <td className="px-4 py-2 text-stone-200">{r.kind === "WriteDown" ? "Write-down" : "Count"}</td>
-                  <td className="px-4 py-2 text-stone-400 truncate max-w-md">{r.memo}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-stone-200">{fmt.num2(r.amount)}</td>
-                  <td className="px-2 py-2"><button onClick={() => remove(r.id)} className="p-1 text-stone-600 hover:text-rose-400" title="Void"><Trash2 size={13} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+
+      {rows === null ? (
+        <p className="px-4 py-8 text-center text-[13px] text-stone-500">Loading…</p>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="adjustment" />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty={listRows.length === 0 ? "No counts or write-downs yet." : "No adjustments match the current filters."}>
+            <table className={listTable}>
+              <ListHead lv={lv} trailing={1} />
+              <tbody>
+                {lv.rows.map(r => (
+                  <tr key={r.id} className={listRow()}>
+                    <td className="px-2 py-2 font-mono text-[12px] text-stone-300">{r.docNumber || "—"}</td>
+                    <td className="px-2 py-2 text-stone-400">{r.date}</td>
+                    <td className="px-2 py-2 text-stone-200">{kindLabel(r.kind)}</td>
+                    <td className="px-2 py-2 text-stone-400 truncate max-w-md">{r.memo}</td>
+                    <td className={listMoneyCell}><span className="text-stone-200">{fmt.money(r.amount, ccy)}</span></td>
+                    <td className="px-2 py-2"><button onClick={() => remove(r.id)} className="p-1 text-stone-600 hover:text-rose-400" title="Void"><Trash2 size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="adjustment" trailing={1} />}
+            </table>
+          </ListScroll>
+        </>
+      )}
       {open === "count" && <CountDrawer items={items} onClose={() => setOpen(null)} onDone={m => { setOpen(null); load(); setToast({ message: m, type: "success" }); }} />}
       {open === "writedown" && <WritedownDrawer items={items} onClose={() => setOpen(null)} onDone={m => { setOpen(null); load(); setToast({ message: m, type: "success" }); }} />}
       <Toast toast={toast} onClose={() => setToast(null)} />

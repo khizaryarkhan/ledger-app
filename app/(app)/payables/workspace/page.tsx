@@ -11,6 +11,7 @@ import { Badge, Button, Card } from "@/components/ui";
 import { Drawer } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { formatDateShort } from "@/lib/format";
+import { listRow, listMoneyCell } from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -616,7 +617,7 @@ function BillRow({
   }
 
   return (
-    <tr className={`border-b border-stone-800/60 hover:bg-stone-800/30 transition-colors group ${selected ? "bg-violet-500/5" : ""}`}>
+    <tr className={`${listRow(selected)} group`}>
       <td className="pl-4 pr-2 py-2.5">
         <input
           type="checkbox"
@@ -647,9 +648,7 @@ function BillRow({
           )}
         </div>
       </td>
-      <td className="px-3 py-2.5 text-right">
-        <span className="text-sm font-semibold text-white tabular-nums">{fmt.money(bill.total, bill.currency)}</span>
-      </td>
+      <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmt.money(bill.total, bill.currency)}</span></td>
       <td className="px-3 py-2.5">
         <Badge variant={(WF_BADGE[bill.workflowStatus] ?? "neutral") as any} size="sm">
           {bill.workflowStatus}
@@ -1055,10 +1054,10 @@ export default function PayablesWorkspacePage() {
       {/* ── LIST VIEW ─────────────────────────────────────────────────── */}
       {view === "list" && (loading || bills.length > 0) && (
         <div className="flex-1 overflow-auto min-h-0">
-          <table className="w-full text-sm border-collapse">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-stone-900 border-b border-stone-700">
-                <th className="pl-4 pr-2 py-2.5 w-8">
+          <table className="w-full text-[13px] border-collapse">
+            <thead className="sticky top-0 z-10 bg-stone-900">
+              <tr className="border-b border-stone-800 text-left">
+                <th className="pl-4 pr-2 py-2 w-8">
                   <input
                     type="checkbox"
                     checked={!loading && selected.size === filtered.length && filtered.length > 0}
@@ -1067,7 +1066,7 @@ export default function PayablesWorkspacePage() {
                   />
                 </th>
                 {["Bill #", "Supplier", "Due Date", "Amount", "Stage", "Cert", "Approver Email", "Last Sent", "Send", "Notes", ""].map((h) => (
-                  <th key={h} className="px-3 py-2.5 text-left text-[11px] font-semibold text-stone-400 uppercase tracking-wide whitespace-nowrap">
+                  <th key={h} className={`px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap ${h === "Amount" ? "text-right border-l border-stone-800" : ""}`}>
                     {h}
                   </th>
                 ))}

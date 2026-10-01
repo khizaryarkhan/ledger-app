@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Card, Badge, Button, Modal } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import { listRow, listMoneyCell, listNumCell } from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -189,15 +190,15 @@ function LineItemRow({
 
   if (!editable) {
     return (
-      <tr className="border-b border-stone-800 hover:bg-stone-800/30">
-        <td className="px-4 py-2.5 text-stone-200 text-sm">{item.description || "—"}</td>
-        <td className="px-4 py-2.5 text-center text-stone-300 tabular-nums text-sm">{item.quantity}</td>
-        <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums text-sm">{fmtMoney(item.unitPrice, currency)}</td>
-        <td className="px-4 py-2.5 text-stone-400 text-sm">{item.accountCode || "—"}</td>
-        <td className="px-4 py-2.5 text-right text-stone-400 text-sm">{item.taxRate}%</td>
-        <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums text-sm">{fmtMoney(item.subtotal, currency)}</td>
-        <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums text-sm">{fmtMoney(item.taxAmount, currency)}</td>
-        <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums text-sm">{fmtMoney(item.total, currency)}</td>
+      <tr className={listRow()}>
+        <td className="px-2 py-2 text-stone-200 text-[13px]">{item.description || "—"}</td>
+        <td className={`${listNumCell} text-center text-stone-300`}>{item.quantity}</td>
+        <td className={`${listNumCell} text-stone-300`}>{fmtMoney(item.unitPrice, currency)}</td>
+        <td className="px-2 py-2 text-stone-400 text-[12px]">{item.accountCode || "—"}</td>
+        <td className={`${listNumCell} text-stone-400`}>{item.taxRate}%</td>
+        <td className={`${listNumCell} text-stone-300`}>{fmtMoney(item.subtotal, currency)}</td>
+        <td className={`${listNumCell} text-stone-400`}>{fmtMoney(item.taxAmount, currency)}</td>
+        <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmtMoney(item.total, currency)}</span></td>
       </tr>
     );
   }
@@ -506,16 +507,16 @@ export default function PurchaseOrderDetailPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-stone-800 bg-stone-900/60">
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Description</th>
-                    <th className="px-4 py-2 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Qty</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Unit Price</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Account</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Tax %</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Subtotal</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Tax</th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Total</th>
+                <thead className="sticky top-0 bg-stone-900 z-10">
+                  <tr className="border-b border-stone-800 text-left">
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Description</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-center">Qty</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Unit Price</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Account</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Tax %</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Subtotal</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Tax</th>
+                    <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right border-l border-stone-800">Total</th>
                     {isEditable && <th className="px-2 py-2 w-8" />}
                   </tr>
                 </thead>
@@ -541,11 +542,11 @@ export default function PurchaseOrderDetailPage() {
                 </tbody>
                 {lineItems.length > 0 && (
                   <tfoot>
-                    <tr className="border-t border-stone-700 bg-stone-900/80">
-                      <td colSpan={isEditable ? 5 : 4} className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Subtotal</td>
-                      <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums font-semibold">{fmtMoney(computedSubtotal, po.currency)}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmtMoney(computedTax, po.currency)}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">{fmtMoney(computedTotal, po.currency)}</td>
+                    <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
+                      <td colSpan={isEditable ? 5 : 4} className="px-2 py-2.5 text-right text-[12px] text-stone-400">Subtotal</td>
+                      <td className={listNumCell}><span className="text-stone-300">{fmtMoney(computedSubtotal, po.currency)}</span></td>
+                      <td className={listNumCell}><span className="text-stone-400">{fmtMoney(computedTax, po.currency)}</span></td>
+                      <td className={listMoneyCell}><span className="text-white text-[13px]">{fmtMoney(computedTotal, po.currency)}</span></td>
                       {isEditable && <td />}
                     </tr>
                   </tfoot>

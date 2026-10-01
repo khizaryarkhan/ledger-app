@@ -1,25 +1,75 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw, Check, FileText, ShoppingCart, ChevronDown, ChevronRight, Layers, X, Loader, Trash2, Printer, Route } from "lucide-react";
+import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Route } from "lucide-react";
 import { controlCompact, tableHead, Drawer } from "@/components/form-kit";
+import { fmt, formatDate } from "@/lib/format";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
-const META: Record<Kind, { title: string; singular: string; newType: string; icon: any; convertTo: string; invoiceVerb: string; fulfil?: string }> = {
-  "estimates":       { title: "Estimates",       singular: "estimate",       newType: "Estimate",     icon: FileText,     convertTo: "invoice", invoiceVerb: "Invoice" },
-  "purchase-orders": { title: "Purchase Orders", singular: "purchase order", newType: "PurchaseOrder", icon: ShoppingCart, convertTo: "bill",    invoiceVerb: "Bill" },
+// `icon` was dropped: the shared ListPageHeader (unlike this file's old
+// hand-rolled header) has no leading-icon slot — neither reference page
+// (invoices, payables/purchase-orders) shows one either, so this isn't a
+// regression, it's the same header shape every other converted list uses.
+const META: Record<Kind, { title: string; singular: string; newType: string; convertTo: string; invoiceVerb: string; fulfil?: string }> = {
+  "estimates":       { title: "Estimates",       singular: "estimate",       newType: "Estimate",     convertTo: "invoice", invoiceVerb: "Invoice" },
+  "purchase-orders": { title: "Purchase Orders", singular: "purchase order", newType: "PurchaseOrder", convertTo: "bill",    invoiceVerb: "Bill" },
   // Sales Orders are fulfilled via Shipping (not converted directly), so the
   // convert action is hidden — see `canConvert` below.
-  "sales-orders":    { title: "Sales Orders",    singular: "sales order",    newType: "SalesOrder",   icon: ShoppingCart, convertTo: "",        invoiceVerb: "", fulfil: "/supply-chain/shipping" },
+  "sales-orders":    { title: "Sales Orders",    singular: "sales order",    newType: "SalesOrder",   convertTo: "",        invoiceVerb: "", fulfil: "/supply-chain/shipping" },
 };
 const linkType = (k: Kind) => k === "estimates" ? "Estimate" : k === "purchase-orders" ? "PurchaseOrder" : "SalesOrder";
 
+/** Kept for the modal's own internal figures (running total, remaining-amount
+ *  messages) — those aren't part of the shared list table, so they keep the
+ *  plain 2dp display this file always used rather than adopting fmt.money
+ *  everywhere. The list table itself (below) uses fmt.money, to read
+ *  consistently with the toolbar/footer totals the shared list shell draws
+ *  from the same `money` column definition. */
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+interface DocRow {
+  id: string;
+  docNumber: string | null;
+  partyLabel: string | null;
+  issueDate: string;
+  expiryDate: string | null;
+  currency: string | null;
+  total: number;
+  status: "Open" | "Partial" | "Closed";
+  invoicedNet: number;
+  netTotal: number;
+  remainingNet: number;
+  pct: number;
+  salesOrderId: string | null;
+}
+
+function buildColumns(kind: Kind): ListColumn<DocRow>[] {
+  const meta = META[kind];
+  const partyLabel = kind === "purchase-orders" ? "Supplier" : "Customer";
+  return [
+    { key: "docNumber", label: "Number", sort: r => r.docNumber ?? "" },
+    { key: "party", label: partyLabel, sort: r => r.partyLabel ?? "", filter: { kind: "multi", value: r => r.partyLabel } },
+    { key: "issueDate", label: "Date", sort: r => r.issueDate },
+    { key: "total", label: "Total", sort: r => Number(r.total ?? 0), descFirst: true, align: "right",
+      money: r => ({ amount: Number(r.total ?? 0), currency: r.currency }) },
+    // The one visible column doubles as the status filter — Open/Partial/Closed
+    // isn't shown as its own badge column (the progress bar + remaining-amount
+    // line already carries that information visually, as it always has), but
+    // filtering by the underlying status is still useful, so it hangs off this
+    // column rather than adding a column the table never used to have.
+    { key: "progress", label: meta.fulfil ? "Fulfilment" : `${meta.invoiceVerb}d`, sort: r => r.pct,
+      filter: { kind: "multi", value: r => r.status } },
+  ];
+}
 
 export function TradeDocList({ kind }: { kind: Kind }) {
   const meta = META[kind];
-  const [rows, setRows] = useState<any[] | null>(null);
+  const [rows, setRows] = useState<DocRow[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -61,52 +111,55 @@ export function TradeDocList({ kind }: { kind: Kind }) {
     setLinks(m => ({ ...m, [id]: Array.isArray(l) ? l : [] }));
   }
 
-  const Icon = meta.icon;
+  const columns = buildColumns(kind);
+  const lv = useListView(rows ?? [], columns, { storageKey: `trade-docs-${kind}`, summary: "total" });
+
+  const titleLower = meta.title.toLowerCase();
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Icon size={18} className="text-teal-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">{meta.title}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <Link href={`/accounting/new/${meta.newType}`} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
-            <Plus size={14} /> New {meta.singular}
-          </Link>
-        </div>
-      </div>
+    <ListPage>
+      <ListPageHeader title={meta.title}
+        subtitle={rows === null ? "Loading…" : `${lv.rows.length} ${lv.rows.length === 1 ? meta.singular : `${meta.singular}s`}`}>
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh">
+          <RefreshCw size={15} className={rows === null ? "animate-spin" : ""} />
+        </button>
+        <Link href={`/accounting/new/${meta.newType}`} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
+          <Plus size={14} /> New {meta.singular}
+        </Link>
+      </ListPageHeader>
 
-      {msg && <div className="mb-4 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
+      {msg && (
+        <div className="mx-4 mt-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2 w-fit shrink-0">
+          <Check size={13} /> {msg}
+        </div>
+      )}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[760px]">
-            <thead>
-              <tr className={tableHead}>
-                <th className="w-6"></th>
-                <th className="text-left px-3 py-2.5">Number</th>
-                <th className="text-left px-3 py-2.5">{kind === "purchase-orders" ? "Supplier" : "Customer"}</th>
-                <th className="text-left px-3 py-2.5">Date</th>
-                <th className="text-right px-3 py-2.5">Total</th>
-                <th className="text-left px-3 py-2.5 w-40">{meta.fulfil ? "Fulfilment" : `${meta.invoiceVerb}d`}</th>
-                <th className="px-3 py-2.5"></th>
-              </tr>
-            </thead>
+      <ListToolbar lv={lv} noun={meta.singular} />
+      <ListChips lv={lv} />
+
+      {rows === null ? (
+        <div className="flex-1 overflow-auto p-5 space-y-2">
+          {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />)}
+        </div>
+      ) : (
+        <ListScroll lv={lv} empty={rows.length === 0
+          ? `No ${titleLower} yet — create one with the New button.`
+          : `No ${titleLower} match the current filters.`}>
+          <table className={listTable}>
+            <ListHead lv={lv} trailing={1} />
             <tbody>
-              {rows === null && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No {meta.title.toLowerCase()} yet — create one with the New button.</td></tr>}
-              {(rows ?? []).map(r => (
-                <FragmentRow key={r.id}>
-                  <tr className="border-b border-stone-800/60">
-                    <td className="pl-3 py-2">
-                      <button onClick={() => openLinks(r.id)} className="text-stone-600 hover:text-stone-300">{expanded === r.id ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
+              {lv.rows.map(r => (
+                <Fragment key={r.id}>
+                  <tr className={listRow(false)}>
+                    <td className="px-2 py-2">
+                      <button onClick={() => openLinks(r.id)} className="inline-flex items-center gap-1.5 text-stone-300 hover:text-white">
+                        {expanded === r.id ? <ChevronDown size={13} className="text-stone-600 shrink-0" /> : <ChevronRight size={13} className="text-stone-600 shrink-0" />}
+                        <span className="font-mono text-[12px]">{r.docNumber}</span>
+                      </button>
                     </td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-stone-300">{r.docNumber}</td>
-                    <td className="px-3 py-2 text-stone-200">{r.partyLabel || "—"}</td>
-                    <td className="px-3 py-2 text-stone-400">{r.issueDate}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-stone-200">{money(r.total)} {r.currency || ""}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2 text-stone-200">{r.partyLabel || "—"}</td>
+                    <td className="px-2 py-2 text-stone-400">{formatDate(r.issueDate)}</td>
+                    <td className={listMoneyCell}><span className="text-stone-200 text-[13px] font-medium">{fmt.money(r.total, r.currency ?? undefined)}</span></td>
+                    <td className="px-2 py-2">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 rounded-full bg-stone-800 overflow-hidden min-w-[60px]">
                           <div className={`h-full ${r.pct >= 100 ? "bg-emerald-500" : "bg-teal-500"}`} style={{ width: `${Math.min(100, r.pct)}%` }} />
@@ -132,14 +185,13 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                         )}
                         <a href={`/print/trade/${kind}/${r.id}`} target="_blank" rel="noopener noreferrer"
                           className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-stone-200" title={`Print ${meta.singular}`}><Printer size={12} /></a>
-                        <button onClick={() => del(r.id, r.docNumber)} disabled={busyId === r.id} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400 disabled:opacity-50" title={`Delete ${meta.singular}`}><Trash2 size={12} /></button>
+                        <button onClick={() => del(r.id, r.docNumber ?? "")} disabled={busyId === r.id} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400 disabled:opacity-50" title={`Delete ${meta.singular}`}><Trash2 size={12} /></button>
                       </div>
                     </td>
                   </tr>
                   {expanded === r.id && (
                     <tr className="bg-stone-950/40 border-b border-stone-800/60">
-                      <td></td>
-                      <td colSpan={6} className="px-3 py-2">
+                      <td colSpan={lv.columns.length + 1} className="px-3 py-2">
                         <div className="text-[11px] uppercase tracking-wider text-stone-600 mb-1">Related transactions</div>
                         {!links[r.id] ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={11} className="animate-spin" /> Loading…</div>
                           : links[r.id].length === 0 ? <div className="text-[12px] text-stone-600">No linked documents yet.</div>
@@ -160,19 +212,18 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                       </td>
                     </tr>
                   )}
-                </FragmentRow>
+                </Fragment>
               ))}
             </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun={meta.singular} trailing={1} />}
           </table>
-        </div>
-      </div>
+        </ListScroll>
+      )}
 
-      {modal && <ProgressModal kind={kind} meta={meta} doc={modal} onClose={() => setModal(null)} onDone={(m) => { setModal(null); setMsg(m); load(); if (expanded === modal.id) openLinks(modal.id, true); }} />}
-    </div>
+      {modal && <ProgressModal kind={kind} meta={meta} doc={modal} onClose={() => setModal(null)} onDone={(m: string) => { setModal(null); setMsg(m); load(); if (expanded === modal.id) openLinks(modal.id, true); }} />}
+    </ListPage>
   );
 }
-
-function FragmentRow({ children }: { children: React.ReactNode }) { return <>{children}</>; }
 
 function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
   const [lines, setLines] = useState<any[] | null>(null);

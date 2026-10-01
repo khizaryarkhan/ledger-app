@@ -26,6 +26,10 @@ import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
 import { Field, Section, SelectField, QtyUnitField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 type ProductType = ItemKind;
 
@@ -93,62 +97,59 @@ export function ProductsRegister() {
     return by;
   }, [rows]);
 
-  return (
-    <div className="p-6 max-w-6xl">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Boxes size={18} className="text-teal-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Products &amp; Services</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
-            <Plus size={14} /> New item
-          </button>
-        </div>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">
-        Your inventory register. <span className="text-emerald-400">Finished products</span> carry a base UoM and packaging SKUs; <span className="text-amber-400">raw materials</span> link to suppliers with their UoM and a conversion factor when units differ.
-      </p>
+  // Column definitions layer sort + a funnel filter per column on top of the
+  // page-level search box and type dropdown above — the type dropdown stays
+  // page-level because it carries per-kind counts a column filter can't show.
+  const PRODUCT_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "expand", label: "" },
+    { key: "name", label: "Item name", sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+    { key: "category", label: "Category", sort: r => r.category, filter: { kind: "multi", value: r => r.category } },
+    { key: "baseUom", label: "Base UoM", sort: r => r.baseUom, filter: { kind: "multi", value: r => r.baseUom } },
+    { key: "code", label: "Item code", sort: r => r.code, filter: { kind: "text", value: r => r.code } },
+    { key: "onHand", label: "On hand", align: "right", sort: r => (kindOf(r.productType).tracked ? r.onHandQty : null), descFirst: true },
+    { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  ], []);
+  const lv = useListView(filtered, PRODUCT_COLS, { storageKey: "products", defaultSort: "name" });
 
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
+  return (
+    <ListPage>
+      <ListPageHeader title="Products & Services" subtitle={<>Your inventory register. <span className="text-emerald-400">Finished products</span> carry a base UoM and packaging SKUs; <span className="text-amber-400">raw materials</span> link to suppliers with their UoM and a conversion factor when units differ.</>}>
+        <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, code or category…" className={`${inputCls} pl-9`} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, code or category…" className={`${inputCls} pl-9 w-56`} />
         </div>
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className={`${inputCls} max-w-[220px]`}>
           <option value="all">All types ({counts.all ?? 0})</option>
           {ITEM_KIND_LIST.map(m => <option key={m.kind} value={m.kind}>{m.label} ({counts[m.kind] ?? 0})</option>)}
         </select>
-      </div>
+        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
+          <Plus size={14} /> New item
+        </button>
+      </ListPageHeader>
 
       {showNew && <NewItemDrawer onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
 
-      <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[720px]">
-            <thead>
-              <tr className="border-b border-stone-800">
-                <th className="w-8" />
-                <th className={`${th} px-4`}>Item name</th>
-                <th className={`${th} px-4`}>Category</th>
-                <th className={`${th} px-4`}>Base UoM</th>
-                <th className={`${th} px-4`}>Item code</th>
-                <th className={`${th} px-4 text-right`}>On hand</th>
-                <th className={`${th} px-4`}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-              {rows !== null && filtered.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-500">No items yet — add one with the New item button.</td></tr>}
-              {filtered.map(r => (
-                <RowGroup key={r.id} item={r} open={expanded === r.id} onToggle={() => setExpanded(expanded === r.id ? null : r.id)} onChanged={load} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      {rows === null ? (
+        <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : (
+        <>
+          <ListToolbar lv={lv} noun="item" filtered={!!q.trim() || typeFilter !== "all"} />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty="No items yet — add one with the New item button.">
+            <table className={listTable}>
+              <ListHead lv={lv} />
+              <tbody>
+                {lv.rows.map((r: any) => (
+                  <RowGroup key={r.id} item={r} open={expanded === r.id} onToggle={() => setExpanded(expanded === r.id ? null : r.id)} onChanged={load} />
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="item" />}
+            </table>
+          </ListScroll>
+        </>
+      )}
+    </ListPage>
   );
 }
 

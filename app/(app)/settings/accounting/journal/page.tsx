@@ -12,6 +12,11 @@ import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Undo2, Scale, 
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
+import { fmt } from "@/lib/format";
+import {
+  useListView, ListToolbar, ListChips, ListScroll, ListHead, type ListColumn,
+  listTable, listRow, listCell, listNumCell,
+} from "@/components/list-view";
 
 type Line = {
   accountId: string; description: string; debit: string; credit: string;
@@ -20,7 +25,6 @@ type Line = {
 };
 type Entry = any;
 
-const money = (n: number) => new Intl.NumberFormat("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const emptyLine = (): Line => ({ accountId: "", description: "", debit: "", credit: "", classId: "", locationId: "", nameType: "", nameId: "", nameLabel: "" });
 
@@ -117,6 +121,27 @@ export default function JournalPage() {
   const locations = useMemo(() => dims.filter(d => ["Location", "Department"].includes(d.dimensionType)), [dims]);
   const accById   = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
 
+  // Entries list — funnel-filter/sort columns, board-style. No column here
+  // was previously filterable or sortable (the API returns them in a fixed
+  // order), so this is purely additive; nothing that worked before stops.
+  const entryRows = useMemo(() => entries.map(e => ({
+    ...e,
+    entryLabel: e.docNumber ?? `JE-${e.entryNumber}`,
+    total: (e.lines ?? []).reduce((s: number, l: any) => s + Number(l.debit || 0), 0),
+    sourceLabel: txnTypeLabel(e.sourceType),
+  })), [entries]);
+  const JOURNAL_COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "entry",  label: "Entry",  sort: r => r.entryLabel, filter: { kind: "text", value: r => r.entryLabel } },
+    { key: "date",   label: "Date",   sort: r => r.entryDate },
+    { key: "memo",   label: "Memo",   sort: r => r.memo, filter: { kind: "text", value: r => r.memo } },
+    { key: "source", label: "Source", sort: r => r.sourceLabel, filter: { kind: "multi", value: r => r.sourceLabel } },
+    { key: "amount", label: "Amount", align: "right", sort: r => r.total, descFirst: true },
+    { key: "status", label: "Status", sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  ], []);
+  // No defaultSort: the API's own row order is what this screen has always
+  // shown, and column sort here is new — an addition, not a replacement.
+  const jlv = useListView(entryRows, JOURNAL_COLS, { storageKey: "journal-entries" });
+
   const totals = useMemo(() => {
     const dr = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const cr = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
@@ -208,7 +233,10 @@ export default function JournalPage() {
     await load();
   }
 
-  const thCls = "px-3 py-2 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-left whitespace-nowrap";
+  // Matches list-view.tsx's (unexported) header-cell style — the Trial
+  // Balance report table stays hand-rolled (it's a fixed, unfilterable
+  // account-order report, not a funnel-filter list) but reads consistently.
+  const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-left";
   const inputCls = "w-full text-[12px] border border-stone-700 rounded-lg px-2 py-1.5 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
 
   return (
@@ -252,66 +280,67 @@ export default function JournalPage() {
               <p className="text-stone-500 text-sm">No journal entries yet — post your first with the button above.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-stone-800">
-              <table className="w-full text-sm min-w-[640px]">
-                <thead className="bg-stone-900">
-                  <tr className="border-b border-stone-800">
-                    <th className={thCls}>Entry</th><th className={thCls}>Date</th><th className={thCls}>Memo</th><th className={thCls}>Source</th><th className={`${thCls} text-right`}>Amount</th><th className={thCls}>Status</th><th className={`${thCls} text-right`}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map(e => {
-                    const total = (e.lines ?? []).reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
-                    const expanded = openId === e.id;
-                    return (
-                      <FragmentRow key={e.id}>
-                        <tr className={`border-b border-stone-800/60 hover:bg-stone-900/50 cursor-pointer ${e.status === "Reversed" ? "opacity-50" : ""}`}
-                          onClick={() => setOpenId(expanded ? null : e.id)}>
-                          <td className="px-3 py-2 font-mono text-[12px] text-stone-300">
-                            <div>{e.docNumber ?? `JE-${e.entryNumber}`}</div>
-                            {e.txnNo != null && <div className="text-[10px] text-stone-600" title="Backend Transaction ID">{formatTxnId(e.txnNo)}</div>}
-                          </td>
-                          <td className="px-3 py-2 text-[12px] text-stone-400 whitespace-nowrap">{e.entryDate}</td>
-                          <td className="px-3 py-2 text-[13px] text-stone-300 max-w-[280px] truncate">{e.memo ?? "—"}</td>
-                          <td className="px-3 py-2">
-                            <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${e.sourceType === "Manual" ? "bg-stone-800 text-stone-400 border-stone-700" : e.sourceType === "Reversal" ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-sky-500/10 text-sky-400 border-sky-800"}`}>{txnTypeLabel(e.sourceType)}</span>
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold text-white tabular-nums">{money(total)}</td>
-                          <td className="px-3 py-2 text-[12px]">
-                            {e.status === "Reversed"
-                              ? <span className="text-amber-500">Reversed</span>
-                              : <span className="text-emerald-500">Posted</span>}
-                          </td>
-                          <td className="px-3 py-2 text-right whitespace-nowrap" onClick={ev => ev.stopPropagation()}>
-                            {e.status === "Posted" && e.sourceType !== "Reversal" && (
-                              <button onClick={() => reverse(e)} title="Reverse this entry"
-                                className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-amber-400">
-                                <Undo2 size={12} /> Reverse
-                              </button>
-                            )}
-                            <button onClick={() => setOpenId(expanded ? null : e.id)} className="ml-2 text-stone-600 hover:text-stone-300">
-                              {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                            </button>
-                          </td>
-                        </tr>
-                        {expanded && (
-                          <tr className="bg-stone-900/40 border-b border-stone-800">
-                            <td colSpan={7} className="px-6 py-3">
-                              <table className="w-full text-[12px]">
-                                <thead>
-                                  <tr className="text-stone-600 text-[10px] uppercase tracking-wider">
-                                    <th className="text-left py-1">Account</th><th className="text-left py-1">Description</th><th className="text-right py-1">Debit</th><th className="text-right py-1">Credit</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(e.lines ?? []).map((l: any) => (
-                                    <tr key={l.id} className="border-t border-stone-800/50">
-                                      <td className="py-1.5 text-stone-300">{(accById.get(l.accountId) as any)?.name ?? l.accountId}</td>
-                                      <td className="py-1.5 text-stone-500">{l.description ?? "—"}</td>
-                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.debit) > 0 ? money(Number(l.debit)) : ""}</td>
-                                      <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.credit) > 0 ? money(Number(l.credit)) : ""}</td>
-                                    </tr>
-                                  ))}
+            <>
+              <div className="rounded-t-xl border border-b-0 border-stone-800 overflow-hidden">
+                <ListToolbar lv={jlv} noun="entry" plural="entries" />
+                <ListChips lv={jlv} />
+              </div>
+              <ListScroll lv={jlv} empty="No journal entries match the current filters.">
+                <div className="overflow-x-auto rounded-b-xl border border-stone-800">
+                  <table className={listTable}>
+                    <ListHead lv={jlv} trailing={<th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Actions</th>} />
+                    <tbody>
+                      {jlv.rows.map(e => {
+                        const expanded = openId === e.id;
+                        return (
+                          <FragmentRow key={e.id}>
+                            <tr className={`${listRow()} cursor-pointer ${e.status === "Reversed" ? "opacity-50" : ""}`}
+                              onClick={() => setOpenId(expanded ? null : e.id)}>
+                              <td className={`${listCell} font-mono text-[12px] text-stone-300`}>
+                                <div>{e.entryLabel}</div>
+                                {e.txnNo != null && <div className="text-[10px] text-stone-600" title="Backend Transaction ID">{formatTxnId(e.txnNo)}</div>}
+                              </td>
+                              <td className={`${listCell} text-[12px] text-stone-400 whitespace-nowrap`}>{e.entryDate}</td>
+                              <td className={`${listCell} text-[13px] text-stone-300 max-w-[280px] truncate`}>{e.memo ?? "—"}</td>
+                              <td className={listCell}>
+                                <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${e.sourceType === "Manual" ? "bg-stone-800 text-stone-400 border-stone-700" : e.sourceType === "Reversal" ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-sky-500/10 text-sky-400 border-sky-800"}`}>{e.sourceLabel}</span>
+                              </td>
+                              <td className={`${listNumCell} font-semibold text-white`}>{fmt.num2(e.total)}</td>
+                              <td className={`${listCell} text-[12px]`}>
+                                {e.status === "Reversed"
+                                  ? <span className="text-amber-500">Reversed</span>
+                                  : <span className="text-emerald-500">Posted</span>}
+                              </td>
+                              <td className={`${listCell} text-right whitespace-nowrap`} onClick={ev => ev.stopPropagation()}>
+                                {e.status === "Posted" && e.sourceType !== "Reversal" && (
+                                  <button onClick={() => reverse(e)} title="Reverse this entry"
+                                    className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-amber-400">
+                                    <Undo2 size={12} /> Reverse
+                                  </button>
+                                )}
+                                <button onClick={() => setOpenId(expanded ? null : e.id)} className="ml-2 text-stone-600 hover:text-stone-300">
+                                  {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                </button>
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr className="bg-stone-900/40 border-b border-stone-800">
+                                <td colSpan={7} className="px-6 py-3">
+                                  <table className="w-full text-[12px]">
+                                    <thead>
+                                      <tr className="text-stone-600 text-[10px] uppercase tracking-wider">
+                                        <th className="text-left py-1">Account</th><th className="text-left py-1">Description</th><th className="text-right py-1">Debit</th><th className="text-right py-1">Credit</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {(e.lines ?? []).map((l: any) => (
+                                        <tr key={l.id} className="border-t border-stone-800/50">
+                                          <td className="py-1.5 text-stone-300">{(accById.get(l.accountId) as any)?.name ?? l.accountId}</td>
+                                          <td className="py-1.5 text-stone-500">{l.description ?? "—"}</td>
+                                          <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.debit) > 0 ? fmt.num2(Number(l.debit)) : ""}</td>
+                                          <td className="py-1.5 text-right tabular-nums text-stone-200">{Number(l.credit) > 0 ? fmt.num2(Number(l.credit)) : ""}</td>
+                                        </tr>
+                                      ))}
                                 </tbody>
                               </table>
                             </td>
@@ -320,9 +349,11 @@ export default function JournalPage() {
                       </FragmentRow>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
+                    </tbody>
+                  </table>
+                </div>
+              </ListScroll>
+            </>
           )
         )}
 
@@ -346,7 +377,7 @@ export default function JournalPage() {
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-stone-800">
-                <table className="w-full text-sm min-w-[560px]">
+                <table className={`${listTable} min-w-[560px]`}>
                   <thead className="bg-stone-900">
                     <tr className="border-b border-stone-800">
                       <th className={thCls}>Account</th><th className={thCls}>Type</th><th className={`${thCls} text-right`}>Debit</th><th className={`${thCls} text-right`}>Credit</th>
@@ -354,17 +385,17 @@ export default function JournalPage() {
                   </thead>
                   <tbody>
                     {tb.lines.map((l: any) => (
-                      <tr key={l.accountId} className="border-b border-stone-800/60">
-                        <td className="px-3 py-2 text-stone-200">{l.code ? <span className="font-mono text-[11px] text-stone-500 mr-2">{l.code}</span> : null}{l.name}</td>
-                        <td className="px-3 py-2 text-[12px] text-stone-500">{l.type ?? "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.debit > 0 ? money(l.debit) : ""}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-stone-200">{l.credit > 0 ? money(l.credit) : ""}</td>
+                      <tr key={l.accountId} className={listRow()}>
+                        <td className={`${listCell} text-stone-200`}>{l.code ? <span className="font-mono text-[11px] text-stone-500 mr-2">{l.code}</span> : null}{l.name}</td>
+                        <td className={`${listCell} text-[12px] text-stone-500`}>{l.type ?? "—"}</td>
+                        <td className={`${listNumCell} text-stone-200`}>{l.debit > 0 ? fmt.num2(l.debit) : ""}</td>
+                        <td className={`${listNumCell} text-stone-200`}>{l.credit > 0 ? fmt.num2(l.credit) : ""}</td>
                       </tr>
                     ))}
                     <tr className="bg-stone-900 font-bold">
                       <td className="px-3 py-2.5 text-white" colSpan={2}>TOTAL</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{money(tb.totalDebit)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{money(tb.totalCredit)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{fmt.num2(tb.totalDebit)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-white">{fmt.num2(tb.totalCredit)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -513,10 +544,10 @@ export default function JournalPage() {
                 <div className="flex items-center justify-between px-3 py-2 bg-stone-950/60 border-t border-stone-800">
                   <button onClick={() => setLines(p => [...p, emptyLine()])} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">+ Add line</button>
                   <div className="flex items-center gap-4 text-[12px] tabular-nums">
-                    <span className="text-stone-500">Debits <span className="text-stone-200 font-semibold ml-1">{money(totals.dr)}</span></span>
-                    <span className="text-stone-500">Credits <span className="text-stone-200 font-semibold ml-1">{money(totals.cr)}</span></span>
+                    <span className="text-stone-500">Debits <span className="text-stone-200 font-semibold ml-1">{fmt.num2(totals.dr)}</span></span>
+                    <span className="text-stone-500">Credits <span className="text-stone-200 font-semibold ml-1">{fmt.num2(totals.cr)}</span></span>
                     <span className={`font-semibold px-2 py-0.5 rounded-full text-[11px] border ${balanced ? "text-emerald-400 bg-emerald-500/10 border-emerald-800" : "text-rose-400 bg-rose-500/10 border-rose-900"}`}>
-                      {balanced ? "Balanced ✓" : `Off by ${money(Math.abs(totals.dr - totals.cr))}`}
+                      {balanced ? "Balanced ✓" : `Off by ${fmt.num2(Math.abs(totals.dr - totals.cr))}`}
                     </span>
                   </div>
                 </div>

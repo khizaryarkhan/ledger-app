@@ -12,6 +12,7 @@ import {
 import { Card, Badge, Button, Modal } from "@/components/ui";
 import { Drawer } from "@/components/form-kit";
 import { fmt, sourceLabel, sourceBadgeVariant } from "@/lib/format";
+import { listRow, listMoneyCell, listNumCell } from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -585,49 +586,43 @@ export default function BillDetailPage() {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Description</th>
-                  <th className="px-4 py-2 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Qty</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Unit Price</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">Account / Item</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Ex. Tax</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Tax</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Inc. Tax</th>
+              <thead className="sticky top-0 bg-stone-900 z-10">
+                <tr className="border-b border-stone-800 text-left">
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Description</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-center">Qty</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Unit Price</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Account / Item</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Ex. Tax</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Tax</th>
+                  <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right border-l border-stone-800">Inc. Tax</th>
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-stone-500 text-sm italic">No line items available.</td>
+                    <td colSpan={7} className="px-2 py-8 text-center text-stone-500 text-sm italic">No line items available.</td>
                   </tr>
                 ) : (
                   lines.map(item => (
-                    <tr key={item.id} className="border-b border-stone-800 hover:bg-stone-800/30">
-                      <td className="px-4 py-2.5 text-stone-200">{item.description || "—"}</td>
-                      <td className="px-4 py-2.5 text-center text-stone-300 tabular-nums">{item.quantity}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.unitPrice, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-stone-400 text-xs">{item.accountName || item.itemName || item.accountId || "—"}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums">{fmt.money(item.lineSubtotal, bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums">{fmt.money(getLineTax(item), bill.currency)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums">{fmt.money(getLineIncTax(item), bill.currency)}</td>
+                    <tr key={item.id} className={listRow()}>
+                      <td className="px-2 py-2 text-stone-200 text-[13px]">{item.description || "—"}</td>
+                      <td className={`${listNumCell} text-center text-stone-300`}>{item.quantity}</td>
+                      <td className={`${listNumCell} text-stone-300`}>{fmt.money(item.unitPrice, bill.currency)}</td>
+                      <td className="px-2 py-2 text-stone-400 text-[12px]">{item.accountName || item.itemName || item.accountId || "—"}</td>
+                      <td className={`${listNumCell} text-stone-300`}>{fmt.money(item.lineSubtotal, bill.currency)}</td>
+                      <td className={`${listNumCell} text-stone-400`}>{fmt.money(getLineTax(item), bill.currency)}</td>
+                      <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmt.money(getLineIncTax(item), bill.currency)}</span></td>
                     </tr>
                   ))
                 )}
               </tbody>
               {lines.length > 0 && (
                 <tfoot>
-                  <tr className="border-t border-stone-700 bg-stone-900/80">
-                    <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">Totals</td>
-                    <td className="px-4 py-2.5 text-right text-stone-300 tabular-nums font-semibold">
-                      {fmt.money(bill.subtotal, bill.currency)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-stone-400 tabular-nums font-semibold">
-                      {fmt.money(bill.taxTotal, bill.currency)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-bold text-white tabular-nums">
-                      {fmt.money(bill.total, bill.currency)}
-                    </td>
+                  <tr className="border-t-2 border-stone-800 bg-stone-900/60 font-semibold">
+                    <td colSpan={4} className="px-2 py-2.5 text-right text-[12px] text-stone-400">Totals</td>
+                    <td className={listNumCell}><span className="text-stone-300">{fmt.money(bill.subtotal, bill.currency)}</span></td>
+                    <td className={listNumCell}><span className="text-stone-400">{fmt.money(bill.taxTotal, bill.currency)}</span></td>
+                    <td className={listMoneyCell}><span className="text-white text-[13px]">{fmt.money(bill.total, bill.currency)}</span></td>
                   </tr>
                 </tfoot>
               )}

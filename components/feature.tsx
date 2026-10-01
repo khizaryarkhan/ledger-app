@@ -733,7 +733,7 @@ function EventDetail({ meta, eventType }: { meta: any; eventType: string }) {
         </span>
         {meta.invoiceNo && <span className="text-stone-400 text-[11px]">· {meta.invoiceNo}</span>}
         {isPaid && <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 font-medium">Fully Paid</span>}
-        {!isPaid && <span className="text-[11px] text-stone-400">({fmt.money(Number(meta.totalPaid), meta.currency)} of {meta.currency}{Number(meta.invoiceTotal).toFixed(2)})</span>}
+        {!isPaid && <span className="text-[11px] text-stone-400">({fmt.money(Number(meta.totalPaid), meta.currency)} of {meta.currency}{fmt.num2(Number(meta.invoiceTotal))})</span>}
       </span>
     );
   }

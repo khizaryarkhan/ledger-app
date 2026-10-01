@@ -1,11 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import Link from "next/link";
-import { Card, Badge, Input, Select, Button, EmptyState } from "@/components/ui";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui";
 import { fmt, formatDate, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { Search, Receipt, X, CalendarDays, AlertCircle } from "lucide-react";
+import { Search, AlertCircle, X } from "lucide-react";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 
 const WORKFLOW_STATUSES = [
   "Pending Review",
@@ -69,6 +73,7 @@ interface Bill {
   workflowStatus: WorkflowStatus;
   qboId: string | null;
   xeroId: string | null;
+  source?: string;
   createdAt: string;
 }
 
@@ -112,14 +117,31 @@ function daysOverdue(bill: Bill): number {
   return Math.floor(diff / 86_400_000);
 }
 
+// ── Column definitions — sort + funnel filter per column, board-style ─────────
+// Workflow/Accounting status used to be header selects; there is no card view
+// here, so (as on invoices/page.tsx) they move to column filters only. Bill
+// date keeps its own header period control, same custom-range logic as
+// invoices.tsx's invoice-date filter.
+const BILL_COLS: ListColumn<any>[] = [
+  { key: "billNumber", label: "Bill #",     sort: r => r.billNumber ?? "", filter: { kind: "text", value: r => r.billNumber } },
+  { key: "supplier",   label: "Supplier",   sort: r => r.supplierName ?? "", filter: { kind: "multi", value: r => r.supplierName } },
+  { key: "billDate",   label: "Bill Date",  sort: r => r.billDate },
+  { key: "dueDate",    label: "Due Date",   sort: r => r.dueDate },
+  { key: "accounting", label: "Accounting", sort: r => r.accountingStatus, filter: { kind: "multi", value: r => r.accountingStatus } },
+  { key: "workflow",   label: "Workflow",   sort: r => r.workflowStatus, filter: { kind: "multi", value: r => r.workflowStatus } },
+  { key: "total",      label: "Total",      sort: r => Number(r.total ?? 0), descFirst: true, align: "right",
+    money: r => ({ amount: Number(r.total ?? 0), currency: r.currency }) },
+  { key: "balance",    label: "Balance",    sort: r => Number(r.balance ?? 0), descFirst: true, align: "right",
+    money: r => ({ amount: Number(r.balance ?? 0), currency: r.currency }) },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BillsPage() {
+  const router = useRouter();
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [workflowFilter, setWorkflowFilter] = useState("");
-  const [accountingFilter, setAccountingFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkChanging, setBulkChanging] = useState(false);
 
@@ -199,47 +221,52 @@ export default function BillsPage() {
         (b.supplierName || "").toLowerCase().includes(s)
       );
     }
-    if (workflowFilter)   rows = rows.filter(b => b.workflowStatus === workflowFilter);
-    if (accountingFilter) rows = rows.filter(b => b.accountingStatus === accountingFilter);
-
     return rows;
-  }, [enriched, periodFrom, periodTo, search, workflowFilter, accountingFilter]);
+  }, [enriched, periodFrom, periodTo, search]);
 
-  const BILL_COLS: ColDef[] = [
-    { key: "billNumber",   label: "Bill #",      sortValue: r => r.billNumber ?? "", filterLabel: r => r.billNumber ?? "" },
-    { key: "supplier",     label: "Supplier",    sortValue: r => r.supplierName ?? "", filterLabel: r => r.supplierName ?? "(Unknown)" },
-    { key: "billDate",     label: "Bill Date",   sortValue: r => r.billDate ?? "" },
-    { key: "dueDate",      label: "Due Date",    sortValue: r => r.dueDate ?? "" },
-    { key: "accounting",   label: "Accounting",  sortValue: r => r.accountingStatus ?? "", filterLabel: r => r.accountingStatus ?? "" },
-    { key: "workflow",     label: "Workflow",    sortValue: r => r.workflowStatus ?? "", filterLabel: r => r.workflowStatus ?? "" },
-    { key: "total",        label: "Total",       sortValue: r => r.total ?? 0, align: "right" as const, noFilter: true },
-    { key: "balance",      label: "Balance",     sortValue: r => r.balance ?? 0, align: "right" as const, noFilter: true },
-  ];
-  const dt = useDataTable(filtered, BILL_COLS);
+  const lv = useListView(filtered, BILL_COLS, { storageKey: "payables-bills", defaultSort: "dueDate", defaultDir: "asc", summary: "balance" });
 
-  const allSelected = filtered.length > 0 && filtered.every(b => selected.has(b.id));
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((b: any) => b.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
+
+  const allSelected = lv.rows.length > 0 && lv.rows.every((b: any) => selected.has(b.id));
   const someSelected = selected.size > 0;
-  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map(b => b.id)));
+  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(lv.rows.map((b: any) => b.id)));
   const toggleOne = (id: string) => setSelected(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
 
+  const pageFiltered = !!search;
+
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Bills</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {dt.rows.length} bill{dt.rows.length !== 1 ? "s" : ""}
-            <span className="text-stone-400"> · {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</span>
-          </p>
+    <ListPage>
+      <ListPageHeader title="Bills"
+        subtitle={<>{lv.rows.length} bill{lv.rows.length !== 1 ? "s" : ""} · Bill date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search bill #, supplier…"
+            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
         </div>
-      </div>
+        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Bill date period" className="w-auto h-8 text-xs">
+          {PERIODS.map(p => <option key={p.id} value={p.id}>Bill date: {p.label}</option>)}
+        </SelectField>
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
+              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
+            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
+              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
+          </>
+        )}
+      </ListPageHeader>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-800 bg-rose-500/10 text-rose-400 text-sm shrink-0">
           <AlertCircle size={14} />
           {error}
           <button onClick={load} className="ml-auto text-rose-300 hover:text-white underline text-xs">Retry</button>
@@ -248,163 +275,72 @@ export default function BillsPage() {
 
       {/* Bulk action bar */}
       {someSelected && (
-        <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white rounded-lg flex-wrap">
-          <span className="text-sm font-medium">{selected.size} selected</span>
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
+          <span className="text-[13px] font-medium">{selected.size} selected</span>
           <div className="flex-1" />
-          <select
-            value=""
-            disabled={bulkChanging}
-            onChange={(e) => { const s = e.target.value; e.target.value = ""; handleBulkStatusChange(s); }}
-            className="bg-stone-700 text-white text-xs rounded-md px-2.5 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-stone-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <SelectField value="" disabled={bulkChanging} aria-label="Change status of the selected bills"
+            onChange={(e) => { const s = e.target.value; handleBulkStatusChange(s); }}
+            className="w-auto min-w-[150px] h-8 text-[12px]">
             <option value="" disabled>{bulkChanging ? "Updating…" : "Change status…"}</option>
             {WORKFLOW_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1 rounded">
-            <X size={14} />
-          </button>
+          </SelectField>
+          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
         </div>
       )}
 
-      <Card padding="none">
-        {/* ── Date period picker ── */}
-        <div className="px-3 py-2.5 border-b border-stone-800 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 text-[11px] text-stone-400 font-medium shrink-0">
-            <CalendarDays size={13} />
-            Bill date
-          </div>
-          <div className="flex items-center gap-0.5 bg-stone-800 p-0.5 rounded-lg">
-            {PERIODS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  period === p.id ? "bg-stone-700 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {period === "custom" && (
-            <div className="flex items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-lg px-3 py-1.5">
-              <span className="text-[11px] text-stone-400 font-medium">From</span>
-              <input type="date" value={customFrom} max={customTo}
-                onChange={e => setCustomFrom(e.target.value)}
-                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
-              <span className="text-[11px] text-stone-400 font-medium ml-1">To</span>
-              <input type="date" value={customTo} min={customFrom} max={todayStr}
-                onChange={e => setCustomTo(e.target.value)}
-                className="text-xs text-stone-300 border-none outline-none bg-transparent cursor-pointer" />
-            </div>
-          )}
-        </div>
+      <ListToolbar lv={lv} noun="bill" selected={selected.size} filtered={pageFiltered} />
+      <ListChips lv={lv} />
 
-        {/* ── Search + filters ── */}
-        <div className="p-3 border-b border-stone-800 flex items-center gap-2 flex-wrap">
-          <Input value={search} onChange={(e: any) => setSearch(e.target.value)}
-            placeholder="Search bill #, supplier…" icon={Search} className="w-72" />
-          <Select value={workflowFilter} onChange={(e: any) => setWorkflowFilter(e.target.value)}
-            placeholder="All workflow statuses"
-            options={["Synced from Accounting","Pending Review","Pending Approval","Approved","On Hold","Ready for Payment","Rejected","Scheduled","Paid"]} />
-          <Select value={accountingFilter} onChange={(e: any) => setAccountingFilter(e.target.value)}
-            placeholder="All accounting statuses"
-            options={["Unpaid","Partially Paid","Paid","Voided"]} />
-          {(search || workflowFilter || accountingFilter) && (
-            <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setWorkflowFilter(""); setAccountingFilter(""); }}>Clear</Button>
-          )}
+      {loading ? (
+        <div className="flex-1 overflow-auto p-5 space-y-2">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-10 bg-stone-800 rounded animate-pulse" />
+          ))}
         </div>
-        <ActiveFiltersBar dt={dt} cols={BILL_COLS} />
-
-        {/* ── Table ── */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-5 space-y-2">
-              {[...Array(8)].map((_, i) => (
-                <div key={i} className="h-10 bg-stone-800 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-3 py-2.5 w-10">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                      className="rounded border-stone-300 cursor-pointer" />
-                  </th>
-                  {BILL_COLS.map(col => (
-                    <ColHeader key={col.key} col={col} dt={dt}
-                      className={col.align === "right" ? "text-right" : "text-left"} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((bill: any) => (
-                  <tr key={bill.id}
-                    className={`border-b border-stone-800 hover:bg-stone-800/50 ${selected.has(bill.id) ? "bg-violet-500/10" : ""}`}>
-                    <td className="px-3 py-2.5 w-10">
-                      <input type="checkbox" checked={selected.has(bill.id)} onChange={() => toggleOne(bill.id)}
-                        className="rounded border-stone-300 cursor-pointer" onClick={e => e.stopPropagation()} />
+      ) : (
+        <ListScroll lv={lv} empty={bills.length === 0 ? "Use the Sync button in the top bar (or Settings → Integrations) to import bills." : "No bills match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((bill: any) => {
+                const isSel = selected.has(bill.id);
+                return (
+                  <tr key={bill.id} onClick={() => router.push(`/payables/bills/${bill.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
+                    <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(bill.id)} className={listCheckbox} aria-label={`Select bill ${bill.billNumber ?? bill.id}`} />
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[12px]">
-                      <Link href={`/payables/bills/${bill.id}`} className="flex items-center gap-1.5 text-violet-400 hover:text-violet-300">
-                        <span>{bill.billNumber || <span className="text-stone-600 italic">No #</span>}</span>
+                    <td className="px-2 py-2 font-mono text-[12px] whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5 text-violet-400">
+                        {bill.billNumber || <span className="text-stone-600 italic">No #</span>}
                         <Badge variant={sourceBadgeVariant(bill.source)} size="sm">{sourceLabel(bill.source)}</Badge>
-                      </Link>
+                      </span>
                     </td>
-                    <td className="px-3 py-2.5 font-medium text-white">
-                      <Link href={`/payables/bills/${bill.id}`} className="block w-full truncate max-w-[180px]">
-                        {bill.supplierName || <span className="text-stone-500 italic">Unknown</span>}
-                      </Link>
+                    <td className="px-2 py-2 font-medium text-white text-[13px] max-w-[180px] truncate" title={bill.supplierName ?? ""}>
+                      {bill.supplierName || <span className="text-stone-500 italic">Unknown</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-stone-400 text-[12px] whitespace-nowrap">
-                      <Link href={`/payables/bills/${bill.id}`} className="block w-full">
-                        {bill.billDate ? formatDate(bill.billDate, "DD MMM YYYY") : "—"}
-                      </Link>
+                    <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">
+                      {bill.billDate ? formatDate(bill.billDate, "DD MMM YYYY") : "—"}
                     </td>
-                    <td className="px-3 py-2.5 text-[12px] whitespace-nowrap">
-                      <Link href={`/payables/bills/${bill.id}`} className="block w-full">
-                        <span className={bill.overdue ? "text-rose-400 font-medium" : "text-stone-300"}>
-                          {bill.dueDate ? formatDate(bill.dueDate, "DD MMM YYYY") : "—"}
-                        </span>
-                        {bill.overdue && bill.daysOvr > 0 && (
-                          <span className="ml-1 text-[11px] text-rose-600 font-medium">+{bill.daysOvr}d</span>
-                        )}
-                      </Link>
+                    <td className="px-2 py-2 text-[12px] whitespace-nowrap">
+                      <span className={bill.overdue ? "text-rose-400 font-medium" : "text-stone-300"}>
+                        {bill.dueDate ? formatDate(bill.dueDate, "DD MMM YYYY") : "—"}
+                      </span>
+                      {bill.overdue && bill.daysOvr > 0 && (
+                        <span className="ml-1 text-[11px] text-rose-600 font-medium">+{bill.daysOvr}d</span>
+                      )}
                     </td>
-                    <td className="px-3 py-2.5">
-                      <Link href={`/payables/bills/${bill.id}`}>
-                        <Badge variant={accountingBadge(bill.accountingStatus)}>{bill.accountingStatus}</Badge>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Link href={`/payables/bills/${bill.id}`}>
-                        <Badge variant={workflowBadge(bill.workflowStatus)}>{bill.workflowStatus}</Badge>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums text-[13px]">
-                      <Link href={`/payables/bills/${bill.id}`} className="block w-full">
-                        {fmt.money(bill.total, bill.currency)}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-white tabular-nums text-[13px]">
-                      <Link href={`/payables/bills/${bill.id}`} className="block w-full">
-                        {fmt.money(bill.balance, bill.currency)}
-                      </Link>
-                    </td>
+                    <td className="px-2 py-2"><Badge variant={accountingBadge(bill.accountingStatus)} size="sm">{bill.accountingStatus}</Badge></td>
+                    <td className="px-2 py-2"><Badge variant={workflowBadge(bill.workflowStatus)} size="sm">{bill.workflowStatus}</Badge></td>
+                    <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-stone-400 text-[12px]">{fmt.money(bill.total, bill.currency)}</td>
+                    <td className={listMoneyCell}><span className="font-medium text-stone-300 text-[13px]">{fmt.money(bill.balance, bill.currency)}</span></td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {!loading && filtered.length === 0 && (
-            <EmptyState icon={Receipt} title="No bills found"
-              description={bills.length === 0
-                ? "Use the Sync button in the top bar (or Settings → Integrations) to import bills."
-                : "Try adjusting your filters."} />
-          )}
-        </div>
-      </Card>
-    </div>
+                );
+              })}
+            </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="bill" selectable />}
+          </table>
+        </ListScroll>
+      )}
+    </ListPage>
   );
 }

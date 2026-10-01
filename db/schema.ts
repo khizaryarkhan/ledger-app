@@ -69,6 +69,14 @@ export const organisations = pgTable("organisations", {
   // on pre-auth pages only (login, etc — see middleware.ts + app/login/page.tsx).
   // NULL = no custom subdomain, org just uses the default app.
   subdomain: varchar("subdomain", { length: 63 }),
+  // Whose books are authoritative for this org — 'native' | 'qbo' | 'xero'.
+  // Previously guessed two different, disagreeing ways: isSyncedOrg() (by
+  // chart source) and detectProvider() (by which token exists) — they already
+  // disagreed for one real tenant that holds a Xero token but keeps its books
+  // natively. This column is the single explicit answer; see
+  // lib/accounting/ledger-authority.ts. A platform admin sets it on
+  // /admin/customers/[orgId]; it defaults to 'native' for a brand-new org.
+  bookOfRecord: varchar("book_of_record", { length: 16 }).notNull().default("native"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({

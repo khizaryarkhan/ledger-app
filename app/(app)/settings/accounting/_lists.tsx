@@ -12,6 +12,8 @@ import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent, Tags, Sparkles } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { Drawer } from "@/components/form-kit";
+import { fmt } from "@/lib/format";
+import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 
 // ── QBO taxonomy ────────────────────────────────────────────────────────────
 const ACCOUNT_TYPES: Record<string, string[]> = {
@@ -242,7 +244,9 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
 
   const inputCls = "w-full text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
   const labelCls = "block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1";
-  const thCls = "px-3 py-2 text-[11px] font-semibold text-stone-500 uppercase tracking-wider text-left whitespace-nowrap";
+  // Matches list-view.tsx's (unexported) header-cell style, so this hand-rolled
+  // table reads as the same design system as the funnel-filter tables.
+  const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-left";
 
   const isSyncedEdit = editRec && editRec !== "new" && (editRec as Rec).source !== "native";
 
@@ -317,7 +321,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-stone-800">
-            <table className="w-full text-sm min-w-[640px]">
+            <table className={`${listTable} min-w-[640px]`}>
               {/* ── Chart of Accounts ── */}
               {tab === "accounts" && (
                 <>
@@ -331,16 +335,16 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                       <Frag key={g.group}>
                         <tr className="bg-stone-900/70"><td colSpan={6} className="px-3 py-1.5 text-[11px] font-bold text-stone-400 uppercase tracking-wider">{g.group}</td></tr>
                         {g.rows.map(r => (
-                          <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                            <td className="px-3 py-2 text-stone-200 font-medium">
+                          <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                            <td className={`${listCell} text-stone-200 font-medium`}>
                               {r.name}
                               {r.isSystem && <span className="ml-2 align-middle text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-700/60 text-stone-300 border border-stone-600">System</span>}
                             </td>
-                            <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
-                            <td className="px-3 py-2 text-stone-400 text-[12px]">{r.type ?? "—"}</td>
-                            <td className="px-3 py-2 text-stone-500 text-[12px]">{r.subtype ?? "—"}</td>
-                            <td className="px-3 py-2">{sourceBadge(r.source)}</td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <td className={`${listCell} text-stone-500 font-mono text-[12px]`}>{r.code ?? "—"}</td>
+                            <td className={`${listCell} text-stone-400 text-[12px]`}>{r.type ?? "—"}</td>
+                            <td className={`${listCell} text-stone-500 text-[12px]`}>{r.subtype ?? "—"}</td>
+                            <td className={listCell}>{sourceBadge(r.source)}</td>
+                            <td className={`${listCell} text-right whitespace-nowrap`}>
                               <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
                             </td>
                           </tr>
@@ -361,18 +365,18 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   </thead>
                   <tbody>
                     {rows.map(r => (
-                      <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                        <td className="px-3 py-2">
+                      <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                        <td className={listCell}>
                           <div className="text-stone-200 font-medium">{r.name}</div>
                           {r.description && <div className="text-[11px] text-stone-600 max-w-[280px] truncate">{r.description}</div>}
                         </td>
-                        <td className="px-3 py-2 text-stone-400 text-[12px]">{r.itemType ?? "Service"}</td>
-                        <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
-                        <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{r.unitPrice != null ? Number(r.unitPrice).toFixed(2) : "—"}</td>
-                        <td className="px-3 py-2 text-right text-stone-400 tabular-nums">{r.unitCost != null ? Number(r.unitCost).toFixed(2) : "—"}</td>
-                        <td className="px-3 py-2 text-stone-500 text-[12px] max-w-[160px] truncate">{acctName(r.incomeAccountId)}</td>
-                        <td className="px-3 py-2">{sourceBadge(r.source)}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <td className={`${listCell} text-stone-400 text-[12px]`}>{r.itemType ?? "Service"}</td>
+                        <td className={`${listCell} text-stone-500 font-mono text-[12px]`}>{r.code ?? "—"}</td>
+                        <td className={`${listNumCell} text-stone-300`}>{r.unitPrice != null ? fmt.num2(r.unitPrice) : "—"}</td>
+                        <td className={`${listNumCell} text-stone-400`}>{r.unitCost != null ? fmt.num2(r.unitCost) : "—"}</td>
+                        <td className={`${listCell} text-stone-500 text-[12px] max-w-[160px] truncate`}>{acctName(r.incomeAccountId)}</td>
+                        <td className={listCell}>{sourceBadge(r.source)}</td>
+                        <td className={`${listCell} text-right whitespace-nowrap`}>
                           <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
                         </td>
                       </tr>
@@ -391,14 +395,14 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   </thead>
                   <tbody>
                     {[...rows].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")).map(r => (
-                      <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                        <td className="px-3 py-2 text-stone-200 font-medium">
+                      <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                        <td className={`${listCell} text-stone-200 font-medium`}>
                           {r.parentId && <span className="text-stone-600 mr-1">└</span>}
                           {r.name}
                         </td>
-                        <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
-                        <td className="px-3 py-2">{sourceBadge(r.source)}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <td className={`${listCell} text-stone-500 font-mono text-[12px]`}>{r.code ?? "—"}</td>
+                        <td className={listCell}>{sourceBadge(r.source)}</td>
+                        <td className={`${listCell} text-right whitespace-nowrap`}>
                           <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
                         </td>
                       </tr>
@@ -420,14 +424,14 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                       <Frag key={g.type}>
                         <tr className="bg-stone-900/70"><td colSpan={4} className="px-3 py-1.5 text-[11px] font-bold text-stone-400 uppercase tracking-wider">{dimTypeLabel(g.type)} · {g.rows.length}</td></tr>
                         {g.rows.map(r => (
-                          <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                            <td className="px-3 py-2 text-stone-200 font-medium">
+                          <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                            <td className={`${listCell} text-stone-200 font-medium`}>
                               {r.parentId && <span className="text-stone-600 mr-1">└</span>}
                               {r.name}
                             </td>
-                            <td className="px-3 py-2 text-stone-500 font-mono text-[12px]">{r.code ?? "—"}</td>
-                            <td className="px-3 py-2">{sourceBadge(r.source)}</td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <td className={`${listCell} text-stone-500 font-mono text-[12px]`}>{r.code ?? "—"}</td>
+                            <td className={listCell}>{sourceBadge(r.source)}</td>
+                            <td className={`${listCell} text-right whitespace-nowrap`}>
                               <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
                             </td>
                           </tr>
@@ -448,12 +452,15 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   </thead>
                   <tbody>
                     {rows.map(r => (
-                      <tr key={r.id} className={`border-b border-stone-800/60 hover:bg-stone-900/50 ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                        <td className="px-3 py-2 text-stone-200 font-medium">{r.name}</td>
-                        <td className="px-3 py-2 text-right text-stone-300 tabular-nums">{r.rate != null ? `${Number(r.rate).toFixed(2)}%` : "—"}</td>
-                        <td className="px-3 py-2 text-stone-500 text-[12px]">{r.taxType ?? "—"}</td>
-                        <td className="px-3 py-2">{sourceBadge(r.source)}</td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
+                        <td className={`${listCell} text-stone-200 font-medium`}>{r.name}</td>
+                        {/* A rate is a percentage, not money — .toFixed(2) here is
+                            exempt from the money-formatting guard for that reason,
+                            and is left exactly as it computed before this refactor. */}
+                        <td className={`${listNumCell} text-stone-300`}>{r.rate != null ? `${Number(r.rate).toFixed(2)}%` : "—"}</td>
+                        <td className={`${listCell} text-stone-500 text-[12px]`}>{r.taxType ?? "—"}</td>
+                        <td className={listCell}>{sourceBadge(r.source)}</td>
+                        <td className={`${listCell} text-right whitespace-nowrap`}>
                           <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
                         </td>
                       </tr>

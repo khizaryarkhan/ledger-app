@@ -8,13 +8,16 @@ import {
   Plus,
   Users,
   AlertCircle,
-  X,
   LayoutGrid,
   List,
 } from "lucide-react";
-import { Card, Badge, Button, Input, Select, Modal, EmptyState } from "@/components/ui";
-import { fmt, formatDate } from "@/lib/format";
-import { useDataTable, ColHeader, ActiveFiltersBar, type ColDef } from "@/components/data-table";
+import { Card, Badge, Button, Input, Select, Modal } from "@/components/ui";
+import { fmt } from "@/lib/format";
+import { SelectField, control } from "@/components/form-kit";
+import {
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 // ── Supplier card (grid view) — mirrors AR CustomerCard ────────────────────────
 const SupplierCard = memo(function SupplierCard({
@@ -117,12 +120,6 @@ function statusBadgeVariant(status: SupplierStatus) {
 function riskBadgeVariant(risk: string | undefined | null): string {
   const map: Record<string, string> = { Low: "green", Medium: "yellow", High: "red" };
   return (risk && map[risk]) ?? "neutral";
-}
-
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-stone-800 rounded ${className}`} />;
 }
 
 // ── Add Supplier Modal ────────────────────────────────────────────────────────
@@ -366,18 +363,21 @@ function AddSupplierModal({
   );
 }
 
-// ── Column definitions ────────────────────────────────────────────────────────
-
-const SUPPLIER_COLS: ColDef[] = [
-  { key: "name",             label: "Supplier",      sortValue: (r) => r.name,              filterLabel: (r) => r.name },
-  { key: "code",             label: "Code",           sortValue: (r) => r.code ?? "",        filterLabel: (r) => r.code ?? "(None)" },
-  { key: "country",          label: "Country",        sortValue: (r) => r.country ?? "",     filterLabel: (r) => r.country ?? "(None)" },
-  { key: "riskRating",       label: "Risk",           sortValue: (r) => r.riskRating ?? "",  filterLabel: (r) => r.riskRating ?? "" },
-  { key: "status",           label: "Status",         sortValue: (r) => r.status ?? "",      filterLabel: (r) => r.status ?? "" },
-  { key: "source",           label: "Source",         sortValue: (r) => normalizeSource(r.source), filterLabel: (r) => normalizeSource(r.source) },
-  { key: "totalOutstanding", label: "Outstanding",    sortValue: (r) => r.totalOutstanding ?? 0, align: "right" as const, noFilter: true },
-  { key: "overdueCount",     label: "Overdue",        sortValue: (r) => r.overdueCount ?? 0,     align: "right" as const, noFilter: true },
-  { key: "openBillsCount",   label: "Open Bills",     sortValue: (r) => r.openBillsCount ?? 0,   align: "right" as const, noFilter: true },
+// ── Column definitions — sort + funnel filter per column, board-style ─────────
+// Risk/Status/Source stay ALSO as header selects (below) because the grid view
+// has no column headers to hang a funnel from; the list view adds these column
+// filters on top, same split as the AR Customers list (customers/page.tsx).
+const SUPPLIER_COLS: ListColumn<Supplier>[] = [
+  { key: "name",             label: "Supplier", sort: r => r.name, filter: { kind: "text", value: r => r.name } },
+  { key: "code",             label: "Code",     sort: r => r.code ?? "", filter: { kind: "text", value: r => r.code } },
+  { key: "country",          label: "Country",  sort: r => r.country, filter: { kind: "multi", value: r => r.country } },
+  { key: "riskRating",       label: "Risk",     sort: r => r.riskRating, filter: { kind: "multi", value: r => r.riskRating } },
+  { key: "status",           label: "Status",   sort: r => r.status, filter: { kind: "multi", value: r => r.status } },
+  { key: "source",           label: "Source",   sort: r => normalizeSource(r.source), filter: { kind: "multi", value: r => normalizeSource(r.source) } },
+  { key: "totalOutstanding", label: "Outstanding", sort: r => r.totalOutstanding ?? 0, descFirst: true, align: "right",
+    money: r => ({ amount: r.totalOutstanding ?? 0, currency: r.currency }) },
+  { key: "overdueCount",     label: "Overdue",    sort: r => r.overdueCount ?? 0, descFirst: true, align: "right", sum: r => r.overdueCount ?? 0 },
+  { key: "openBillsCount",   label: "Open Bills", sort: r => r.openBillsCount ?? 0, descFirst: true, align: "right", sum: r => r.openBillsCount ?? 0 },
 ];
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -450,16 +450,22 @@ export default function SuppliersPage() {
     return rows;
   }, [suppliers, search, riskFilter, statusFilter, sourceFilter]);
 
-  const dt = useDataTable(filtered, SUPPLIER_COLS, { defaultSort: "totalOutstanding", defaultDir: "desc" });
+  const lv = useListView(filtered, SUPPLIER_COLS, { storageKey: "payables-suppliers", defaultSort: "totalOutstanding", defaultDir: "desc", summary: "totalOutstanding" });
 
-  const hasFilters = search || riskFilter || statusFilter !== "All" || sourceFilter !== "All";
+  // Prune the selection when filters hide rows (board rule).
+  useEffect(() => {
+    const visibleIds = new Set(lv.rows.map((s: any) => s.id));
+    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
+  }, [lv.rows]);
 
-  const allSelected = dt.rows.length > 0 && dt.rows.every((r: any) => selected.has(r.id));
+  const hasFilters = !!(search || riskFilter || statusFilter !== "Active" || sourceFilter !== "All");
+
+  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
   const toggleAll = useCallback(() => {
     allSelected
       ? setSelected(new Set())
-      : setSelected(new Set(dt.rows.map((r: any) => r.id)));
-  }, [allSelected, dt.rows]);
+      : setSelected(new Set(lv.rows.map((r: any) => r.id)));
+  }, [allSelected, lv.rows]);
   const toggleOne = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -468,241 +474,134 @@ export default function SuppliersPage() {
     });
   }, []);
 
-  return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">
-            Suppliers
-          </h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {loading ? "Loading…" : `${dt.rows.length} supplier${dt.rows.length !== 1 ? "s" : ""}`}
-          </p>
-        </div>
-        <Button icon={Plus} onClick={() => setShowAdd(true)}>Add supplier</Button>
-      </div>
+  // Card view pages through the same filtered + sorted rows the list shows.
+  useEffect(() => { setPage(0); }, [search, riskFilter, statusFilter, sourceFilter, lv.filters]);
+  const totalPages = Math.ceil(lv.rows.length / PAGE_SIZE);
+  const visible = useMemo(() => lv.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [lv.rows, page]);
 
-      {/* Error */}
+  const td = "px-2 py-2";
+  const viewBtn = (on: boolean) =>
+    `flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${on ? "bg-violet-600 text-white shadow-sm" : "text-stone-400 hover:text-stone-200"}`;
+
+  return (
+    <ListPage>
+      <ListPageHeader title="Suppliers" subtitle={<>{loading ? "Loading…" : `${lv.rows.length} supplier${lv.rows.length !== 1 ? "s" : ""}`}</>}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code or email…"
+            className={`${control} h-8 w-56 pl-7 pr-2 text-xs`} />
+        </div>
+        {/* Header filters stay because the card view has no column headers to
+            put a funnel on; the list view adds per-column filters on top. */}
+        <SelectField value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} aria-label="Filter by status" className="w-auto h-8 text-xs">
+          <option value="All">All statuses</option>
+          {["Active", "Inactive", "Suspended"].map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        <SelectField value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)} aria-label="Filter by risk" className="w-auto h-8 text-xs">
+          <option value="">All risk levels</option>
+          {["Low", "Medium", "High"].map(s => <option key={s} value={s}>{s}</option>)}
+        </SelectField>
+        <SelectField value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as SourceFilter)} aria-label="Filter by source" className="w-auto h-8 text-xs">
+          {["All", "QBO", "Xero", "Manual"].map(s => <option key={s} value={s}>{s === "All" ? "All sources" : s}</option>)}
+        </SelectField>
+        {hasFilters && (
+          <button onClick={() => { setSearch(""); setRiskFilter(""); setStatusFilter("Active"); setSourceFilter("All"); }}
+            className="text-[11px] text-stone-500 hover:text-rose-400 font-medium px-1">Clear</button>
+        )}
+        <ListDivider />
+        <div className="flex bg-stone-800 rounded-md p-0.5 border border-stone-700">
+          <button onClick={() => setViewMode("grid")} className={viewBtn(viewMode === "grid")}><LayoutGrid size={12} /> Cards</button>
+          <button onClick={() => setViewMode("list")} className={viewBtn(viewMode === "list")}><List size={12} /> List</button>
+        </div>
+        <Button icon={Plus} size="sm" onClick={() => setShowAdd(true)}>Add supplier</Button>
+      </ListPageHeader>
+
       {error && (
-        <div className="mb-5 flex items-center gap-2 px-4 py-3 rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-400 text-sm">
-          <AlertCircle size={16} />
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-800 bg-rose-500/10 text-rose-400 text-sm shrink-0">
+          <AlertCircle size={14} />
           {error}
-          <button
-            onClick={load}
-            className="ml-auto underline hover:no-underline text-rose-300"
-          >
-            Retry
-          </button>
+          <button onClick={load} className="ml-auto underline hover:no-underline text-rose-300">Retry</button>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <Input
-          value={search}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setSearch(e.target.value)
-          }
-          placeholder="Search name, code, email…"
-          icon={Search}
-          className="w-72"
-        />
-        <Select
-          value={riskFilter}
-          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiskFilter(e.target.value)}
-          placeholder="All risk levels"
-          options={["Low", "Medium", "High"]}
-          className="w-36"
-        />
-        <Select
-          value={statusFilter}
-          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-            setStatusFilter(e.target.value as StatusFilter)
-          }
-          options={["All", "Active", "Inactive", "Suspended"]}
-          className="w-36"
-        />
-        <Select
-          value={sourceFilter}
-          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-            setSourceFilter(e.target.value as SourceFilter)
-          }
-          options={["All", "QBO", "Xero", "Manual"]}
-          className="w-36"
-        />
-        {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={X}
-            onClick={() => {
-              setSearch("");
-              setRiskFilter("");
-              setStatusFilter("All");
-              setSourceFilter("All");
-            }}
-          >
-            Clear
-          </Button>
+      <ListToolbar lv={lv} noun="supplier" filtered={hasFilters}>
+        {viewMode === "grid" && lv.rows.length > 0 && (
+          <label className="flex items-center gap-2 text-[12px] text-stone-400 cursor-pointer">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} className={listCheckbox} />
+            Select all
+          </label>
         )}
-        {/* View toggle */}
-        <div className="ml-auto flex items-center gap-1 bg-stone-800 rounded-lg p-1">
-          <button onClick={() => setViewMode("list")} title="List view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
-            <List size={14} />
-          </button>
-          <button onClick={() => setViewMode("grid")} title="Card view"
-            className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-stone-700 shadow-sm text-white" : "text-stone-400 hover:text-stone-200"}`}>
-            <LayoutGrid size={14} />
-          </button>
-        </div>
-      </div>
+      </ListToolbar>
+      <ListChips lv={lv} />
 
-      {/* Table */}
       {loading ? (
-        <div className="p-5 space-y-3">
+        <div className="flex-1 overflow-auto p-5 space-y-3">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="animate-pulse bg-stone-800 rounded h-10 w-full" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={Users}
-            title="No suppliers found"
-            description={
-              hasFilters
-                ? "Try adjusting your filters."
-                : "Add your first supplier to get started."
-            }
-            action={
-              !hasFilters ? <Button icon={Plus} onClick={() => setShowAdd(true)}>Add supplier</Button> : undefined
-            }
-          />
-        </Card>
       ) : viewMode === "list" ? (
-        <div className="bg-stone-900 rounded-xl ring-1 ring-stone-800 overflow-hidden">
-          <ActiveFiltersBar dt={dt} cols={SUPPLIER_COLS} />
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/60">
-                  <th className="px-3 py-2.5 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleAll}
-                      className="rounded border-stone-600 cursor-pointer"
-                    />
-                  </th>
-                  {SUPPLIER_COLS.map((col) => (
-                    <ColHeader
-                      key={col.key}
-                      col={col}
-                      dt={dt}
-                      className={col.align === "right" ? "text-right" : "text-left"}
-                    />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dt.rows.map((sup: any) => (
-                  <tr
-                    key={sup.id}
-                    onClick={() => router.push(`/payables/suppliers/${sup.id}`)}
-                    className={`border-b border-stone-800 hover:bg-stone-800/50 cursor-pointer transition-colors ${selected.has(sup.id) ? "bg-violet-500/10" : ""}`}
-                  >
-                    <td className="px-3 py-2.5 w-10" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(sup.id)}
-                        onChange={() => toggleOne(sup.id)}
-                        className="rounded border-stone-600 cursor-pointer"
-                      />
+        <ListScroll lv={lv} empty={suppliers.length === 0 ? "No suppliers yet — add one to get started." : "No suppliers match the current filters."}>
+          <table className={listTable}>
+            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <tbody>
+              {lv.rows.map((sup: any) => {
+                const isSel = selected.has(sup.id);
+                return (
+                  <tr key={sup.id} onClick={() => router.push(`/payables/suppliers/${sup.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
+                    <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(sup.id)} className={listCheckbox} aria-label={`Select ${sup.name}`} />
                     </td>
-                    {/* Supplier */}
-                    <td className="px-3 py-2.5 font-medium text-white whitespace-nowrap">
-                      {sup.name}
+                    <td className={`${td} font-medium text-white text-[13px] whitespace-nowrap`}>{sup.name}</td>
+                    <td className={`${td} font-mono text-[12px] text-stone-500`}>{sup.code || "—"}</td>
+                    <td className={`${td} text-stone-500 text-[12px]`}>{sup.country || "—"}</td>
+                    <td className={td}>
+                      {sup.riskRating ? <Badge variant={riskBadgeVariant(sup.riskRating)} size="sm">{sup.riskRating}</Badge> : <span className="text-stone-600 text-[12px]">—</span>}
                     </td>
-                    {/* Code */}
-                    <td className="px-3 py-2.5 font-mono text-[12px] text-stone-400">
-                      {sup.code || "—"}
+                    <td className={td}><Badge variant={statusBadgeVariant(sup.status)} size="sm">{sup.status}</Badge></td>
+                    <td className={td}><Badge variant={sourceBadgeVariant(sup.source)} size="sm">{normalizeSource(sup.source)}</Badge></td>
+                    <td className={listMoneyCell}>
+                      <span className={sup.totalOutstanding > 0 ? "font-medium text-stone-300 text-[13px]" : "text-stone-500"}>{fmt.money(sup.totalOutstanding, sup.currency)}</span>
                     </td>
-                    {/* Country */}
-                    <td className="px-3 py-2.5 text-stone-400 text-[12px]">
-                      {sup.country || "—"}
-                    </td>
-                    {/* Risk */}
-                    <td className="px-3 py-2.5">
-                      {sup.riskRating ? (
-                        <Badge variant={riskBadgeVariant(sup.riskRating)} size="sm">
-                          {sup.riskRating}
-                        </Badge>
-                      ) : (
-                        <span className="text-stone-600 text-[12px]">—</span>
-                      )}
-                    </td>
-                    {/* Status */}
-                    <td className="px-3 py-2.5">
-                      <Badge variant={statusBadgeVariant(sup.status)} size="sm">
-                        {sup.status}
-                      </Badge>
-                    </td>
-                    {/* Source */}
-                    <td className="px-3 py-2.5">
-                      <Badge variant={sourceBadgeVariant(sup.source)} size="sm">
-                        {normalizeSource(sup.source)}
-                      </Badge>
-                    </td>
-                    {/* Outstanding */}
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      <span className={sup.totalOutstanding > 0 ? "font-semibold text-white" : "text-stone-500"}>
-                        {fmt.money(sup.totalOutstanding, sup.currency)}
-                      </span>
-                    </td>
-                    {/* Overdue */}
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      <span className={sup.overdueCount > 0 ? "font-semibold text-rose-400" : "text-stone-500"}>
-                        {sup.overdueCount > 0 ? sup.overdueCount : "—"}
-                      </span>
-                    </td>
-                    {/* Open Bills */}
-                    <td className="px-3 py-2.5 text-right text-stone-400 tabular-nums">
-                      {sup.openBillsCount}
-                    </td>
+                    <td className={`${listNumCell} ${sup.overdueCount > 0 ? "text-rose-400 font-medium" : "text-stone-600"}`}>{sup.overdueCount > 0 ? sup.overdueCount : "—"}</td>
+                    <td className={`${listNumCell} text-stone-400 text-[12px]`}>{sup.openBillsCount}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                );
+              })}
+            </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="supplier" selectable />}
+          </table>
+        </ListScroll>
       ) : (
-        /* ── GRID VIEW ── */
-        <>
-          <div className="grid grid-cols-3 gap-3">
-            {dt.rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((s: any) => (
-              <SupplierCard key={s.id} s={s} isSelected={selected.has(s.id)} onToggle={toggleOne} />
-            ))}
-          </div>
-          {Math.ceil(dt.rows.length / PAGE_SIZE) > 1 && (
+        /* ── CARD VIEW ── */
+        <div className="flex-1 overflow-auto p-4">
+          {lv.rows.length === 0 ? (
+            <div className="text-center text-[13px] text-stone-400 py-16">
+              {suppliers.length === 0 ? "No suppliers yet — add one to get started." : "No suppliers match the current filters."}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {visible.map((s: any) => (
+                <SupplierCard key={s.id} s={s} isSelected={selected.has(s.id)} onToggle={toggleOne} />
+              ))}
+            </div>
+          )}
+          {totalPages > 1 && (
             <div className="flex items-center justify-between px-1 mt-4">
-              <span className="text-xs text-stone-500">
-                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, dt.rows.length)} of {dt.rows.length}
-              </span>
+              <span className="text-xs text-stone-500">Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, lv.rows.length)} of {lv.rows.length}</span>
               <div className="flex items-center gap-1">
-                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
                   className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Prev</button>
-                {Array.from({ length: Math.ceil(dt.rows.length / PAGE_SIZE) }, (_, i) => (
+                {Array.from({ length: totalPages }, (_, i) => (
                   <button key={i} onClick={() => setPage(i)}
                     className={`px-3 py-1.5 text-xs rounded-md border ${page === i ? "bg-stone-700 text-white border-stone-600" : "border-stone-700 text-stone-400 hover:bg-stone-800/50"}`}>{i + 1}</button>
                 ))}
-                <button onClick={() => setPage((p) => Math.min(Math.ceil(dt.rows.length / PAGE_SIZE) - 1, p + 1))} disabled={page >= Math.ceil(dt.rows.length / PAGE_SIZE) - 1}
+                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
                   className="px-3 py-1.5 text-xs rounded-md border border-stone-700 text-stone-400 disabled:opacity-40 hover:bg-stone-800/50">Next</button>
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       <AddSupplierModal
@@ -710,6 +609,6 @@ export default function SuppliersPage() {
         onClose={() => setShowAdd(false)}
         onAdded={(sup) => setSuppliers((prev) => [sup, ...prev])}
       />
-    </div>
+    </ListPage>
   );
 }

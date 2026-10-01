@@ -279,7 +279,8 @@ exactly the anti-pattern this rule exists to prevent.)
   Chain's nav points at) are two separate, real screens over the same
   concept. Merging them is an intentional **Phase 1b** deferral, not an
   oversight discovered mid-session — don't rediscover this and "fix" it
-  without that context.
+  without that context. Payables' own PO is also the one purchase document
+  type exempt from the sourcing policy check below — see that section for why.
 - **Customer and Supplier are shared master data, not Accounting's to own a
   third copy of** (2026-09-06): Accounting's Sales/Purchases sections link
   `Customers`/`Suppliers` straight at Receivables' `/customers` and Payables'
@@ -414,6 +415,43 @@ into, not a preference.
   - Production at the time: ACC, EDC and EDC London had Accounting unticked
     deliberately (`billing_audit_logs`, `organisation_modules_updated`) and zero
     native journal entries, so enforcing it removed nothing in use.
+  - **The registry is now complete, not partial (2026-09-28).** `/api/production`
+    (the real Manufacturing Order backend), `/api/inventory` (bar the shared
+    `items`/`items/[id]`/`skus`/`supplier-skus` master data) and `/api/resources`
+    were entirely missing from `API_OWNERS` — every one of their routes already
+    called `requireModule()` itself, so nothing broke at runtime, but a
+    bookmarked/typed URL to them (or to `/supply-chain`/`/resources`, missing
+    from `PAGE_OWNERS` for the same reason) rendered with no gate at all. All
+    are registered now, changing no runtime behaviour, only closing the gap.
+  - **`tests/module-gating.test.ts`'s reverse-completeness check is what closes
+    this class of gap for good.** The tests above only ever checked ONE
+    direction — that a registered rule names a real path. They never checked
+    the reverse: that every real route under `app/api/**/route.ts` and
+    `app/(app)/**/page.tsx` is accounted for. It now globs both trees and
+    requires each real route to be either matched by a `PAGE_OWNERS`/
+    `API_OWNERS` rule (owned or explicit `owner: null`) or named in the test's
+    own `UNOWNED_API`/`UNOWNED_PAGES` allowlist, each entry a `{ path, why }`
+    pair — no bare strings, every entry must justify itself. Also asserted:
+    every OWNED api route calls `requireOrg`/`requireModule`/`requireReadScope`/
+    `verifyOAuthState` somewhere in its source (so a future registered-but-
+    unenforced route is caught too), no allowlist entry is stale (matches no
+    real route), and no allowlist entry is an ancestor of an owned rule's path
+    (a broad entry like `/api/mobile` must never be able to shadow a more
+    specific path registered as owned later). All were proven against the
+    pre-fix registry first — the reverse check correctly reported every one of
+    `/api/production/*`, `/api/inventory/*` (bar the four master-data routes),
+    `/api/resources/*`, `/supply-chain/*` and `/resources/*` as unaccounted for
+    before the registry entries above were added.
+  - **`/api/mobile` is in the allowlist, deliberately deferred, not gated.**
+    The mobile client has no module-awareness yet — gating it now would break
+    the mobile Receivables screen for any org with that module disabled, since
+    the client never checks `enabledModules` before calling these routes. A
+    companion mobile-client fix is required before `/api/mobile/**` can be
+    safely added to `API_OWNERS`; don't gate it without that fix landing first.
+  - `findRule(rules, pathname)` (`lib/modules.ts`) is the shared path-matcher
+    both `moduleForPage`/`moduleForApi` and the reverse-completeness test use —
+    written once so the test's notion of "matches a rule" can never drift from
+    the real runtime lookup.
 - **Keep the two files separate.** `lib/modules-server.ts` imports `db` —
   importing that from a client component would bundle server code into the
   client. Anything a client component needs (the admin modules card, the
@@ -1608,6 +1646,29 @@ Suppliers panel, because that is where the question is asked.
     unlocated-stock rule already rejects ("drift is better than refusing to let
     physical stock move"). `billFromReceipts` is naturally exempt too — its
     lines are GR/IR clearing lines with `itemId: null`, so nothing is stranded.
+  - **Payables' own `purchase_orders`/`purchase_order_lines` (the
+    `/payables/purchase-orders` screen — see the duplication note above) is
+    exempt too, but for a different reason: it acquires nothing locally. Its
+    only outlet is `lib/po-push.ts`, which pushes a header+lines straight to
+    QuickBooks/Xero — nothing converts it to a local Bill or receipt, no
+    lot/movement/journal-entry is ever created from it, and `ap_bills.
+    purchase_order_id` is never written by any code path. Its `item_id`
+    column is also the wrong shape for the check: it holds the PROVIDER's
+    item id (QBO `ItemRef.value` / Xero `ItemCode`), not `ap_items.id`, so
+    wiring the check in naively would 500 every item line
+    (`findSourcingViolations` does `inArray(apItems.id, itemIds)` against a
+    uuid column fed a QBO/Xero string). A Bill raised later for the same
+    goods — by hand, or from a Bill created inside QuickBooks/Xero off the
+    pushed PO — IS checked: a hand-raised Bill goes through `postDocument`
+    like any other, and a provider-mirrored Bill is never posted at all (see
+    "one path per document type" below), so neither one is this exemption
+    quietly reappearing under another name. The exemption lasts only while
+    that premise does — the moment this path starts reaching a posting or
+    stock engine, or gains a second reader, it needs re-examining, not just
+    re-documenting. `tests/architecture.test.ts` asserts the premise itself
+    (the files named here still exist, still import no posting/stock engine,
+    still reference no posting/bridge table, and `purchase_order_lines` still
+    has no other reader), so it fails the moment any of that stops holding.
 - **`lib/inventory/sourcing.ts` (pure, client-safe) vs
   `lib/inventory/sourcing-server.ts` (imports `db`)** — same split, and same
   reason, as `lib/modules.ts` / `lib/modules-server.ts`. Guarded in

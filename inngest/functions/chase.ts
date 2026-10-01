@@ -3,7 +3,15 @@
  *
  * chaseScheduler   — cron 08:00 UTC daily → fans out one event per org
  * runOrgChase      — handles one org in isolation (retried independently)
- * brokenPromiseSweep — marks overdue Active promises as Broken
+ * brokenPromiseSweep — runs BOTH daily promise sweeps: closes Active promises
+ *   whose invoice is now paid as "Met" (via sweepKeptPromises), then flips
+ *   still-unpaid, passed-date Active promises to "Broken" (via
+ *   sweepBrokenPromises) — kept always runs first. The function id and export
+ *   name are unchanged from when this only did the broken half, so the
+ *   existing Inngest cron registration ("0 8 * * *") keeps firing it; see
+ *   lib/promise-sweep-server.ts for the shared logic this now delegates to
+ *   (until 2026-09-28 this function had no kept/Met sweep at all, and no
+ *   isNull(invoices.deletedAt) filter — see CLAUDE.md's "Promise lifecycle").
  *
  * Each contact is wrapped in its own step.run() so:
  *   • On retry, already-sent contacts are memoised and skipped automatically.
@@ -15,7 +23,7 @@ import { inngest } from "@/lib/inngest";
 import { db } from "@/db";
 import {
   invoices, contacts, customers, projects,
-  emailTemplates, communications, organisations, invoicePromises,
+  emailTemplates, communications, organisations,
   jobWorkOrders, tradeDocuments, manufacturingOrders, supplyChainAlerts,
 } from "@/db/schema";
 import type { EmailTemplate } from "@/db/schema";
@@ -28,7 +36,8 @@ import { createPortalToken } from "@/lib/portal";
 import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { fillTemplate, greetingName, buildTemplateMaps, pickTemplate } from "@/lib/email-template";
-import { fmt, daysOverdue as daysFromDate } from "@/lib/format";
+import { fmt, daysOverdue as daysFromDate, today as todayUtc } from "@/lib/format";
+import { sweepKeptPromises, sweepBrokenPromises } from "@/lib/promise-sweep-server";
 
 // ─── helpers (mirrors cron/route.ts) ────────────────────────────────────────
 
@@ -276,59 +285,19 @@ export const runOrgChase = inngest.createFunction(
   },
 );
 
-// ─── 3. Broken-promise sweep ─────────────────────────────────────────────────
+// ─── 3. Promise sweeps (kept, then broken) ──────────────────────────────────
 
 export const brokenPromiseSweep = inngest.createFunction(
   { id: "broken-promise-sweep", triggers: [{ cron: "0 8 * * *" }] },
   async ({ step }) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayUtc();
 
-    const stale = await step.run("find-stale-promises", () =>
-      db.select({
-        id:            invoicePromises.id,
-        invoiceId:     invoicePromises.invoiceId,
-        customerId:    invoicePromises.customerId,
-        promiseDate:   invoicePromises.promiseDate,
-        orgId:         invoicePromises.orgId,
-        projectId:     invoices.projectId,
-        paymentStatus: invoices.paymentStatus,
-      })
-      .from(invoicePromises)
-      .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
-      .where(and(eq(invoicePromises.status, "Active"), lt(invoicePromises.promiseDate, today))),
-    );
+    // Kept BEFORE broken — an invoice paid on or after its promise date must
+    // be recorded as kept, never broken.
+    const { met } = await step.run("sweep-kept-promises", () => sweepKeptPromises({ today }));
+    const { broken } = await step.run("sweep-broken-promises", () => sweepBrokenPromises({ today }));
 
-    const toBreak = stale.filter(s => s.paymentStatus !== "Paid");
-    if (toBreak.length === 0) return { broken: 0 };
-
-    await step.run("mark-broken", async () => {
-      const ids = toBreak.map(s => s.id);
-      for (let i = 0; i < ids.length; i += 100) {
-        await db.update(invoicePromises)
-          .set({ status: "Broken" })
-          .where(inArray(invoicePromises.id, ids.slice(i, i + 100)));
-      }
-    });
-
-    await step.run("log-broken", () =>
-      db.insert(communications).values(
-        toBreak.map(p => ({
-          orgId:      p.orgId,
-          customerId: p.customerId!,
-          invoiceId:  p.invoiceId ?? undefined,
-          projectId:  p.projectId ?? undefined,
-          direction:  "Inbound" as const,
-          channel:    "Promise",
-          subject:    "Promise broken",
-          body:       `Promise was due ${p.promiseDate} — marked broken. Invoice still unpaid.`,
-          sender:     "System",
-          matchedBy:  "System",
-          isDraft:    false,
-        })),
-      ).catch(() => {}),
-    );
-
-    return { broken: toBreak.length };
+    return { met, broken };
   },
 );
 

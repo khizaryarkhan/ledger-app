@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { invoices, contacts, customers, projects, emailTemplates, communications, organisations, invoicePromises } from "@/db/schema";
-import { eq, and, or, isNull, lte, lt, inArray } from "drizzle-orm";
+import { invoices, contacts, customers, projects, emailTemplates, communications, organisations } from "@/db/schema";
+import { eq, and, or, isNull, lte } from "drizzle-orm";
 import { getSmtpConfig, sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { fetchXeroInvoicePdf } from "@/lib/xero-token";
@@ -10,6 +10,7 @@ import { genEmailRef } from "@/lib/email-ref";
 import { renderInvoiceEmail } from "@/lib/ar-email";
 import { fillTemplate, greetingName, buildTemplateMaps, pickTemplate } from "@/lib/email-template";
 import { fmt, daysOverdue as daysFromDate } from "@/lib/format";
+import { runPromiseSweeps } from "@/lib/promise-sweep-server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -23,7 +24,15 @@ const PAUSE_STAGES = ["Disputed", "On Hold", "Promised", "Promise to Pay"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CRON HANDLER
-// Runs daily at 09:00 UTC (see vercel.json).
+// NOT scheduled — this bare /api/cron path is absent from vercel.json's
+// `crons` array (see the per-purpose /api/cron/* routes there, e.g.
+// qbo-sync, sync-inbound-ar), so nothing calls this automatically. It is a
+// manual-trigger path only (hit it directly with the CRON_SECRET bearer
+// token). The invoice chase itself IS scheduled — daily, via
+// inngest/functions/chase.ts's chaseScheduler/runOrgChase — so this route's
+// chase logic is a legacy duplicate kept for manual/ad-hoc use, not a gap.
+// (A previous version of this comment incorrectly claimed this route runs
+// daily at 09:00 UTC; it does not.)
 //
 // Reliability guarantees:
 //   • contacts.next_send_at drives scheduling — not wall-clock arithmetic.
@@ -252,120 +261,24 @@ export async function GET(req: Request) {
       .catch(() => {}); // never let stat-writing crash the response
   }
 
-  // ── Kept-promise sweep — close Active promises whose invoice is now paid ──
-  // "Met" was a declared status on invoice_promises that NO code path had ever
-  // written: promises only ever went Active → Broken (below) or Superseded.
-  // A kept promise simply stayed Active forever, so the promise ledger could
-  // only ever accumulate evidence AGAINST customers — every reliability
-  // measure built on it (kept-rate, a customer's promise history, forecasting
-  // from commitments) would have been wrong in the same direction. Runs BEFORE
-  // the broken sweep so an invoice paid on or after its promise date is
-  // recorded as kept, never broken. Both sweeps skip soft-deleted invoices —
-  // deleted invoices are hidden everywhere (db/schema.ts), and flipping a
-  // promise to Broken on an invoice that was deleted in QuickBooks blames a
-  // customer for a document that no longer exists.
+  // ── Promise sweeps — close Active promises whose invoice is now paid as
+  // "Met" (before this existed, promises only ever went Active → Broken or
+  // Superseded, so the ledger could only accumulate evidence AGAINST
+  // customers), then flip still-unpaid, passed-date Active promises to
+  // "Broken". Shared with the scheduled Inngest cron
+  // (inngest/functions/chase.ts's brokenPromiseSweep) via
+  // lib/promise-sweep-server.ts, so the two can no longer drift apart the way
+  // they had — this route used to carry the correct, complete logic while the
+  // scheduled copy silently lacked both the kept sweep and the soft-deleted-
+  // invoice filter.
   let promisesMet = 0;
-  try {
-    const kept = await db
-      .select({
-        id: invoicePromises.id,
-        invoiceId: invoicePromises.invoiceId,
-        customerId: invoicePromises.customerId,
-        promiseDate: invoicePromises.promiseDate,
-        orgId: invoicePromises.orgId,
-        projectId: invoices.projectId,
-        paidAt: invoices.paidAt,
-      })
-      .from(invoicePromises)
-      .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
-      .where(and(
-        eq(invoicePromises.status, "Active"),
-        eq(invoices.paymentStatus, "Paid"),
-        isNull(invoices.deletedAt),
-      ));
-    const keptIds = kept.map(k => k.id);
-    for (let i = 0; i < keptIds.length; i += 100) {
-      await db.update(invoicePromises).set({ status: "Met" }).where(inArray(invoicePromises.id, keptIds.slice(i, i + 100)));
-      promisesMet += Math.min(100, keptIds.length - i);
-    }
-    // Same chatbox trail the broken sweep writes, so the board's activity
-    // popover shows a commitment closing, not just a commitment failing.
-    if (kept.length > 0) {
-      await db.insert(communications).values(
-        kept.map(p => {
-          // Settled ON TIME = paid on or before the promised date. paidAt is
-          // the settling document's own date (never "today"), so this stays
-          // correct for back-dated settlements — see CLAUDE.md on paidAt. It
-          // is already a YYYY-MM-DD varchar, so slice it rather than round-
-          // tripping through Date(), which would re-introduce a timezone shift.
-          const paidOn = p.paidAt ? String(p.paidAt).slice(0, 10) : null;
-          const onTime = !!paidOn && !!p.promiseDate && paidOn <= p.promiseDate;
-          return {
-            orgId: p.orgId,
-            customerId: p.customerId!,
-            invoiceId: p.invoiceId ?? undefined,
-            projectId: p.projectId ?? undefined,
-            direction: "Inbound" as const,
-            channel: "Promise",
-            subject: "Promise kept",
-            body: `Promised ${p.promiseDate}${paidOn ? ` — paid ${paidOn}` : ""}. Marked kept${paidOn && p.promiseDate ? (onTime ? " (on time)." : " (late).") : "."}`,
-            sender: "System",
-            matchedBy: "System",
-            isDraft: false,
-          };
-        })
-      ).catch(() => {});
-    }
-  } catch (e: any) {
-    console.warn("cron: kept-promise sweep failed:", e?.message);
-  }
-
-  // ── Broken-promise sweep — flip passed, unpaid Active promises to "Broken" ──
   let promisesBroken = 0;
   try {
-    const stale = await db
-      .select({
-        id: invoicePromises.id,
-        invoiceId: invoicePromises.invoiceId,
-        customerId: invoicePromises.customerId,
-        promiseDate: invoicePromises.promiseDate,
-        orgId: invoicePromises.orgId,
-        projectId: invoices.projectId,
-        paymentStatus: invoices.paymentStatus,
-      })
-      .from(invoicePromises)
-      .leftJoin(invoices, eq(invoices.id, invoicePromises.invoiceId))
-      .where(and(
-        eq(invoicePromises.status, "Active"),
-        lt(invoicePromises.promiseDate, today),
-        isNull(invoices.deletedAt),
-      ));
-    const toBreak = stale.filter((s) => s.paymentStatus !== "Paid");
-    const toBreakIds = toBreak.map((s) => s.id);
-    for (let i = 0; i < toBreakIds.length; i += 100) {
-      await db.update(invoicePromises).set({ status: "Broken" }).where(inArray(invoicePromises.id, toBreakIds.slice(i, i + 100)));
-      promisesBroken += Math.min(100, toBreakIds.length - i);
-    }
-    // Log a chatbox entry for each broken promise so the board shows it
-    if (toBreak.length > 0) {
-      await db.insert(communications).values(
-        toBreak.map(p => ({
-          orgId: p.orgId,
-          customerId: p.customerId!,
-          invoiceId: p.invoiceId ?? undefined,
-          projectId: p.projectId ?? undefined,
-          direction: "Inbound" as const,
-          channel: "Promise",
-          subject: "Promise broken",
-          body: `Promise was due ${p.promiseDate} — marked broken. Invoice still unpaid.`,
-          sender: "System",
-          matchedBy: "System",
-          isDraft: false,
-        }))
-      ).catch(() => {});
-    }
+    const result = await runPromiseSweeps({ today });
+    promisesMet = result.met;
+    promisesBroken = result.broken;
   } catch (e: any) {
-    console.warn("cron: broken-promise sweep failed:", e?.message);
+    console.warn("cron: promise sweeps failed:", e?.message);
   }
 
   return NextResponse.json({ ran: today, emailsSent, skipped, promisesMet, promisesBroken, errors: errors.length > 0 ? errors : undefined });

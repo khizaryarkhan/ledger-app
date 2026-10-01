@@ -19,9 +19,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftRight, Plus, Loader2, Trash2, AlertTriangle, PackageSearch, X,
 } from "lucide-react";
-import { Button, Badge, Card, Modal, EmptyState, Toast } from "@/components/ui";
+import { Button, Badge, Modal, EmptyState, Toast } from "@/components/ui";
 import { Field, SelectField, Section, control, cell, th } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
 import { fmt } from "@/lib/format";
+import {
+  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, type ListColumn,
+} from "@/components/list-view";
 
 type Location = { id: string; code: string; name: string; type: string; status: string; isDefault: boolean };
 
@@ -81,18 +86,23 @@ export function StockTransferConsole() {
 
   useEffect(() => { load(); }, []);
 
+  const { orgSettings } = useData() as any;
+  const ccy = orgSettings?.currency ?? "EUR";
+  const enriched = useMemo(() => rows.map(r => ({ ...r, glStatus: r.entryId ? "Reclassified" : "No GL impact" })), [rows]);
+  const TRANSFER_COLS = useMemo<ListColumn<typeof enriched[number]>[]>(() => [
+    { key: "transferNo", label: "Number", sort: r => r.transferNo, filter: { kind: "text", value: r => r.transferNo } },
+    { key: "date", label: "Date", sort: r => r.transferDate },
+    { key: "from", label: "From", sort: r => r.fromLocation?.name, filter: { kind: "multi", value: r => r.fromLocation?.name } },
+    { key: "to", label: "To", sort: r => r.toLocation?.name, filter: { kind: "multi", value: r => r.toLocation?.name } },
+    { key: "value", label: "Value moved", align: "right", sort: r => r.totalCost, descFirst: true, money: r => ({ amount: r.totalCost, currency: ccy }) },
+    { key: "gl", label: "Posted to GL", sort: r => r.glStatus, filter: { kind: "multi", value: r => r.glStatus } },
+    { key: "notes", label: "Notes", filter: { kind: "text", value: r => r.notes } },
+  ], [ccy]);
+  const lv = useListView(enriched, TRANSFER_COLS, { storageKey: "stock-transfers", defaultSort: "date", defaultDir: "desc", summary: "value" });
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[18px] font-semibold text-stone-100 flex items-center gap-2">
-            <ArrowLeftRight size={18} className="text-orange-400" /> Stock Transfers
-          </h1>
-          <p className="text-[13px] text-stone-400 mt-1">
-            Move stock between locations. A transfer changes where stock is, never what it cost —
-            the lot keeps its identity and its place in the FIFO queue.
-          </p>
-        </div>
+    <ListPage>
+      <ListPageHeader title="Stock Transfers" subtitle="Move stock between locations. A transfer changes where stock is, never what it cost — the lot keeps its identity and its place in the FIFO queue.">
         <Button
           icon={Plus}
           onClick={() => setComposing(true)}
@@ -101,10 +111,10 @@ export function StockTransferConsole() {
         >
           New transfer
         </Button>
-      </div>
+      </ListPageHeader>
 
       {locations.length < 2 && !loading && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-300">
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-300">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
             Transfers need at least two active locations. Add another under{" "}
@@ -118,44 +128,41 @@ export function StockTransferConsole() {
           <Loader2 size={15} className="animate-spin" /> Loading transfers…
         </div>
       ) : rows.length === 0 ? (
-        <EmptyState
-          icon={ArrowLeftRight}
-          title="No stock transfers yet"
-          description="When stock moves between a store, the production floor or a finished-goods warehouse, record it here so the system knows where things are."
-        />
+        <div className="p-6">
+          <EmptyState
+            icon={ArrowLeftRight}
+            title="No stock transfers yet"
+            description="When stock moves between a store, the production floor or a finished-goods warehouse, record it here so the system knows where things are."
+          />
+        </div>
       ) : (
-        <Card padding="none">
-          <table className="w-full text-[13px]">
-            <thead className="border-b border-stone-800">
-              <tr>
-                <th className={th}>Number</th>
-                <th className={th}>Date</th>
-                <th className={th}>From</th>
-                <th className={th}>To</th>
-                <th className={`${th} text-right`}>Value moved</th>
-                <th className={th}>Posted to GL</th>
-                <th className={th}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id} className="border-b border-stone-800/60 last:border-0 hover:bg-stone-900/40">
-                  <td className="px-2.5 py-2.5 font-mono text-[12px] text-stone-300">{r.transferNo ?? "—"}</td>
-                  <td className="px-2.5 py-2.5 text-stone-400">{fmt.date(r.transferDate)}</td>
-                  <td className="px-2.5 py-2.5 text-stone-200">{r.fromLocation?.name ?? "—"}</td>
-                  <td className="px-2.5 py-2.5 text-stone-200">{r.toLocation?.name ?? "—"}</td>
-                  <td className="px-2.5 py-2.5 text-right tabular-nums text-stone-300">{fmt.money(r.totalCost)}</td>
-                  <td className="px-2.5 py-2.5">
-                    {r.entryId
-                      ? <Badge variant="blue" size="xs">Reclassified</Badge>
-                      : <span className="text-stone-600 text-[12px]" title="Both locations post to the same inventory account, so nothing changed in the books">No GL impact</span>}
-                  </td>
-                  <td className="px-2.5 py-2.5 text-stone-500 truncate max-w-[220px]">{r.notes ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <>
+          <ListToolbar lv={lv} noun="transfer" />
+          <ListChips lv={lv} />
+          <ListScroll lv={lv} empty="No transfers match the current filters.">
+            <table className={listTable}>
+              <ListHead lv={lv} />
+              <tbody>
+                {lv.rows.map(r => (
+                  <tr key={r.id} className={listRow()}>
+                    <td className="px-2 py-2 font-mono text-[12px] text-stone-300">{r.transferNo ?? "—"}</td>
+                    <td className="px-2 py-2 text-stone-400">{fmt.date(r.transferDate)}</td>
+                    <td className="px-2 py-2 text-stone-200">{r.fromLocation?.name ?? "—"}</td>
+                    <td className="px-2 py-2 text-stone-200">{r.toLocation?.name ?? "—"}</td>
+                    <td className={listMoneyCell}>{fmt.money(r.totalCost, ccy)}</td>
+                    <td className="px-2 py-2">
+                      {r.entryId
+                        ? <Badge variant="blue" size="xs">Reclassified</Badge>
+                        : <span className="text-stone-600 text-[12px]" title="Both locations post to the same inventory account, so nothing changed in the books">No GL impact</span>}
+                    </td>
+                    <td className="px-2 py-2 text-stone-500 truncate max-w-[220px]">{r.notes ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {lv.rows.length > 0 && <ListFoot lv={lv} noun="transfer" />}
+            </table>
+          </ListScroll>
+        </>
       )}
 
       {composing && (
@@ -168,7 +175,7 @@ export function StockTransferConsole() {
       )}
 
       <Toast toast={toast} onClose={() => setToast(null)} />
-    </div>
+    </ListPage>
   );
 }
 

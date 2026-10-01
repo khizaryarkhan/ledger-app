@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { fmt } from "@/lib/format";
+import {
+  useListView, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  listTable, listRow, listMoneyCell, listNumCell, type ListColumn,
+} from "@/components/list-view";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -224,47 +228,35 @@ function AgingTab() {
     );
 
   const currency = report.currency ?? "USD";
+  return <AgingTable report={report} currency={currency} />;
+}
+
+// Column definitions — sort + funnel filter per column, board-style, matching
+// the list-view shell used by the Payables list pages. This report had no
+// client-side sort/filter before; adding them is purely additive.
+const AGING_COLS: ListColumn<AgingRow>[] = [
+  { key: "supplierName", label: "Supplier", sort: r => r.supplierName, filter: { kind: "text", value: r => r.supplierName } },
+  { key: "current",      label: "Current",    sort: r => r.current, descFirst: true, align: "right", money: r => ({ amount: r.current, currency: r.currency }) },
+  { key: "days1to30",    label: "1–30 Days",  sort: r => r.days1to30, descFirst: true, align: "right", money: r => ({ amount: r.days1to30, currency: r.currency }) },
+  { key: "days31to60",   label: "31–60 Days", sort: r => r.days31to60, descFirst: true, align: "right", money: r => ({ amount: r.days31to60, currency: r.currency }) },
+  { key: "days61to90",   label: "61–90 Days", sort: r => r.days61to90, descFirst: true, align: "right", money: r => ({ amount: r.days61to90, currency: r.currency }) },
+  { key: "days90plus",   label: "90+ Days",   sort: r => r.days90plus, descFirst: true, align: "right", money: r => ({ amount: r.days90plus, currency: r.currency }) },
+  { key: "total",        label: "Total",      sort: r => r.total, descFirst: true, align: "right", money: r => ({ amount: r.total, currency: r.currency }) },
+];
+
+function AgingTable({ report, currency }: { report: AgingReport; currency: string }) {
+  const lv = useListView(report.rows, AGING_COLS, { storageKey: "payables-ap-aging", defaultSort: "total", defaultDir: "desc", summary: "total" });
 
   return (
     <div className="space-y-4">
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <SummaryCard
-          label="Total Outstanding"
-          value={fmtMoney(report.totalOutstanding, currency)}
-          color="text-white"
-          icon={DollarSign}
-        />
-        <SummaryCard
-          label="Current"
-          value={fmtMoney(report.totalCurrent, currency)}
-          color="text-emerald-400"
-          icon={BarChart3}
-        />
-        <SummaryCard
-          label="1–30 Days"
-          value={fmtMoney(report.total1to30, currency)}
-          color="text-yellow-400"
-          icon={TrendingDown}
-        />
-        <SummaryCard
-          label="31–60 Days"
-          value={fmtMoney(report.total31to60, currency)}
-          color="text-orange-400"
-          icon={TrendingDown}
-        />
-        <SummaryCard
-          label="61–90 Days"
-          value={fmtMoney(report.total61to90, currency)}
-          color="text-rose-400"
-          icon={TrendingDown}
-        />
-        <SummaryCard
-          label="90+ Days"
-          value={fmtMoney(report.total90plus, currency)}
-          color="text-red-400"
-          icon={TrendingDown}
-        />
+        <SummaryCard label="Total Outstanding" value={fmtMoney(report.totalOutstanding, currency)} color="text-white" icon={DollarSign} />
+        <SummaryCard label="Current"      value={fmtMoney(report.totalCurrent, currency)}  color="text-emerald-400" icon={BarChart3} />
+        <SummaryCard label="1–30 Days"    value={fmtMoney(report.total1to30, currency)}    color="text-yellow-400" icon={TrendingDown} />
+        <SummaryCard label="31–60 Days"   value={fmtMoney(report.total31to60, currency)}   color="text-orange-400" icon={TrendingDown} />
+        <SummaryCard label="61–90 Days"   value={fmtMoney(report.total61to90, currency)}   color="text-rose-400" icon={TrendingDown} />
+        <SummaryCard label="90+ Days"     value={fmtMoney(report.total90plus, currency)}   color="text-red-400" icon={TrendingDown} />
       </div>
 
       {/* Table */}
@@ -279,77 +271,29 @@ function AgingTab() {
             Export CSV
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/40">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                  Supplier
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-400 uppercase tracking-wide">
-                  Current
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-yellow-400 uppercase tracking-wide">
-                  1–30 Days
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-orange-400 uppercase tracking-wide">
-                  31–60 Days
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-rose-400 uppercase tracking-wide">
-                  61–90 Days
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-red-400 uppercase tracking-wide">
-                  90+ Days
-                </th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-300 uppercase tracking-wide">
-                  Total
-                </th>
-              </tr>
-            </thead>
+        <ListToolbar lv={lv} noun="supplier" />
+        <ListChips lv={lv} />
+        <ListScroll lv={lv} empty="No suppliers match the current filters.">
+          <table className={listTable}>
+            <ListHead lv={lv} />
             <tbody>
-              {report.rows.map((row) => (
-                <tr
-                  key={row.supplierId}
-                  className="border-b border-stone-800 last:border-0 hover:bg-stone-800/30 transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-white">
-                    {row.supplierName}
+              {lv.rows.map((row: any) => (
+                <tr key={row.supplierId} className={listRow()}>
+                  <td className="px-2 py-2 font-medium text-white text-[13px]">{row.supplierName}</td>
+                  <td className={`${listNumCell} text-stone-300`}>{row.current > 0 ? fmtMoney(row.current, currency) : "—"}</td>
+                  <td className={`${listNumCell} text-stone-300`}>{row.days1to30 > 0 ? fmtMoney(row.days1to30, currency) : "—"}</td>
+                  <td className={`${listNumCell} text-stone-300`}>{row.days31to60 > 0 ? fmtMoney(row.days31to60, currency) : "—"}</td>
+                  <td className={`${listNumCell} text-stone-300`}>{row.days61to90 > 0 ? fmtMoney(row.days61to90, currency) : "—"}</td>
+                  <td className={listNumCell}>
+                    {row.days90plus > 0 ? <span className="text-red-400 font-semibold">{fmtMoney(row.days90plus, currency)}</span> : <span className="text-stone-300">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-right text-stone-300 tabular-nums text-[13px]">
-                    {row.current > 0 ? fmtMoney(row.current, currency) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-stone-300 tabular-nums text-[13px]">
-                    {row.days1to30 > 0
-                      ? fmtMoney(row.days1to30, currency)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-stone-300 tabular-nums text-[13px]">
-                    {row.days31to60 > 0
-                      ? fmtMoney(row.days31to60, currency)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-stone-300 tabular-nums text-[13px]">
-                    {row.days61to90 > 0
-                      ? fmtMoney(row.days61to90, currency)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[13px]">
-                    {row.days90plus > 0 ? (
-                      <span className="text-red-400 font-semibold">
-                        {fmtMoney(row.days90plus, currency)}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-white tabular-nums text-[13px]">
-                    {fmtMoney(row.total, currency)}
-                  </td>
+                  <td className={listMoneyCell}><span className="font-bold text-white text-[13px]">{fmtMoney(row.total, currency)}</span></td>
                 </tr>
               ))}
             </tbody>
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun="supplier" />}
           </table>
-        </div>
+        </ListScroll>
       </Card>
     </div>
   );
@@ -481,54 +425,35 @@ function CashTab() {
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-stone-800 bg-stone-950/30">
-                      <th className="px-4 py-2 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Supplier
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Bill #
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Due Date
-                      </th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Amount
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Currency
-                      </th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Days
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-stone-500 uppercase tracking-wide">
-                        Status
-                      </th>
+                <table className={listTable}>
+                  <thead className="bg-stone-900">
+                    <tr className="border-b border-stone-800 text-left">
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Supplier</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Bill #</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Due Date</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right border-l border-stone-800">Amount</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Currency</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-right">Days</th>
+                      <th className="px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((row, i) => (
-                      <tr
-                        key={`${row.supplierId}-${row.billNumber}-${i}`}
-                        className="border-b border-stone-800 last:border-0 hover:bg-stone-800/20 transition-colors"
-                      >
-                        <td className="px-4 py-2.5 font-medium text-white text-[13px] max-w-[140px] truncate">
+                      <tr key={`${row.supplierId}-${row.billNumber}-${i}`} className={listRow()}>
+                        <td className="px-2 py-2 font-medium text-white text-[13px] max-w-[140px] truncate">
                           {row.supplierName}
                         </td>
-                        <td className="px-4 py-2.5 font-mono text-[12px] text-violet-400">
+                        <td className="px-2 py-2 font-mono text-[12px] text-violet-400">
                           {row.billNumber}
                         </td>
-                        <td className="px-4 py-2.5 text-stone-400 text-[13px] whitespace-nowrap">
+                        <td className="px-2 py-2 text-stone-400 text-[12px] whitespace-nowrap">
                           {fmtDate(row.dueDate)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-white tabular-nums text-[13px]">
-                          {fmtMoney(row.amount, row.currency)}
-                        </td>
-                        <td className="px-4 py-2.5 text-stone-300 text-[13px]">
+                        <td className={listMoneyCell}><span className="font-semibold text-white text-[13px]">{fmtMoney(row.amount, row.currency)}</span></td>
+                        <td className="px-2 py-2 text-stone-300 text-[12px]">
                           {row.currency}
                         </td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-[13px]">
+                        <td className={listNumCell}>
                           {row.daysUntilDue < 0 ? (
                             <span className="text-red-400 font-semibold">
                               {Math.abs(row.daysUntilDue)}d overdue
@@ -539,7 +464,7 @@ function CashTab() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="px-2 py-2">
                           <span className="inline-flex items-center gap-1 rounded-md ring-1 ring-inset font-medium text-[11px] px-2 py-0.5 bg-stone-800 text-stone-300 ring-stone-700">
                             {row.workflowStatus}
                           </span>
@@ -613,109 +538,67 @@ function PerformanceTab() {
     );
 
   const currency = report.currency ?? "USD";
+  return <PerformanceTable report={report} currency={currency} maxBilled={maxBilled} />;
+}
+
+// Column definitions — sort + funnel filter per column, board-style. This
+// report had no client-side sort before; adding it is purely additive.
+const PERFORMANCE_COLS: ListColumn<PerformanceRow>[] = [
+  { key: "supplierName",       label: "Supplier",             sort: r => r.supplierName, filter: { kind: "text", value: r => r.supplierName } },
+  { key: "totalBilled",        label: "Total Billed",         sort: r => r.totalBilled, descFirst: true, align: "right", money: r => ({ amount: r.totalBilled, currency: r.currency }) },
+  { key: "totalPaid",          label: "Total Paid",           sort: r => r.totalPaid, descFirst: true, align: "right", money: r => ({ amount: r.totalPaid, currency: r.currency }) },
+  { key: "outstanding",        label: "Outstanding",          sort: r => r.outstanding, descFirst: true, align: "right", money: r => ({ amount: r.outstanding, currency: r.currency }) },
+  { key: "avgDaysToApprove",   label: "Avg Days to Approve",  sort: r => r.avgDaysToApprove, descFirst: true, align: "right" },
+  { key: "openQueries",        label: "Open Queries",         sort: r => r.openQueries, descFirst: true, align: "right", sum: r => r.openQueries },
+  { key: "billedVsPaid",       label: "Billed vs Paid" },
+];
+
+function PerformanceTable({ report, currency, maxBilled }: { report: PerformanceReport; currency: string; maxBilled: number }) {
+  const lv = useListView(report.rows, PERFORMANCE_COLS, { storageKey: "payables-supplier-performance", defaultSort: "totalBilled", defaultDir: "desc", summary: "totalBilled" });
 
   return (
     <Card padding="none">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-stone-800 bg-stone-900/60">
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Supplier
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Total Billed
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Total Paid
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Outstanding
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Avg Days to Approve
-              </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold text-stone-400 uppercase tracking-wide">
-                Open Queries
-              </th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-stone-400 uppercase tracking-wide w-32">
-                Billed vs Paid
-              </th>
-            </tr>
-          </thead>
+      <ListToolbar lv={lv} noun="supplier" />
+      <ListChips lv={lv} />
+      <ListScroll lv={lv} empty="No suppliers match the current filters.">
+        <table className={listTable}>
+          <ListHead lv={lv} />
           <tbody>
-            {report.rows.map((row) => {
+            {lv.rows.map((row: any) => {
               const billedPct = maxBilled > 0 ? (row.totalBilled / maxBilled) * 100 : 0;
-              const paidPct =
-                row.totalBilled > 0
-                  ? (row.totalPaid / row.totalBilled) * 100
-                  : 0;
+              const paidPct = row.totalBilled > 0 ? (row.totalPaid / row.totalBilled) * 100 : 0;
               return (
-                <tr
-                  key={row.supplierId}
-                  className="border-b border-stone-800 last:border-0 hover:bg-stone-800/30 transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-white max-w-[160px] truncate">
+                <tr key={row.supplierId} className={listRow()}>
+                  <td className="px-2 py-2 font-medium text-white text-[13px] max-w-[160px] truncate">
                     {row.supplierName}
                   </td>
-                  <td className="px-4 py-3 text-right text-stone-300 tabular-nums text-[13px]">
-                    {fmtMoney(row.totalBilled, currency)}
+                  <td className={`${listNumCell} text-stone-300`}>{fmtMoney(row.totalBilled, currency)}</td>
+                  <td className={`${listNumCell} text-emerald-400 font-medium`}>{fmtMoney(row.totalPaid, currency)}</td>
+                  <td className={listMoneyCell}>
+                    {row.outstanding > 0 ? <span className="font-semibold text-orange-400">{fmtMoney(row.outstanding, currency)}</span> : <span className="text-stone-600">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-right text-emerald-400 tabular-nums text-[13px] font-medium">
-                    {fmtMoney(row.totalPaid, currency)}
+                  <td className={listNumCell}>
+                    <span className={row.avgDaysToApprove > 5 ? "text-orange-400" : "text-stone-300"}>{row.avgDaysToApprove.toFixed(1)}d</span>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[13px]">
-                    {row.outstanding > 0 ? (
-                      <span className="text-orange-400 font-semibold">
-                        {fmtMoney(row.outstanding, currency)}
-                      </span>
-                    ) : (
-                      <span className="text-stone-600">—</span>
-                    )}
+                  <td className={listNumCell}>
+                    {row.openQueries > 0 ? <span className="font-semibold text-rose-400">{row.openQueries}</span> : <span className="text-stone-600">0</span>}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[13px]">
-                    <span
-                      className={
-                        row.avgDaysToApprove > 5
-                          ? "text-orange-400"
-                          : "text-stone-300"
-                      }
-                    >
-                      {row.avgDaysToApprove.toFixed(1)}d
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[13px]">
-                    {row.openQueries > 0 ? (
-                      <span className="text-rose-400 font-semibold">
-                        {row.openQueries}
-                      </span>
-                    ) : (
-                      <span className="text-stone-600">0</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-2 w-32">
                     <div className="w-full h-4 bg-stone-800 rounded-full overflow-hidden relative">
-                      <div
-                        className="absolute inset-y-0 left-0 bg-stone-600 rounded-full"
-                        style={{ width: `${billedPct}%` }}
-                      />
-                      <div
-                        className="absolute inset-y-0 left-0 bg-violet-500 rounded-full"
-                        style={{ width: `${(paidPct / 100) * billedPct}%` }}
-                      />
+                      <div className="absolute inset-y-0 left-0 bg-stone-600 rounded-full" style={{ width: `${billedPct}%` }} />
+                      <div className="absolute inset-y-0 left-0 bg-violet-500 rounded-full" style={{ width: `${(paidPct / 100) * billedPct}%` }} />
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
-                      <span className="text-[10px] text-stone-500">
-                        {paidPct.toFixed(0)}% paid
-                      </span>
+                      <span className="text-[10px] text-stone-500">{paidPct.toFixed(0)}% paid</span>
                     </div>
                   </td>
                 </tr>
               );
             })}
           </tbody>
+          {lv.rows.length > 0 && <ListFoot lv={lv} noun="supplier" />}
         </table>
-      </div>
+      </ListScroll>
     </Card>
   );
 }

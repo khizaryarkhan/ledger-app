@@ -5,6 +5,16 @@ import { useSearchParams } from "next/navigation";
 
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { History, UploadCloud, DownloadCloud, Trash2, PencilRuler, FileInput, Undo2, Loader2, ChevronRight, AlertTriangle, CheckCircle2, FileDown, Send } from "lucide-react";
+import { listTable, listRow, listNumCell } from "@/components/list-view";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, so this
+// job-history table reads as the same design system as the shared list shell.
+// This is a job-progress/history feed (rows link to a live-polled run status,
+// no client-side sort/filter today), so it takes the shared visual tokens
+// only — see the handback report for why the full useListView shell isn't
+// adopted here.
+const th = "px-2 py-2.5 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
+const thRight = "px-2 py-2.5 text-right text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 interface Job {
   id: string;
@@ -117,21 +127,21 @@ function BatchHistoryInner() {
       </p>
 
       <div className="border border-stone-800 rounded-lg overflow-hidden">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-              <th className="text-left px-4 py-2.5 font-semibold">Action</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Entity</th>
+        <table className={listTable}>
+          <thead className="sticky top-0 bg-stone-900">
+            <tr className="border-b border-stone-800">
+              <th className={th}>Action</th>
+              <th className={th}>Entity</th>
               <th
-                className="text-right px-4 py-2.5 font-semibold cursor-help"
+                className={`${thRight} cursor-help`}
                 title="Records attempted — one invoice with 3 lines counts as 1 record, not 3. This can be smaller than the spreadsheet's row count for line-item entities (invoices, bills, deposits, etc.)."
               >
                 Records
               </th>
-              <th className="text-right px-4 py-2.5 font-semibold">OK</th>
-              <th className="text-right px-4 py-2.5 font-semibold">Failed</th>
-              <th className="text-left px-4 py-2.5 font-semibold">When</th>
-              <th className="text-right px-4 py-2.5 font-semibold"></th>
+              <th className={thRight}>OK</th>
+              <th className={thRight}>Failed</th>
+              <th className={th}>When</th>
+              <th className={thRight}></th>
             </tr>
           </thead>
           <tbody>
@@ -148,24 +158,24 @@ function BatchHistoryInner() {
               return (
                 <Fragment key={j.id}>
                   <tr
-                    className={`border-b border-stone-800/60 ${inspectable ? "cursor-pointer hover:bg-stone-900/50" : ""} ${isOpen ? "bg-stone-900/50" : ""}`}
+                    className={`${listRow(isOpen)} ${inspectable ? "cursor-pointer" : ""}`}
                     onClick={() => inspectable && toggle(j.id)}
                   >
-                    <td className="px-4 py-2">
+                    <td className="px-2 py-2">
                       <div className="flex items-center gap-2 text-stone-200">
                         {inspectable && <ChevronRight size={13} className={`text-stone-600 transition-transform ${isOpen ? "rotate-90" : ""}`} />}
                         {OP_ICON[j.operation]} {OP_LABEL[j.operation] || j.operation}
                       </div>
                     </td>
-                    <td className="px-4 py-2 text-stone-300">{j.entityLabel}</td>
-                    <td className="px-4 py-2 text-right text-stone-400 tabular-nums">{j.totalRows}</td>
-                    <td className="px-4 py-2 text-right text-emerald-400 tabular-nums">{j.successCount}</td>
-                    <td className="px-4 py-2 text-right tabular-nums"><span className={j.errorCount > 0 ? "text-rose-400" : "text-stone-600"}>{j.errorCount}</span></td>
-                    <td className="px-4 py-2 text-stone-500">
+                    <td className="px-2 py-2 text-stone-300">{j.entityLabel}</td>
+                    <td className={`${listNumCell} text-stone-400`}>{j.totalRows}</td>
+                    <td className={`${listNumCell} text-emerald-400`}>{j.successCount}</td>
+                    <td className={listNumCell}><span className={j.errorCount > 0 ? "text-rose-400" : "text-stone-600"}>{j.errorCount}</span></td>
+                    <td className="px-2 py-2 text-stone-500">
                       {running ? <span className="inline-flex items-center gap-1 text-amber-400"><Loader2 size={12} className="animate-spin" /> {j.status}</span>
                         : new Date(j.createdAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </td>
-                    <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                    <td className={listNumCell} onClick={(e) => e.stopPropagation()}>
                       {j.undoneAt ? (
                         <span className="text-[11px] px-2 py-0.5 rounded bg-stone-800 text-stone-400">Undone</span>
                       ) : canUndo ? (
@@ -215,20 +225,20 @@ function BatchHistoryInner() {
 
                             <div className="rounded-lg border border-stone-800 overflow-hidden">
                               <div className="max-h-72 overflow-y-auto">
-                                <table className="w-full text-[12px]">
+                                <table className={listTable}>
                                   <thead className="sticky top-0 bg-stone-900">
-                                    <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                                      <th className="text-left px-3 py-2 font-semibold w-16">{j.operation === "send" ? "#" : "Row"}</th>
-                                      <th className="text-left px-3 py-2 font-semibold w-48">{j.operation === "send" ? "Customer" : "Record"}</th>
-                                      <th className="text-left px-3 py-2 font-semibold">Why it failed</th>
+                                    <tr className="border-b border-stone-800">
+                                      <th className={`${th} w-16`}>{j.operation === "send" ? "#" : "Row"}</th>
+                                      <th className={`${th} w-48`}>{j.operation === "send" ? "Customer" : "Record"}</th>
+                                      <th className={th}>Why it failed</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {detail.failed.map((f, i) => (
-                                      <tr key={i} className="border-b border-stone-800/50 last:border-0">
-                                        <td className="px-3 py-1.5 text-stone-500 tabular-nums">{f.row}</td>
-                                        <td className="px-3 py-1.5 text-stone-300 truncate">{f.key || "—"}</td>
-                                        <td className="px-3 py-1.5 text-rose-300">{f.error || "Failed"}</td>
+                                      <tr key={i} className={listRow()}>
+                                        <td className="px-2 py-2 text-stone-500 tabular-nums">{f.row}</td>
+                                        <td className="px-2 py-2 text-stone-300 truncate">{f.key || "—"}</td>
+                                        <td className="px-2 py-2 text-rose-300">{f.error || "Failed"}</td>
                                       </tr>
                                     ))}
                                   </tbody>

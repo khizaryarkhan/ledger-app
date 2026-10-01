@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useBatchEntities } from "../_components/entity-picker";
 import { Clock, Plus, Play, Trash2, Loader2, CheckCircle2, Link2 } from "lucide-react";
+import { listTable, listRow } from "@/components/list-view";
 
 interface Schedule {
   id: string; entityId: string; name: string; spreadsheetId: string;
@@ -11,6 +12,10 @@ interface Schedule {
 }
 
 const selCls = "h-9 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-amber-500 focus:outline-none";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, so this
+// ad-hoc table reads as the same design system as the shared list shell.
+const th = "px-2 py-2.5 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 function ScheduledInner() {
   const banner = useSearchParams().get("sheets");
@@ -122,23 +127,23 @@ function ScheduledInner() {
 
       {/* List */}
       <div className="border border-stone-800 rounded-lg overflow-hidden">
-        <table className="w-full text-[13px]">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-            <th className="text-left px-4 py-2.5 font-semibold">Name</th>
-            <th className="text-left px-4 py-2.5 font-semibold">Entity</th>
-            <th className="text-left px-4 py-2.5 font-semibold">Runs</th>
-            <th className="text-left px-4 py-2.5 font-semibold">Last run</th>
-            <th className="text-right px-4 py-2.5 font-semibold"></th>
+        <table className={listTable}>
+          <thead className="sticky top-0 bg-stone-900"><tr className="border-b border-stone-800">
+            <th className={th}>Name</th>
+            <th className={th}>Entity</th>
+            <th className={th}>Runs</th>
+            <th className={th}>Last run</th>
+            <th className={th}></th>
           </tr></thead>
           <tbody>
             {schedules.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-stone-500">No scheduled imports yet.</td></tr>}
             {schedules.map((s) => (
-              <tr key={s.id} className="border-b border-stone-800/60">
-                <td className="px-4 py-2 text-stone-200">{s.name}{!s.active && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-stone-800 text-stone-500">paused</span>}</td>
-                <td className="px-4 py-2 text-stone-400">{entityLabel(s.entityId)}</td>
-                <td className="px-4 py-2 text-stone-400 capitalize">{s.cadence}</td>
-                <td className="px-4 py-2 text-stone-500">{s.lastRunAt ? new Date(s.lastRunAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                <td className="px-4 py-2 text-right">
+              <tr key={s.id} className={listRow()}>
+                <td className="px-2 py-2 text-stone-200">{s.name}{!s.active && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-stone-800 text-stone-500">paused</span>}</td>
+                <td className="px-2 py-2 text-stone-400">{entityLabel(s.entityId)}</td>
+                <td className="px-2 py-2 text-stone-400 capitalize">{s.cadence}</td>
+                <td className="px-2 py-2 text-stone-500">{s.lastRunAt ? new Date(s.lastRunAt).toLocaleString("en-IE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                <td className="px-2 py-2 text-right">
                   <div className="inline-flex items-center gap-3">
                     <button onClick={() => runNow(s.id)} title="Run now" className="text-stone-400 hover:text-amber-300"><Play size={14} /></button>
                     <button onClick={() => toggle(s)} className="text-[12px] text-stone-400 hover:text-stone-200">{s.active ? "Pause" : "Resume"}</button>

@@ -6,6 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { EntityPicker } from "../_components/entity-picker";
 import { pollBatchJob } from "../_components/poll-job";
 import { Tags, Loader2, CheckCircle2, XCircle, ArrowLeft, Search, AlertTriangle } from "lucide-react";
+import { listTable, listRow, listNumCell, listCheckbox, listCheckCell } from "@/components/list-view";
+
+// Mirrors components/list-view.tsx's (unexported) thCls header style, so
+// these ad-hoc tables read as the same design system as the shared list shell.
+const th = "px-2 py-2 text-left text-[11px] font-medium text-stone-500 whitespace-nowrap";
+const thRight = "px-2 py-2 text-right text-[11px] font-medium text-stone-500 whitespace-nowrap";
 
 type Ref = { id: string; name: string };
 type CFDef = { definitionId: string; name: string };
@@ -216,33 +222,36 @@ function BulkEditInner() {
                 <button onClick={toggleAll} className="text-[12px] text-sky-400 hover:text-sky-300">{selected.size === rows.length ? "Deselect all" : "Select all"}</button>
               </div>
               <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[340px] overflow-y-auto">
-                <table className="w-full text-[13px]">
-                  <thead className="sticky top-0 bg-stone-900 text-[11px] uppercase tracking-wider text-stone-500">
+                <table className={listTable}>
+                  <thead className="sticky top-0 bg-stone-900">
                     <tr className="border-b border-stone-800">
-                      <th className="w-8 px-2 py-2"></th>
-                      <th className="text-left px-3 py-2">No.</th>
-                      <th className="text-left px-3 py-2">Customer</th>
-                      <th className="text-left px-3 py-2">Date</th>
-                      <th className="text-right px-3 py-2">Total</th>
-                      <th className="text-left px-3 py-2">Class</th>
-                      <th className="text-left px-3 py-2">Location</th>
+                      <th className="w-10 px-3 py-2.5"></th>
+                      <th className={th}>No.</th>
+                      <th className={th}>Customer</th>
+                      <th className={th}>Date</th>
+                      <th className={thRight}>Total</th>
+                      <th className={th}>Class</th>
+                      <th className={th}>Location</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/30">
-                        <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
-                        <td className="px-3 py-1.5 text-stone-200">
-                          {r.docNumber ?? r.id}
-                          {r.linkedInvoices > 0 && <span title={`${r.linkedInvoices} linked invoice(s)`} className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">🔗 {r.linkedInvoices}</span>}
-                        </td>
-                        <td className="px-3 py-1.5 text-stone-400">{r.customer ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-stone-400">{r.txnDate ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-right text-stone-400 tabular-nums">{r.total ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-stone-400">{r.className ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-stone-400">{r.location ?? "—"}</td>
-                      </tr>
-                    ))}
+                    {rows.map((r) => {
+                      const isSel = selected.has(r.id);
+                      return (
+                        <tr key={r.id} className={listRow(isSel)}>
+                          <td className={listCheckCell}><input type="checkbox" checked={isSel} onChange={() => toggle(r.id)} className={listCheckbox} aria-label={`Select ${r.docNumber ?? r.id}`} /></td>
+                          <td className="px-2 py-2 text-stone-200">
+                            {r.docNumber ?? r.id}
+                            {r.linkedInvoices > 0 && <span title={`${r.linkedInvoices} linked invoice(s)`} className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">🔗 {r.linkedInvoices}</span>}
+                          </td>
+                          <td className="px-2 py-2 text-stone-400">{r.customer ?? "—"}</td>
+                          <td className="px-2 py-2 text-stone-400">{r.txnDate ?? "—"}</td>
+                          <td className={`${listNumCell} text-stone-400`}>{r.total ?? "—"}</td>
+                          <td className="px-2 py-2 text-stone-400">{r.className ?? "—"}</td>
+                          <td className="px-2 py-2 text-stone-400">{r.location ?? "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -314,8 +323,8 @@ function BulkEditInner() {
               </div>
               {result.errorCount > 0 && result.results && (
                 <div className="border border-stone-800 rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
-                  <table className="w-full text-[13px]"><thead className="sticky top-0 bg-stone-900"><tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800"><th className="text-left px-4 py-2 w-16">Row</th><th className="text-left px-4 py-2">Reason</th></tr></thead>
-                    <tbody>{result.results.filter((r: any) => !r.ok).map((r: any) => <tr key={r.row} className="border-b border-stone-800/60"><td className="px-4 py-1.5 text-stone-400">{r.row}</td><td className="px-4 py-1.5 text-rose-300">{r.error}</td></tr>)}</tbody>
+                  <table className={listTable}><thead className="sticky top-0 bg-stone-900"><tr className="border-b border-stone-800"><th className={`${th} w-16`}>Row</th><th className={th}>Reason</th></tr></thead>
+                    <tbody>{result.results.filter((r: any) => !r.ok).map((r: any) => <tr key={r.row} className={listRow()}><td className="px-2 py-2 text-stone-400">{r.row}</td><td className="px-2 py-2 text-rose-300">{r.error}</td></tr>)}</tbody>
                   </table>
                 </div>
               )}

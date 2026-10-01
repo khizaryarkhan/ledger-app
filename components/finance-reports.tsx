@@ -2,14 +2,19 @@
 
 /** AR/AP Aging and Sales-Tax Liability reports (native, from the GL). */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, Users, Building2, Receipt, ArrowLeft } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { ReportShell } from "@/components/ui";
-import { controlCompact, tableHead } from "@/components/form-kit";
+import { controlCompact } from "@/components/form-kit";
+import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
+// Home-currency GL figures (no per-row currency) — kept on fmt.num2 exactly
+// as before rather than ListColumn's `money` typing. See stock-reports.tsx
+// for the fuller explanation.
+const footCls = "border-t-2 border-stone-800 bg-stone-900/60 font-semibold";
 
 const BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"] as const;
 const BUCKET_LABEL: Record<string, string> = { current: "Current", "1-30": "1–30", "31-60": "31–60", "61-90": "61–90", "90+": "90+" };
@@ -21,6 +26,16 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
   async function load() { setData(await fetch(`/api/accounting/aging?side=${side}&asOf=${asOf}`).then(r => r.json()).catch(() => ({ rows: [], buckets: {}, total: 0 }))); }
   useEffect(() => { load(); }, [asOf]);
   const rows = data?.rows ?? [];
+
+  const COLS = useMemo<ListColumn<any>[]>(() => [
+    { key: "doc",    label: "Doc",  sort: r => r.docNumber, filter: { kind: "text", value: r => r.docNumber } },
+    { key: "party",  label: isAR ? "Customer" : "Supplier", sort: r => r.party, filter: { kind: "text", value: r => r.party } },
+    { key: "due",    label: "Due",  sort: r => r.dueDate },
+    { key: "age",    label: "Age",  sort: r => r.bucket, filter: { kind: "multi", value: r => BUCKET_LABEL[r.bucket] ?? r.bucket } },
+    { key: "total",  label: "Total", align: "right", sort: r => Number(r.total) || 0, descFirst: true },
+    { key: "open",   label: "Open",  align: "right", sort: r => Number(r.open) || 0, descFirst: true },
+  ], [isAR]);
+  const lv = useListView(rows, COLS, { storageKey: `finance-aging-${side}` });
 
   return (
     <ReportShell title={isAR ? "Aged Receivables" : "Aged Payables"} sub={isAR ? "Open customer invoices bucketed by how overdue they are." : "Open supplier bills bucketed by how overdue they are."} icon={isAR ? Users : Building2} onRefresh={load} loading={data === null}>
@@ -34,25 +49,23 @@ export function AgingReport({ side }: { side: "receivable" | "payable" }) {
         ))}
       </div>
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
-        <table className="w-full text-[13px] min-w-[680px]">
-          <thead><tr className={tableHead}>
-            <th className="text-left px-4 py-2.5">Doc</th><th className="text-left px-4 py-2.5">{isAR ? "Customer" : "Supplier"}</th><th className="text-left px-4 py-2.5">Due</th><th className="text-left px-4 py-2.5">Age</th><th className="text-right px-4 py-2.5">Total</th><th className="text-right px-4 py-2.5">Open</th>
-          </tr></thead>
+        <table className={`${listTable} min-w-[680px]`}>
+          <ListHead lv={lv} />
           <tbody>
             {data === null && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">Loading…</td></tr>}
-            {data !== null && rows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">Nothing outstanding.</td></tr>}
-            {rows.map((r: any) => (
-              <tr key={r.id} className="border-b border-stone-800/60">
-                <td className="px-4 py-2 font-mono text-[12px]"><Link href={`/accounting/transactions/${r.id}`} className="text-emerald-400 hover:text-emerald-300 hover:underline">{r.docNumber}</Link></td>
-                <td className="px-4 py-2 text-stone-200">{r.party}</td>
-                <td className="px-4 py-2 text-stone-400">{r.dueDate || "—"}</td>
-                <td className="px-4 py-2"><span className={`text-[11px] ${r.bucket === "90+" ? "text-rose-400" : r.bucket === "current" ? "text-stone-500" : "text-amber-400"}`}>{BUCKET_LABEL[r.bucket]}</span></td>
-                <td className="px-4 py-2 text-right text-stone-400 tabular-nums">{money(r.total)}</td>
-                <td className="px-4 py-2 text-right text-stone-200 tabular-nums">{money(r.open)}</td>
+            {data !== null && lv.rows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-500">Nothing outstanding.</td></tr>}
+            {lv.rows.map((r: any) => (
+              <tr key={r.id} className={listRow()}>
+                <td className={`${listCell} font-mono text-[12px]`}><Link href={`/accounting/transactions/${r.id}`} className="text-emerald-400 hover:text-emerald-300 hover:underline">{r.docNumber}</Link></td>
+                <td className={`${listCell} text-stone-200`}>{r.party}</td>
+                <td className={`${listCell} text-stone-400`}>{r.dueDate || "—"}</td>
+                <td className={listCell}><span className={`text-[11px] ${r.bucket === "90+" ? "text-rose-400" : r.bucket === "current" ? "text-stone-500" : "text-amber-400"}`}>{BUCKET_LABEL[r.bucket]}</span></td>
+                <td className={`${listNumCell} text-stone-400`}>{money(r.total)}</td>
+                <td className={`${listMoneyCell} text-stone-200`}>{money(r.open)}</td>
               </tr>
             ))}
-            {data !== null && rows.length > 0 && <tr className="border-t border-stone-700 bg-stone-950/40 font-semibold"><td className="px-4 py-2.5 text-stone-200" colSpan={5}>Total {isAR ? "receivable" : "payable"}</td><td className="px-4 py-2.5 text-right text-stone-100 tabular-nums">{money(data.total)}</td></tr>}
           </tbody>
+          {data !== null && lv.rows.length > 0 && <tfoot><tr className={footCls}><td className="px-2 py-2.5 text-stone-200" colSpan={5}>Total {isAR ? "receivable" : "payable"}</td><td className={listMoneyCell}><span className="text-white">{money(data.total)}</span></td></tr></tfoot>}
         </table>
       </div></div>
     </ReportShell>
