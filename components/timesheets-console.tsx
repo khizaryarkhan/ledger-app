@@ -125,6 +125,7 @@ export function TimesheetsConsole() {
 function LogTimeDrawer({ resources, types, onClose, onSaved }: { resources: any[]; types: any[]; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ resourceId: "", date: localToday(), hours: "", timesheetTypeId: "", assignableType: "" as AssignableType | "", assignableId: "", description: "" });
   const [options, setOptions] = useState<any[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<number | null>(null);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
 
   const type = types.find(t => t.id === form.timesheetTypeId);
@@ -133,6 +134,14 @@ function LogTimeDrawer({ resources, types, onClose, onSaved }: { resources: any[
     if (!form.assignableType) { setOptions([]); return; }
     fetch(ASSIGNABLE_ENDPOINT[form.assignableType as AssignableType]).then(r => r.json()).then(d => setOptions(Array.isArray(d) ? d : (d?.rows ?? []))).catch(() => setOptions([]));
   }, [form.assignableType]);
+
+  // Mirrors Dynamics' read-only "Holiday Balance (Current Year)" field —
+  // only meaningful for a balance-tracked leave type once a resource is picked.
+  useEffect(() => {
+    if (!form.resourceId || !type || type.category !== "leave" || !type.leavePolicy) { setLeaveBalance(null); return; }
+    fetch(`/api/resources/leave-balance?resourceId=${form.resourceId}&timesheetTypeId=${type.id}`)
+      .then(r => r.json()).then(d => setLeaveBalance(typeof d?.balance === "number" ? d.balance : null)).catch(() => setLeaveBalance(null));
+  }, [form.resourceId, form.timesheetTypeId]);
 
   async function save() {
     if (!form.resourceId) { setErr("Choose a resource."); return; }
@@ -169,6 +178,11 @@ function LogTimeDrawer({ resources, types, onClose, onSaved }: { resources: any[
                 {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </SelectField>
             </Field>
+            {leaveBalance !== null && (
+              <Field label="Current balance" className="col-span-2">
+                <div className={`${controlInset} flex items-center !bg-stone-950/60`}>{leaveBalance} hours</div>
+              </Field>
+            )}
             {type?.requiresAssignable && (
               <>
                 <Field label="Against" required>

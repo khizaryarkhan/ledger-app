@@ -436,6 +436,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/resources/people", label: "People", icon: Users },
         { href: "/resources/equipment", label: "Equipment", icon: Wrench },
         { href: "/resources/timesheet-types", label: "Timesheet Types", icon: ClipboardList },
+        { href: "/resources/leave-balances", label: "Leave Balances", icon: Scale },
         { href: "/resources/holiday-calendars", label: "Holiday Calendars", icon: MapPin },
         { href: "/resources/payroll-settings", label: "Payroll Settings", icon: ScrollText },
       ],
