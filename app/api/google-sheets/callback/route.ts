@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { googleSheetsTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
 import { logEvent } from "@/lib/audit";
@@ -36,17 +36,18 @@ export async function GET(req: Request) {
     const email = (await userRes.json().catch(() => ({})))?.email || "";
     const accessTokenExpiresAt = new Date(Date.now() + (expires_in || 3600) * 1000);
 
-    const [existing] = await db.select().from(googleSheetsTokens).where(eq(googleSheetsTokens.orgId, orgId)).limit(1);
+    const [existing] = await db.select().from(oauthConnections)
+      .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "google_sheets"))).limit(1);
     if (existing) {
-      await db.update(googleSheetsTokens).set({
+      await db.update(oauthConnections).set({
         orgId, userId, email,
         accessToken: encryptSecret(access_token)!,
         refreshToken: refresh_token ? encryptSecret(refresh_token)! : existing.refreshToken,
         accessTokenExpiresAt, updatedAt: new Date(),
-      }).where(eq(googleSheetsTokens.id, existing.id));
+      }).where(eq(oauthConnections.id, existing.id));
     } else {
-      await db.insert(googleSheetsTokens).values({
-        orgId, userId, email,
+      await db.insert(oauthConnections).values({
+        orgId, provider: "google_sheets", userId, email,
         accessToken: encryptSecret(access_token)!,
         refreshToken: encryptSecret(refresh_token)!, accessTokenExpiresAt,
       });

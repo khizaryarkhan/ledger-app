@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { gmailTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
 import { logEvent } from "@/lib/audit";
@@ -60,18 +60,19 @@ export async function GET(req: Request) {
 
     // orgId comes from the verified state — upsert by ORG so the connection
     // belongs to the organisation, not a single user.
-    const [existing] = await db.select().from(gmailTokens).where(eq(gmailTokens.orgId, orgId)).limit(1);
+    const [existing] = await db.select().from(oauthConnections)
+      .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "gmail"))).limit(1);
     if (existing) {
-      await db.update(gmailTokens).set({
+      await db.update(oauthConnections).set({
         orgId,
         userId, // record the latest authoriser
         email, accessToken: encryptSecret(access_token)!,
         refreshToken: refresh_token ? encryptSecret(refresh_token)! : existing.refreshToken,
         accessTokenExpiresAt, updatedAt: new Date(),
-      }).where(eq(gmailTokens.id, existing.id));
+      }).where(eq(oauthConnections.id, existing.id));
     } else {
-      await db.insert(gmailTokens).values({
-        orgId, userId, email, accessToken: encryptSecret(access_token)!,
+      await db.insert(oauthConnections).values({
+        orgId, provider: "gmail", userId, email, accessToken: encryptSecret(access_token)!,
         refreshToken: encryptSecret(refresh_token)!, accessTokenExpiresAt,
       });
     }

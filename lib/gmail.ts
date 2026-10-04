@@ -4,12 +4,13 @@
  */
 
 import { db } from "@/db";
-import { gmailTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export async function getValidGmailToken(orgId: string) {
-  const [token] = await db.select().from(gmailTokens).where(eq(gmailTokens.orgId, orgId)).limit(1);
+  const [token] = await db.select().from(oauthConnections)
+    .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "gmail"))).limit(1);
   if (!token) return null;
 
   // Tokens are encrypted at rest — decrypt for use (legacy plaintext passes through).
@@ -32,11 +33,11 @@ export async function getValidGmailToken(orgId: string) {
     });
     if (!res.ok) return { ...token, accessToken, refreshToken };
     const data = await res.json();
-    await db.update(gmailTokens).set({
+    await db.update(oauthConnections).set({
       accessToken:           encryptSecret(data.access_token)!,
       accessTokenExpiresAt:  new Date(now + (data.expires_in || 3600) * 1000),
       updatedAt:             new Date(),
-    }).where(eq(gmailTokens.id, token.id));
+    }).where(eq(oauthConnections.id, token.id));
     return { ...token, accessToken: data.access_token, refreshToken };
   }
 

@@ -3,14 +3,16 @@
  */
 
 import { db } from "@/db";
-import { googleSheetsTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { requireOrg, ok } from "@/lib/api";
 
 export async function GET() {
   const { error, orgId } = await requireOrg();
   if (error) return error;
-  const [token] = await db.select({ email: googleSheetsTokens.email })
-    .from(googleSheetsTokens).where(eq(googleSheetsTokens.orgId, orgId!)).limit(1);
+  const [token] = await db.select({ email: oauthConnections.email })
+    .from(oauthConnections)
+    .where(and(eq(oauthConnections.orgId, orgId!), eq(oauthConnections.provider, "google_sheets")))
+    .limit(1);
   return ok({ connected: !!token, email: token?.email ?? null });
 }

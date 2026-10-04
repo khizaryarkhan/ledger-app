@@ -14,15 +14,15 @@
  */
 
 import { db } from "@/db";
-import { microsoftTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export async function getValidMicrosoftToken(orgId: string) {
   const [token] = await db
     .select()
-    .from(microsoftTokens)
-    .where(eq(microsoftTokens.orgId, orgId))
+    .from(oauthConnections)
+    .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "microsoft")))
     .limit(1);
   if (!token) return null;
 
@@ -55,14 +55,14 @@ export async function getValidMicrosoftToken(orgId: string) {
     }
     const data = await res.json();
     await db
-      .update(microsoftTokens)
+      .update(oauthConnections)
       .set({
         accessToken:          encryptSecret(data.access_token)!,
         refreshToken:         data.refresh_token ? encryptSecret(data.refresh_token)! : token.refreshToken,
         accessTokenExpiresAt: new Date(now + (data.expires_in || 3600) * 1000),
         updatedAt:            new Date(),
       })
-      .where(eq(microsoftTokens.id, token.id));
+      .where(eq(oauthConnections.id, token.id));
     return { ...token, accessToken: data.access_token, refreshToken };
   }
 

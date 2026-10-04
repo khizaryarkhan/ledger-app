@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { gmailTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { requireOrg } from "@/lib/api";
 import { signOAuthState } from "@/lib/oauth-state";
 
@@ -17,8 +17,8 @@ export async function GET(req: Request) {
   // Status check — by ORG, not user. Any user in the org sees the same answer.
   if (searchParams.get("status") === "1") {
     const [token] = await db.select()
-      .from(gmailTokens)
-      .where(eq(gmailTokens.orgId, orgId!))
+      .from(oauthConnections)
+      .where(and(eq(oauthConnections.orgId, orgId!), eq(oauthConnections.provider, "gmail")))
       .limit(1);
     if (!token) return NextResponse.json({ connected: false });
     return NextResponse.json({

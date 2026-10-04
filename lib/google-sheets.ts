@@ -5,14 +5,15 @@
  */
 
 import { db } from "@/db";
-import { googleSheetsTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email";
 
 export async function getValidSheetsToken(orgId: string): Promise<{ accessToken: string; email: string } | null> {
-  const [token] = await db.select().from(googleSheetsTokens).where(eq(googleSheetsTokens.orgId, orgId)).limit(1);
+  const [token] = await db.select().from(oauthConnections)
+    .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "google_sheets"))).limit(1);
   if (!token) return null;
 
   const refreshToken = decryptSecret(token.refreshToken)!;
@@ -32,11 +33,11 @@ export async function getValidSheetsToken(orgId: string): Promise<{ accessToken:
     });
     if (res.ok) {
       const data = await res.json();
-      await db.update(googleSheetsTokens).set({
+      await db.update(oauthConnections).set({
         accessToken: encryptSecret(data.access_token)!,
         accessTokenExpiresAt: new Date(now + (data.expires_in || 3600) * 1000),
         updatedAt: new Date(),
-      }).where(eq(googleSheetsTokens.id, token.id));
+      }).where(eq(oauthConnections.id, token.id));
       return { accessToken: data.access_token, email: token.email };
     }
   }

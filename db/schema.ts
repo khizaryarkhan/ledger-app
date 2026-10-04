@@ -1599,13 +1599,16 @@ export const xeroTokens = pgTable("xero_tokens", {
 export type XeroToken = typeof xeroTokens.$inferSelect;
 
 // =========================================================================
-// GMAIL TOKENS
+// GMAIL / GOOGLE SHEETS / MICROSOFT TOKENS — DEPRECATED, PENDING REMOVAL.
+// Replaced by `oauthConnections` below (2026-10, audited for schema hygiene
+// before onboarding new orgs: these three were byte-for-byte identical in
+// shape, differing only by which provider they stored a token for). No
+// application code reads or writes these three any more — kept only as a
+// rollback safety net, same precedent as `customers_legacy`/`ap_suppliers_legacy`.
+// Drop in a follow-up migration once confirmed working in production.
 // =========================================================================
 export const gmailTokens = pgTable("gmail_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
-  // Org-scoped: one Gmail connection per org. Every user in the org can
-  // see whether Gmail is connected (and use it for outbound mail).
-  // userId records the human who authorised it (needed for OAuth refresh).
   orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   email: varchar("email", { length: 255 }).notNull(),
@@ -1617,8 +1620,6 @@ export const gmailTokens = pgTable("gmail_tokens", {
 });
 export type GmailToken = typeof gmailTokens.$inferSelect;
 
-// Google Sheets connection (separate scope from Gmail: spreadsheets.readonly),
-// used by Data Studio scheduled imports.
 export const googleSheetsTokens = pgTable("google_sheets_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
@@ -1649,14 +1650,9 @@ export const scheduledImports = pgTable("scheduled_imports", {
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
 });
 
-// =========================================================================
-// MICROSOFT TOKENS
-// =========================================================================
+// DEPRECATED, PENDING REMOVAL — see the comment above gmailTokens.
 export const microsoftTokens = pgTable("microsoft_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
-  // Org-scoped: one Microsoft connection per org. Every user in the org can
-  // see whether Microsoft is connected (and use it for outbound mail).
-  // userId records the human who authorised it (needed for OAuth refresh).
   orgId:  uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   email: varchar("email", { length: 255 }).notNull(),
@@ -1667,6 +1663,30 @@ export const microsoftTokens = pgTable("microsoft_tokens", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type MicrosoftToken = typeof microsoftTokens.$inferSelect;
+
+// =========================================================================
+// OAUTH CONNECTIONS — one table for every provider's connected-mailbox/sheet
+// token (gmail | google_sheets | microsoft), replacing the three identical
+// per-provider tables above. Every existing lookup was already by orgId
+// alone (never userId), so the one thing this adds beyond consolidation is a
+// real uniqueness guarantee: nothing previously stopped two rows existing
+// for the same org, since none of the three old tables had a unique index.
+// =========================================================================
+export const oauthConnections = pgTable("oauth_connections", {
+  id:                   uuid("id").defaultRandom().primaryKey(),
+  orgId:                uuid("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+  provider:             varchar("provider", { length: 16 }).notNull(), // gmail | google_sheets | microsoft
+  userId:               uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  email:                varchar("email", { length: 255 }).notNull(),
+  accessToken:          text("access_token").notNull(),
+  refreshToken:         text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  createdAt:            timestamp("created_at").notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgProviderUnique: uniqueIndex("oauth_connections_org_provider_unique").on(t.orgId, t.provider),
+}));
+export type OauthConnection = typeof oauthConnections.$inferSelect;
 
 // =========================================================================
 // SAGE INTACCT CREDENTIALS

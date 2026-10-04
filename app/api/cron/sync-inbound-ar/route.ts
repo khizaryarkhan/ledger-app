@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { communications, gmailTokens, orgSmtpSettings } from "@/db/schema";
+import { communications, oauthConnections, orgSmtpSettings } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getValidGmailToken } from "@/lib/gmail";
 import { decryptSecret } from "@/lib/crypto";
@@ -38,9 +38,9 @@ export async function GET(req: NextRequest) {
 
   // --- Gmail orgs ---
   const gmailOrgs = await db
-    .select({ orgId: gmailTokens.orgId })
-    .from(gmailTokens)
-    .where(eq(gmailTokens.orgId, gmailTokens.orgId)); // select all rows
+    .select({ orgId: oauthConnections.orgId })
+    .from(oauthConnections)
+    .where(eq(oauthConnections.provider, "gmail"));
   for (const { orgId } of gmailOrgs) {
     if (!orgId) continue;
     try {

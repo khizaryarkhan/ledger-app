@@ -11,8 +11,8 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { microsoftTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { encryptSecret } from "@/lib/crypto";
 import { logEvent } from "@/lib/audit";
@@ -71,10 +71,11 @@ export async function GET(req: Request) {
     const accessTokenExpiresAt = new Date(now + (expires_in || 3600) * 1000);
 
     // orgId comes from the verified state — upsert by ORG.
-    const [existing] = await db.select().from(microsoftTokens).where(eq(microsoftTokens.orgId, orgId)).limit(1);
+    const [existing] = await db.select().from(oauthConnections)
+      .where(and(eq(oauthConnections.orgId, orgId), eq(oauthConnections.provider, "microsoft"))).limit(1);
 
     if (existing) {
-      await db.update(microsoftTokens).set({
+      await db.update(oauthConnections).set({
         orgId,
         userId,
         email,
@@ -82,10 +83,10 @@ export async function GET(req: Request) {
         refreshToken:         refresh_token ? encryptSecret(refresh_token)! : existing.refreshToken,
         accessTokenExpiresAt,
         updatedAt:            new Date(),
-      }).where(eq(microsoftTokens.id, existing.id));
+      }).where(eq(oauthConnections.id, existing.id));
     } else {
-      await db.insert(microsoftTokens).values({
-        orgId, userId, email,
+      await db.insert(oauthConnections).values({
+        orgId, provider: "microsoft", userId, email,
         accessToken:          encryptSecret(access_token)!,
         refreshToken:         encryptSecret(refresh_token)!,
         accessTokenExpiresAt,

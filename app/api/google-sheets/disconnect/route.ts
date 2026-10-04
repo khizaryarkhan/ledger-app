@@ -1,11 +1,11 @@
 import { db } from "@/db";
-import { googleSheetsTokens } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { oauthConnections } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { requireOrg, ok } from "@/lib/api";
 
 export async function POST() {
   const { error, orgId } = await requireOrg();
   if (error) return error;
-  await db.delete(googleSheetsTokens).where(eq(googleSheetsTokens.orgId, orgId!));
+  await db.delete(oauthConnections).where(and(eq(oauthConnections.orgId, orgId!), eq(oauthConnections.provider, "google_sheets")));
   return ok({ disconnected: true });
 }
