@@ -77,6 +77,15 @@ export const organisations = pgTable("organisations", {
   // lib/accounting/ledger-authority.ts. A platform admin sets it on
   // /admin/customers/[orgId]; it defaults to 'native' for a brand-new org.
   bookOfRecord: varchar("book_of_record", { length: 16 }).notNull().default("native"),
+  // Payroll posting cadence for Resources/Timesheets (lib/payroll/pay-periods.ts).
+  // NULL = not configured yet — "Post timesheets" falls back to asking the admin
+  // for an explicit range every time. Each frequency uses only the one anchor it
+  // actually needs; the others stay null for that org.
+  payrollFrequency:          varchar("payroll_frequency", { length: 16 }),        // weekly | biweekly | semi_monthly | monthly
+  payrollWeekEndDay:         integer("payroll_week_end_day"),                     // ISO weekday 1-7; weekly & biweekly
+  payrollBiweeklyAnchor:     date("payroll_biweekly_anchor"),                     // one known period-end date; fixes which alternating week is week 1
+  payrollSemimonthlyCutoff:  integer("payroll_semimonthly_cutoff"),               // day-of-month ending the first half (commonly 15)
+  payrollMonthCutoff:        integer("payroll_month_cutoff"),                     // day-of-month; null = calendar month-end
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -3490,6 +3499,11 @@ export const resources = pgTable("resources", {
   name:          varchar("name", { length: 160 }).notNull(),
   category:      varchar("category", { length: 80 }),                // free-text role/type, e.g. "Machine Operator", "CNC Machine #2"
   dailyCapacity: numeric("daily_capacity", { precision: 6, scale: 2 }).notNull().default("1"), // hours/day (person) or slots/day (equipment)
+  // Timesheets/capacity (Phase 2). All nullable — a resource with none set just
+  // has no cost rate and uses the org's default calendar/working pattern.
+  costRatePerHour:   numeric("cost_rate_per_hour", { precision: 10, scale: 2 }), // actual pay cost (person) or running cost (equipment)
+  holidayCalendarId: uuid("holiday_calendar_id").references(() => holidayCalendars.id, { onDelete: "set null" }), // null = org's default calendar
+  workingDays:       integer("working_days").array(),                // ISO weekday numbers (1=Mon..7=Sun); null = org default Mon-Fri
   status:        varchar("status", { length: 16 }).notNull().default("active"), // active | inactive
   notes:         text("notes"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
@@ -3521,4 +3535,157 @@ export const resourceAssignments = pgTable("resource_assignments", {
   orgAssignable:    index("resource_assignments_org_assignable_idx").on(t.orgId, t.assignableType, t.assignableId),
 }));
 export type ResourceAssignment = typeof resourceAssignments.$inferSelect;
+
+// =========================================================================
+// RESOURCE MANAGEMENT (Phase 2: timesheets, capacity & leave) — real labour
+// expense capture, mapped to the GL, distinct from Phase 1's forward-looking
+// `resource_assignments` (a plan) and from a Manufacturing Order's own
+// standard-cost labour absorption at completion (lib/inventory/mo-completion.ts,
+// hours × work-centre rate — no link to any person or real pay cost). The
+// standard-vs-actual labour variance that compares the two is a deliberate,
+// separate follow-on, not built here.
+// =========================================================================
+
+// A region's public-holiday list (orgs with multi-region staff, e.g. UK + Ireland,
+// need more than one). `resources.holidayCalendarId` null = the org's default.
+export const holidayCalendars = pgTable("holiday_calendars", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:      varchar("name", { length: 128 }).notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgDefaultUnique: uniqueIndex("holiday_calendars_org_default_unique").on(t.orgId).where(sql`${t.isDefault} = true`),
+}));
+export type HolidayCalendar = typeof holidayCalendars.$inferSelect;
+
+export const publicHolidays = pgTable("public_holidays", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  calendarId: uuid("calendar_id").notNull().references(() => holidayCalendars.id, { onDelete: "cascade" }),
+  date:       date("date").notNull(),
+  name:       varchar("name", { length: 128 }).notNull(),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  calendarDateIdx: index("public_holidays_calendar_date_idx").on(t.calendarId, t.date),
+}));
+export type PublicHoliday = typeof publicHolidays.$inferSelect;
+
+// A Timesheet Type is the single, org-configurable vocabulary a time entry is
+// logged against — "Work", "Sick time", "Holiday - UK", "R&D", ... (the same
+// list Dynamics calls "Type"). Deliberately NOT ap_items: these aren't
+// buyable/sellable things, they're an expense classification — same shape as
+// Classes/Tax Rates/Cost Centres under Accounting -> Setup, just with the
+// extra fields a time category needs (category/billable/requiresAssignable/
+// the COA mapping).
+export const timesheetTypes = pgTable("timesheet_types", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:               varchar("name", { length: 128 }).notNull(),
+  category:           varchar("category", { length: 16 }).notNull(), // work | leave | internal
+  billable:           boolean("billable").notNull().default(false),          // only meaningful when category='work'
+  requiresAssignable: boolean("requires_assignable").notNull().default(false), // true => a Project/MO/Job Work must be picked
+  isPublicHoliday:    boolean("is_public_holiday").notNull().default(false),  // leave subtype auto-suggested from the calendar, never balance-tracked
+  expenseAccountId:   uuid("expense_account_id").notNull().references(() => accounts.id),
+  status:             varchar("status", { length: 16 }).notNull().default("active"), // active | inactive
+  sortOrder:          integer("sort_order").notNull().default(0),
+  createdAt:          timestamp("created_at").notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgCategoryIdx: index("timesheet_types_org_category_idx").on(t.orgId, t.category, t.status),
+}));
+export type TimesheetType = typeof timesheetTypes.$inferSelect;
+
+// Optional accrual rule for a leave-category Timesheet Type. A row exists ONLY
+// if the admin explicitly turned balance tracking on for that type — an org
+// that just wants to capture leave (no PTO accrual math) leaves this unset.
+export const leavePolicies = pgTable("leave_policies", {
+  id:                   uuid("id").defaultRandom().primaryKey(),
+  orgId:                uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  timesheetTypeId:      uuid("timesheet_type_id").notNull().references(() => timesheetTypes.id, { onDelete: "cascade" }),
+  accrualMethod:        varchar("accrual_method", { length: 16 }).notNull(), // fixed_annual | monthly
+  accrualAmountPerYear: numeric("accrual_amount_per_year", { precision: 8, scale: 2 }).notNull().default("0"), // hours/year
+  carryForwardCap:      numeric("carry_forward_cap", { precision: 8, scale: 2 }), // null = unlimited
+  resetMonth:           integer("reset_month"), // 1-12; null = org's fiscal year start
+  createdAt:            timestamp("created_at").notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  typeUnique: uniqueIndex("leave_policies_type_unique").on(t.timesheetTypeId),
+}));
+export type LeavePolicy = typeof leavePolicies.$inferSelect;
+
+// Append-only ledger — a leave balance is SUM(hours) as-at a date, never a
+// mutable field. Same "prove it, don't assert it" rule as every other balance
+// in this app (lib/payroll/leave-balance.ts).
+export const leaveBalanceEntries = pgTable("leave_balance_entries", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId:      uuid("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  timesheetTypeId: uuid("timesheet_type_id").notNull().references(() => timesheetTypes.id),
+  date:            date("date").notNull(),
+  hours:           numeric("hours", { precision: 8, scale: 2 }).notNull(), // signed: + opening/accrual/carry-forward, - usage
+  sourceType:      varchar("source_type", { length: 16 }).notNull(), // opening | accrual | usage | carry_forward | adjustment
+  sourceId:        uuid("source_id"), // e.g. the time_entries.id that consumed it
+  note:            text("note"),
+  createdBy:       uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  orgResourceTypeDateIdx: index("leave_balance_entries_org_resource_type_date_idx").on(t.orgId, t.resourceId, t.timesheetTypeId, t.date),
+}));
+export type LeaveBalanceEntry = typeof leaveBalanceEntries.$inferSelect;
+
+// One row per hour logged — Draft -> Submitted -> Approved -> Posted (or
+// Rejected). Posting only happens in a batch (see timesheetBatches below);
+// nothing here writes the GL by itself.
+export const timeEntries = pgTable("time_entries", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  orgId:            uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  resourceId:       uuid("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  date:             date("date").notNull(),
+  hours:            numeric("hours", { precision: 6, scale: 2 }).notNull(),
+  timesheetTypeId:  uuid("timesheet_type_id").notNull().references(() => timesheetTypes.id),
+  // No FK: polymorphic across projects/manufacturing_orders/job_work_orders,
+  // same shape (and tradeoff) as resourceAssignments.assignableType/assignableId
+  // above — null/null when the Timesheet Type doesn't requireAssignable.
+  assignableType:   varchar("assignable_type", { length: 24 }), // project | manufacturing_order | job_work_order
+  assignableId:     uuid("assignable_id"),
+  description:      varchar("description", { length: 255 }),
+  status:           varchar("status", { length: 16 }).notNull().default("draft"), // draft | submitted | approved | rejected | posted
+  rejectedReason:   text("rejected_reason"),
+  batchId:          uuid("batch_id").references(() => timesheetBatches.id, { onDelete: "set null" }),
+  createdBy:        uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  approvedBy:       uuid("approved_by").references(() => users.id, { onDelete: "set null" }),
+  approvedAt:       timestamp("approved_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  orgResourceDateIdx:   index("time_entries_org_resource_date_idx").on(t.orgId, t.resourceId, t.date),
+  orgStatusIdx:         index("time_entries_org_status_idx").on(t.orgId, t.status),
+  orgAssignableIdx:     index("time_entries_org_assignable_idx").on(t.orgId, t.assignableType, t.assignableId),
+}));
+export type TimeEntry = typeof timeEntries.$inferSelect;
+
+// One row per "Post timesheets" run = one journal entry covering every
+// approved, unposted time entry whose date falls in [periodStart, periodEnd]
+// — grouped by expense account (+ project dimension), not one GL line per
+// resource. Per-resource/per-project detail stays in time_entries (the
+// subledger); the GL carries the aggregate, same control-account/subledger
+// split used everywhere else in this app (AR/AP, inventory).
+export const timesheetBatches = pgTable("timesheet_batches", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  periodStart: date("period_start").notNull(),
+  periodEnd:   date("period_end").notNull(),
+  entryId:     uuid("entry_id"), // -> journal_entries.id
+  totalHours:  numeric("total_hours", { precision: 10, scale: 2 }).notNull().default("0"),
+  totalAmount: numeric("total_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  status:      varchar("status", { length: 16 }).notNull().default("posted"), // posted | void
+  createdBy:   uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  orgPeriodUnique: uniqueIndex("timesheet_batches_org_period_unique").on(t.orgId, t.periodStart, t.periodEnd),
+}));
+export type TimesheetBatch = typeof timesheetBatches.$inferSelect;
+
 export type CrmFieldValue = typeof crmFieldValues.$inferSelect;

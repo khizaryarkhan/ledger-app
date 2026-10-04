@@ -23,7 +23,7 @@ import { and, eq } from "drizzle-orm";
 // re-runs completeMoRun with the recorded input. The two names describe the
 // same control from two sides — the limit, and the thing being limited — not
 // two features.
-export type ApprovalEntityType = "jobwork_dispatch" | "production_build" | "mo_completion" | "goods_receipt" | "shipment";
+export type ApprovalEntityType = "jobwork_dispatch" | "production_build" | "mo_completion" | "goods_receipt" | "shipment" | "timesheet_batch";
 
 export async function requiresApproval(orgId: string, entityType: ApprovalEntityType, amount: number): Promise<boolean> {
   const [row] = await db.select().from(approvalThresholds)

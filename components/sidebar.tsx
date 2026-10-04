@@ -416,12 +416,16 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
 
   // Phase 1 of the Resource Management module (see CLAUDE.md): capacity &
   // scheduling of people/equipment against Projects and Manufacturing/Job
-  // Work orders. Board first (the daily working screen), Setup (People,
-  // Equipment CRUD) collapsible, matching the accounting Setup pattern.
+  // Work orders. Phase 2 adds actuals: Timesheets (log/approve/post time)
+  // and Utilization (capacity vs planned vs actual), alongside Board.
+  // Setup (People, Equipment, Timesheet Types, Holiday Calendars, Payroll
+  // Settings) stays collapsible, matching the accounting Setup pattern.
   const resourcesSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     {
       items: [
         { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
+        { href: "/resources/timesheets", label: "Timesheets", icon: Clock },
+        { href: "/resources/utilization", label: "Utilization", icon: Gauge },
       ],
     },
     {
@@ -431,6 +435,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/resources/people", label: "People", icon: Users },
         { href: "/resources/equipment", label: "Equipment", icon: Wrench },
+        { href: "/resources/timesheet-types", label: "Timesheet Types", icon: ClipboardList },
+        { href: "/resources/holiday-calendars", label: "Holiday Calendars", icon: MapPin },
+        { href: "/resources/payroll-settings", label: "Payroll Settings", icon: ScrollText },
       ],
     },
   ];

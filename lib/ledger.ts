@@ -120,18 +120,32 @@ export async function validateEntry(orgId: string, lines: PostLine[]): Promise<v
 // entries are exempt: QuickBooks is the book of record for those.
 const HAND_ENTERED = new Set(["Manual", "Opening", "Deposit", "Transfer"]);
 const INVENTORY_ROLE_KEYS = ["RM_INVENTORY", "WIP_STOCK", "WIP_OPEN_ORDERS", "FG_INVENTORY"];
+// Single org-wide control accounts identified by subtype, not by a per-item
+// posting-group role (that mechanism is for RM/WIP/FG and doesn't fit a
+// control account with no "item" dimension). Its balance must equal the
+// unposted timesheet_batches subledger, so a hand entry can't move it.
+const CONTROL_SUBTYPES = ["PayrollClearing"];
 
 export async function assertNoControlAccounts(orgId: string, lines: { accountId: string }[]): Promise<void> {
   const ids = [...new Set(lines.map(l => l.accountId).filter(Boolean))];
   if (!ids.length) return;
   const hits = await db.select({ id: postingGroupAccounts.accountId }).from(postingGroupAccounts)
     .where(and(eq(postingGroupAccounts.orgId, orgId), inArray(postingGroupAccounts.accountId, ids), inArray(postingGroupAccounts.role, INVENTORY_ROLE_KEYS)));
-  if (!hits.length) return;
-  const [a] = await db.select({ name: apAccounts.name }).from(apAccounts).where(eq(apAccounts.id, hits[0].id)).limit(1);
-  throw new LedgerValidationError(
-    `"${a?.name ?? "This account"}" is an inventory control account — its balance must match the stock on hand, so it can't take a manual entry. `
-    + `Post a goods receipt, shipment, build or stock adjustment instead.`
-  );
+  if (hits.length) {
+    const [a] = await db.select({ name: apAccounts.name }).from(apAccounts).where(eq(apAccounts.id, hits[0].id)).limit(1);
+    throw new LedgerValidationError(
+      `"${a?.name ?? "This account"}" is an inventory control account — its balance must match the stock on hand, so it can't take a manual entry. `
+      + `Post a goods receipt, shipment, build or stock adjustment instead.`
+    );
+  }
+  const subtypeHits = await db.select({ name: apAccounts.name }).from(apAccounts)
+    .where(and(eq(apAccounts.orgId, orgId), inArray(apAccounts.id, ids), inArray(apAccounts.subtype, CONTROL_SUBTYPES)));
+  if (subtypeHits.length) {
+    throw new LedgerValidationError(
+      `"${subtypeHits[0].name}" is a control account — its balance must match its subledger, so it can't take a manual entry. `
+      + `Post timesheets (or the matching document) instead.`
+    );
+  }
 }
 
 /** Next sequential entry number for the org. */

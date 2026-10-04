@@ -17,6 +17,7 @@ import { LedgerValidationError } from "@/lib/ledger";
 import { dispatchToJobWorker } from "@/lib/inventory/jobwork";
 import { postGoodsReceipt } from "@/lib/inventory/receiving";
 import { postShipment } from "@/lib/inventory/shipping";
+import { postTimesheets } from "@/lib/payroll/timesheet-posting";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const { error, orgId, role, session } = await requireOrg();
@@ -44,6 +45,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       }
       case "goods_receipt": result = await postGoodsReceipt(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;
       case "shipment": result = await postShipment(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;
+      case "timesheet_batch": result = await postTimesheets(orgId!, pending.payloadJson as any, pending.requestedBy, opts); break;
       default: return bad(`Unknown approval entity type: ${pending.entityType}`, 500);
     }
     await db.update(pendingApprovals).set({

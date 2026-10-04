@@ -13,14 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw, AlertTriangle, X, Loader, Check } from "lucide-react";
 import { Field, Section, SelectField, controlInset, Drawer, DrawerFooter } from "@/components/form-kit";
 import { localToday, ymd } from "@/lib/format";
-
-const ASSIGNABLE_LABEL: Record<string, string> = { project: "Project", manufacturing_order: "Manufacturing Order", job_work_order: "Job Work Order" };
-const ASSIGNABLE_ENDPOINT: Record<string, string> = { project: "/api/projects", manufacturing_order: "/api/production/mos", job_work_order: "/api/inventory/jobwork" };
-function assignableOptionLabel(type: string, row: any): string {
-  if (type === "project") return row.name;
-  if (type === "manufacturing_order") return `${row.moNo} — ${row.outputItem?.name ?? ""}`;
-  return row.docNumber ? `${row.docNumber}` : row.id;
-}
+import { ASSIGNABLE_LABEL, ASSIGNABLE_ENDPOINT, assignableOptionLabel, type AssignableType } from "@/lib/resources/assignable";
 
 function startOfWeek(d: Date) { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
 const iso = (d: Date) => ymd(d);
@@ -108,7 +101,7 @@ export function ResourceBoard() {
 
 function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [resources, setResources] = useState<any[]>([]);
-  const [assignableType, setAssignableType] = useState("project");
+  const [assignableType, setAssignableType] = useState<AssignableType>("project");
   const [assignableOptions, setAssignableOptions] = useState<any[]>([]);
   const [form, setForm] = useState({ resourceId: "", assignableId: "", startDate: localToday(), endDate: "", allocationPercent: "100", notes: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
@@ -145,7 +138,7 @@ function NewAssignmentDrawer({ onClose, onCreated }: { onClose: () => void; onCr
               </SelectField>
             </Field>
             <Field label="Assign to" required>
-              <SelectField inset value={assignableType} onChange={e => setAssignableType(e.target.value)}>
+              <SelectField inset value={assignableType} onChange={e => setAssignableType(e.target.value as AssignableType)}>
                 <option value="project">Project</option>
                 <option value="manufacturing_order">Manufacturing Order</option>
                 <option value="job_work_order">Job Work Order</option>

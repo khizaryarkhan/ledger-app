@@ -23,7 +23,7 @@ export type DocType =
   | "Estimate" | "Bill" | "Expense" | "BillPayment" | "VendorCredit" | "Deposit" | "Transfer"
   | "PurchaseOrder" | "Production" | "GoodsReceipt" | "SalesOrder" | "Shipment"
   | "Opening" | "Adjustment" | "Reconciliation" | "MO" | "JobWork" | "StockTransfer"
-  | "LotFPWIP" | "LotSIRM";
+  | "LotFPWIP" | "LotSIRM" | "Payroll";
 
 // Reserved, NON-editable system series: the global per-org backend Transaction
 // ID counter. Every transaction (any type) draws its immutable TXN number here,
@@ -65,6 +65,7 @@ export const DOC_TYPES: { type: DocType; label: string; prefix: string; padding:
   // series can never collide with each other even if their counters align.
   { type: "LotFPWIP",      label: "Lot Codes (FP/WIP)", prefix: "LOT-F-", padding: 6 },
   { type: "LotSIRM",       label: "Lot Codes (SI/RM)",  prefix: "LOT-S-", padding: 6 },
+  { type: "Payroll",       label: "Timesheet Postings", prefix: "PAY-",  padding: 4 },
 ];
 
 const DEFAULTS = new Map(DOC_TYPES.map(d => [d.type, d]));

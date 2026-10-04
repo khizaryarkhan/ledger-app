@@ -16,16 +16,7 @@ import { resources, resourceAssignments } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, gte, lte, or, isNull, desc } from "drizzle-orm";
-
-const ASSIGNABLE_TYPES = ["project", "manufacturing_order", "job_work_order"] as const;
-type AssignableType = (typeof ASSIGNABLE_TYPES)[number];
-
-function overlaps(startA: string, endA: string | null, from: string, to: string) {
-  // an open-ended assignment (no endDate) overlaps anything from its start onward
-  if (startA > to) return false;
-  if (endA && endA < from) return false;
-  return true;
-}
+import { ASSIGNABLE_TYPES, type AssignableType, overlaps } from "@/lib/resources/assignable";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();

@@ -83,6 +83,36 @@ export async function ensureSuspenseAccount(orgId: string): Promise<string> {
   return row.id;
 }
 
+/**
+ * Payroll clearing — credited when an approved timesheet batch posts real
+ * labour expense (lib/payroll/timesheet-posting.ts), cleared later by an
+ * actual payroll Bill/Payment. Same clearing-account idiom as GR/IR: a
+ * provisional recognition now, settled by a real document later.
+ *
+ * NOT in SYSTEM_ACCOUNTS, for the same reason Suspense isn't — it would
+ * otherwise appear in every org's chart the next time any of the ~20
+ * unrelated callers of ensureSystemAccounts runs, including orgs that never
+ * use timesheets. Created on demand by the first "Post timesheets" run.
+ */
+export const PAYROLL_CLEARING_ACCOUNT: CoaSeed =
+  { name: "Payroll Clearing", code: "2160", classification: "Liability", type: "Other Current Liability", subtype: "PayrollClearing" };
+
+/** Canonical subtype for the payroll clearing account. */
+export const PAYROLL_CLEARING_SUBTYPE = "PayrollClearing";
+
+/** Resolve the payroll clearing account, creating it if this org has never needed one. */
+export async function ensurePayrollClearingAccount(orgId: string): Promise<string> {
+  const existing = await systemAccountId(orgId, PAYROLL_CLEARING_SUBTYPE);
+  if (existing) return existing;
+  const a = PAYROLL_CLEARING_ACCOUNT;
+  const [row] = await db.insert(accounts).values({
+    orgId, source: "native", name: a.name, code: a.code,
+    classification: a.classification, type: a.type, subtype: a.subtype ?? null,
+    status: "Active", isSystem: true,
+  }).returning({ id: accounts.id });
+  return row.id;
+}
+
 /** Look up a system account for an org by its canonical subtype (case-insensitive). */
 export async function systemAccountId(orgId: string, subtype: string): Promise<string | null> {
   const rows = await db.select({ id: accounts.id, subtype: accounts.subtype })

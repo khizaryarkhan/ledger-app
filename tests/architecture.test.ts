@@ -1428,3 +1428,45 @@ describe("only the shared promise-sweep server writes invoicePromises.status", (
     expect(pure).not.toMatch(/from\s+["']drizzle-orm/);
   });
 });
+
+describe("timesheets post real labour expense, not standard-cost absorption", () => {
+  /**
+   * Resources Phase 2. Payroll Clearing is a control account — its balance
+   * must equal the unposted timesheet_batches subledger, so (like GR/IR and
+   * the inventory roles) a hand-entered journal must never be able to move
+   * it directly.
+   */
+  it("Payroll Clearing is refused as a target of a hand-entered journal", () => {
+    const ledger = readFileSync(join(ROOT, "lib/ledger.ts"), "utf8");
+    expect(ledger).toMatch(/CONTROL_SUBTYPES\s*=\s*\[[^\]]*"PayrollClearing"/);
+    expect(ledger).toMatch(/inArray\(apAccounts\.subtype,\s*CONTROL_SUBTYPES\)/);
+  });
+
+  /**
+   * The approvals mechanism (lib/inventory/approvals.ts) has exactly one
+   * resume point — app/api/approvals/[id]/approve/route.ts's switch — and
+   * nothing enforces that a new ApprovalEntityType actually gets a case
+   * there. This is the "forgot to wire the switch" failure mode made
+   * explicit: a staged timesheet_batch approval would otherwise 500 forever
+   * with "Unknown approval entity type".
+   */
+  it("timesheet_batch is staged AND wired into the approve-route switch", () => {
+    const posting = readFileSync(join(ROOT, "lib/payroll/timesheet-posting.ts"), "utf8");
+    expect(posting).toMatch(/requiresApproval\(orgId,\s*"timesheet_batch"/);
+    expect(posting).toMatch(/stagePendingApproval\(orgId,\s*"timesheet_batch"/);
+
+    const approveRoute = readFileSync(join(ROOT, "app/api/approvals/[id]/approve/route.ts"), "utf8");
+    expect(approveRoute).toMatch(/case\s+"timesheet_batch":/);
+    expect(approveRoute).toMatch(/postTimesheets\(/);
+  });
+
+  it("a timesheet batch posts one entry per period, not one line per resource", () => {
+    // The subledger (time_entries) carries per-resource detail; the GL only
+    // ever needs the aggregate by (expense account, assignable dimension) —
+    // same control-account/subledger split as AR/AP and inventory.
+    const costing = readFileSync(join(ROOT, "lib/payroll/timesheet-costing.ts"), "utf8");
+    expect(costing).not.toMatch(/from\s+["']@\/db/);
+    const posting = readFileSync(join(ROOT, "lib/payroll/timesheet-posting.ts"), "utf8");
+    expect(posting).toMatch(/costing\.groups\s*\n?\s*\.filter/);
+  });
+});
