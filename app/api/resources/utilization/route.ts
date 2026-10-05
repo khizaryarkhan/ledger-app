@@ -11,8 +11,7 @@ import { resources, resourceAssignments, timeEntries, timesheetTypes, holidayCal
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
 import { and, eq, inArray } from "drizzle-orm";
-import { overlaps } from "@/lib/resources/assignable";
-import { workingDaysInRange, DEFAULT_WORKING_DAYS } from "@/lib/resources/capacity";
+import { computeResourceUtilization } from "@/lib/resources/utilization";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -51,39 +50,16 @@ export async function GET(req: Request) {
     holidaysByCalendar.get(h.calendarId)!.add(h.date);
   }
 
-  const rows = resourceRows.map(r => {
-    const calendarId = r.holidayCalendarId ?? defaultCalendar?.id ?? null;
-    const holidaySet = calendarId ? holidaysByCalendar.get(calendarId) ?? new Set<string>() : new Set<string>();
-    const workingDays = r.workingDays && r.workingDays.length ? r.workingDays : DEFAULT_WORKING_DAYS;
-    const dailyCapacity = Number(r.dailyCapacity) || 0;
-    const workingDayCount = workingDaysInRange(from, to, workingDays, holidaySet);
+  const assignmentRows = assignments.map(a => ({
+    resourceId: a.resourceId, startDate: a.startDate, endDate: a.endDate,
+    status: a.status, allocationPercent: Number(a.allocationPercent) || 0,
+  }));
+  const entryRows = entries.map(e => ({ resourceId: e.resourceId, timesheetTypeId: e.timesheetTypeId, hours: Number(e.hours) || 0 }));
 
-    const resourceEntries = entries.filter(e => e.resourceId === r.id);
-    let leaveHours = 0, actualHours = 0, billableHours = 0;
-    for (const e of resourceEntries) {
-      const type = typeById.get(e.timesheetTypeId);
-      const hours = Number(e.hours) || 0;
-      if (type?.category === "leave") leaveHours += hours;
-      else if (type?.category === "work") { actualHours += hours; if (type.billable) billableHours += hours; }
-    }
-
-    const capacity = Math.max(0, workingDayCount * dailyCapacity - leaveHours);
-
-    const resourceAssignmentsOverlapping = assignments.filter(a => a.resourceId === r.id && a.status !== "cancelled" && overlaps(a.startDate, a.endDate, from, to));
-    const plannedPercent = resourceAssignmentsOverlapping.reduce((s, a) => s + (Number(a.allocationPercent) || 0), 0);
-    const plannedHours = Math.round((capacity * plannedPercent) / 100 * 100) / 100;
-
-    return {
-      resourceId: r.id, name: r.name, type: r.type,
-      capacity: Math.round(capacity * 100) / 100,
-      plannedHours, plannedPercent,
-      actualHours: Math.round(actualHours * 100) / 100,
-      billableHours: Math.round(billableHours * 100) / 100,
-      leaveHours: Math.round(leaveHours * 100) / 100,
-      utilizationPercent: capacity > 0 ? Math.round((actualHours / capacity) * 10000) / 100 : 0,
-      billableUtilizationPercent: capacity > 0 ? Math.round((billableHours / capacity) * 10000) / 100 : 0,
-    };
-  });
+  const rows = resourceRows.map(r => computeResourceUtilization(
+    { id: r.id, name: r.name, type: r.type, dailyCapacity: Number(r.dailyCapacity) || 0, workingDays: r.workingDays ?? null, holidayCalendarId: r.holidayCalendarId ?? null },
+    from, to, defaultCalendar?.id ?? null, holidaysByCalendar, assignmentRows, entryRows, typeById,
+  ));
 
   return ok(rows);
 }
