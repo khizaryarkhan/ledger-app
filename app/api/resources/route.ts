@@ -39,9 +39,13 @@ export async function POST(req: Request) {
   if (modErr) return modErr;
 
   const body = await req.json().catch(() => ({}));
-  const { type, employeeId, name, category, dailyCapacity, status, notes } = body ?? {};
+  const { type, employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays } = body ?? {};
   if (type !== "person" && type !== "equipment") return bad("type must be 'person' or 'equipment'");
   if (!name || typeof name !== "string" || !name.trim()) return bad("name is required");
+  if (costRatePerHour != null && costRatePerHour !== "" && !Number.isFinite(Number(costRatePerHour))) return bad("costRatePerHour must be a number");
+  if (workingDays != null && (!Array.isArray(workingDays) || workingDays.some((d: any) => !Number.isInteger(d) || d < 1 || d > 7))) {
+    return bad("workingDays must be an array of ISO weekday numbers (1-7)");
+  }
 
   const [row] = await db.insert(resources).values({
     orgId: orgId!,
@@ -52,6 +56,9 @@ export async function POST(req: Request) {
     dailyCapacity: dailyCapacity != null ? String(dailyCapacity) : "1",
     status: status === "inactive" ? "inactive" : "active",
     notes: notes || null,
+    costRatePerHour: costRatePerHour != null && costRatePerHour !== "" ? String(costRatePerHour) : null,
+    holidayCalendarId: type === "person" && holidayCalendarId ? holidayCalendarId : null,
+    workingDays: type === "person" && workingDays?.length ? workingDays : null,
   }).returning();
   return ok(row);
 }

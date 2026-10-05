@@ -31,7 +31,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!existing) return bad("Resource not found", 404);
 
   const body = await req.json().catch(() => ({}));
-  const { employeeId, name, category, dailyCapacity, status, notes } = body ?? {};
+  const { employeeId, name, category, dailyCapacity, status, notes, costRatePerHour, holidayCalendarId, workingDays } = body ?? {};
   const patch: Record<string, any> = { updatedAt: new Date() };
   if (name != null) { if (!String(name).trim()) return bad("name cannot be empty"); patch.name = String(name).trim(); }
   if (category !== undefined) patch.category = category || null;
@@ -39,6 +39,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (status !== undefined) { if (status !== "active" && status !== "inactive") return bad("status must be 'active' or 'inactive'"); patch.status = status; }
   if (notes !== undefined) patch.notes = notes || null;
   if (employeeId !== undefined && existing.type === "person") patch.employeeId = employeeId || null;
+  if (costRatePerHour !== undefined) {
+    if (costRatePerHour !== null && costRatePerHour !== "" && !Number.isFinite(Number(costRatePerHour))) return bad("costRatePerHour must be a number");
+    patch.costRatePerHour = costRatePerHour != null && costRatePerHour !== "" ? String(costRatePerHour) : null;
+  }
+  if (holidayCalendarId !== undefined && existing.type === "person") patch.holidayCalendarId = holidayCalendarId || null;
+  if (workingDays !== undefined && existing.type === "person") {
+    if (workingDays != null && (!Array.isArray(workingDays) || workingDays.some((d: any) => !Number.isInteger(d) || d < 1 || d > 7))) {
+      return bad("workingDays must be an array of ISO weekday numbers (1-7)");
+    }
+    patch.workingDays = workingDays?.length ? workingDays : null;
+  }
 
   const [row] = await db.update(resources).set(patch).where(and(eq(resources.id, params.id), eq(resources.orgId, orgId!))).returning();
   return ok(row);

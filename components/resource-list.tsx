@@ -18,6 +18,7 @@ import {
 export function ResourceList({ type }: { type: "person" | "equipment" }) {
   const [rows, setRows] = useState<any[] | null>(null);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [calendars, setCalendars] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -28,6 +29,7 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
     load();
     if (type === "person") {
       fetch("/api/parties/employees").then(r => r.json()).then(d => setEmployees(Array.isArray(d) ? d : (d?.rows ?? []))).catch(() => {});
+      fetch("/api/resources/holiday-calendars").then(r => r.json()).then(d => setCalendars(Array.isArray(d) ? d : [])).catch(() => {});
     }
   }, [type]);
 
@@ -48,8 +50,8 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
         <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700"><Plus size={14} /> New {type === "person" ? "person" : "equipment"}</button>
       </ListPageHeader>
 
-      {showNew && <ResourceDrawer type={type} employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
-      {openId && <ResourceDrawer type={type} employees={employees} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
+      {showNew && <ResourceDrawer type={type} employees={employees} calendars={calendars} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
+      {openId && <ResourceDrawer type={type} employees={employees} calendars={calendars} id={openId} onClose={() => setOpenId(null)} onSaved={() => { setOpenId(null); load(); }} />}
 
       {rows === null ? (
         <p className="px-4 py-8 text-center text-[13px] text-stone-500">Loading…</p>
@@ -81,19 +83,33 @@ export function ResourceList({ type }: { type: "person" | "equipment" }) {
   );
 }
 
-function ResourceDrawer({ type, employees, id, onClose, onSaved }: { type: "person" | "equipment"; employees: any[]; id?: string; onClose: () => void; onSaved: () => void }) {
+const WEEKDAYS = [{ v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" }, { v: 7, l: "Sun" }];
+const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5];
+
+function ResourceDrawer({ type, employees, calendars, id, onClose, onSaved }: { type: "person" | "equipment"; employees: any[]; calendars: any[]; id?: string; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!id;
-  const [form, setForm] = useState({ employeeId: "", name: "", category: "", dailyCapacity: type === "person" ? "8" : "1", status: "active", notes: "" });
+  const [form, setForm] = useState({
+    employeeId: "", name: "", category: "", dailyCapacity: type === "person" ? "8" : "1", status: "active", notes: "",
+    costRatePerHour: "", holidayCalendarId: "", workingDays: DEFAULT_WORKING_DAYS as number[],
+  });
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
 
   useEffect(() => {
     if (!id) return;
     fetch(`/api/resources/${id}`).then(r => r.json()).then(d => {
-      setForm({ employeeId: d.employeeId || "", name: d.name || "", category: d.category || "", dailyCapacity: String(d.dailyCapacity ?? "1"), status: d.status || "active", notes: d.notes || "" });
+      setForm({
+        employeeId: d.employeeId || "", name: d.name || "", category: d.category || "", dailyCapacity: String(d.dailyCapacity ?? "1"), status: d.status || "active", notes: d.notes || "",
+        costRatePerHour: d.costRatePerHour != null ? String(d.costRatePerHour) : "", holidayCalendarId: d.holidayCalendarId || "",
+        workingDays: Array.isArray(d.workingDays) && d.workingDays.length ? d.workingDays : DEFAULT_WORKING_DAYS,
+      });
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [id]);
+
+  function toggleDay(day: number) {
+    setForm(f => ({ ...f, workingDays: f.workingDays.includes(day) ? f.workingDays.filter(d => d !== day) : [...f.workingDays, day].sort() }));
+  }
 
   function onEmployee(empId: string) {
     const emp = employees.find(e => e.id === empId);
@@ -146,6 +162,28 @@ function ResourceDrawer({ type, employees, id, onClose, onSaved }: { type: "pers
               <Field label={type === "person" ? "Daily capacity (hours)" : "Daily capacity (slots)"}>
                 <input type="number" step="0.5" className={controlInset} value={form.dailyCapacity} onChange={e => setForm(f => ({ ...f, dailyCapacity: e.target.value }))} />
               </Field>
+              <Field label="Cost rate per hour" hint="Required before this resource's timesheets can be posted to the GL" className="col-span-2">
+                <input type="number" step="0.01" className={controlInset} value={form.costRatePerHour} onChange={e => setForm(f => ({ ...f, costRatePerHour: e.target.value }))} />
+              </Field>
+              {type === "person" && (
+                <>
+                  <Field label="Holiday calendar" hint="Blank = org default" className="col-span-2">
+                    <SelectField inset value={form.holidayCalendarId} onChange={e => setForm(f => ({ ...f, holidayCalendarId: e.target.value }))}>
+                      <option value="">Org default</option>
+                      {calendars.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </SelectField>
+                  </Field>
+                  <Field label="Working days" className="col-span-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {WEEKDAYS.map(w => (
+                        <label key={w.v} className="flex items-center gap-1.5 text-[13px] text-stone-300">
+                          <input type="checkbox" checked={form.workingDays.includes(w.v)} onChange={() => toggleDay(w.v)} /> {w.l}
+                        </label>
+                      ))}
+                    </div>
+                  </Field>
+                </>
+              )}
               <Field label="Status" className="col-span-2">
                 <SelectField inset value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                   <option value="active">Active</option>
