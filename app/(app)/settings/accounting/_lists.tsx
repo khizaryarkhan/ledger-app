@@ -14,25 +14,12 @@ import { CURRENCIES } from "@/lib/accounting/currencies";
 import { Drawer } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
+import { QBO_ACCOUNT_SUBTYPES, subtypeLabel } from "@/lib/accounting/qbo-account-subtypes";
 
 // ── QBO taxonomy ────────────────────────────────────────────────────────────
-const ACCOUNT_TYPES: Record<string, string[]> = {
-  "Bank": ["Chequing", "Savings", "Money Market", "Cash on hand", "Trust account"],
-  "Accounts Receivable": ["Accounts Receivable (A/R)"],
-  "Other Current Asset": ["Inventory", "Prepaid Expenses", "Undeposited Funds", "Retainage", "Loans to Others", "Other current assets"],
-  "Fixed Asset": ["Buildings", "Machinery & equipment", "Vehicles", "Furniture & fixtures", "Leasehold improvements", "Accumulated depreciation"],
-  "Other Asset": ["Goodwill", "Intangible assets", "Security deposits", "Other long-term assets"],
-  "Accounts Payable": ["Accounts Payable (A/P)"],
-  "Credit Card": ["Credit Card"],
-  "Other Current Liability": ["VAT/GST Payable", "Payroll liabilities", "Accrued liabilities", "Deferred revenue", "Current portion of loans"],
-  "Long Term Liability": ["Notes payable", "Shareholder loans", "Other long-term liabilities"],
-  "Equity": ["Retained earnings", "Owner's equity", "Share capital", "Opening balance equity"],
-  "Income": ["Sales of product income", "Service/fee income", "Discounts/refunds given", "Other primary income"],
-  "Other Income": ["Interest earned", "Dividend income", "Other miscellaneous income"],
-  "Cost of Goods Sold": ["Cost of labour", "Supplies & materials", "Shipping & delivery", "Other costs of sales"],
-  "Expense": ["Advertising", "Bank charges", "Insurance", "Legal & professional fees", "Office expenses", "Rent or lease", "Repairs & maintenance", "Salaries & wages", "Travel", "Utilities", "Other business expenses"],
-  "Other Expense": ["Depreciation", "Exchange gain or loss", "Penalties & settlements", "Other expense"],
-};
+// Detail-type (AccountSubType) options come from QBO_ACCOUNT_SUBTYPES — the
+// real wire-format codes QuickBooks itself uses — so a synced QBO account's
+// stored subtype always matches an option here instead of showing blank.
 const TYPE_GROUPS: [string, string[]][] = [
   ["Assets", ["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"]],
   ["Liabilities", ["Accounts Payable", "Credit Card", "Other Current Liability", "Long Term Liability"]],
@@ -342,7 +329,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                             </td>
                             <td className={`${listCell} text-stone-500 font-mono text-[12px]`}>{r.code ?? "—"}</td>
                             <td className={`${listCell} text-stone-400 text-[12px]`}>{r.type ?? "—"}</td>
-                            <td className={`${listCell} text-stone-500 text-[12px]`}>{r.subtype ?? "—"}</td>
+                            <td className={`${listCell} text-stone-500 text-[12px]`}>{subtypeLabel(r.type, r.subtype) ?? "—"}</td>
                             <td className={listCell}>{sourceBadge(r.source)}</td>
                             <td className={`${listCell} text-right whitespace-nowrap`}>
                               <RowActions r={r} onEdit={() => openEdit(r)} onToggle={() => toggleStatus(r)} />
@@ -517,7 +504,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                     <label className={labelCls}>Detail type</label>
                     <select value={form.subtype ?? ""} onChange={e => setForm(p => ({ ...p, subtype: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
                       <option value="">—</option>
-                      {(ACCOUNT_TYPES[form.type] ?? []).map(s => <option key={s} value={s}>{s}</option>)}
+                      {(QBO_ACCOUNT_SUBTYPES[form.type] ?? []).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                     </select>
                   </div>
                   <div>
