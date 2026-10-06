@@ -8,7 +8,8 @@
 import { db } from "@/db";
 import { apAccounts, apItems, apTaxRates, apDimensions } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq } from "drizzle-orm";
+import { validateParent } from "@/lib/accounting/account-parent";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 // QBO's account type taxonomy — PATCH must not accept arbitrary type strings,
@@ -31,6 +32,7 @@ const PATCH_SCHEMAS: Record<string, z.ZodTypeAny> = {
     code:    z.string().max(64).nullable().optional(),
     // Informational only (see AccountSchema in ../route.ts) — never affects posting.
     currency: z.string().length(3).nullable().optional(),
+    parentId: z.string().max(64).nullable().optional(),
     status,
   // strip, not strict: the chart's edit modal sends the whole row back
   // (classification, isSystem, syncToken …), which strict() rejected outright.
@@ -104,10 +106,26 @@ export async function PATCH(req: Request, { params }: { params: { entity: string
     if (refs.length) return bad(`This account is in use (${refs.slice(0, 4).join("; ")}${refs.length > 4 ? "; …" : ""}) — remap it first under Accounting → Setup → Posting Groups.`, 409);
   }
 
+  // Re-typing an account that other accounts already treat as their parent
+  // would silently orphan the "sub-account matches its parent's type" rule
+  // for every child — block it instead, same reasoning as the check above.
+  if (params.entity === "accounts" && d.type !== undefined && d.type !== (row as any).type) {
+    const parentRefs = [(row as any).id, (row as any).externalId].filter(Boolean) as string[];
+    const [child] = await db.select({ id: apAccounts.id }).from(apAccounts)
+      .where(and(eq(apAccounts.orgId, orgId!), inArray(apAccounts.parentId, parentRefs))).limit(1);
+    if (child) return bad("This account has sub-accounts under it — its type can't be changed while they exist.", 409);
+  }
+
   // Keep classification in step with the account type (drives report placement).
   if (params.entity === "accounts" && d.type !== undefined) {
     const { classificationForType } = await import("@/lib/accounting/account-types");
     (d as any).classification = classificationForType(d.type);
+  }
+
+  if (params.entity === "accounts" && d.parentId) {
+    const effectiveType = d.type ?? (row as any).type;
+    const parentErr = await validateParent(orgId!, d.parentId, effectiveType, params.id);
+    if (parentErr) return bad(parentErr);
   }
 
   // Synced records: only the status toggle is allowed locally.

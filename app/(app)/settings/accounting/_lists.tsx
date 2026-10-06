@@ -27,6 +27,40 @@ const TYPE_GROUPS: [string, string[]][] = [
   ["Income", ["Income", "Other Income"]],
   ["Expenses", ["Cost of Goods Sold", "Expense", "Other Expense"]],
 ];
+
+// Orders a flat list of accounts so each parent is immediately followed by
+// its own children (recursively), alphabetically at every level — a parent
+// reference may be either our own id or a QBO externalId (see
+// lib/accounting/account-parent.ts), resolved the same way here.
+function nestAccounts(list: Rec[]): (Rec & { depth: number })[] {
+  const byKey = new Map<string, Rec>();
+  for (const r of list) { byKey.set(r.id, r); if (r.externalId) byKey.set(r.externalId, r); }
+  const childrenOf = new Map<string, Rec[]>();
+  const roots: Rec[] = [];
+  for (const r of list) {
+    const parent = r.parentId ? byKey.get(r.parentId) : undefined;
+    if (parent && parent.id !== r.id) {
+      if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
+      childrenOf.get(parent.id)!.push(r);
+    } else {
+      roots.push(r);
+    }
+  }
+  const byName = (a: Rec, b: Rec) => (a.name ?? "").localeCompare(b.name ?? "");
+  roots.sort(byName);
+  for (const kids of childrenOf.values()) kids.sort(byName);
+
+  const out: (Rec & { depth: number })[] = [];
+  const visited = new Set<string>();
+  function walk(r: Rec, depth: number) {
+    if (visited.has(r.id)) return; // cycle guard — shouldn't happen, API refuses cycles
+    visited.add(r.id);
+    out.push({ ...r, depth });
+    for (const child of childrenOf.get(r.id) ?? []) walk(child, depth + 1);
+  }
+  for (const r of roots) walk(r, 0);
+  return out;
+}
 const ITEM_TYPES = ["Service", "Non-Inventory", "Inventory"];
 const dimTypeLabel = (t: string) => t === "TrackingCategory" ? "Tracking category" : t === "CostCentre" ? "Cost centre" : t === "CustomField" ? "Custom field" : t;
 // QBO's API calls Locations "Department" — treat both as the Locations tab.
@@ -130,12 +164,12 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
     if (tab !== "accounts") return [];
     return TYPE_GROUPS.map(([group, types]) => ({
       group,
-      rows: rows.filter(r => types.includes(r.type)).sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
+      rows: nestAccounts(rows.filter(r => types.includes(r.type))),
     })).filter(g => g.rows.length > 0)
       .concat((() => {
         const known = new Set(TYPE_GROUPS.flatMap(([, t]) => t));
         const other = rows.filter(r => !known.has(r.type));
-        return other.length ? [{ group: "Other", rows: other }] : [];
+        return other.length ? [{ group: "Other", rows: nestAccounts(other) }] : [];
       })());
   }, [rows, tab]);
 
@@ -145,7 +179,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
 
   function openNew() {
     setErrMsg("");
-    if (tab === "accounts")  setForm({ name: "", type: "Expense", subtype: "", code: "", currency: "" });
+    if (tab === "accounts")  setForm({ name: "", type: "Expense", subtype: "", code: "", currency: "", parentId: "" });
     if (tab === "items")     setForm({ name: "", itemType: "Service", code: "", description: "", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", taxRateId: "" });
     if (tab === "tax-rates") setForm({ name: "", rate: "", taxType: "" });
     if (tab === "classes")       setForm({ name: "", dimensionType: "Class", code: "" });
@@ -157,7 +191,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
   }
   function openEdit(r: Rec) {
     setErrMsg("");
-    setForm({ ...r, unitPrice: r.unitPrice ?? "", unitCost: r.unitCost ?? "", rate: r.rate ?? "", subtype: r.subtype ?? "", code: r.code ?? "", description: r.description ?? "", taxType: r.taxType ?? "", incomeAccountId: r.incomeAccountId ?? "", expenseAccountId: r.expenseAccountId ?? "", taxRateId: r.taxRateId ?? "" });
+    setForm({ ...r, unitPrice: r.unitPrice ?? "", unitCost: r.unitCost ?? "", rate: r.rate ?? "", subtype: r.subtype ?? "", code: r.code ?? "", description: r.description ?? "", taxType: r.taxType ?? "", incomeAccountId: r.incomeAccountId ?? "", expenseAccountId: r.expenseAccountId ?? "", taxRateId: r.taxRateId ?? "", parentId: r.parentId ?? "" });
     setEditRec(r);
   }
 
@@ -174,10 +208,13 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
       ["subtype", "code", "description", "taxType", "incomeAccountId", "expenseAccountId", "taxRateId", "currency"].forEach(k => {
         if (payload[k] === "") delete payload[k];
       });
+      // Parent account: "" (the "No parent" option) means explicitly clear it,
+      // not "leave unchanged" — so send null rather than omitting the key.
+      if (tab === "accounts") payload.parentId = payload.parentId || null;
       // Only send known fields
       delete payload.id; delete payload.orgId; delete payload.source; delete payload.externalId;
       delete payload.raw; delete payload.lastSyncedAt; delete payload.createdAt; delete payload.updatedAt;
-      delete payload.status; delete payload.purchaseAccountId; delete payload.parentId;
+      delete payload.status; delete payload.purchaseAccountId;
 
       const url = isNew ? `/api/accounting/${apiEntity(tab)}` : `/api/accounting/${apiEntity(tab)}/${(editRec as Rec).id}`;
       const res = await fetch(url, {
@@ -323,7 +360,8 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                         <tr className="bg-stone-900/70"><td colSpan={6} className="px-3 py-1.5 text-[11px] font-bold text-stone-400 uppercase tracking-wider">{g.group}</td></tr>
                         {g.rows.map(r => (
                           <tr key={r.id} className={`${listRow()} ${r.status === "Inactive" ? "opacity-45" : ""}`}>
-                            <td className={`${listCell} text-stone-200 font-medium`}>
+                            <td className={`${listCell} text-stone-200 font-medium`} style={r.depth ? { paddingLeft: `${12 + r.depth * 20}px` } : undefined}>
+                              {r.depth > 0 && <span className="text-stone-600 mr-1">└</span>}
                               {r.name}
                               {r.isSystem && <span className="ml-2 align-middle text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-700/60 text-stone-300 border border-stone-600">System</span>}
                             </td>
@@ -492,7 +530,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                 <>
                   <div>
                     <label className={labelCls}>Account type *</label>
-                    <select value={form.type ?? ""} onChange={e => setForm(p => ({ ...p, type: e.target.value, subtype: "" }))} disabled={!!isSyncedEdit} className={inputCls}>
+                    <select value={form.type ?? ""} onChange={e => setForm(p => ({ ...p, type: e.target.value, subtype: "", parentId: "" }))} disabled={!!isSyncedEdit} className={inputCls}>
                       {TYPE_GROUPS.map(([group, types]) => (
                         <optgroup key={group} label={group}>
                           {types.map(t => <option key={t} value={t}>{t}</option>)}
@@ -510,6 +548,20 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   <div>
                     <label className={labelCls}>Account code</label>
                     <input value={form.code ?? ""} onChange={e => setForm(p => ({ ...p, code: e.target.value }))} disabled={!!isSyncedEdit} placeholder="e.g. 6100" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Parent account</label>
+                    <select value={form.parentId ?? ""} onChange={e => setForm(p => ({ ...p, parentId: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
+                      <option value="">— (top-level account)</option>
+                      {data["accounts"]
+                        .filter(a => a.type === form.type && a.status !== "Inactive" && a.id !== (editRec as Rec)?.id && a.externalId !== (editRec as Rec)?.id)
+                        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
+                        // Match the stored key either way — a synced account's
+                        // parentId is its QBO externalId, a native one is our id
+                        // (see lib/accounting/account-parent.ts's resolver).
+                        .map(a => <option key={a.id} value={a.externalId ?? a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
+                    </select>
+                    <p className="text-[11px] text-stone-500 mt-1">Makes this a sub-account. Only accounts of the same account type can be picked as a parent.</p>
                   </div>
                   {mcEnabled && form.type === "Bank" && (
                     <div>

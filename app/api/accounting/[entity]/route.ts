@@ -13,6 +13,7 @@ import { db } from "@/db";
 import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { apAccounts, apItems, apTaxRates, apDimensions } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
+import { validateParent } from "@/lib/accounting/account-parent";
 import { and, eq, asc } from "drizzle-orm";
 import { z } from "zod";
 import { randomUUID } from "crypto";
@@ -36,6 +37,9 @@ const AccountSchema = z.object({
   // home-currency always. Used only to default the transaction-currency
   // field when this account is picked (see new-document-form.tsx).
   currency: z.string().length(3).optional().nullable(),
+  // A sub-account's parent — another account's id. Must share the same
+  // AccountType (QBO's own rule) so hierarchy never crosses classifications.
+  parentId: z.string().max(64).nullable().optional(),
 });
 
 const ItemSchema = z.object({
@@ -102,6 +106,10 @@ export async function POST(req: Request, { params }: { params: { entity: string 
       const [dup] = await db.select({ id: apAccounts.id }).from(apAccounts)
         .where(and(eq(apAccounts.orgId, orgId!), eq(apAccounts.name, d.name))).limit(1);
       if (dup) return bad("An account with this name already exists");
+      if (d.parentId) {
+        const parentErr = await validateParent(orgId!, d.parentId, d.type, null);
+        if (parentErr) return bad(parentErr);
+      }
       // Classification is derived from the account type (the taxonomy), so the
       // account lands in the right place on the P&L / Balance Sheet.
       const { classificationForType } = await import("@/lib/accounting/account-types");
@@ -109,6 +117,7 @@ export async function POST(req: Request, { params }: { params: { entity: string 
         orgId: orgId!, source: "native",
         name: d.name, type: d.type, subtype: d.subtype ?? null, code: d.code ?? null,
         currency: d.currency?.toUpperCase() || null,
+        parentId: d.parentId ?? null,
         classification: classificationForType(d.type),
         status: "Active",
       }).returning();

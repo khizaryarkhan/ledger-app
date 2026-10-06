@@ -383,6 +383,11 @@ export async function runQboApSync(
           type: acc.AccountType ?? null,
           classification: classificationForType(acc.AccountType ?? null),
           subtype: acc.AccountSubType ?? null,
+          // QBO's own sub-account relationship — mirrors how Class/Department
+          // ParentRef is already captured below. Stores QBO's Id verbatim
+          // (same convention as the dimension parentId); resolved for display
+          // by matching either our internal id or this externalId.
+          parentId: acc.SubAccount && acc.ParentRef?.value ? acc.ParentRef.value : null,
           status: acc.Active === false ? "Inactive" : "Active",
           raw: acc,
           lastSyncedAt: now,
@@ -395,6 +400,7 @@ export async function runQboApSync(
           type: row.type,
           classification: row.classification,
           subtype: row.subtype,
+          parentId: row.parentId,
           status: row.status,
           raw: row.raw,
           lastSyncedAt: row.lastSyncedAt,
