@@ -215,6 +215,12 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
       delete payload.id; delete payload.orgId; delete payload.source; delete payload.externalId;
       delete payload.raw; delete payload.lastSyncedAt; delete payload.createdAt; delete payload.updatedAt;
       delete payload.status; delete payload.purchaseAccountId;
+      // A synced account's every OTHER field is a read-only mirror of QBO/Xero
+      // — only send the locally-managed parent link, or the server's blanket
+      // "synced, status-only" guard refuses the whole request.
+      if (tab === "accounts" && isSyncedEdit) {
+        Object.keys(payload).forEach(k => { if (k !== "parentId") delete payload[k]; });
+      }
 
       const url = isNew ? `/api/accounting/${apiEntity(tab)}` : `/api/accounting/${apiEntity(tab)}/${(editRec as Rec).id}`;
       const res = await fetch(url, {
@@ -503,13 +509,16 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
         <Drawer
           title={`${editRec === "new" ? "New" : "Edit"} ${tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}`}
           subtitle={isSyncedEdit
-            ? <span className="flex items-center gap-1 text-amber-400"><Lock size={11} /> Synced — read-only</span>
+            ? <span className="flex items-center gap-1 text-amber-400"><Lock size={11} /> {tab === "accounts" ? "Synced — only Parent account can be set locally" : "Synced — read-only"}</span>
             : undefined}
           onClose={() => { if (!saving) setEditRec(null); }}
           footer={
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setEditRec(null)} disabled={saving} className="text-[13px] text-stone-400 hover:text-white px-3 py-2">Cancel</button>
-              {!isSyncedEdit && (
+              {/* Synced records are read-only everywhere except a synced account's
+                  Parent account — that's a local-only grouping the next sync never
+                  overwrites (it only ever sets parentId for a real QBO sub-account). */}
+              {(!isSyncedEdit || tab === "accounts") && (
                 <button onClick={save} disabled={saving || !(form.name ?? "").trim() || (tab === "tax-rates" && form.rate === "")}
                   className="text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-4 py-2 disabled:opacity-40 hover:bg-emerald-700 transition-colors">
                   {saving ? "Saving…" : editRec === "new" ? "Create" : "Save changes"}
@@ -551,7 +560,12 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                   </div>
                   <div>
                     <label className={labelCls}>Parent account</label>
-                    <select value={form.parentId ?? ""} onChange={e => setForm(p => ({ ...p, parentId: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
+                    {/* Editable even for a synced (QBO/Xero) account — unlike
+                        every other field here, this is a local-only grouping
+                        the next sync never overwrites unless QBO itself has a
+                        real parent for this account, in which case that sync
+                        value correctly wins (see lib/qbo-ap-sync.ts). */}
+                    <select value={form.parentId ?? ""} onChange={e => setForm(p => ({ ...p, parentId: e.target.value }))} className={inputCls}>
                       <option value="">— (top-level account)</option>
                       {data["accounts"]
                         .filter(a => a.type === form.type && a.status !== "Inactive" && a.id !== (editRec as Rec)?.id)
@@ -561,7 +575,7 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                         // lib/qbo-ap-sync.ts / lib/accounting/account-parent.ts).
                         .map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
                     </select>
-                    <p className="text-[11px] text-stone-500 mt-1">Makes this a sub-account. Only accounts of the same account type can be picked as a parent.</p>
+                    <p className="text-[11px] text-stone-500 mt-1">Makes this a sub-account. Only accounts of the same account type can be picked as a parent.{isSyncedEdit ? " Editable here even though the rest of this account is synced." : ""}</p>
                   </div>
                   {mcEnabled && form.type === "Bank" && (
                     <div>

@@ -128,10 +128,15 @@ export async function PATCH(req: Request, { params }: { params: { entity: string
     if (parentErr) return bad(parentErr);
   }
 
-  // Synced records: only the status toggle is allowed locally.
+  // Synced records: only the status toggle (and, for accounts, the Parent
+  // account grouping) is allowed locally. parentId is safe to let through
+  // here — the sync only ever writes it for an account QBO itself reports
+  // as a real sub-account (lib/qbo-ap-sync.ts's second pass), so a locally-set
+  // value on any other account is never clobbered by the next sync.
   const isNative = row.source === "native";
+  const locallyEditable = params.entity === "accounts" ? ["status", "parentId"] : ["status"];
   const keys = Object.keys(d).filter(k => (d as any)[k] !== undefined);
-  if (!isNative && keys.some(k => k !== "status")) {
+  if (!isNative && keys.some(k => !locallyEditable.includes(k))) {
     return bad(`This record is synced from ${String(row.source).toUpperCase()} — edit it there, or only change its status here.`, 403);
   }
 
