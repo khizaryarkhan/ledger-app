@@ -37,9 +37,10 @@ const AccountSchema = z.object({
   // home-currency always. Used only to default the transaction-currency
   // field when this account is picked (see new-document-form.tsx).
   currency: z.string().length(3).optional().nullable(),
-  // A sub-account's parent — another account's id. Must share the same
-  // AccountType (QBO's own rule) so hierarchy never crosses classifications.
-  parentId: z.string().max(64).nullable().optional(),
+  // A sub-account's parent — another account's internal id (accounts.parent_id
+  // is a real uuid FK, not a QBO id). Must share the same AccountType (QBO's
+  // own rule) so hierarchy never crosses classifications.
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 const ItemSchema = z.object({

@@ -29,16 +29,16 @@ const TYPE_GROUPS: [string, string[]][] = [
 ];
 
 // Orders a flat list of accounts so each parent is immediately followed by
-// its own children (recursively), alphabetically at every level — a parent
-// reference may be either our own id or a QBO externalId (see
-// lib/accounting/account-parent.ts), resolved the same way here.
+// its own children (recursively), alphabetically at every level.
+// accounts.parent_id is always our internal id (see
+// lib/accounting/account-parent.ts), whether set by the native picker or
+// resolved by the QBO sync — never a raw external id.
 function nestAccounts(list: Rec[]): (Rec & { depth: number })[] {
-  const byKey = new Map<string, Rec>();
-  for (const r of list) { byKey.set(r.id, r); if (r.externalId) byKey.set(r.externalId, r); }
+  const byId = new Map(list.map(r => [r.id, r]));
   const childrenOf = new Map<string, Rec[]>();
   const roots: Rec[] = [];
   for (const r of list) {
-    const parent = r.parentId ? byKey.get(r.parentId) : undefined;
+    const parent = r.parentId ? byId.get(r.parentId) : undefined;
     if (parent && parent.id !== r.id) {
       if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
       childrenOf.get(parent.id)!.push(r);
@@ -554,12 +554,12 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
                     <select value={form.parentId ?? ""} onChange={e => setForm(p => ({ ...p, parentId: e.target.value }))} disabled={!!isSyncedEdit} className={inputCls}>
                       <option value="">— (top-level account)</option>
                       {data["accounts"]
-                        .filter(a => a.type === form.type && a.status !== "Inactive" && a.id !== (editRec as Rec)?.id && a.externalId !== (editRec as Rec)?.id)
+                        .filter(a => a.type === form.type && a.status !== "Inactive" && a.id !== (editRec as Rec)?.id)
                         .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
-                        // Match the stored key either way — a synced account's
-                        // parentId is its QBO externalId, a native one is our id
-                        // (see lib/accounting/account-parent.ts's resolver).
-                        .map(a => <option key={a.id} value={a.externalId ?? a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
+                        // accounts.parent_id is always our internal id, whether
+                        // set here or resolved by the QBO sync (see
+                        // lib/qbo-ap-sync.ts / lib/accounting/account-parent.ts).
+                        .map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
                     </select>
                     <p className="text-[11px] text-stone-500 mt-1">Makes this a sub-account. Only accounts of the same account type can be picked as a parent.</p>
                   </div>

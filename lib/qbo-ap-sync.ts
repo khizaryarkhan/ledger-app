@@ -383,11 +383,6 @@ export async function runQboApSync(
           type: acc.AccountType ?? null,
           classification: classificationForType(acc.AccountType ?? null),
           subtype: acc.AccountSubType ?? null,
-          // QBO's own sub-account relationship — mirrors how Class/Department
-          // ParentRef is already captured below. Stores QBO's Id verbatim
-          // (same convention as the dimension parentId); resolved for display
-          // by matching either our internal id or this externalId.
-          parentId: acc.SubAccount && acc.ParentRef?.value ? acc.ParentRef.value : null,
           status: acc.Active === false ? "Inactive" : "Active",
           raw: acc,
           lastSyncedAt: now,
@@ -400,7 +395,6 @@ export async function runQboApSync(
           type: row.type,
           classification: row.classification,
           subtype: row.subtype,
-          parentId: row.parentId,
           status: row.status,
           raw: row.raw,
           lastSyncedAt: row.lastSyncedAt,
@@ -420,6 +414,33 @@ export async function runQboApSync(
     for (const r of accountResults) {
       if (r.status === "rejected") {
         errors.push(`Account upsert: ${r.reason?.message ?? String(r.reason)}`);
+      }
+    }
+
+    // Second pass: QBO's own sub-account relationship (SubAccount +
+    // ParentRef). accounts.parent_id is a real FK into accounts.id (our own
+    // internal uuid, not a QBO id — see db/schema.ts) so it can't be set in
+    // the same pass as the insert above: accounts are upserted in parallel,
+    // so a child's parent row may not exist in our table yet. Resolve both
+    // sides to their internal id only after every account in this sync has
+    // been upserted.
+    const subAccounts = accounts.filter((acc: any) => acc.SubAccount && acc.ParentRef?.value);
+    if (subAccounts.length) {
+      const existing = await db.select({ id: apAccounts.id, externalId: apAccounts.externalId })
+        .from(apAccounts)
+        .where(and(eq(apAccounts.orgId, orgId), eq(apAccounts.source, "qbo")));
+      const idByExternalId = new Map(existing.map(r => [r.externalId, r.id]));
+
+      const parentResults = await Promise.allSettled(
+        subAccounts.map(async (acc: any) => {
+          const childId = idByExternalId.get(acc.Id);
+          const parentAccountId = idByExternalId.get(acc.ParentRef.value);
+          if (!childId || !parentAccountId) return; // parent not (yet) synced — leave unset rather than guess
+          await db.update(apAccounts).set({ parentId: parentAccountId }).where(eq(apAccounts.id, childId));
+        })
+      );
+      for (const r of parentResults) {
+        if (r.status === "rejected") errors.push(`Account parent link: ${r.reason?.message ?? String(r.reason)}`);
       }
     }
   } catch (e: any) {

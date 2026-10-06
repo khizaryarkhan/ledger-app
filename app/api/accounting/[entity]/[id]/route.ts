@@ -32,7 +32,7 @@ const PATCH_SCHEMAS: Record<string, z.ZodTypeAny> = {
     code:    z.string().max(64).nullable().optional(),
     // Informational only (see AccountSchema in ../route.ts) — never affects posting.
     currency: z.string().length(3).nullable().optional(),
-    parentId: z.string().max(64).nullable().optional(),
+    parentId: z.string().uuid().nullable().optional(),
     status,
   // strip, not strict: the chart's edit modal sends the whole row back
   // (classification, isSystem, syncToken …), which strict() rejected outright.
