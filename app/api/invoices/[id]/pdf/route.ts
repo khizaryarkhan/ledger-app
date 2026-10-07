@@ -5,6 +5,10 @@ import { eq, and } from "drizzle-orm";
 import { isInvoiceInScope } from "@/lib/receivables/rep-scope";
 import { getOrgQboToken, stampQboPayButton } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 const XERO_API = "https://api.xero.com/api.xro/2.0";
@@ -25,7 +29,21 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const isXero = !!inv.xeroId && !inv.xeroId.startsWith("CN-");
   const isQbo = !!inv.qboId && !inv.qboId.startsWith("CM-");
-  if (!isXero && !isQbo) return bad("No PDF available for this invoice", 400);
+
+  if (!isXero && !isQbo) {
+    if (!inv.journalEntryId) return bad("No PDF available for this invoice", 400);
+    const pdfBuffer = await renderLedgerDocumentPdf(orgId!, inv.journalEntryId);
+    if (!pdfBuffer) return bad("No PDF available for this invoice", 400);
+    return new Response(pdfBuffer as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="Invoice-${inv.invoiceNumber}.pdf"`,
+        "Content-Length": pdfBuffer.byteLength.toString(),
+        "Cache-Control": "private, max-age=300",
+      },
+    });
+  }
 
   // Abort if the accounting API takes longer than PDF_TIMEOUT_MS
   const controller = new AbortController();

@@ -9,7 +9,7 @@ import { computeNextAction, NEXT_ACTION_FILTERS, type NextActionType } from "@/l
 import { useSession } from "next-auth/react";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { exportChaseReport, exportStatement, exportAgeingChaseReport, exportCommentTemplate } from "@/lib/export-report";
-import { exportStatementPdf } from "@/lib/statement-pdf";
+import { exportStatementPdf } from "@/lib/statement-export-client";
 import { EmailComposer } from "@/components/feature";
 import { ESCALATION_TYPES, escalationTypeByLabel } from "@/lib/escalation-types";
 import { classifyCompositionByCurrency, compositionKeyOf, COMPOSITION_CATEGORIES } from "@/lib/receivable-composition";

@@ -170,6 +170,11 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/board", owner: "receivables" },
   { path: "/api/disputes", owner: "receivables" },
   { path: "/api/responses", owner: "receivables" },
+  // Statement of Open Invoices — only called from the Collections Board and
+  // AR bulk-send; the customer/portal statement routes it's reached from are
+  // themselves app/api/customers/** and app/api/portal/**, already carved
+  // out above as shared/unowned.
+  { path: "/api/statements", owner: "receivables" },
 ];
 
 /** Where each module starts — the landing page offered when a page is blocked. */

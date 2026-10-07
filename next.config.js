@@ -43,7 +43,12 @@ const nextConfig = {
     // warns "Critical dependency" and bundling it risks breaking that at
     // runtime. Keep it a real Node import instead (it's server-only: PDF text
     // extraction for lib/qbo-pay-button.ts's pay-button anchoring).
-    serverComponentsExternalPackages: ["openai", "imapflow", "mailparser", "nodemailer", "unpdf"],
+    // puppeteer-core/@sparticuz/chromium (lib/pdf/render-html.ts) ship native
+    // binaries/binary-loading code that must never be webpack-bundled either.
+    serverComponentsExternalPackages: [
+      "openai", "imapflow", "mailparser", "nodemailer", "unpdf",
+      "puppeteer-core", "@sparticuz/chromium",
+    ],
   },
   async headers() {
     return [

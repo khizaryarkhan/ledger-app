@@ -16,6 +16,10 @@ import { getOrgQboToken } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 const QBO_API  = "https://quickbooks.api.intuit.com/v3/company";
 const XERO_API = "https://api.xero.com/api.xro/2.0";
@@ -81,6 +85,15 @@ export async function GET(req: Request, { params }: { params: { token: string; i
           if (buf.byteLength > 0) { clearTimeout(timer); return new Response(buf, { headers }); }
         }
       }
+    }
+
+    // Native — no provider to pull from; render our own.
+    if (!inv.xeroId && !inv.qboId) {
+      clearTimeout(timer);
+      if (!inv.journalEntryId) return NextResponse.json({ error: "PDF unavailable" }, { status: 404 });
+      const pdfBuffer = await renderLedgerDocumentPdf(row.orgId, inv.journalEntryId);
+      if (!pdfBuffer) return NextResponse.json({ error: "PDF unavailable" }, { status: 404 });
+      return new Response(pdfBuffer as unknown as BodyInit, { headers });
     }
 
     clearTimeout(timer);

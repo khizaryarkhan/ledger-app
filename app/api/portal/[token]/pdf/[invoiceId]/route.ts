@@ -7,6 +7,10 @@ import { getOrgXeroToken } from "@/lib/xero-token";
 import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 const QBO_API  = "https://quickbooks.api.intuit.com/v3/company";
 const XERO_API = "https://api.xero.com/api.xro/2.0";
@@ -117,7 +121,13 @@ export async function GET(req: Request, { params }: { params: { token: string; i
 
     clearTimeout(timer);
 
-    // Fallback: generate minimal PDF
+    // Native — render through the one shared engine. generateFallbackPdf
+    // (below) is now only a last-resort safety net, never the primary path.
+    if (inv.journalEntryId) {
+      const rendered = await renderLedgerDocumentPdf(row.orgId, inv.journalEntryId).catch(() => null);
+      if (rendered) return new Response(rendered as unknown as BodyInit, { headers });
+    }
+
     const balance = inv.qboBalance != null ? Math.max(0, inv.qboBalance) : Math.max(0, (inv.total ?? 0) - (inv.paid ?? 0));
     const pdf = await generateFallbackPdf({ ...inv, balance }, orgName);
     return new Response(pdf as unknown as BodyInit, { headers });

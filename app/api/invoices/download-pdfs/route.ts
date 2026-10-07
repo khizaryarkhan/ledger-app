@@ -5,7 +5,11 @@ import { invoices } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { fetchQboInvoicePdf } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
 import JSZip from "jszip";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -26,7 +30,10 @@ export async function POST(req: NextRequest) {
 
   // Fetch invoice rows (org-scoped for multi-tenant safety)
   const rows = await db
-    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId, xeroId: invoices.xeroId })
+    .select({
+      id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId,
+      xeroId: invoices.xeroId, journalEntryId: invoices.journalEntryId,
+    })
     .from(invoices)
     .where(and(eq(invoices.orgId, orgId!), inArray(invoices.id, invoiceIds)));
 
@@ -60,7 +67,12 @@ export async function POST(req: NextRequest) {
         return null;
       }
     }
-    return await fetchQboInvoicePdf(orgId!, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber });
+    if (inv.qboId && !inv.qboId.startsWith("CM-")) {
+      return await fetchQboInvoicePdf(orgId!, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber });
+    }
+    // Native — render through the one shared engine instead of returning null.
+    if (!inv.journalEntryId) return null;
+    return await renderLedgerDocumentPdf(orgId!, inv.journalEntryId);
   }
 
   // Fetch PDFs in parallel (max 5 concurrent)

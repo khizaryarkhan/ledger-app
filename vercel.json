@@ -1,4 +1,15 @@
 {
+  "functions": {
+    "app/api/invoices/*/pdf/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/invoices/download-pdfs/route.ts": { "memory": 1769, "maxDuration": 60 },
+    "app/api/payables/bills/*/pdf/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/portal/*/pdf/*/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/portal/*/statement/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/owner-portal/*/pdf/*/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/owner-portal/*/zip/route.ts": { "memory": 1769, "maxDuration": 60 },
+    "app/api/customers/*/statement/route.ts": { "memory": 1769, "maxDuration": 30 },
+    "app/api/statements/export-pdf/route.ts": { "memory": 1769, "maxDuration": 60 }
+  },
   "crons": [
     {
       "path": "/api/cron/forecast-snapshot",

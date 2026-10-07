@@ -14,7 +14,7 @@
 import { db } from "@/db";
 import {
   organisations, journalEntries, journalLines, accounts, apTaxRates, apItems,
-  customers, apSuppliers, tradeDocuments, tradeDocumentLines,
+  customers, apSuppliers, tradeDocuments, tradeDocumentLines, apBills, apBillLines,
 } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { linksFor } from "@/lib/accounting/links";
@@ -261,6 +261,83 @@ export async function loadTradeDocumentForPrint(orgId: string, id: string): Prom
     totals: {
       subtotal, taxes, taxTotal, total,
       paid: 0, balance: total,
+      inWords: amountInWords(total, currency),
+    },
+  };
+}
+
+/**
+ * A QBO/Xero/Sage-mirrored bill that was never posted to our own GL —
+ * `apBills.entryId` is null for these by design (see that column's own
+ * schema comment: posting a provider-mirrored bill ourselves would
+ * double-count against the provider's own ledger). loadLedgerDocumentForPrint
+ * can't render these at all, since there is no journal_entries row to read.
+ * This builds the same PrintDocument shape straight from the ap_bills/
+ * ap_bill_lines snapshot instead, so it still goes through the one shared
+ * template/engine rather than a second rendering path.
+ */
+export async function loadBillForPrint(orgId: string, billId: string): Promise<PrintDocument | null> {
+  const [bill] = await db.select().from(apBills)
+    .where(and(eq(apBills.id, billId), eq(apBills.orgId, orgId))).limit(1);
+  if (!bill) return null;
+
+  const company = await loadCompany(orgId);
+  const rawLines = await db.select().from(apBillLines)
+    .where(eq(apBillLines.billId, billId))
+    .orderBy(apBillLines.lineNumber);
+
+  // ap_bill_lines.itemId/accountId/taxRateId are the PROVIDER's own raw ids
+  // (QBO ItemRef.value / Xero ItemCode) — never apItems.id/apTaxRates.id — so
+  // these rows carry their own denormalised name/amount columns rather than
+  // being joined, unlike decorateLines() for native documents.
+  const lines: PrintLine[] = rawLines.map(l => {
+    const subtotal = num(l.lineSubtotal);
+    const tax = num(l.lineTax);
+    return {
+      name: l.itemName ?? null,
+      description: l.description ?? l.accountName ?? null,
+      qty: l.quantity != null ? num(l.quantity) : null,
+      uom: null,
+      rate: l.unitPrice != null ? num(l.unitPrice) : null,
+      taxLabel: tax ? "Tax" : null,
+      taxPct: tax && subtotal ? round2((tax / subtotal) * 100) : null,
+      amount: round2(num(l.lineTotal)),
+    };
+  });
+
+  let party: PrintParty = { name: null, addressLines: [], taxNumber: null, email: null, phone: null };
+  if (bill.supplierId) {
+    const [s] = await db.select().from(apSuppliers)
+      .where(and(eq(apSuppliers.id, bill.supplierId), eq(apSuppliers.orgId, orgId))).limit(1);
+    if (s) {
+      party = {
+        name: s.name ?? null,
+        addressLines: [s.addressStreet, s.addressLine2,
+          [s.addressCity, s.addressState, s.addressPostcode].filter(Boolean).join(", ") || null,
+          s.country].filter(Boolean) as string[],
+        taxNumber: s.taxNumber ?? null, email: s.email ?? null, phone: s.phone ?? null,
+      };
+    }
+  }
+
+  const taxes = taxBreakdown(lines);
+  const subtotal = round2(num(bill.subtotal)) || round2(lines.reduce((s, l) => s + l.amount, 0));
+  const taxTotal = round2(num(bill.taxTotal)) || round2(taxes.reduce((s, t) => s + t.amount, 0));
+  const total = round2(num(bill.total)) || round2(subtotal + taxTotal);
+  const currency = bill.currency || company?.currency || "";
+
+  return {
+    company,
+    doc: {
+      kind: "Bill", label: "BILL", docNumber: bill.billNumber ?? null, status: bill.accountingPaymentStatus,
+      date: bill.billDate ?? "", dueDate: bill.dueDate ?? null, dueLabel: "Due",
+      reference: bill.reference ?? null, memo: null, currency,
+      partyHeading: "From", isPurchase: true,
+    },
+    party, lines,
+    totals: {
+      subtotal, taxes, taxTotal, total,
+      paid: round2(num(bill.amountPaid)), balance: round2(num(bill.balance)),
       inWords: amountInWords(total, currency),
     },
   };

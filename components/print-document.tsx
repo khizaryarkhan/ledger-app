@@ -22,6 +22,11 @@
  *    signature block on documents that get authorised (PO, quote).
  */
 
+// Explicit, not just relying on the bundler's automatic JSX runtime — this
+// component is now also rendered outside Next's own bundler, by
+// lib/pdf/render-document.tsx's renderToStaticMarkup() call for the native
+// PDF engine, where the classic transform needs React in scope.
+import React from "react";
 import type { PrintDocument } from "@/lib/accounting/document-print";
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

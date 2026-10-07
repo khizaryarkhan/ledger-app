@@ -14,7 +14,11 @@ import { getOrgQboToken } from "@/lib/qbo-token";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { NextResponse } from "next/server";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
 import JSZip from "jszip";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 const QBO_API  = "https://quickbooks.api.intuit.com/v3/company";
 const XERO_API = "https://api.xero.com/api.xro/2.0";
@@ -41,7 +45,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   }
 
   const allRows = await db
-    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId, xeroId: invoices.xeroId, collectionStage: invoices.collectionStage, escalatedToEmail: invoices.escalatedToEmail })
+    .select({
+      id: invoices.id, invoiceNumber: invoices.invoiceNumber, qboId: invoices.qboId, xeroId: invoices.xeroId,
+      journalEntryId: invoices.journalEntryId,
+      collectionStage: invoices.collectionStage, escalatedToEmail: invoices.escalatedToEmail,
+    })
     .from(invoices)
     .where(and(eq(invoices.orgId, row.orgId), inArray(invoices.id, reqIds)));
   // Current-ownership check — only invoices still escalated to this owner.
@@ -74,6 +82,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           const buf = Buffer.from(await res.arrayBuffer());
           if (buf.byteLength > 0) return buf;
         }
+        return null;
+      }
+      // Native — render through the one shared engine instead of returning null.
+      if (!inv.xeroId && !inv.qboId && inv.journalEntryId) {
+        return await renderLedgerDocumentPdf(row.orgId, inv.journalEntryId);
       }
     } catch { /* skip */ }
     return null;

@@ -1470,3 +1470,81 @@ describe("timesheets post real labour expense, not standard-cost absorption", ()
     expect(posting).toMatch(/costing\.groups\s*\n?\s*\.filter/);
   });
 });
+
+describe("there is one PDF-rendering engine for native documents", () => {
+  /**
+   * Before this, a native (non-QBO/Xero) document's PDF came from one of
+   * three independent places: a human clicking Print on a browser page (no
+   * server PDF at all), hand-drawn pdf-lib coordinate-plotting (statements,
+   * approval certs, a bill/invoice fallback), or a THIRD, independent inline-
+   * HTML statement builder. lib/pdf/render-html.ts (headless Chromium) is
+   * now the only engine a native document's PDF is produced through.
+   *
+   * QBO/Xero's own provider-rendered PDFs are a deliberate, separate
+   * exception (lib/qbo-token.ts, lib/xero-token.ts) and are never routed
+   * through this engine — this guard does not touch that path.
+   */
+  const CHROMIUM_IMPORT =
+    /\bfrom\s+["'](puppeteer-core|@sparticuz\/chromium)["']|\brequire\(\s*["'](puppeteer-core|@sparticuz\/chromium)["']|\bimport\(\s*["'](puppeteer-core|@sparticuz\/chromium)["']/;
+  const ALLOWED_CHROMIUM_IMPORTER = "lib/pdf/render-html.ts";
+
+  it("only lib/pdf/render-html.ts imports puppeteer-core or @sparticuz/chromium", () => {
+    const offenders: string[] = [];
+    for (const dir of ["lib", "app", "components", "inngest", "scripts"]) {
+      for (const f of sourceFiles(dir)) {
+        const rel = relative(ROOT, f).replace(/\\/g, "/");
+        if (rel === ALLOWED_CHROMIUM_IMPORTER) continue;
+        const src = readFileSync(f, "utf8");
+        if (CHROMIUM_IMPORT.test(src)) offenders.push(rel);
+      }
+    }
+    expect(
+      offenders,
+      `these import puppeteer-core/@sparticuz/chromium directly instead of going through lib/pdf/render-html.ts: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the choke point itself still exists and is what the rule points at", () => {
+    const src = readFileSync(join(ROOT, "lib/pdf/render-html.ts"), "utf8");
+    expect(src).toMatch(/export async function renderHtmlToPdf/);
+  });
+
+  // Each of these used to either 404/silently drop a native document, or
+  // hand-build its own pdf-lib PDFDocument.
+  const MUST_USE_ENGINE = [
+    "app/api/invoices/[id]/pdf/route.ts",
+    "app/api/owner-portal/[token]/pdf/[invoiceId]/route.ts",
+    "app/api/payables/bills/[id]/pdf/route.ts",
+    "app/api/invoices/download-pdfs/route.ts",
+    "app/api/owner-portal/[token]/zip/route.ts",
+    "app/api/customers/[id]/statement/route.ts",
+    "app/api/statements/export-pdf/route.ts",
+  ];
+  // Keeps a minimal pdf-lib stub as a LAST-RESORT safety net only, tried
+  // after the shared engine (see its own comment) — checked for the import,
+  // but excluded from the "no raw PDFDocument.create()" half below.
+  const MUST_USE_ENGINE_WITH_FALLBACK = ["app/api/portal/[token]/pdf/[invoiceId]/route.ts"];
+
+  it("every native-document PDF route renders through lib/pdf/document-pdf.ts or lib/statement-pdf.ts", () => {
+    for (const rel of [...MUST_USE_ENGINE, ...MUST_USE_ENGINE_WITH_FALLBACK]) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      expect(src, `${rel} no longer imports lib/pdf/document-pdf.ts or lib/statement-pdf.ts`)
+        .toMatch(/from\s+["']@\/lib\/(pdf\/document-pdf|statement-pdf)["']/);
+    }
+  });
+
+  it("the strictly-migrated routes never hand-build a pdf-lib PDFDocument again", () => {
+    for (const rel of MUST_USE_ENGINE) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      expect(src, `${rel} builds its own pdf-lib PDFDocument instead of using the shared engine`)
+        .not.toMatch(/PDFDocument\.create\(\)/);
+    }
+  });
+
+  it("the engine files themselves are HTML/Chromium only, never pdf-lib", () => {
+    for (const rel of ["lib/pdf/document-pdf.ts", "lib/statement-pdf.ts", "lib/pdf/render-html.ts", "lib/pdf/render-document.tsx"]) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      expect(src, `${rel} imports pdf-lib`).not.toMatch(/from\s+["']pdf-lib["']/);
+    }
+  });
+});

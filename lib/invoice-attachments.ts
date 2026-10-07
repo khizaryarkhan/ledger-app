@@ -13,6 +13,7 @@ import { invoices } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { getOrgXeroToken } from "@/lib/xero-token";
 import { getOrgQboToken, stampQboPayButton } from "@/lib/qbo-token";
+import { renderLedgerDocumentPdf } from "@/lib/pdf/document-pdf";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
@@ -67,19 +68,30 @@ export async function fetchInvoicePdfAttachments(
       return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: buf, contentType: "application/pdf" };
     }
 
-    if (!inv.qboId || inv.qboId.startsWith("CM-") || isClosedOrPaid(inv)) return null;
-    if (!qboToken) throw new Error("QuickBooks not connected — could not fetch PDFs");
-    const res = await fetch(
-      `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
-      { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } });
-    if (!res.ok) {
-      console.error(`QBO PDF fetch failed for ${inv.invoiceNumber}: HTTP ${res.status} — ${await res.text()}`);
-      throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${res.status})`);
+    if (isClosedOrPaid(inv)) return null;
+
+    if (inv.qboId && !inv.qboId.startsWith("CM-")) {
+      if (!qboToken) throw new Error("QuickBooks not connected — could not fetch PDFs");
+      const res = await fetch(
+        `${QBO_API}/${qboToken.realmId}/invoice/${inv.qboId}/pdf?minorversion=65`,
+        { headers: { Authorization: `Bearer ${qboToken.accessToken}`, Accept: "application/pdf" } });
+      if (!res.ok) {
+        console.error(`QBO PDF fetch failed for ${inv.invoiceNumber}: HTTP ${res.status} — ${await res.text()}`);
+        throw new Error(`PDF unavailable for invoice ${inv.invoiceNumber} (QBO error ${res.status})`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
+      const stamped = await stampQboPayButton(orgId, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber }, buf);
+      return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: stamped, contentType: "application/pdf" };
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (!buf.byteLength) throw new Error(`Empty PDF returned for invoice ${inv.invoiceNumber}`);
-    const stamped = await stampQboPayButton(orgId, { qboId: inv.qboId, invoiceNumber: inv.invoiceNumber }, buf);
-    return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: stamped, contentType: "application/pdf" };
+
+    // Native — render through the one shared engine instead of attaching
+    // nothing. No separate pay-button stamp: that's a QBO-specific concept
+    // (see lib/qbo-token.ts's fetchQboInvoicePayInfo), not applicable here.
+    if (!inv.journalEntryId) return null;
+    const rendered = await renderLedgerDocumentPdf(orgId, inv.journalEntryId);
+    if (!rendered) return null;
+    return { filename: `Invoice-${inv.invoiceNumber}.pdf`, content: rendered, contentType: "application/pdf" };
   }));
 
   for (const r of results) {

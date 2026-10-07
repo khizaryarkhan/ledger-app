@@ -1,10 +1,13 @@
 import { requireOrg, bad } from "@/lib/api";
-import { formatDateShort, daysOverdue } from "@/lib/format";
+import { daysOverdue } from "@/lib/format";
 import { db } from "@/db";
 import { customers, invoices, organisations } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { fmt as numberFormat } from "@/lib/format";
+import { buildStatementPdf, type StatementRow } from "@/lib/statement-pdf";
+
+// Headless Chromium (lib/pdf/render-html.ts) cannot run on the Edge runtime.
+export const runtime = "nodejs";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { error, orgId } = await requireOrg();
@@ -40,147 +43,36 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return openBal(i) > 0.005;
   }).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  // Invoices can genuinely be in different currencies for the same customer —
-  // summing them all into one number under open[0]'s currency silently hid
-  // whichever other currency was present. Group per currency instead, the
-  // same approach lib/statement-pdf.ts's fmtCcyMap already uses.
-  const balancesByCcy: Record<string, number> = {};
-  for (const inv of open) {
-    const ccy = inv.currency || customer.currency || "EUR";
-    balancesByCcy[ccy] = (balancesByCcy[ccy] ?? 0) + openBal(inv);
-  }
-  const fmt = (n: number, ccy?: string | null) => numberFormat.money(n, ccy || customer.currency || "EUR");
-  const fmtTotal = (map: Record<string, number>): string => {
-    const parts = Object.entries(map)
-      .filter(([, v]) => Math.abs(v) > 0.005)
-      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    if (!parts.length) return fmt(0);
-    return parts.map(([c, v]) => fmt(v, c)).join(" · ");
-  };
-  const totalDisplay = fmtTotal(balancesByCcy);
-  // A statement the DEBTOR receives: invoice and due dates read literally
-  // (lib/format), not as a UTC-midnight Date that only looks right because
-  // the server happens to run in UTC.
-  const fmtDate = (d: string) => formatDateShort(d);
-  const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  if (open.length === 0) return NextResponse.json({ error: "No outstanding invoices — account is clear" }, { status: 404 });
 
   const orgName = org?.displayName || org?.name || "Your Company";
-  const logoHtml = org?.logoUrl
-    ? `<img src="${org.logoUrl}" alt="${orgName}" style="max-height:44px;max-width:220px;object-fit:contain;display:block;margin-bottom:8px" />`
-    : "";
 
-  const rows = open.map(inv => {
+  const rows: StatementRow[] = open.map(inv => {
     const isCm = inv.txnType === "CreditMemo";
-    const balance = openBal(inv);
-    const daysOv = daysOverdue(inv.dueDate);
-    const status = isCm ? "Credit on Account"
-      : daysOv > 0 ? `${daysOv} days overdue`
-      : daysOv === 0 ? "Due today"
-      : `Due in ${Math.abs(daysOv)} days`;
-    const statusColor = isCm ? "#16a34a" : daysOv > 30 ? "#dc2626" : daysOv > 0 ? "#d97706" : "#16a34a";
-    return `
-      <tr${isCm ? ' style="background:#f0fdf4"' : ""}>
-        <td>${inv.invoiceNumber}</td>
-        <td>${fmtDate(inv.invoiceDate)}</td>
-        <td>${isCm ? "—" : fmtDate(inv.dueDate)}</td>
-        <td class="amount">${isCm ? "—" : fmt(inv.total, inv.currency)}</td>
-        <td class="amount">${isCm ? "—" : fmt(inv.paid || 0, inv.currency)}</td>
-        <td class="amount bold" style="color:${isCm ? "#16a34a" : "inherit"}">${fmt(balance, inv.currency)}</td>
-        <td style="color:${statusColor};font-size:11px;font-weight:600">${status}</td>
-      </tr>`;
-  }).join("");
+    return {
+      inv: {
+        invoiceNumber: inv.invoiceNumber || inv.id.slice(0, 8),
+        invoiceDate: inv.invoiceDate,
+        dueDate: isCm ? null : inv.dueDate,
+        currency: inv.currency || customer.currency || "EUR",
+        total: isCm ? null : Number(inv.total || 0),
+      },
+      custName: customer.name,
+      projName: null,
+      bal: openBal(inv),
+      days: daysOverdue(inv.dueDate),
+      isCreditMemo: isCm,
+    };
+  });
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Statement — ${customer.name}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; color: #1c1917; background: #fff; padding: 40px; }
-  @media print { body { padding: 20px; } .no-print { display: none; } }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; padding-bottom: 24px; border-bottom: 2px solid #e7e5e4; }
-  .org-name { font-size: 20px; font-weight: 700; color: #1c1917; }
-  .statement-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #78716c; margin-bottom: 6px; }
-  .customer-block { margin-bottom: 28px; }
-  .customer-name { font-size: 16px; font-weight: 600; color: #1c1917; margin-bottom: 2px; }
-  .customer-meta { font-size: 12px; color: #78716c; }
-  .meta-grid { display: flex; gap: 40px; margin-bottom: 28px; }
-  .meta-item label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a8a29e; margin-bottom: 2px; }
-  .meta-item span { font-size: 13px; font-weight: 500; color: #1c1917; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-  th { background: #f5f5f4; padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #78716c; border-bottom: 1px solid #e7e5e4; }
-  td { padding: 10px 12px; border-bottom: 1px solid #f5f5f4; font-size: 12px; color: #1c1917; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #fafaf9; }
-  .amount { text-align: right; font-variant-numeric: tabular-nums; }
-  .bold { font-weight: 600; }
-  .total-row { background: #1c1917; }
-  .total-row td { color: #fff; font-weight: 600; border-bottom: none; padding: 12px; }
-  .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e7e5e4; font-size: 11px; color: #a8a29e; }
-  .print-btn { position: fixed; bottom: 24px; right: 24px; background: #1c1917; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-  .print-btn:hover { background: #292524; }
-</style>
-</head>
-<body>
-<div class="header">
-  <div>
-    ${logoHtml}
-    <div class="statement-label">Statement of Account</div>
-    <div class="org-name">${orgName}</div>
-  </div>
-  <div style="text-align:right">
-    <div class="statement-label">Statement date</div>
-    <div style="font-size:14px;font-weight:600">${today}</div>
-  </div>
-</div>
+  const pdf = await buildStatementPdf({ orgName, rows, logoUrl: org?.logoUrl ?? null });
+  const filename = `Statement-${customer.name.replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
 
-<div class="customer-block">
-  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a8a29e;margin-bottom:4px">Prepared for</div>
-  <div class="customer-name">${customer.name}</div>
-  ${customer.code ? `<div class="customer-meta">Account: ${customer.code}</div>` : ""}
-  ${customer.email ? `<div class="customer-meta">${customer.email}</div>` : ""}
-</div>
-
-<div class="meta-grid">
-  <div class="meta-item"><label>Open invoices</label><span>${open.length}</span></div>
-  <div class="meta-item"><label>Total outstanding</label><span style="color:#dc2626;font-size:16px;font-weight:700">${totalDisplay}</span></div>
-</div>
-
-${open.length === 0 ? '<p style="color:#78716c;padding:24px 0">No outstanding invoices — account is clear.</p>' : `
-<table>
-  <thead>
-    <tr>
-      <th>Invoice #</th>
-      <th>Invoice Date</th>
-      <th>Due Date</th>
-      <th style="text-align:right">Amount</th>
-      <th style="text-align:right">Paid</th>
-      <th style="text-align:right">Balance</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rows}
-  </tbody>
-  <tfoot>
-    <tr class="total-row">
-      <td colspan="5">Total Outstanding</td>
-      <td class="amount bold">${totalDisplay}</td>
-      <td></td>
-    </tr>
-  </tfoot>
-</table>`}
-
-<div class="footer">
-  <p>This statement was generated on ${today}. Please contact us if you have any queries regarding your account.</p>
-</div>
-
-<button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
-</body>
-</html>`;
-
-  return new NextResponse(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+  return new Response(pdf as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+    },
   });
 }
