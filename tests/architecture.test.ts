@@ -1519,6 +1519,7 @@ describe("there is one PDF-rendering engine for native documents", () => {
     "app/api/owner-portal/[token]/zip/route.ts",
     "app/api/customers/[id]/statement/route.ts",
     "app/api/statements/export-pdf/route.ts",
+    "app/api/print/pdf/route.ts",
   ];
   // Keeps a minimal pdf-lib stub as a LAST-RESORT safety net only, tried
   // after the shared engine (see its own comment) — checked for the import,

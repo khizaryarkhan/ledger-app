@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Trash2 } from "lucide-react";
+import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2 } from "lucide-react";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
@@ -156,10 +156,17 @@ export default function TransactionDetailPage() {
             <p className="text-[11px] text-stone-500 max-w-xs">Edit corrects it in place; Reverse keeps an audit trail; Delete removes it entirely.</p>
             <div className="flex items-center gap-2">
               {canPrint && (
-                <a href={`/print/invoice/${e.id}`} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
-                  <Printer size={14} /> Print
-                </a>
+                <>
+                  <a href={`/api/print/pdf?kind=ledger&id=${e.id}`}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+                    <Download size={14} /> Download PDF
+                  </a>
+                  <a href={`/print/invoice/${e.id}`} target="_blank" rel="noopener noreferrer"
+                    title="Open the printable page in a new tab (uses your browser's own print dialog)"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+                    <Printer size={14} /> Print
+                  </a>
+                </>
               )}
               {canEdit && (
                 <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
