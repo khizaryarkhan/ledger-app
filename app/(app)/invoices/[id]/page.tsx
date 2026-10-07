@@ -61,9 +61,14 @@ export default function InvoiceDetailPage() {
     );
   }
 
+  // /api/invoices/[id]/pdf now renders native invoices too (headless-Chromium
+  // engine, lib/pdf/document-pdf.ts) — this gate used to only know about
+  // QBO/Xero, which silently hid the button for every native invoice even
+  // after the route itself could serve one.
   const canDownloadPdf =
     (inv.qboId && !inv.qboId.startsWith("CM-")) ||
-    (inv.xeroId && !inv.xeroId.startsWith("CN-"));
+    (inv.xeroId && !inv.xeroId.startsWith("CN-")) ||
+    !!inv.journalEntryId;
 
   // Opens QBO's own hosted "Review and pay" page — QBO-only (see CLAUDE.md "AR
   // invoice emails — QBO 'Pay online' link"). Fetched on demand rather than on

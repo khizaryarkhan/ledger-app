@@ -322,7 +322,12 @@ export default function BillDetailPage() {
   const queries = bill.openQueries ?? [];
   const history = bill.approvalHistory ?? [];
   const wf = bill.workflowStatus;
-  const canDownloadPdf = !!(bill.qboId || bill.xeroId);
+  // app/api/payables/bills/[id]/pdf always produces a PDF now — Xero's own
+  // for a Xero bill, or the native Chromium engine (lib/pdf/document-pdf.ts)
+  // for everything else, native or QBO alike. This used to gate on
+  // qboId/xeroId and hid the button for every native bill even after the
+  // route itself could serve one.
+  const canDownloadPdf = true;
 
   // Per-line tax: QBO stores tax at bill level (bill.taxTotal), not per line.
   // Prorate it across lines by each line's share of subtotal.
