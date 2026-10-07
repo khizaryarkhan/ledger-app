@@ -15,14 +15,14 @@ import { loadLedgerDocumentForPrint, loadTradeDocumentForPrint, loadBillForPrint
 export async function renderLedgerDocumentPdf(orgId: string, entryId: string): Promise<Buffer | null> {
   const doc = await loadLedgerDocumentForPrint(orgId, entryId);
   if (!doc) return null;
-  return renderHtmlToPdf(renderDocumentHtml(doc));
+  return renderHtmlToPdf(await renderDocumentHtml(doc));
 }
 
 /** A Quote / Purchase Order / Sales Order (trade_documents). */
 export async function renderTradeDocumentPdf(orgId: string, id: string): Promise<Buffer | null> {
   const doc = await loadTradeDocumentForPrint(orgId, id);
   if (!doc) return null;
-  return renderHtmlToPdf(renderDocumentHtml(doc));
+  return renderHtmlToPdf(await renderDocumentHtml(doc));
 }
 
 /** A QBO/Xero/Sage-mirrored bill with no native GL entry — see
@@ -30,5 +30,5 @@ export async function renderTradeDocumentPdf(orgId: string, id: string): Promise
 export async function renderBillSnapshotPdf(orgId: string, billId: string): Promise<Buffer | null> {
   const doc = await loadBillForPrint(orgId, billId);
   if (!doc) return null;
-  return renderHtmlToPdf(renderDocumentHtml(doc));
+  return renderHtmlToPdf(await renderDocumentHtml(doc));
 }
