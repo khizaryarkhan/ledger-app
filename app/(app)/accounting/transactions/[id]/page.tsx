@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2 } from "lucide-react";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
+import { NewDocumentForm, type DocType } from "@/components/new-document-form";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
 const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
@@ -48,6 +49,23 @@ export default function TransactionDetailPage() {
   );
   const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && noLinks;
   const canPrint = e && LINE_EDITABLE.has(e.sourceType);
+  // Opening a posted transaction shows the SAME form it was entered on
+  // (QBO/QBD parity) for every type that form already knows how to edit —
+  // reusing that exact, already-proven data path in a read-only rendering
+  // instead of inventing a second one. Types with no original form (manual
+  // Journal Entry, Closing, Reversal, stock-count/write-down adjustments, …)
+  // keep the generic debit/credit ledger view below.
+  //
+  // A line-item doc's payload is reconstructed from its journal lines when
+  // missing (documentPayload → reconstructLineItemPayload), so it's always
+  // safe. A Payment/BillPayment has no such reconstruction — without a
+  // stored payload the form would render as misleadingly blank, so those
+  // fall back to the ledger view, exactly mirroring canEdit's own
+  // hasPayload condition above.
+  const showFormView = e && (
+    LINE_EDITABLE.has(e.sourceType) ||
+    (PAYMENT_EDITABLE.has(e.sourceType) && e.hasPayload)
+  );
 
   async function del() {
     if (!confirm("Delete this transaction permanently? This removes it from the ledger. (Prefer Reverse to keep an audit trail.)")) return;
@@ -60,6 +78,96 @@ export default function TransactionDetailPage() {
     } finally { setBusy(false); }
   }
 
+  // No entry yet (loading or not found) — a simple shell, same as before this
+  // page could ever render the real form or ledger views.
+  if (!e) {
+    return (
+      <div className="fixed inset-0 z-50 flex justify-end">
+        <div className="absolute inset-0 bg-black/50" onClick={close} />
+        <div className="relative h-full w-full sm:w-[92vw] max-w-[1000px] bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col items-center justify-center gap-3">
+          {err ? (
+            <div className="text-[13px] text-rose-400 inline-flex items-center gap-2"><AlertTriangle size={14} /> {err}</div>
+          ) : (
+            <div className="text-stone-500 text-sm inline-flex items-center gap-2"><Loader size={14} className="animate-spin" /> Loading…</div>
+          )}
+          <button onClick={close} className="text-stone-500 hover:text-stone-200 text-[12px]">Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Status pill + Download/Print/Edit/Reverse/Delete — shared between the
+  // form view's header slot and the generic ledger view's footer below.
+  const actionsBar = (
+    <div className="flex items-center gap-2">
+      <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 mr-1 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>
+      {canPrint && (
+        <>
+          <a href={`/api/print/pdf?kind=ledger&id=${e.id}`}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+            <Download size={14} /> Download PDF
+          </a>
+          <a href={`/print/invoice/${e.id}`} target="_blank" rel="noopener noreferrer"
+            title="Open the printable page in a new tab (uses your browser's own print dialog)"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+            <Printer size={14} /> Print
+          </a>
+        </>
+      )}
+      {canEdit && (
+        <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+          <Pencil size={14} /> Edit
+        </Link>
+      )}
+      <button onClick={reverse} disabled={busy || reversed || isReversal}
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
+        {busy ? <Loader size={14} className="animate-spin" /> : <Undo2 size={14} />} {reversed ? "Reversed" : "Reverse"}
+      </button>
+      {canDelete && (
+        <button onClick={del} disabled={busy} title="Delete permanently"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-800/60 text-rose-400 hover:bg-rose-500/10 text-sm font-medium disabled:opacity-40">
+          <Trash2 size={14} /> Delete
+        </button>
+      )}
+    </div>
+  );
+
+  if (showFormView) {
+    const related = data.links.length > 0 && (
+      <div className="max-w-[1200px] mt-2">
+        <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">Related transactions</div>
+        <div className="space-y-1">
+          {data.links.map((lk: any, i: number) => (
+            <Link key={i} href={`/accounting/transactions/${lk.id}`} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
+              <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
+              <ArrowRight size={12} className="text-stone-600" />
+              <span className="font-mono text-stone-300">{lk.docNumber}</span>
+              <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
+              <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    );
+    return (
+      <NewDocumentForm
+        type={e.sourceType as DocType}
+        editId={e.id}
+        readOnly
+        actions={actionsBar}
+        afterContent={
+          <>
+            {msg && <div className="max-w-[1200px] mb-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
+            {related}
+          </>
+        }
+      />
+    );
+  }
+
+  // Generic ledger view — types with no original form (manual Journal Entry,
+  // Closing, Reversal, stock-count/write-down adjustments, …).
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={close} />
@@ -70,123 +178,86 @@ export default function TransactionDetailPage() {
             <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center shrink-0"><Receipt size={17} className="text-teal-400" /></div>
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-stone-100 leading-tight truncate">
-                {e ? `${txnTypeLabel(e.sourceType)} ${e.docNumber ?? `JE-${e.entryNumber}`}` : "Transaction"}
+                {`${txnTypeLabel(e.sourceType)} ${e.docNumber ?? `JE-${e.entryNumber}`}`}
               </h1>
-              {e && <p className="text-[11px] text-stone-500 truncate">{formatTxnId(e.txnNo)} · {e.entryDate}{e.dueDate ? ` · due ${e.dueDate}` : ""}</p>}
+              <p className="text-[11px] text-stone-500 truncate">{formatTxnId(e.txnNo)} · {e.entryDate}{e.dueDate ? ` · due ${e.dueDate}` : ""}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {e && <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>}
+            <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>
             <button onClick={close} className="text-stone-500 hover:text-stone-200 p-1"><X size={20} /></button>
           </div>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {err && <div className="text-[13px] text-rose-400 inline-flex items-center gap-2"><AlertTriangle size={14} /> {err}</div>}
           {msg && <div className="text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
-          {!data && !err ? <div className="text-stone-500 text-sm inline-flex items-center gap-2"><Loader size={14} className="animate-spin" /> Loading…</div> : e && (
-            <>
-              {(e.reference || e.memo) && (
-                <div className="flex flex-wrap gap-x-10 gap-y-1 text-[13px]">
-                  {e.reference && <div><span className="text-stone-500">Reference: </span><span className="text-stone-200">{e.reference}</span></div>}
-                  {e.memo && <div><span className="text-stone-500">Memo: </span><span className="text-stone-200">{e.memo}</span></div>}
-                </div>
-              )}
+          {(e.reference || e.memo) && (
+            <div className="flex flex-wrap gap-x-10 gap-y-1 text-[13px]">
+              {e.reference && <div><span className="text-stone-500">Reference: </span><span className="text-stone-200">{e.reference}</span></div>}
+              {e.memo && <div><span className="text-stone-500">Memo: </span><span className="text-stone-200">{e.memo}</span></div>}
+            </div>
+          )}
 
-              {/* Double-entry lines */}
-              <div className="rounded-xl border border-stone-800 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[13px] min-w-[640px]">
-                    <thead>
-                      <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-                        <th className="text-left px-4 py-2">Account</th>
-                        <th className="text-left px-4 py-2">Name</th>
-                        <th className="text-left px-4 py-2">Description</th>
-                        <th className="text-right px-4 py-2">Debit</th>
-                        <th className="text-right px-4 py-2">Credit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.lines.map((l: any, i: number) => (
-                        <tr key={i} className="border-b border-stone-800/50">
-                          <td className="px-4 py-2 text-stone-200">{l.account}</td>
-                          <td className="px-4 py-2 text-stone-400">{l.name || "—"}</td>
-                          <td className="px-4 py-2 text-stone-400">{l.description || "—"}</td>
-                          <td className="px-4 py-2 text-right tabular-nums text-stone-300">{l.debit ? money(l.debit) : ""}</td>
-                          <td className="px-4 py-2 text-right tabular-nums text-stone-300">{l.credit ? money(l.credit) : ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-stone-800 font-semibold text-white">
-                        <td className="px-4 py-2" colSpan={3}>Total</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{money(data.total)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{money(data.total)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+          {/* Double-entry lines */}
+          <div className="rounded-xl border border-stone-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px] min-w-[640px]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
+                    <th className="text-left px-4 py-2">Account</th>
+                    <th className="text-left px-4 py-2">Name</th>
+                    <th className="text-left px-4 py-2">Description</th>
+                    <th className="text-right px-4 py-2">Debit</th>
+                    <th className="text-right px-4 py-2">Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.lines.map((l: any, i: number) => (
+                    <tr key={i} className="border-b border-stone-800/50">
+                      <td className="px-4 py-2 text-stone-200">{l.account}</td>
+                      <td className="px-4 py-2 text-stone-400">{l.name || "—"}</td>
+                      <td className="px-4 py-2 text-stone-400">{l.description || "—"}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-stone-300">{l.debit ? money(l.debit) : ""}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-stone-300">{l.credit ? money(l.credit) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-stone-800 font-semibold text-white">
+                    <td className="px-4 py-2" colSpan={3}>Total</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{money(data.total)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{money(data.total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Related transactions */}
+          {data.links.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">Related transactions</div>
+              <div className="space-y-1">
+                {data.links.map((lk: any, i: number) => (
+                  <Link key={i} href={`/accounting/transactions/${lk.id}`} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
+                    <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
+                    <ArrowRight size={12} className="text-stone-600" />
+                    <span className="font-mono text-stone-300">{lk.docNumber}</span>
+                    <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
+                    <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
+                  </Link>
+                ))}
               </div>
-
-              {/* Related transactions */}
-              {data.links.length > 0 && (
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">Related transactions</div>
-                  <div className="space-y-1">
-                    {data.links.map((lk: any, i: number) => (
-                      <Link key={i} href={`/accounting/transactions/${lk.id}`} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
-                        <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
-                        <ArrowRight size={12} className="text-stone-600" />
-                        <span className="font-mono text-stone-300">{lk.docNumber}</span>
-                        <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
-                        <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+            </div>
           )}
         </div>
 
         {/* Footer */}
-        {e && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
-            <p className="text-[11px] text-stone-500 max-w-xs">Edit corrects it in place; Reverse keeps an audit trail; Delete removes it entirely.</p>
-            <div className="flex items-center gap-2">
-              {canPrint && (
-                <>
-                  <a href={`/api/print/pdf?kind=ledger&id=${e.id}`}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
-                    <Download size={14} /> Download PDF
-                  </a>
-                  <a href={`/print/invoice/${e.id}`} target="_blank" rel="noopener noreferrer"
-                    title="Open the printable page in a new tab (uses your browser's own print dialog)"
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
-                    <Printer size={14} /> Print
-                  </a>
-                </>
-              )}
-              {canEdit && (
-                <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
-                  <Pencil size={14} /> Edit
-                </Link>
-              )}
-              <button onClick={reverse} disabled={busy || reversed || isReversal}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
-                {busy ? <Loader size={14} className="animate-spin" /> : <Undo2 size={14} />} {reversed ? "Reversed" : "Reverse"}
-              </button>
-              {canDelete && (
-                <button onClick={del} disabled={busy} title="Delete permanently"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-800/60 text-rose-400 hover:bg-rose-500/10 text-sm font-medium disabled:opacity-40">
-                  <Trash2 size={14} /> Delete
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="flex items-center justify-between px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
+          <p className="text-[11px] text-stone-500 max-w-xs">Reverse keeps an audit trail; Delete removes it entirely.</p>
+          {actionsBar}
+        </div>
       </div>
     </div>
   );

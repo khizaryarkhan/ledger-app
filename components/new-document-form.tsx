@@ -7,7 +7,7 @@
  * live server-side in lib/accounting/documents — this just collects the fields.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight } from "lucide-react";
@@ -24,7 +24,7 @@ const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kind
 import { CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
 
-type DocType =
+export type DocType =
   | "Invoice" | "SalesReceipt" | "CreditNote" | "RefundReceipt"
   | "Bill" | "Expense" | "VendorCredit"
   | "Payment" | "BillPayment" | "Deposit" | "Transfer"
@@ -135,7 +135,28 @@ const todayStr = () => localToday();
 const num = (s: string) => Number(s) || 0;
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function NewDocumentForm({ type }: { type: DocType }) {
+export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, afterContent }: {
+  type: DocType;
+  /** Open directly into edit-loading for this entry, bypassing the ?edit= URL
+   *  param — used when this form is embedded (not navigated to) by another
+   *  page, e.g. the transaction detail view's read-only rendering. */
+  editId?: string;
+  /** Render the SAME form every field was entered on, but inert — the exact
+   *  QBO/QBD pattern of "opening a transaction shows its original form."
+   *  Disables every control via one wrapping <fieldset disabled> rather than
+   *  threading a flag through each input, and swaps the footer to a single
+   *  Close button. */
+  readOnly?: boolean;
+  /** Extra buttons shown in the header next to Close (Download PDF / Print /
+   *  Edit / Reverse / Delete) — kept out of this component so it stays
+   *  unaware of ledger-specific actions; the caller owns those handlers. */
+  actions?: ReactNode;
+  /** Extra content shown below the form fields, inside the same scrollable
+   *  body — e.g. a "Related transactions" panel. Rendered outside the
+   *  disabled fieldset, so any links inside it stay clickable in readOnly
+   *  mode. */
+  afterContent?: ReactNode;
+}) {
   const cfg = CFG[type];
   const router = useRouter();
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -197,8 +218,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
   // Reopen-to-edit: /accounting/new/<Type>?edit=<entryId> loads the stored form
   // payload and switches Save to an in-place update.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const eid = new URLSearchParams(window.location.search).get("edit");
+    const eid = editIdProp ?? (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("edit"));
     if (!eid) return;
     setEditId(eid);
     fetch(`/api/documents/${type}/${eid}`).then(r => r.json()).then(d => {
@@ -246,7 +266,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
         if (p.lines.some((l: any) => !l.itemId)) setAcctsOpen(true);
       }
     }).catch(() => {});
-  }, [type]);
+  }, [type, editIdProp]);
 
   useEffect(() => {
     if (cfg.mode !== "deposit") return;
@@ -769,7 +789,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/20 flex items-center justify-center shrink-0"><FileText size={17} className="text-emerald-400" /></div>
             <div className="min-w-0">
-              <h1 className="text-[18px] font-semibold text-stone-100 leading-tight truncate">{editId ? "Edit" : "New"} {cfg.title.toLowerCase()}</h1>
+              <h1 className="text-[18px] font-semibold text-stone-100 leading-tight truncate">{editId ? (readOnly ? "View" : "Edit") : "New"} {cfg.title.toLowerCase()}</h1>
               <p className="text-[11px] text-stone-500 truncate">{cfg.blurb}</p>
             </div>
           </div>
@@ -778,6 +798,7 @@ export function NewDocumentForm({ type }: { type: DocType }) {
               <div className="text-[10px] uppercase tracking-wider text-stone-500">Total</div>
               <div className="text-[18px] font-semibold text-white tabular-nums leading-tight">{money(totals.total)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
             </div>
+            {actions}
             <button onClick={close} className="text-stone-500 hover:text-stone-200 hover:bg-stone-800 p-1.5 rounded-lg transition" title="Close"><X size={20} /></button>
           </div>
         </div>
@@ -787,6 +808,8 @@ export function NewDocumentForm({ type }: { type: DocType }) {
         {loading ? (
           <div className="py-10 text-center text-stone-500 text-[13px] inline-flex items-center gap-2"><Loader size={14} className="animate-spin" /> Loading…</div>
         ) : (
+          <>
+          <fieldset disabled={!!readOnly} style={{ display: "contents" }}>
           <div className="space-y-6 max-w-[1200px]">
             {err && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2 inline-flex items-center gap-2"><AlertTriangle size={13} /> {err}</div>}
 
@@ -1497,16 +1520,25 @@ export function NewDocumentForm({ type }: { type: DocType }) {
           </div>
 
           </div>
+          </fieldset>
+          {afterContent}
+          </>
         )}
         </div>
 
         {/* Footer */}
         {!loading && (
           <div className="flex items-center justify-end gap-3 px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
-            <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-            <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-              {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
-            </button>
+            {readOnly ? (
+              <button onClick={close} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">Close</button>
+            ) : (
+              <>
+                <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+                <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+                  {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
