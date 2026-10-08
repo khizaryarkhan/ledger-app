@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useBatchEntities } from "../../_components/entity-picker";
+import { CustomFieldLabelsPanel } from "@/components/custom-field-labels-panel";
 import {
   ArrowLeft, UploadCloud, DownloadCloud, PencilRuler, Trash2, ArrowRight, Tags,
 } from "lucide-react";
@@ -53,6 +54,12 @@ export default function EntityWorkspace() {
     title: "Delete", body: `Find and remove ${entity.label.toLowerCase()} in bulk.`, danger: true,
   });
 
+  // "Custom Field Value (N)" is a generic, positional column name — whoever
+  // set it up in QuickBooks gave it a real label ("Client Tier", "PO
+  // Number", ...). Show that mapping before the download/update actions
+  // below, not after someone's already confused by a blank "(1)"/"(2)"/"(3)".
+  const hasCustomFields = entity.columns.some((c) => /^Custom Field Name/.test(c.trim()));
+
   return (
     <div className="p-6 max-w-4xl">
       <Link href="/batch" className="inline-flex items-center gap-1.5 text-[13px] text-stone-400 hover:text-stone-200 mb-4">
@@ -61,6 +68,8 @@ export default function EntityWorkspace() {
 
       <h1 className="text-2xl font-semibold text-stone-100">{entity.label}</h1>
       <p className="text-sm text-stone-400 mt-1 mb-6">Choose what you'd like to do.</p>
+
+      {hasCustomFields && <CustomFieldLabelsPanel entityId={entity.id} entityLabel={entity.label} />}
 
       {actions.length === 0 ? (
         <div className="px-4 py-3 rounded-lg bg-stone-900 border border-stone-800 text-sm text-stone-400">
