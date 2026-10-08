@@ -22,6 +22,23 @@ export const maxDuration = 60;
 
 /** Compact one QBO record down to its id + line summary (id, type, amount). */
 function summarize(r: any) {
+  // List entities (Customer/Project, Vendor, Item, ...) have no DocNumber/
+  // TxnDate/Line at all — the transaction-shaped summary below always came
+  // back null for every field on them, which is why a Project's custom
+  // field was invisible even when QBO sent it: CustomField was never read
+  // out of the record here in the first place.
+  if (r.DisplayName != null || r.Name != null) {
+    return {
+      Id: r.Id,
+      DisplayName: r.DisplayName ?? r.Name ?? null,
+      Active: r.Active ?? null,
+      Job: r.Job ?? null,
+      ParentRef: r.ParentRef ? { value: r.ParentRef.value, name: r.ParentRef.name } : null,
+      customFieldCount: Array.isArray(r.CustomField) ? r.CustomField.length : 0,
+      CustomField: r.CustomField ?? null,
+    };
+  }
+
   const lines = (r.Line || []).map((l: any) => {
     const linked = Array.isArray(l.LinkedTxn) && l.LinkedTxn.length ? l.LinkedTxn : null;
     return {
@@ -31,7 +48,12 @@ function summarize(r: any) {
       linkedTxn: linked ? linked.map((t: any) => ({ TxnType: t.TxnType, TxnId: t.TxnId })) : undefined,
     };
   });
-  return { Id: r.Id, DocNumber: r.DocNumber ?? null, TxnDate: r.TxnDate ?? null, TotalAmt: r.TotalAmt ?? null, lineCount: lines.length, lines };
+  return {
+    Id: r.Id, DocNumber: r.DocNumber ?? null, TxnDate: r.TxnDate ?? null, TotalAmt: r.TotalAmt ?? null,
+    lineCount: lines.length, lines,
+    customFieldCount: Array.isArray(r.CustomField) ? r.CustomField.length : 0,
+    CustomField: r.CustomField ?? null,
+  };
 }
 
 export async function GET(req: Request) {
@@ -55,8 +77,13 @@ export async function GET(req: Request) {
     try {
       let rows = await qboQueryAll(token, entity.qboReadName, entity.qboExtraWhere || undefined);
       if (entity.qboClientFilter) rows = rows.filter(entity.qboClientFilter);
-      const recent = rows.slice(-20).reverse().map(summarize);
-      return ok({ mode: "list", count: rows.length, showing: recent.length, records: recent });
+      // &withCustomFields=1 — skip straight to the handful of records that
+      // actually carry one, instead of scanning the last 20 of (possibly)
+      // thousands and hoping the one you care about is in that window.
+      const onlyCF = url.searchParams.get("withCustomFields");
+      const pool = onlyCF ? rows.filter((r: any) => Array.isArray(r.CustomField) && r.CustomField.length > 0) : rows;
+      const recent = pool.slice(-20).reverse().map(summarize);
+      return ok({ mode: "list", count: rows.length, matchingCustomFields: onlyCF ? pool.length : undefined, showing: recent.length, records: recent });
     } catch (e: any) {
       return bad(`QuickBooks query failed: ${e?.message || "unknown"}`, 502);
     }
