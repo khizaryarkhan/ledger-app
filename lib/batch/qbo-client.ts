@@ -253,12 +253,13 @@ export async function qboBatch(
 export async function qboQueryAll(
   token: OrgQboToken,
   readName: string,
-  where = ""
+  where = "",
+  include?: string,
 ): Promise<any[]> {
   const all: any[] = [];
   let start: number | null = 1;
   while (start !== null) {
-    const page = await qboQueryPage(token, readName, where, start, 500);
+    const page = await qboQueryPage(token, readName, where, start, 500, include);
     all.push(...page.records);
     start = page.nextStart;
     if (start !== null) await sleep(200);
@@ -284,12 +285,14 @@ export async function qboQueryPage(
   where = "",
   startPosition = 1,
   pageSize = 500,
+  include?: string,
 ): Promise<{ records: any[]; nextStart: number | null }> {
   {
     const start = startPosition;
     const size = pageSize;
     const whereClause = where ? ` where ${where}` : "";
     const sql = `select * from ${readName}${whereClause} STARTPOSITION ${start} MAXRESULTS ${size}`;
+    const includeQs = include ? `&include=${encodeURIComponent(include)}` : "";
 
     let json: any;
     let queryFailed: Error | null = null;
@@ -308,7 +311,7 @@ export async function qboQueryPage(
       }
       try {
         const res = await fetch(
-          `${QBO_API}/${token.realmId}/query?query=${encodeURIComponent(sql)}&${MINOR}`,
+          `${QBO_API}/${token.realmId}/query?query=${encodeURIComponent(sql)}&${MINOR}${includeQs}`,
           {
             headers: {
               Authorization: `Bearer ${token.accessToken}`,
@@ -402,9 +405,11 @@ export async function qboDelete(
 export async function qboReadOne(
   token: OrgQboToken,
   entity: string,
-  id: string
+  id: string,
+  include?: string,
 ): Promise<any | null> {
-  const res = await fetch(`${QBO_API}/${token.realmId}/${entity}/${id}?${MINOR}`, {
+  const qs = include ? `?${MINOR}&include=${encodeURIComponent(include)}` : `?${MINOR}`;
+  const res = await fetch(`${QBO_API}/${token.realmId}/${entity}/${id}${qs}`, {
     headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" },
   });
   if (!res.ok) return null;

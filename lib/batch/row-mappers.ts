@@ -51,10 +51,16 @@ const taxable = (ref: any): number | undefined =>
  * "Custom Field Name (N)" / "Custom Field Value (N)" for up to 3 slots —
  * mirrors whatever QBO already has on the record (Name is the org's own
  * Definition label, e.g. "PO Number"; StringValue is the only type QBO's
- * public API exposes custom fields as on sales/purchase forms). Read-only on
- * Name; see readCustomFieldEdits (builders.ts) for how Value round-trips back.
+ * public API exposes custom fields as). Read-only on Name; see
+ * readCustomFieldEdits (builders.ts) for how Value round-trips back.
+ *
+ * Originally transaction-only (sales/purchase forms' classic 3-field system).
+ * Also used by mapProjectRow below for Customer/Project records, whose custom
+ * field values live on QBO's newer "enhanced" custom fields platform instead
+ * — a different platform, but the same CustomField[{DefinitionId,Name,
+ * StringValue}] shape on the wire, so one mapper serves both.
  */
-function putCustomFields(row: Row, r: any) {
+export function putCustomFields(row: Row, r: any) {
   const fields: any[] = Array.isArray(r.CustomField) ? r.CustomField : [];
   for (let i = 0; i < 3; i++) {
     const cf = fields[i];
@@ -463,6 +469,31 @@ export async function mapCustomerRow(r: any, refs?: RefResolver): Promise<Row[]>
   }
   putAddress(row, "Billing Address", r.BillAddr);
   putAddress(row, "Shipping Address", r.ShipAddr);
+  return [row];
+}
+
+/**
+ * A QBO Project is a sub-customer: the same Customer record `mapCustomerRow`
+ * reads, just one with a ParentRef/Job — see CLAUDE.md's "Projects & custom
+ * fields" section. Scoped to the fields a project actually uses (no Title/
+ * Terms/ResaleNumber/… — those are plain-customer fields QBO doesn't surface
+ * on its own Projects UI) plus the custom field columns, since that's the
+ * whole reason this entity exists separately from "customer".
+ */
+export async function mapProjectRow(r: any, refs?: RefResolver): Promise<Row[]> {
+  const row: Row = {};
+  const set = (k: string, v: any) => { if (v != null && v !== "") row[k] = v; };
+  set("Id", r.Id); set("SyncToken", r.SyncToken);
+  set("Project Name", r.DisplayName);
+  set("Bill With Parent", r.BillWithParent ? 1 : 0);
+  set("Email", r.PrimaryEmailAddr?.Address);
+  set("Phone", r.PrimaryPhone?.FreeFormNumber);
+  set("Mobile", r.Mobile?.FreeFormNumber);
+  set("Notes", r.Notes);
+  set("Currency Code", r.CurrencyRef?.value);
+  if (refs) set("Customer", await refDisplayName(r.ParentRef, "Customer", refs));
+  putAddress(row, "Billing Address", r.BillAddr);
+  putCustomFields(row, r);
   return [row];
 }
 

@@ -69,3 +69,42 @@ describe("shapeModifyPayload — custom field merge", () => {
     expect(out.CustomField).toBeUndefined();
   });
 });
+
+// No-lines (list) entities — Customer/Project, Transfer, TimeActivity, ...
+// take the sparse-patch branch instead of the full-rewrite branch above. The
+// splice logic must still run there: this used to read __customFieldEdits
+// and then throw it away unconditionally, so a Project's typed custom field
+// value never reached QBO even though a sales-form transaction's did.
+describe("shapeModifyPayload — custom field merge on a no-lines (sparse) entity", () => {
+  const existingWithOneCustomField = {
+    CustomField: [{ DefinitionId: "540344", Name: "Client Tier", Type: "StringType", StringValue: "OLD-TIER" }],
+  };
+
+  it("applies a typed value onto the existing custom field on a sparse patch", () => {
+    const payload = { DisplayName: "Project X", __customFieldEdits: { 0: "NEW-TIER" } };
+    const out = shapeModifyPayload(payload, "123", "4", existingWithOneCustomField);
+    expect(out.sparse).toBe(true);
+    expect(out.CustomField).toEqual([
+      { DefinitionId: "540344", Name: "Client Tier", Type: "StringType", StringValue: "NEW-TIER" },
+    ]);
+  });
+
+  it("never leaks __customFieldEdits into the outgoing sparse payload", () => {
+    const payload = { DisplayName: "Project X", __customFieldEdits: { 0: "NEW-TIER" } };
+    const out = shapeModifyPayload(payload, "123", "4", existingWithOneCustomField);
+    expect(out).not.toHaveProperty("__customFieldEdits");
+  });
+
+  it("leaves CustomField unset on a sparse patch when nothing was typed — QBO's sparse semantics already preserve it", () => {
+    const payload = { DisplayName: "Project X" };
+    const out = shapeModifyPayload(payload, "123", "4", existingWithOneCustomField);
+    expect(out.sparse).toBe(true);
+    expect(out.CustomField).toBeUndefined();
+  });
+
+  it("is a no-op for a slot the existing record doesn't have, same as the lines branch", () => {
+    const payload = { DisplayName: "Project X", __customFieldEdits: { 1: "NEW-TIER" } }; // slot 2, only slot 1 exists
+    const out = shapeModifyPayload(payload, "123", "4", existingWithOneCustomField);
+    expect(out.CustomField).toEqual(existingWithOneCustomField.CustomField);
+  });
+});

@@ -57,6 +57,14 @@ export type CommitResult =
  * A typed value at a position the existing record doesn't have is a no-op:
  * setting a custom field for the first time still has to happen in
  * QuickBooks directly, since only QBO knows that slot's DefinitionId.
+ *
+ * The no-lines branch (list entities — Customer/Project, Transfer,
+ * TimeActivity, …) is a plain sparse patch, which by itself leaves
+ * CustomField untouched — correct when nothing was typed. But
+ * `customFieldEdits` was read and then silently thrown away here regardless:
+ * a Project's typed "Custom Field Value (N)" never reached QBO. Fixed to
+ * splice onto the sparse payload the same way the lines branch does onto a
+ * full one.
  */
 export function shapeModifyPayload(
   payload: any,
@@ -68,21 +76,25 @@ export function shapeModifyPayload(
   const out = { ...payload, Id: String(id), SyncToken: String(syncToken ?? "0") };
   const customFieldEdits = out.__customFieldEdits as Record<number, string> | undefined;
   delete out.__customFieldEdits;
+  const existingCF = Array.isArray(existing?.CustomField) ? existing.CustomField : [];
+  const splicedCustomField = () =>
+    customFieldEdits && existingCF.length
+      ? existingCF.map((cf: any, i: number) =>
+          customFieldEdits[i] != null ? { ...cf, StringValue: customFieldEdits[i] } : cf,
+        )
+      : undefined;
 
   if (hasLines) {
-    const existingCF = Array.isArray(existing?.CustomField) ? existing.CustomField : [];
-    if (customFieldEdits && existingCF.length) {
-      out.CustomField = existingCF.map((cf: any, i: number) =>
-        customFieldEdits[i] != null ? { ...cf, StringValue: customFieldEdits[i] } : cf,
-      );
-    } else if (existingCF.length && out.CustomField == null) {
-      out.CustomField = existingCF;
-    }
+    const spliced = splicedCustomField();
+    if (spliced) out.CustomField = spliced;
+    else if (existingCF.length && out.CustomField == null) out.CustomField = existingCF;
     // sparse deliberately NOT set — see function comment.
   } else {
     // No lines in this payload (list entities, Transfer, TimeActivity, …) —
     // a plain sparse patch is correct and safe here.
     out.sparse = true;
+    const spliced = splicedCustomField();
+    if (spliced) out.CustomField = spliced;
   }
   return out;
 }
@@ -123,7 +135,12 @@ export async function commitOneDoc(
     // false-rejection window entirely; falling back to the sheet's value
     // only if this read itself fails, so a network hiccup here doesn't turn
     // into a hard failure when we already had a plausible token to try.
-    const existing = await qboReadOne(token, entity.qboEntity!, String(id));
+    const existing = await qboReadOne(
+      token,
+      entity.qboEntity!,
+      String(id),
+      entity.qboCustomFieldsInclude ? "enhancedAllCustomFields" : undefined,
+    );
     const freshSyncToken = existing?.SyncToken ?? syncToken;
 
     // SAFETY: refuse to write back a record that holds something the sheet

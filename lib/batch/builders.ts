@@ -787,6 +787,42 @@ export async function buildCustomer(doc: GroupedDoc, refs: RefResolver): Promise
   return { payload };
 }
 
+/**
+ * A QBO Project IS a Customer record — a sub-customer with Job:true and a
+ * ParentRef (QBO has no separate "Project" API object; see CLAUDE.md's
+ * "Projects & custom fields" section). A parent is required on create (QBO
+ * itself requires it to create a Job/Project) but not re-sent as a hard
+ * requirement on update, since changing it isn't this form's job and
+ * shapeModifyPayload's sparse patch leaves an omitted field untouched.
+ */
+export async function buildProject(doc: GroupedDoc, refs: RefResolver): Promise<BuildResult> {
+  const h = doc.rows[0];
+  const isCreate = !str(h["Id"]);
+  const name = str(h["Project Name"]);
+  if (!name) throw new Error("Project Name is required");
+  const parent = await refs.tryResolve("Customer", h["Customer"]);
+  if (isCreate && !parent) throw new Error('A Project needs a parent "Customer"');
+
+  const payload: any = {
+    DisplayName: name,
+    Job: true,
+    ParentRef: parent ? { value: parent.value } : undefined,
+    BillWithParent: bool(h["Bill With Parent"]),
+    PrimaryEmailAddr: str(h["Email"]) ? { Address: str(h["Email"]) } : undefined,
+    PrimaryPhone: str(h["Phone"]) ? { FreeFormNumber: str(h["Phone"]) } : undefined,
+    Mobile: str(h["Mobile"]) ? { FreeFormNumber: str(h["Mobile"]) } : undefined,
+    BillAddr: address(h, "Billing Address"),
+    Notes: str(h["Notes"]),
+    CurrencyRef: str(h["Currency Code"]) ? { value: str(h["Currency Code"]) } : undefined,
+  };
+
+  const cfEdits = readCustomFieldEdits(h);
+  if (cfEdits) (payload as any).__customFieldEdits = cfEdits;
+
+  const qboId = str(h["Id"]);
+  return { payload: qboId ? { ...payload, Id: qboId } : payload };
+}
+
 export async function buildVendor(doc: GroupedDoc): Promise<BuildResult> {
   const h = doc.rows[0];
   const payload: any = {

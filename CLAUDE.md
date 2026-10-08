@@ -2130,6 +2130,107 @@ CSV can't carry validations, so xlsx is the format to prefer for round trips.
 `RefResolver.preload` is parallel and swallows per-list failures, so adding
 kinds costs ~the slowest list, not the sum.
 
+### Projects & custom fields (2026-10-08)
+
+Requested: bring QBO Projects into Data Studio, and let users update a
+project's custom field values in bulk. Two things had to be researched
+against Intuit's own docs before writing any code, because guessing wrong on
+either would have shipped something that silently doesn't work on a
+production financial app.
+
+- **QBO has no separate "Project" API object.** A Project IS a Customer
+  record with `Job: true` and a `ParentRef` — exactly the sub-customer model
+  `lib/qbo-sync.ts` already treats as a project (see "STEP 5: Sub-customers
+  as projects" there). The new **`project`** entity (`lib/batch/entities.ts`,
+  "list" group) reuses `qboEntity: "customer"` / `qboReadName: "Customer"`
+  with a `qboClientFilter` of `Job === true || !!ParentRef?.value` — the same
+  disambiguation pattern Expense/Check/CreditCardCredit already use to share
+  the "purchase" QBO entity. `buildProject` (builders.ts) requires a parent
+  Customer only on CREATE (QBO itself refuses a parentless Job); an update
+  doesn't re-require it, since the sparse patch leaves an omitted field
+  alone. `mapProjectRow` (row-mappers.ts) is a trimmed `mapCustomerRow` —
+  only the fields a Project actually uses, not Title/Terms/ResaleNumber/etc.
+- **QBO has TWO unrelated custom-field systems**, confirmed against Intuit's
+  developer docs (`developer.intuit.com/.../create-custom-fields`) and the
+  official `IntuitDeveloper/Sampleapp-Customfields-Nodejs` sample, not
+  guessed:
+  1. The **classic 3-field system** (`CustomField[{DefinitionId,Name,
+     StringValue}]` on the REST payload) this app already supported on
+     sales/purchase TRANSACTIONS only (Invoice, Estimate, PurchaseOrder, …)
+     via `readCustomFieldEdits`/`shapeModifyPayload`. Works on any QBO plan.
+  2. A **newer "App Foundations" GraphQL platform**
+     (`https://qb.api.intuit.com/graphql`, query
+     `appFoundationsCustomFieldDefinitions`, mutation
+     `appFoundationsCreateCustomFieldDefinition`) that's what actually backs
+     custom fields on **Customer/Vendor/Project** records — confirmed by
+     Intuit's own worked example, which showed a Customer response carrying
+     `CustomField: [{DefinitionId: "540344", ...}]` plus an `IsProject` flag.
+     **This is gated behind Intuit's own partner program**: "available to
+     Silver, Gold, and Platinum partners only, not Builder tier" — an
+     account-level upgrade of Prime Accountax's OWN Intuit Developer app,
+     done in their portal, not from this codebase. It also needs two new
+     OAuth scopes (`app-foundations.custom-field-definitions[.read]`) added
+     to the authorize URL.
+- **Decision, confirmed with the product owner**: do NOT touch the live QBO
+  "Connect" OAuth URL (`app/api/qbo/route.ts`) to add those scopes yet.
+  Intuit's restricted-scope model means requesting a scope the app isn't
+  provisioned for risks the WHOLE authorization being rejected, not just the
+  new feature being unavailable — that would break QBO reconnects for every
+  one of the 6 production orgs, not just gate custom fields. **Confirm Silver+
+  partner tier and the two scopes are active in the Intuit Developer Portal
+  (App → Permissions → Restricted scopes) before adding them here.** Until
+  then, no GraphQL client exists in this codebase at all — writing one against
+  an unverifiable, untestable schema (no Advanced/Enterprise company or
+  partner-tier access available to confirm the exact `associatedEntity` value
+  for Project vs Customer) would be shipping unprovable code into the money
+  path, which this repo's whole custom-fields history (see "Three things must
+  agree, or a column is a lie" in the Data Studio section above) exists to
+  prevent.
+- **What ships now, and what it depends on**: Project's custom field columns
+  reuse the EXISTING classic-system plumbing — `readCustomFieldEdits` /
+  `putCustomFields` / `shapeModifyPayload`'s positional splice — the same
+  code path transactions use, extended to cover Customer/Project records too.
+  This only EDITS a value already sitting in an existing `CustomField` slot
+  (same documented limitation transactions already have: "setting a custom
+  field for the first time still has to happen in QuickBooks directly, since
+  only QBO knows that slot's DefinitionId" — commit-one.ts). It does **not**
+  create new custom field definitions from this app; that genuinely needs the
+  gated GraphQL layer above.
+- **`shapeModifyPayload` had a real, silent bug for every no-lines (list)
+  entity**, not just the new one: it READ `__customFieldEdits` off the
+  payload and then unconditionally threw it away whenever `payload.Line` was
+  absent (`out.sparse = true` was the only thing that branch did). A
+  transaction never hit this because transactions always have lines; Project
+  is the first entity that sets `__customFieldEdits` with no `Line` array, so
+  this would have been a silent no-op — the UI would look like it worked and
+  nothing would change in QuickBooks. Fixed to splice onto the sparse patch
+  the same way the lines branch splices onto the full rewrite. Pinned in
+  `tests/batch-custom-fields.test.ts`'s new "no-lines (sparse) entity" describe
+  block — proven against the pre-fix behavior, not just passing.
+- **`qboReadOne`/`qboQueryAll`/`qboQueryPage`** (`lib/batch/qbo-client.ts`)
+  gained an optional trailing `include` parameter, wired up only when
+  `BatchEntity.qboCustomFieldsInclude` is set (currently just `project`) —
+  appends `&include=enhancedAllCustomFields`, which Intuit's docs say is
+  needed for the newer platform's values to appear in a REST response.
+  **Unverified against a live QBO Advanced/Enterprise company** — we have
+  none to test against, and it's unconfirmed whether `include` even applies
+  to the `/query?query=` SQL endpoint the same way it does to a direct
+  GET-by-id. Harmless if unsupported (an extra, ignorable query-string
+  param); flagged here so whoever next has Advanced-tier access can verify
+  rather than assume.
+- **Bulk Edit (`/batch/bulk-edit`) was deliberately NOT extended to
+  Project**, even though its backend (`bulk-edit/meta`, `bulk-edit/apply`,
+  `fieldedit-chunk-runner.ts`) is already entity-agnostic and would technically
+  work. Its UI is built around TRANSACTION shape — `bulk-edit/search`'s query
+  filters on `TxnDate`/`CustomerRef` (fields Customer/Project records don't
+  have) and its results table shows `docNumber`/`txnDate`/`total`/
+  `linkedInvoices`, all blank for a Project. Wiring it up properly is a real,
+  separate UI piece, not a one-line gate flip — left for a future session if
+  bulk (vs. spreadsheet-driven) Project edits are wanted. The spreadsheet
+  Update flow (download → edit → re-upload) is the supported path for now,
+  and is complete: it shows existing custom field values and lets you type
+  new ones, same as Invoices/POs already do.
+
 ## Where things live
 
 - `app/(app)/` — the authed app (dashboard, board, invoices, customers, payables,

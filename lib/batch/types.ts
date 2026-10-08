@@ -75,4 +75,15 @@ export interface BatchEntity {
   build?: (doc: GroupedDoc, refs: RefResolver) => Promise<BuildResult>;
   /** Maps a QBO record back to one-or-more flat template rows (Download / Sample). */
   toRows?: (record: any, refs: RefResolver) => Promise<SheetRow[]>;
+  /**
+   * Ask QBO reads for this entity to also include the newer "enhanced"
+   * custom fields platform's values (`include=enhancedAllCustomFields`).
+   * Transactions (Invoice, Estimate, PurchaseOrder, ...) already get their
+   * classic 3-field CustomField array back with no include param — this flag
+   * is only for entities, like Customer/Project, whose custom field values
+   * live on the newer platform instead. See CLAUDE.md's "Projects & custom
+   * fields" section — defensive addition, not yet verified against a live
+   * QBO Advanced/Enterprise company (none available to test against).
+   */
+  qboCustomFieldsInclude?: boolean;
 }

@@ -13,12 +13,12 @@ import type { BatchEntity } from "./types";
 import {
   makeSalesBuilder, buildReceivePayment, makeVendorTxnBuilder, makePurchaseBuilder,
   buildBillPayment, buildJournalEntry, buildDeposit, buildTransfer, buildTimeActivity,
-  buildCustomer, buildVendor, buildItem, buildAccount, buildEmployee, makeSimpleListBuilder,
+  buildCustomer, buildProject, buildVendor, buildItem, buildAccount, buildEmployee, makeSimpleListBuilder,
 } from "./builders";
 import {
   makeSalesRowMapper, makeVendorRowMapper, makePurchaseRowMapper,
   mapReceivePaymentRow, mapBillPaymentRow, mapJournalEntryRows, mapDepositRows,
-  mapTransferRow, mapTimeActivityRow, mapCustomerRow, mapVendorRow, mapItemRow,
+  mapTransferRow, mapTimeActivityRow, mapCustomerRow, mapProjectRow, mapVendorRow, mapItemRow,
   mapAccountRow, mapEmployeeRow, makeSimpleListRowMapper,
 } from "./row-mappers";
 
@@ -303,6 +303,23 @@ export const ENTITIES: BatchEntity[] = [
     build: buildCustomer,
     reverseRefs: ["Term", "PaymentMethod", "Customer"],
     toRows: mapCustomerRow,
+  },
+  {
+    // A QBO Project is a sub-customer — same "customer" QBO entity as above,
+    // filtered to records that have a parent/Job flag. See CLAUDE.md's
+    // "Projects & custom fields" section for why this is a separate entity
+    // rather than just the existing Customer entity's "Parent Customer"
+    // column, and for what the custom field columns can/can't do.
+    id: "project", label: "Projects", group: "list",
+    qboEntity: "customer", qboReadName: "Customer", supports: NO_DELETE,
+    qboClientFilter: (r: any) => r.Job === true || !!r.ParentRef?.value,
+    refNumberColumn: "Project Name", qboRefNumberField: "DisplayName",
+    refs: ["Customer"],
+    columns: ["Project Name","Customer","Bill With Parent","Email","Phone","Mobile","Billing Address Line 1","Billing Address Line 2","Billing Address Line 3","Billing Address City","Billing Address Postal Code","Billing Address Country","Billing Address State","Notes","Custom Field Name (1)","Custom Field Value (1)","Custom Field Name (2)","Custom Field Value (2)","Custom Field Name (3)","Custom Field Value (3)","Currency Code"],
+    build: buildProject,
+    reverseRefs: ["Customer"],
+    toRows: mapProjectRow,
+    qboCustomFieldsInclude: true,
   },
   {
     id: "vendor", label: "Vendors", group: "list",
