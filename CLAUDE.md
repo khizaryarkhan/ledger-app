@@ -2230,6 +2230,39 @@ production financial app.
   Update flow (download → edit → re-upload) is the supported path for now,
   and is complete: it shows existing custom field values and lets you type
   new ones, same as Invoices/POs already do.
+- **There are TWO unrelated things both called "Projects" in the QBO
+  ecosystem — confirmed by capturing a real browser network payload, not
+  guessed, 2026-10-09.** Don't conflate them again:
+  1. **Per-company sub-customer Projects** — the one this app's `project`
+     entity targets, reached via the public Accounting REST API
+     (`Customer` with `Job`/`ParentRef`). This is what `lib/qbo-sync.ts`
+     has always meant by "projects".
+  2. **QuickBooks Online ACCOUNTANT's practice-management Projects** — a
+     completely different Intuit product: the firm-side tool an accounting
+     practice (like Prime Accountax itself) uses to track its own
+     engagements with clients. A captured mutation (`UpdateProject_workflow`)
+     hits `Work_Project` / `Network_Contact` / `Practice_Client` objects —
+     Intuit's internal "Work Management" GraphQL schema, which appears
+     nowhere in the public Accounting API, the App Foundations Custom
+     Fields docs, or any Intuit developer documentation. Its custom field
+     values live in a JSON blob on an `externalReferences` entry
+     (`externalKey: "CUSTOM_FIELDS"`, `externalBlob:
+     '{"QBO":{"udcf_1000000004":"1"}}'`), not in any `CustomField` array at
+     all. This is Intuit's own first-party web client talking to its own
+     backend — there is no known public API for it, and no reason to
+     believe a third-party OAuth app could reach it (it almost certainly
+     authenticates with Intuit's own browser session, not an OAuth bearer
+     token). **Out of scope, and not pursued** — reverse-engineering an
+     undocumented internal endpoint into a production financial app's
+     money-adjacent code is not something to do on a guess.
+  - **Why this matters for debugging**: a custom field set via QBO
+    Accountant's Projects screen (#2) will NEVER show up through this app's
+    `project` entity (#1) — they are different records in different
+    systems, bridged by nothing. Don't re-diagnose this as a code bug; it's
+    confirmed by design. To test #1's custom field handling, the field
+    needs to be set on an actual per-company sub-customer/Job record (which
+    needs the gated App Foundations platform — see above — or the org's own
+    QBO UI, if QBO exposes a path to set one there at all; unconfirmed).
 
 ## Where things live
 
