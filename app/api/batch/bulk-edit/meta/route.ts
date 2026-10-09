@@ -11,6 +11,7 @@ import { getEntity } from "@/lib/batch/entities";
 import { getOrgQboToken } from "@/lib/qbo-token";
 import { RefResolver } from "@/lib/batch/ref-resolver";
 import { qboQueryTop } from "@/lib/batch/qbo-client";
+import { discoverSalesCustomFieldDefs } from "@/lib/batch/custom-fields";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -37,18 +38,26 @@ export async function GET(req: Request) {
     qboQueryTop(token, entity!.qboReadName!, 20).catch(() => [] as any[]),
   ]);
 
-  // Discover the company's custom fields from a sample of recent records — QBO
-  // exposes them per-transaction as CustomField[{DefinitionId,Name,Type}]. We
-  // union across the sample so all defined fields show even if some are blank.
-  const cfMap = new Map<string, { definitionId: string; name: string }>();
-  for (const rec of sample) {
-    for (const cf of (rec?.CustomField || [])) {
-      if (cf?.DefinitionId && cf?.Name && (cf.Type ?? "StringType") === "StringType") {
-        cfMap.set(String(cf.DefinitionId), { definitionId: String(cf.DefinitionId), name: String(cf.Name) });
+  // Sales transactions (Invoice/Estimate/SalesReceipt/CreditMemo/RefundReceipt)
+  // read ALL enabled custom field definitions straight from Preferences —
+  // authoritative and complete (see discoverSalesCustomFieldDefs), unlike
+  // sampling the 20 most recent records, which misses any field not filled
+  // on at least one of them (the reported gap). Falls back to the sample for
+  // every other entity — Preferences only describes the sales-form fields.
+  let customFields: { definitionId: string; name: string }[];
+  if (wantCustomers) {
+    customFields = await discoverSalesCustomFieldDefs(token).catch(() => []);
+  } else {
+    const cfMap = new Map<string, { definitionId: string; name: string }>();
+    for (const rec of sample) {
+      for (const cf of (rec?.CustomField || [])) {
+        if (cf?.DefinitionId && cf?.Name && (cf.Type ?? "StringType") === "StringType") {
+          cfMap.set(String(cf.DefinitionId), { definitionId: String(cf.DefinitionId), name: String(cf.Name) });
+        }
       }
     }
+    customFields = [...cfMap.values()];
   }
-  const customFields = [...cfMap.values()];
 
   // BillEmail exists on customer sales transactions.
   const supportsEmail = entity!.group === "customer";

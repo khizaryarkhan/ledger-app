@@ -35,12 +35,19 @@ export async function POST(req: Request) {
   if (body.customerId && entity.group === "customer") clauses.push(`CustomerRef = '${esc(String(body.customerId))}'`);
   if (body.from && isDate(body.from)) clauses.push(`TxnDate >= '${body.from}'`);
   if (body.to && isDate(body.to)) clauses.push(`TxnDate <= '${body.to}'`);
-  if (body.status && entity.id === "estimate") clauses.push(`TxnStatus = '${esc(String(body.status))}'`);
+  // NOT in the WHERE clause, deliberately — same class of bug as "expense"'s
+  // PaymentType filter elsewhere in this file's sibling routes: QBO's query
+  // API silently returns zero rows for `TxnStatus = 'Pending'` even against
+  // a company that genuinely has Pending estimates (confirmed as the reported
+  // "status filter doesn't work" symptom). Filtered client-side below instead.
 
   const where = clauses.join(" AND ");
   let records: any[];
   try {
     records = await qboQueryAll(token, entity.qboReadName, where);
+    if (body.status && entity.id === "estimate") {
+      records = records.filter((r: any) => r.TxnStatus === body.status);
+    }
   } catch (e: any) {
     return bad(e?.message || "QuickBooks query failed", 502);
   }

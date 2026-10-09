@@ -90,6 +90,22 @@ export async function processFieldEditChunk(orgId: string, jobId: string): Promi
       const rec = await qboReadOne(token, entity.qboEntity!, id);
       if (!rec) return { ok: false, row: i + 1, error: "Record no longer exists in QuickBooks" };
 
+      // SAFETY: never bulk-edit an Estimate linked to invoices via progress
+      // invoicing — mirrors commitOneDoc's refusal on the spreadsheet Update
+      // path. This write is a sparse patch (only the fields being changed are
+      // sent), so QBO's documented semantics say LinkedTxn should be left
+      // alone regardless — but this repo doesn't take QBO's sparse-update
+      // behavior on faith (see CLAUDE.md's open Deposit-line-removal
+      // investigation, where "sparse should leave it alone" didn't hold up in
+      // practice). Skipped, not failed: the rest of the selection still goes
+      // through.
+      if (entity.id === "estimate") {
+        const links = Array.isArray(rec.LinkedTxn) ? rec.LinkedTxn.filter((l: any) => l?.TxnType === "Invoice") : [];
+        if (links.length > 0) {
+          return { ok: false, row: i + 1, error: `Skipped — linked to ${links.length} invoice(s) via progress invoicing. Editing it risks that link, so it was left unchanged. Edit it directly in QuickBooks.` };
+        }
+      }
+
       // Fresh SyncToken from the live read — never a stale one.
       const payload: any = { Id: id, SyncToken: String(rec.SyncToken ?? "0"), sparse: true };
 
