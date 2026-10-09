@@ -816,9 +816,6 @@ export async function buildProject(doc: GroupedDoc, refs: RefResolver): Promise<
     CurrencyRef: str(h["Currency Code"]) ? { value: str(h["Currency Code"]) } : undefined,
   };
 
-  const cfEdits = readCustomFieldEdits(h);
-  if (cfEdits) (payload as any).__customFieldEdits = cfEdits;
-
   const qboId = str(h["Id"]);
   return { payload: qboId ? { ...payload, Id: qboId } : payload };
 }

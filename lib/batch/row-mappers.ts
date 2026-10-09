@@ -477,8 +477,10 @@ export async function mapCustomerRow(r: any, refs?: RefResolver): Promise<Row[]>
  * reads, just one with a ParentRef/Job — see CLAUDE.md's "Projects & custom
  * fields" section. Scoped to the fields a project actually uses (no Title/
  * Terms/ResaleNumber/… — those are plain-customer fields QBO doesn't surface
- * on its own Projects UI) plus the custom field columns, since that's the
- * whole reason this entity exists separately from "customer".
+ * on its own Projects UI). No custom field columns: QBO's modern Projects
+ * feature stores those (along with status/dates/budget) in a separate
+ * undocumented system the public API never returns on this record — proven
+ * 2026-10-09 against real data, not assumed.
  */
 export async function mapProjectRow(r: any, refs?: RefResolver): Promise<Row[]> {
   const row: Row = {};
@@ -493,7 +495,6 @@ export async function mapProjectRow(r: any, refs?: RefResolver): Promise<Row[]> 
   set("Currency Code", r.CurrencyRef?.value);
   if (refs) set("Customer", await refDisplayName(r.ParentRef, "Customer", refs));
   putAddress(row, "Billing Address", r.BillAddr);
-  putCustomFields(row, r);
   return [row];
 }
 

@@ -5,6 +5,11 @@
  * CREATE one (QBO itself refuses a parentless Job), but not re-required on
  * an update, since shapeModifyPayload's sparse patch leaves an omitted field
  * untouched rather than clearing it.
+ *
+ * No custom-field columns/handling here, deliberately: QBO's Projects feature
+ * stores custom field values (and status/dates/budget) in a separate,
+ * undocumented internal system the public API never returns on this record —
+ * proven against real data, not assumed.
  */
 import { describe, it, expect } from "vitest";
 import { buildProject } from "@/lib/batch/builders";
@@ -46,14 +51,5 @@ describe("buildProject", () => {
     );
     expect(payload.Id).toBe("99");
     expect(payload.DisplayName).toBe("Kitchen Remodel (renamed)");
-  });
-
-  it("carries custom field edits through as __customFieldEdits, stripped later by shapeModifyPayload", async () => {
-    const refs = fakeResolver({ Acme: { value: "42", name: "Acme" } });
-    const { payload } = await buildProject(
-      row({ "Project Name": "Kitchen Remodel", Customer: "Acme", "Custom Field Value (1)": "Gold" }),
-      refs,
-    );
-    expect((payload as any).__customFieldEdits).toEqual({ 0: "Gold" });
   });
 });

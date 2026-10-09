@@ -135,12 +135,7 @@ export async function commitOneDoc(
     // false-rejection window entirely; falling back to the sheet's value
     // only if this read itself fails, so a network hiccup here doesn't turn
     // into a hard failure when we already had a plausible token to try.
-    const existing = await qboReadOne(
-      token,
-      entity.qboEntity!,
-      String(id),
-      entity.qboCustomFieldsInclude ? "enhancedAllCustomFields" : undefined,
-    );
+    const existing = await qboReadOne(token, entity.qboEntity!, String(id));
     const freshSyncToken = existing?.SyncToken ?? syncToken;
 
     // SAFETY: refuse to write back a record that holds something the sheet

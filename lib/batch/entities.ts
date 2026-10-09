@@ -307,19 +307,23 @@ export const ENTITIES: BatchEntity[] = [
   {
     // A QBO Project is a sub-customer — same "customer" QBO entity as above,
     // filtered to records that have a parent/Job flag. See CLAUDE.md's
-    // "Projects & custom fields" section for why this is a separate entity
-    // rather than just the existing Customer entity's "Parent Customer"
-    // column, and for what the custom field columns can/can't do.
+    // "Projects & custom fields" section: QBO's modern Projects feature
+    // stores everything that makes a Project a Project (status, dates,
+    // budget, custom fields) in a separate, undocumented internal system —
+    // proven 2026-10-09 by matching a real project's REST Customer Id
+    // against the raw GraphQL payload QBO's own UI sent for it. The public
+    // Accounting API only exposes the underlying sub-customer's contact
+    // fields below — no custom field columns here, on purpose, because
+    // there is nothing in this org's data for them to ever show.
     id: "project", label: "Projects", group: "list",
     qboEntity: "customer", qboReadName: "Customer", supports: NO_DELETE,
     qboClientFilter: (r: any) => r.Job === true || !!r.ParentRef?.value,
     refNumberColumn: "Project Name", qboRefNumberField: "DisplayName",
     refs: ["Customer"],
-    columns: ["Project Name","Customer","Bill With Parent","Email","Phone","Mobile","Billing Address Line 1","Billing Address Line 2","Billing Address Line 3","Billing Address City","Billing Address Postal Code","Billing Address Country","Billing Address State","Notes","Custom Field Name (1)","Custom Field Value (1)","Custom Field Name (2)","Custom Field Value (2)","Custom Field Name (3)","Custom Field Value (3)","Currency Code"],
+    columns: ["Project Name","Customer","Bill With Parent","Email","Phone","Mobile","Billing Address Line 1","Billing Address Line 2","Billing Address Line 3","Billing Address City","Billing Address Postal Code","Billing Address Country","Billing Address State","Notes","Currency Code"],
     build: buildProject,
     reverseRefs: ["Customer"],
     toRows: mapProjectRow,
-    qboCustomFieldsInclude: true,
   },
   {
     id: "vendor", label: "Vendors", group: "list",
