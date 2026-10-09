@@ -51,6 +51,9 @@ export default function CustomerDetailPage() {
   const [nameOpen, setNameOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkSubId, setLinkSubId] = useState("");
+  const [linking, setLinking] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [editOrgOpen, setEditOrgOpen] = useState(false);
   const [subdomainOpen, setSubdomainOpen] = useState(false);
@@ -223,6 +226,21 @@ export default function CustomerDetailPage() {
     } finally { setCreatingInvoice(false); }
   };
 
+  const submitLinkSub = async () => {
+    if (!linkSubId.trim()) { setToast({ type: "error", message: "Enter a Stripe subscription id (sub_...)" }); return; }
+    setLinking(true);
+    try {
+      const r = await fetch(`/api/admin/billing/org/${orgId}/link-subscription`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ stripeSubscriptionId: linkSubId.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setToast({ type: "success", message: `Linked — status: ${d.status}` }); setLinkOpen(false); setLinkSubId(""); load(); }
+      else setToast({ type: "error", message: d.error ?? `Failed (${r.status})` });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message ?? "Network error" });
+    } finally { setLinking(false); }
+  };
+
   if (loading && !data) return <div className="p-6"><Loader size={20} className="animate-spin text-stone-500" /></div>;
   if (!data) return null;
 
@@ -320,6 +338,11 @@ export default function CustomerDetailPage() {
                   <FilePlus2 size={11} /> Subscription cancelled — start a new one
                 </Link>
               )}
+              <button onClick={() => { setLinkSubId(sub.stripeSubscriptionId ?? ""); setLinkOpen(true); }}
+                title="Point this org's billing row at a Stripe subscription that already exists (e.g. created directly in Stripe, or after a silent webhook failure)"
+                className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-stone-700 text-stone-300 hover:bg-stone-700">
+                <Pencil size={11} /> Link Stripe subscription
+              </button>
               {(sub.status === "active" || sub.status === "trialing" || sub.status === "past_due") && (
                 <>
                   <button onClick={openPriceModal} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-stone-700 text-stone-300 hover:bg-stone-700">
@@ -546,6 +569,24 @@ export default function CustomerDetailPage() {
             <label className="text-xs text-stone-400 block mb-1.5">Name</label>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Customer / organisation name"
               className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white focus:border-emerald-500 focus:outline-none" />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Link an existing Stripe subscription */}
+      <Modal open={linkOpen} onClose={() => setLinkOpen(false)} title="Link Stripe subscription"
+        footer={<><Button variant="secondary" onClick={() => setLinkOpen(false)}>Cancel</Button>
+          <Button variant="primary" onClick={submitLinkSub} disabled={linking}>{linking ? "Linking…" : "Link"}</Button></>}>
+        <div className="px-5 py-5 space-y-3">
+          <p className="text-[12px] text-stone-500">
+            Points this org's billing row at a subscription that <span className="text-stone-300">already exists in Stripe</span> — e.g. one created
+            directly in the Stripe Dashboard, or after the invoice-first webhook step silently failed to create it (see <span className="text-stone-300">subscription_activation_failed</span> in
+            the billing audit log). This never creates or charges anything — it only reads the subscription from Stripe and mirrors its real status, plan and renewal date into our own database.
+          </p>
+          <div>
+            <label className="text-xs text-stone-400 block mb-1.5">Stripe Subscription ID</label>
+            <input value={linkSubId} onChange={e => setLinkSubId(e.target.value)} placeholder="sub_..."
+              className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none" />
           </div>
         </div>
       </Modal>

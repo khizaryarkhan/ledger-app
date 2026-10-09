@@ -12,7 +12,7 @@ const schema = z.object({ priceId: z.string().min(1) });
 export async function POST(req: Request) {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
-  if (role !== "super_admin" && role !== "company_admin") {
+  if (role !== "super_admin" && role !== "company_admin" && role !== "company_user") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

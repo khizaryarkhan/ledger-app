@@ -220,7 +220,12 @@ function RenewModal({ open, onClose }: { open: boolean; onClose: () => void }) {
 export default function BillingPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
-  const canManage = role === "super_admin" || role === "company_admin";
+  // Full Access (company_user) can view billing, pay, and manage the payment
+  // method — "can do everything except create or delete users" (Settings →
+  // Team's own description) includes billing. Cancelling the subscription is
+  // the one action still reserved for org admins.
+  const canManage = role === "super_admin" || role === "company_admin" || role === "company_user";
+  const canCancel = role === "super_admin" || role === "company_admin";
 
   const [billing, setBilling]               = useState<any>(null);
   const [loading, setLoading]               = useState(true);
@@ -263,7 +268,7 @@ export default function BillingPage() {
       <div className="max-w-2xl mx-auto py-16 flex flex-col items-center gap-4 text-center">
         <ShieldAlert size={32} className="text-stone-500" />
         <h2 className="text-lg font-semibold text-white">Access restricted</h2>
-        <p className="text-sm text-stone-400">Only organisation admins can view billing information.</p>
+        <p className="text-sm text-stone-400">Only Admin and Full Access users can view billing information.</p>
       </div>
     );
   }
@@ -504,7 +509,7 @@ export default function BillingPage() {
           </Card>
 
           {/* Cancellation zone */}
-          {canManage && sub.status !== "cancelled" && sub.status !== "canceled" && !pendingCancel && !isScheduledCancel && (
+          {canCancel && sub.status !== "cancelled" && sub.status !== "canceled" && !pendingCancel && !isScheduledCancel && (
             <Card padding="md">
               <div className="flex items-center justify-between gap-4">
                 <div>

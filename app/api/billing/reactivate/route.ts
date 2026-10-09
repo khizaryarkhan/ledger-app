@@ -11,7 +11,7 @@ export async function POST() {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
 
-  if (role !== "super_admin" && role !== "company_admin") {
+  if (role !== "super_admin" && role !== "company_admin" && role !== "company_user") {
     return NextResponse.json({ error: "Only org admins can reactivate subscriptions" }, { status: 403 });
   }
 

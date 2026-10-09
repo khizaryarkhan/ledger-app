@@ -345,8 +345,33 @@ export async function POST(req: NextRequest) {
               metadata:       { stripeSubscriptionId: newSub.id, firstInvoiceId: inv.id, savedPaymentMethod: !!pmId },
             });
           }
-        } catch (err) {
+        } catch (err: any) {
+          // Swallowed on purpose (see the top-level catch at the bottom of this
+          // handler): a failure here must not block the payment-status update or
+          // org activation that follow in this same handler, and must not make
+          // Stripe retry the whole event (a retry would re-run
+          // stripe.subscriptions.create() and risk a SECOND real subscription for
+          // the same customer). But console.error alone is invisible —
+          // stripeWebhookEvents.status still gets marked "processed" below, so
+          // webhook-health reports this as a clean delivery even though no
+          // recurring subscription was created. That is exactly what happened
+          // silently to ACC for a month (see CLAUDE.md). Log it to the billing
+          // audit trail instead, so it is queryable and actionable: the most
+          // common cause is the customer not ticking "save my payment info" on
+          // Stripe's hosted invoice page, which is an account-level Stripe
+          // Settings → Billing → Invoices toggle, not something this route can
+          // force per-invoice.
           console.error("[stripe-webhook] subscription_first_invoice activation error:", err);
+          await logBillingEvent({
+            organizationId: inv.metadata.orgId,
+            action:         "subscription_activation_failed",
+            stripeEventId:  event.id,
+            metadata:       {
+              firstInvoiceId: inv.id,
+              error: String(err?.message ?? err).slice(0, 500),
+              likelyCause: "No reusable payment method was attached to the customer — the hosted invoice's \"save payment info\" checkbox probably wasn't used. Have the customer add a card via /settings/billing, then create the recurring subscription manually in Stripe.",
+            },
+          });
         }
       }
 
