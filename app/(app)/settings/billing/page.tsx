@@ -43,47 +43,11 @@ function planLabel(sub: any) {
   return [name, amount ? `${amount}${interval}` : ""].filter(Boolean).join(" · ");
 }
 
-// ── CancelModal ───────────────────────────────────────────────────────────
-
-function CancelModal({ open, onClose, onSubmit, loading }: any) {
-  const [reason, setReason] = useState("");
-  return (
-    <Modal open={open} onClose={onClose} title="Cancel Subscription" center
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>Keep my subscription</Button>
-          <Button variant="danger" onClick={() => onSubmit(reason)} disabled={loading}>
-            {loading ? <Loader size={14} className="animate-spin mr-2" /> : null}
-            Submit cancellation request
-          </Button>
-        </>
-      }>
-      <div className="px-5 py-5 space-y-4">
-        <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <AlertTriangle size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
-          <p className="text-sm text-stone-300 leading-relaxed">
-            Your cancellation request will be submitted for review. Your subscription will remain
-            active while our team reviews the request. You will receive confirmation once a
-            decision has been made.
-          </p>
-        </div>
-        <div>
-          <label className="block text-xs text-stone-400 mb-1.5">
-            Reason for cancelling <span className="text-stone-600">(optional)</span>
-          </label>
-          <textarea
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="Let us know why you're leaving…"
-            rows={4}
-            maxLength={1000}
-            className="w-full px-3 py-2.5 rounded-md border border-stone-700 bg-stone-800/60 text-sm text-white placeholder-stone-500 resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-      </div>
-    </Modal>
-  );
-}
+// Self-serve cancellation (CancelModal, /api/billing/cancel-request) was
+// removed from this client-facing page by product decision — a client
+// should never see or be able to submit a cancellation request themselves;
+// ending a subscription is handled by Prime Accountax directly (the admin
+// portal's own "Cancel & revoke" action on /admin/customers/[orgId]).
 
 // ── ReactivateModal ───────────────────────────────────────────────────────
 
@@ -225,13 +189,11 @@ export default function BillingPage() {
   // Team's own description) includes billing. Cancelling the subscription is
   // the one action still reserved for org admins.
   const canManage = role === "super_admin" || role === "company_admin" || role === "company_user";
-  const canCancel = role === "super_admin" || role === "company_admin";
 
   const [billing, setBilling]               = useState<any>(null);
   const [loading, setLoading]               = useState(true);
   const [invoices, setInvoices]             = useState<any[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
-  const [showCancel, setShowCancel]         = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
   const [showRenew, setShowRenew]           = useState(false);
   const [actionLoading, setActionLoading]   = useState(false);
@@ -284,27 +246,6 @@ export default function BillingPage() {
     : sub?.currentPeriodEnd
       ? new Date(sub.currentPeriodEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
       : null;
-
-  const handleCancelRequest = async (reason: string) => {
-    setActionLoading(true);
-    try {
-      const r = await fetch("/api/billing/cancel-request", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      if (r.ok) {
-        setToast({ type: "success", message: "Cancellation request submitted" });
-        setShowCancel(false);
-        load();
-      } else {
-        const d = await r.json();
-        setToast({ type: "error", message: d.error ?? "Failed to submit request" });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
 
   const handleReactivate = async () => {
     setActionLoading(true);
@@ -508,23 +449,6 @@ export default function BillingPage() {
             </div>
           </Card>
 
-          {/* Cancellation zone */}
-          {canCancel && sub.status !== "cancelled" && sub.status !== "canceled" && !pendingCancel && !isScheduledCancel && (
-            <Card padding="md">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Cancel subscription</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Submits a cancellation request for our team to review. Access remains active during review.
-                  </p>
-                </div>
-                <Button variant="danger" size="sm" onClick={() => setShowCancel(true)}>
-                  Cancel subscription
-                </Button>
-              </div>
-            </Card>
-          )}
-
           {(sub.status === "canceled" || sub.status === "cancelled") && canManage && (
             <Card padding="md">
               <div className="flex items-center justify-between gap-4">
@@ -610,12 +534,6 @@ export default function BillingPage() {
       )}
 
       {/* Modals */}
-      <CancelModal
-        open={showCancel}
-        onClose={() => setShowCancel(false)}
-        onSubmit={handleCancelRequest}
-        loading={actionLoading}
-      />
       <ReactivateModal
         open={showReactivate}
         onClose={() => setShowReactivate(false)}
