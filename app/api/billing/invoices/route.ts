@@ -29,15 +29,22 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    invoices: list.data.map(inv => ({
-      id:        inv.id,
-      number:    inv.number,
-      date:      inv.created,
-      amount:    inv.amount_paid,
-      currency:  inv.currency,
-      status:    inv.status,
-      pdfUrl:    inv.invoice_pdf,
-      hostedUrl: inv.hosted_invoice_url,
-    })),
+    // A voided invoice is an internal correction artefact (e.g. the old
+    // 23-hour incomplete_expired flow — see CLAUDE.md's "invoice-first"
+    // section) — the client never owed that amount, so it shouldn't appear
+    // in their own billing history. Filtered here, server-side, so it's
+    // hidden everywhere this endpoint is used, not just one screen.
+    invoices: list.data
+      .filter(inv => inv.status !== "void")
+      .map(inv => ({
+        id:        inv.id,
+        number:    inv.number,
+        date:      inv.created,
+        amount:    inv.amount_paid,
+        currency:  inv.currency,
+        status:    inv.status,
+        pdfUrl:    inv.invoice_pdf,
+        hostedUrl: inv.hosted_invoice_url,
+      })),
   });
 }
