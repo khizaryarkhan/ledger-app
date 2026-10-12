@@ -558,10 +558,14 @@ export default function BillingPage() {
             ) : (
               <div className="divide-y divide-stone-800">
                 {invoices.map((inv: any) => {
+                  const ccy = (inv.currency ?? "usd").toUpperCase();
                   const date = new Date(inv.date * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-                  const amount = inv.amount != null
-                    ? fmt.money(inv.amount / 100, (inv.currency ?? "usd").toUpperCase())
-                    : "—";
+                  // `total` is what was BILLED — always correct, unlike `amountPaid`
+                  // which is 0 on an invoice nobody has paid yet.
+                  const amount = inv.total != null ? fmt.money(inv.total / 100, ccy) : "—";
+                  const paidDate = inv.paidAt
+                    ? new Date(inv.paidAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                    : null;
                   return (
                     <div key={inv.id} className="flex items-center justify-between py-2.5 gap-4">
                       <div className="flex items-center gap-3 min-w-0">
@@ -572,7 +576,14 @@ export default function BillingPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
-                        <span className="text-sm text-white">{amount}</span>
+                        <div className="text-right">
+                          <span className="text-sm text-white">{amount}</span>
+                          {inv.status === "paid" && paidDate && (
+                            <p className="text-[11px] text-stone-500">
+                              Paid {fmt.money((inv.amountPaid ?? inv.total) / 100, ccy)} on {paidDate}
+                            </p>
+                          )}
+                        </div>
                         {inv.status === "paid" && <Badge variant="green">Paid</Badge>}
                         {inv.status === "open" && <Badge variant="yellow">Open</Badge>}
                         {inv.status === "void" && <Badge variant="neutral">Void</Badge>}

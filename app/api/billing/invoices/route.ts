@@ -37,14 +37,22 @@ export async function GET() {
     invoices: list.data
       .filter(inv => inv.status !== "void")
       .map(inv => ({
-        id:        inv.id,
-        number:    inv.number,
-        date:      inv.created,
-        amount:    inv.amount_paid,
-        currency:  inv.currency,
-        status:    inv.status,
-        pdfUrl:    inv.invoice_pdf,
-        hostedUrl: inv.hosted_invoice_url,
+        id:         inv.id,
+        number:     inv.number,
+        date:       inv.created,
+        // `amount_paid` is 0 on an unpaid (open) invoice — it is what was
+        // PAID, not what was billed. `total` is the invoice amount and is
+        // always correct regardless of payment status; kept both plus the
+        // actual payment date so the UI can show "billed X, paid Y on Z"
+        // instead of a misleading $0.00 for anything still open.
+        total:      inv.total,
+        amountDue:  inv.amount_due,
+        amountPaid: inv.amount_paid,
+        paidAt:     inv.status_transitions?.paid_at ? inv.status_transitions.paid_at * 1000 : null,
+        currency:   inv.currency,
+        status:     inv.status,
+        pdfUrl:     inv.invoice_pdf,
+        hostedUrl:  inv.hosted_invoice_url,
       })),
   });
 }
