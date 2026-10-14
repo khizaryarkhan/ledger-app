@@ -585,8 +585,9 @@ export default function CustomerDetailPage() {
           </p>
           <div>
             <label className="text-xs text-stone-400 block mb-1.5">Stripe Subscription ID</label>
-            <input value={linkSubId} onChange={e => setLinkSubId(e.target.value)} placeholder="sub_..."
+            <input value={linkSubId} onChange={e => setLinkSubId(e.target.value)} placeholder="sub_... or sub_sched_..."
               className="w-full px-3 py-2 rounded-lg border border-stone-700 bg-stone-800/60 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none" />
+            <p className="text-[11px] text-stone-600 mt-1">A Subscription Schedule id (sub_sched_...) works too — resolved to the real subscription automatically once it has started.</p>
           </div>
         </div>
       </Modal>

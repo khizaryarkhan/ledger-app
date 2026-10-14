@@ -563,6 +563,67 @@ Stripe — root-caused against Stripe's own API docs, not guessed:
   (`canceled`/`incomplete_expired`) doesn't block — it's cleared and a fresh
   invoice is issued.
 
+### Hardening pass after a real incident — ACC stuck for a month (2026-10-14)
+
+ACC paid its first invoice Sep 10, 2026; no recurring subscription was ever
+created, and nobody noticed until Oct 8 — because every failure in this path
+was swallowed with `console.error` only, so `stripeWebhookEvents.status`
+still showed "processed" and `webhook-health` reported a clean delivery. Root
+cause was simpler than a code bug: ACC never ticked "save my payment info" on
+Stripe's Hosted Invoice Page, so no reusable payment method was ever attached
+to the customer — by default (accounts created after 2026-05-30), Stripe
+does **not** save a one-time invoice payment method unless the customer
+explicitly opts in, or the account sets `hosted_payment_method_save` to
+"always" (Settings → Billing → Invoices → turn off "Ask customers before
+saving"). **That account setting is the actual fix for future customers —
+code cannot force it per-invoice.**
+
+What changed, so the next occurrence (for ACC or anyone) is visible and
+recoverable instead of silent:
+
+- **Every subscription-sync catch block now writes to `billing_audit_logs`,
+  not just `console.error`** — both the `subscription_first_invoice` path
+  (`subscription_activation_failed`) and the generic
+  `customer.subscription.created`/`.updated` sync (`subscription_sync_failed`,
+  added 2026-10-14 — it had the identical silent-failure shape and nobody had
+  hit it yet by luck, not by design).
+- **A Subscription Schedule (`sub_sched_...`) is a different Stripe object
+  from a Subscription (`sub_...`), and this bit us directly**: scheduling a
+  future-dated subscription from Stripe Dashboard (ACC, started 2026-11-09,
+  to avoid double-billing the already-paid Sep10→Nov8 period) gives you the
+  schedule's id, not the subscription's — the real Subscription doesn't exist
+  (`schedule.subscription` is `null`) until the schedule actually activates.
+  The admin **"Link Stripe subscription"** tool
+  (`/api/admin/billing/org/:orgId/link-subscription`,
+  `/admin/customers/[orgId]`) now accepts either id: given a schedule id, it
+  resolves to the real subscription if started, or returns a clear "hasn't
+  started yet, come back after DATE" error instead of a generic 404.
+  `subscription_schedule.created` is also now logged to the audit trail on
+  arrival, so a schedule created directly in Stripe doesn't need a one-off
+  script to leave a record of it.
+- **The generic `customer.subscription.created`/`.updated` webhook handler is
+  what's actually relied on to self-heal a Dashboard-created subscription or
+  schedule activation** — it already matched any subscription to an org by
+  `stripeCustomerId` (not just ones from our own `create-invoice` flow), so in
+  most cases no manual "Link" step should even be needed once the real
+  subscription exists; it's a safety net, not the primary path.
+- **A client cannot see or submit a self-serve cancellation request anymore**
+  (Settings → Billing) — product decision, separate from the above but part
+  of the same hardening pass. Ending a subscription is now exclusively an
+  admin-portal action (`/admin/customers/[orgId]`'s "Cancel & revoke").
+  `/api/billing/cancel-request` still exists and is still role-gated, just
+  unreachable from any UI now.
+- **Full Access (`company_user`) can view billing, pay, manage the payment
+  method, and view invoices** — it could not before, which was inconsistent
+  with that role's own stated description ("can do everything except create
+  or delete users"). Cancelling stays `company_admin`/`super_admin` only.
+- **The client-facing invoice list hid voided invoices and fixed a real
+  display bug**: it was showing `amount_paid` as "the amount" — which is
+  correctly `$0.00` on an invoice nobody has paid yet, so every new Open
+  invoice displayed as $0.00. Now shows `total` (the actual invoice amount,
+  correct regardless of status) plus, once paid, the real payment amount and
+  date separately.
+
 ## AR invoice emails — QBO "Pay online" link (2026-09-09)
 
 Reported: invoices sent directly from QuickBooks Online carry a clickable

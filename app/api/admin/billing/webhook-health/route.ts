@@ -54,7 +54,7 @@ export async function GET() {
       hint: !process.env.STRIPE_WEBHOOK_SECRET
         ? "STRIPE_WEBHOOK_SECRET is not set — webhook signatures cannot be verified and all deliveries are rejected."
         : recent.length === 0
-        ? "No webhook events have EVER been recorded — check the endpoint URL and enabled events in the Stripe dashboard (need: checkout.session.completed, customer.subscription.*, invoice.paid, invoice.payment_failed)."
+        ? "No webhook events have EVER been recorded — check the endpoint URL and enabled events in the Stripe dashboard (need: checkout.session.completed, customer.subscription.*, subscription_schedule.created, invoice.paid, invoice.payment_failed)."
         : undefined,
     });
   } catch (e: any) {

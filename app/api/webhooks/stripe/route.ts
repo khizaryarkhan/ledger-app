@@ -213,8 +213,62 @@ export async function POST(req: NextRequest) {
             stripeEventId: event.id,
           });
         }
-      } catch (err) {
+      } catch (err: any) {
+        // Same visibility gap as the subscription_first_invoice block above:
+        // without this, a sync failure here is invisible to webhook-health
+        // too. This path is what's relied on to self-heal a subscription
+        // created directly in Stripe (Dashboard, or a Subscription Schedule
+        // activating) for a customer we already know — if it fails silently,
+        // we're back to discovering "incomplete" by accident weeks later.
         console.error("[stripe-webhook] subscription sync error:", err);
+        try {
+          const [subRow] = await db
+            .select({ orgId: subscriptions.orgId })
+            .from(subscriptions)
+            .where(eq(subscriptions.stripeCustomerId, sub.customer as string))
+            .limit(1);
+          if (subRow) {
+            await logBillingEvent({
+              organizationId: subRow.orgId,
+              action:         "subscription_sync_failed",
+              stripeEventId:  event.id,
+              metadata:       { stripeSubscriptionId: sub.id, eventType: event.type, error: String(err?.message ?? err).slice(0, 500) },
+            });
+          }
+        } catch { /* best-effort — never let logging itself break the handler */ }
+      }
+    }
+
+    // ── Subscription schedule created ────────────────────────────────────
+    // Logged for visibility only — the schedule's underlying Subscription
+    // (once it activates) fires its own customer.subscription.created event,
+    // handled above like any other subscription. This just means a schedule
+    // created directly in Stripe Dashboard (the ACC case, 2026-10-14) is
+    // recorded automatically from now on instead of needing a manual script.
+    if (event.type === "subscription_schedule.created") {
+      const schedule = event.data.object as any;
+      try {
+        const [subRow] = await db
+          .select({ orgId: subscriptions.orgId })
+          .from(subscriptions)
+          .where(eq(subscriptions.stripeCustomerId, schedule.customer as string))
+          .limit(1);
+        if (subRow) {
+          const phase = schedule.phases?.[0];
+          await logBillingEvent({
+            organizationId: subRow.orgId,
+            action:         "subscription_schedule_created",
+            stripeEventId:  event.id,
+            metadata: {
+              subscriptionScheduleId: schedule.id,
+              scheduledStart: phase?.start_date ? new Date(phase.start_date * 1000).toISOString().slice(0, 10) : null,
+              planAmount: phase?.items?.[0]?.price?.unit_amount ?? null,
+              status: schedule.status,
+            },
+          });
+        }
+      } catch (err: any) {
+        console.error("[stripe-webhook] subscription_schedule.created logging error:", err);
       }
     }
 

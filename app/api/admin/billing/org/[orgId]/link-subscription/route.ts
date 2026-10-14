@@ -25,7 +25,11 @@ import { requirePlatformAdmin, logBillingEvent, syncSubscriptionFromStripe } fro
 export const maxDuration = 30;
 
 const schema = z.object({
-  stripeSubscriptionId: z.string().trim().regex(/^sub_/, "Must be a Stripe subscription id (starts with sub_)"),
+  // Accepts either a real Subscription id (sub_...) or a Subscription
+  // Schedule id (sub_sched_...) — the latter is what Stripe Dashboard gives
+  // you when you schedule a future-dated subscription (see CLAUDE.md,
+  // 2026-10-14: ACC was scheduled to start 2026-11-09). Both start "sub_".
+  stripeSubscriptionId: z.string().trim().regex(/^sub_/, "Must be a Stripe subscription or subscription schedule id (starts with sub_)"),
 });
 
 export async function POST(req: Request, { params }: { params: { orgId: string } }) {
@@ -44,9 +48,33 @@ export async function POST(req: Request, { params }: { params: { orgId: string }
     return NextResponse.json({ error: "No billing row for this organisation yet — create one via \"Create Stripe invoice\" first." }, { status: 400 });
   }
 
+  // A Subscription Schedule has no real Subscription behind it until its
+  // current phase actually starts — resolve it to the real id first, with a
+  // clear, specific message instead of a generic "could not find" 404 when
+  // the schedule hasn't started yet (stripe.subscriptions.retrieve rejects a
+  // sub_sched_ id outright, since it's a different API resource).
+  let subscriptionId = parsed.data.stripeSubscriptionId;
+  if (subscriptionId.startsWith("sub_sched_")) {
+    let schedule: any;
+    try {
+      schedule = await stripe.subscriptionSchedules.retrieve(subscriptionId);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Could not find that subscription schedule in Stripe" }, { status: 404 });
+    }
+    if (!schedule.subscription) {
+      const startDate = schedule.phases?.[0]?.start_date
+        ? new Date(schedule.phases[0].start_date * 1000).toISOString().slice(0, 10)
+        : "its scheduled date";
+      return NextResponse.json({
+        error: `This is a Subscription Schedule, not a Subscription yet — it hasn't started (status: ${schedule.status}). Stripe won't create the real subscription until ${startDate}. Come back and link again once it has.`,
+      }, { status: 400 });
+    }
+    subscriptionId = typeof schedule.subscription === "string" ? schedule.subscription : schedule.subscription.id;
+  }
+
   let sub: any;
   try {
-    sub = await stripe.subscriptions.retrieve(parsed.data.stripeSubscriptionId, {
+    sub = await stripe.subscriptions.retrieve(subscriptionId, {
       expand: ["default_payment_method", "items.data.price.product"],
     });
   } catch (e: any) {
