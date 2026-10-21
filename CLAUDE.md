@@ -373,6 +373,49 @@ never actually got.
   `projectId`) is already stored verbatim as `journalEntries.sourcePayload`
   and replayed by `documentPayload()` on reopen — no changes needed there.
 
+### Superseded the same day: Project folded into the Customer dropdown
+
+The separate "Project" field two paragraphs above shipped, then was
+immediately replaced per explicit feedback: "no need for a separate field
+for the project — it could come up under the Customer dropdown (as a
+tree)… less clicks would make the app liked by users." `partyId`/`projectId`
+as two pieces of STATE are unchanged (still exactly what `supportsProject`
+gates and what the payload sends) — only the UI collapsed back to one
+`<select>`:
+
+- **`allProjects`** (new state) replaces the old per-customer
+  `GET /api/projects?customerId=...` fetch-on-select — the WHOLE org's
+  project list is fetched once, alongside parties/accounts/items, in the
+  same startup `Promise.all` (only when `supportsProject`, so Vendor-side
+  forms never fetch it). `projectsByCustomer` (a `useMemo` grouping by
+  `customerId`) drives the tree without a round trip per customer clicked.
+- **One dropdown, two option shapes.** Each customer renders as its normal
+  `<option value={customerId}>`, immediately followed by its own projects as
+  indented child options `<option value="project:<id>">    ↳ CODE · Name`.
+  A native `<select>` can't nest interactive options under a non-selectable
+  group the way a real tree view could — `<optgroup>` labels aren't
+  selectable — so the indentation + `↳` glyph on an ordinary, still-flat
+  option list is what "as a tree" means here, matching how
+  `_lists.tsx`'s nested Chart-of-Accounts TABLE rows already signal depth
+  with a `└` prefix instead of real nesting, for the same reason (no real
+  nesting primitive to reach for).
+- **`onPartyOrProject(raw)`** is the dropdown's one `onChange` handler: a
+  `project:<id>` value resolves the project, then calls `onParty(customerId,
+  projectId)` — a new SECOND, optional parameter on `onParty` itself, so
+  picking a project sets both pieces of state in the one state update that
+  already runs for a customer pick, rather than two sequential calls whose
+  ordering would have to be reasoned about. Picking a bare customer option
+  still calls `onParty(customerId)` with no second argument, which keeps the
+  existing "switching customer clears any previously-picked project" rule
+  (now the one-argument default inside `onParty`, not a separate effect).
+  The dropdown's own `value` is derived (`projectId ? `project:${projectId}`
+  : partyId`), so reopening a document that has a project selected shows the
+  right indented option selected with no extra wiring.
+- **Did not change**: `cfg.party === "Customer" && !cfg.trade && cfg.mode
+  === "lineItems"` still gates which document types get this at all —
+  Estimate/SalesOrder still don't, for the same `trade_documents`-has-no-
+  `project_id`-column reason as before.
+
 ## Calculator-in-a-field for Qty/Rate/Amount (2026-10-21)
 
 Reported: "I don't see the purpose of having arrows in the value box" (the

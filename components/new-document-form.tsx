@@ -210,10 +210,20 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   // required FK), so the picker only makes sense for Customer-party,
   // postDocument-backed types (Invoice/SalesReceipt/CreditNote/RefundReceipt)
   // — trade_documents (Estimate/SalesOrder) has no project_id column at all,
-  // so showing the field there would silently discard the selection.
+  // so showing the field there would silently discard the selection. Rather
+  // than a second field, a project is offered right inside the Customer
+  // dropdown as an indented child option under its own customer (QBO's
+  // Customer:Job shape) — one fewer field and one fewer click than a
+  // separate Customer + Project pair, and there is never any ambiguity about
+  // which customer a selected project belongs to.
   const supportsProject = cfg.party === "Customer" && !cfg.trade && cfg.mode === "lineItems";
   const [projectId, setProjectId] = useState("");
-  const [projects, setProjects] = useState<any[]>([]);
+  const [allProjects, setAllProjects] = useState<any[]>([]);
+  const projectsByCustomer = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const p of allProjects) (m[p.customerId] ??= []).push(p);
+    return m;
+  }, [allProjects]);
   const [bankAccountId, setBankAccountId] = useState("");
   const [toBankAccountId, setToBankAccountId] = useState("");
   const [amount, setAmount] = useState("");
@@ -313,7 +323,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       setLoading(true);
       try {
         const partyUrl = cfg.party === "Vendor" ? "/api/parties/suppliers?native=1" : "/api/parties/customers?native=1";
-        const [a, i, t, dm, p, num, so, taxSetup] = await Promise.all([
+        const [a, i, t, dm, p, num, so, taxSetup, proj] = await Promise.all([
           fetch("/api/accounting/accounts").then(r => r.json()).catch(() => []),
           fetch("/api/accounting/items").then(r => r.json()).catch(() => []),
           fetch("/api/accounting/tax-rates").then(r => r.json()).catch(() => []),
@@ -322,6 +332,11 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           fetch(`/api/numbering?peek=${type}`).then(r => r.json()).catch(() => null),
           type === "PurchaseOrder" ? fetch("/api/trade-documents/sales-orders").then(r => r.json()).catch(() => []) : Promise.resolve([]),
           cfg.tax ? fetch("/api/accounting/tax-codes").then(r => (r.ok ? r.json() : null)).catch(() => null) : Promise.resolve(null),
+          // Every project for the org, fetched once — cheap enough even at
+          // thousands of rows (name + customerId only matter here) and lets
+          // the whole Customer:Project tree render without a round trip per
+          // customer selected. Vendor-side forms never need it.
+          supportsProject ? fetch("/api/projects").then(r => r.json()).catch(() => []) : Promise.resolve([]),
         ]);
         setAccounts(Array.isArray(a) ? a.filter((x: any) => x.status !== "Inactive") : []);
         setItems(Array.isArray(i) ? i.filter((x: any) => x.status !== "Inactive") : []);
@@ -332,6 +347,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         setTaxComponents(taxSetup && Array.isArray(taxSetup.components) ? taxSetup.components : []);
         setDims(Array.isArray(dm) ? dm.filter((x: any) => x.status !== "Inactive") : []);
         setParties(Array.isArray(p) ? p : []);
+        setAllProjects(Array.isArray(proj) ? proj.filter((x: any) => x.status !== "Inactive") : []);
         setOpenSalesOrders(Array.isArray(so) ? so.filter((x: any) => x.status !== "Closed") : []);
         const editing = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit");
         if (num?.docNumber && !editing) setDocNumber(num.docNumber);
@@ -384,20 +400,13 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     return accounts.filter(a => !isControl(a));
   }, [accounts, cfg.side]);
 
-  // Projects belong to exactly one customer — reload the list whenever the
-  // party changes (covers both a user picking a new customer via onParty
-  // below AND loading an existing document, which sets partyId directly).
-  // This does NOT clear a previously-selected projectId on its own — onParty
-  // does that explicitly when the customer actually changes, since this
-  // effect alone can't distinguish "same customer, just (re)fetching its
-  // project list" from "switched customer, drop the stale project".
-  useEffect(() => {
-    if (!supportsProject || !partyId) { setProjects([]); return; }
-    fetch(`/api/projects?customerId=${encodeURIComponent(partyId)}`).then(r => r.json())
-      .then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => setProjects([]));
-  }, [partyId, supportsProject]);
-
-  function onParty(id: string) {
+  // `projectForId`, when given, is the project the combined Customer:Project
+  // dropdown resolved `id` to (the option the user actually picked was the
+  // project's own, indented, entry) — set directly instead of the usual
+  // "switching customer clears the project" reset below, so picking a
+  // project in one action lands on both the right customer AND the right
+  // project, never a customer with the project silently dropped a tick later.
+  function onParty(id: string, projectForId?: string) {
     if (id === "__add__") { setQuickAdd({ kind: cfg.party === "Vendor" ? "supplier" : "customer" }); return; }
     // Every pack choice on the document describes the OUTGOING supplier's
     // packaging, so switching supplier invalidates all of them. Drop back to
@@ -419,8 +428,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     setPartyId(id);
     // A project belongs to exactly one customer — switching customer always
     // drops any previously-picked project rather than leaving a selection
-    // from a DIFFERENT customer silently attached to this document.
-    if (supportsProject) setProjectId("");
+    // from a DIFFERENT customer silently attached to this document, UNLESS
+    // the caller already resolved a specific project for this exact customer
+    // (picking a project's own option in the combined dropdown).
+    if (supportsProject) setProjectId(projectForId ?? "");
     if (mcEnabled) {
       const p = parties.find(x => x.id === id);
       // A party with a currency already set is LOCKED to it — the field below
@@ -440,6 +451,18 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       fetch(`/api/transactions/credits?side=${side}&partyId=${id}`).then(r => r.json())
         .then(d => setCredits(Array.isArray(d) ? d : [])).catch(() => setCredits([]));
     } else { setOpenDocs(null); setAlloc({}); setCredits(null); setCreditAlloc({}); }
+  }
+  // The combined Customer:Project dropdown's onChange — a `project:<id>`
+  // value resolves to its OWN customer before calling onParty, so a project
+  // can be picked in one action without first hand-picking its parent
+  // customer (that's the "understood — who's the parent" the client meant).
+  const PROJECT_PREFIX = "project:";
+  function onPartyOrProject(raw: string) {
+    if (!raw.startsWith(PROJECT_PREFIX)) { onParty(raw); return; }
+    const projectId_ = raw.slice(PROJECT_PREFIX.length);
+    const proj = allProjects.find(p => p.id === projectId_);
+    if (!proj) return; // stale option (shouldn't happen — list and selection come from the same state)
+    onParty(proj.customerId, proj.id);
   }
   const sumVals = (o: Record<string, string>) => Math.round(Object.values(o).reduce((s, v) => s + num(v), 0) * 100) / 100;
   const allocApplied = sumVals(alloc);
@@ -936,19 +959,23 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 sm:p-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-4">
               {cfg.party && (
-                <Field label={cfg.partyLabel} required={partyRequired} className="col-span-2">
-                  <SelectField value={partyId} onChange={e => onParty(e.target.value)}>
+                <Field label={cfg.partyLabel} required={partyRequired} className="col-span-2"
+                  hint={supportsProject ? "Pick a project directly if this document is for one" : undefined}>
+                  <SelectField value={projectId ? `${PROJECT_PREFIX}${projectId}` : partyId} onChange={e => onPartyOrProject(e.target.value)}>
                     <option value="">Select {cfg.partyLabel?.toLowerCase()}…</option>
-                    {parties.map(p => <option key={p.id} value={p.id}>{p.name}{p.currency && p.currency !== home ? ` · ${p.currency}` : ""}</option>)}
+                    {supportsProject ? (
+                      parties.map(p => (
+                        <Fragment key={p.id}>
+                          <option value={p.id}>{p.name}{p.currency && p.currency !== home ? ` · ${p.currency}` : ""}</option>
+                          {(projectsByCustomer[p.id] ?? []).map(pr => (
+                            <option key={pr.id} value={`${PROJECT_PREFIX}${pr.id}`}>{"    ↳ "}{pr.code ? `${pr.code} · ` : ""}{pr.name}</option>
+                          ))}
+                        </Fragment>
+                      ))
+                    ) : (
+                      parties.map(p => <option key={p.id} value={p.id}>{p.name}{p.currency && p.currency !== home ? ` · ${p.currency}` : ""}</option>)
+                    )}
                     <option value={ADD}>+ Add new {cfg.partyLabel?.toLowerCase()}…</option>
-                  </SelectField>
-                </Field>
-              )}
-              {supportsProject && (
-                <Field label="Project" hint={!partyId ? "Select a customer first" : projects.length === 0 ? "This customer has no projects" : "Optional"}>
-                  <SelectField value={projectId} onChange={e => setProjectId(e.target.value)} disabled={!partyId || projects.length === 0}>
-                    <option value="">None</option>
-                    {projects.map(p => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ""}{p.name}</option>)}
                   </SelectField>
                 </Field>
               )}
