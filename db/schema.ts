@@ -2521,6 +2521,110 @@ export const apTaxRates = pgTable("ap_tax_rates", {
 export type ApTaxRate = typeof apTaxRates.$inferSelect;
 
 // =========================================================================
+// NATIVE TAX ENGINE (sales-document refactor, Phase 3, 2026-10-21)
+// =========================================================================
+// `apTaxRates` above stays exactly as it is — it's the live QBO/Xero sync
+// mirror (lib/qbo-ap-sync.ts / xero-ap-sync.ts upsert into it directly,
+// keyed on org+externalId+source) and is untouched by this refactor, which is
+// native-orgs-only. A native org's items/document lines reference these new
+// tables instead; a synced org keeps using apTaxRates exactly as today.
+//
+//   tax_agencies         — who the tax is remitted to, and the control
+//                          account its liability defaults to.
+//   tax_components       — one named, dated rate ("IE Standard 23%" on or
+//                          after 2026-01-01) with its own sales/purchase
+//                          accounts. Immutable once posted against: a rate
+//                          change creates a NEW component row with its own
+//                          effective_from and ends the old one's effective_to,
+//                          so a historical document's tax is never restated
+//                          when a government changes a rate.
+//                          purchaseAccountId is the Input Tax recoverable
+//                          account (reclaimed on purchases).
+//   tax_codes            — what a user actually picks on a line ("IE Standard
+//                          23%", "EU B2B Reverse Charge"). `treatment` decides
+//                          whether what its components compute is actually
+//                          charged (standard/reduced) or zeroed on the
+//                          document (zero_rated/exempt/out_of_scope/
+//                          reverse_charge/export) — see
+//                          lib/accounting/tax-engine.ts.
+//   tax_code_components  — which components make up a code, and in what
+//                          order. Almost always one row (a simple rate); two
+//                          for a split tax like India's CGST+SGST, both
+//                          computed on the same net (compound=false); more
+//                          than one WITH compound=true for a tax computed on
+//                          top of a prior one.
+export const taxAgencies = pgTable("tax_agencies", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  orgId:              uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:               varchar("name", { length: 128 }).notNull(),
+  country:            varchar("country", { length: 8 }),        // ISO 3166-1 alpha-2, or a region code like "CA-ON"
+  liabilityAccountId: uuid("liability_account_id").references(() => accounts.id),
+  filingFrequency:    varchar("filing_frequency", { length: 32 }), // free text: "Monthly" / "Quarterly" / "Annual"
+  status:             varchar("status", { length: 16 }).notNull().default("Active"),
+  createdAt:          timestamp("created_at").notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at").notNull().defaultNow(),
+});
+export type TaxAgency = typeof taxAgencies.$inferSelect;
+
+export const taxComponents = pgTable("tax_components", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  orgId:             uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  agencyId:          uuid("agency_id").notNull().references(() => taxAgencies.id, { onDelete: "restrict" }),
+  name:              varchar("name", { length: 128 }).notNull(),
+  rate:              numeric("rate", { precision: 7, scale: 4 }).notNull(), // percentage, e.g. 23.0000
+  salesAccountId:    uuid("sales_account_id").references(() => accounts.id),    // falls back to the agency's liability account
+  purchaseAccountId: uuid("purchase_account_id").references(() => accounts.id), // Input Tax recoverable
+  effectiveFrom:     date("effective_from").notNull(),
+  effectiveTo:       date("effective_to"), // null = still current
+  status:            varchar("status", { length: 16 }).notNull().default("Active"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+});
+export type TaxComponent = typeof taxComponents.$inferSelect;
+
+export const taxCodes = pgTable("tax_codes", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:       varchar("name", { length: 128 }).notNull(),
+  // standard | reduced | zero_rated | exempt | out_of_scope | reverse_charge | export
+  treatment:  varchar("treatment", { length: 24 }).notNull().default("standard"),
+  compound:   boolean("compound").notNull().default(false),
+  status:     varchar("status", { length: 16 }).notNull().default("Active"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+});
+export type TaxCode = typeof taxCodes.$inferSelect;
+
+export const taxCodeComponents = pgTable("tax_code_components", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  taxCodeId:   uuid("tax_code_id").notNull().references(() => taxCodes.id, { onDelete: "cascade" }),
+  componentId: uuid("component_id").notNull().references(() => taxComponents.id, { onDelete: "restrict" }),
+  sequence:    integer("sequence").notNull().default(0), // compound calculation order
+}, (t) => ({
+  tax_code_components_unique: uniqueIndex("tax_code_components_unique").on(t.taxCodeId, t.componentId),
+}));
+export type TaxCodeComponent = typeof taxCodeComponents.$inferSelect;
+
+export const taxAgenciesRelations = relations(taxAgencies, ({ one, many }) => ({
+  organisation: one(organisations, { fields: [taxAgencies.orgId], references: [organisations.id] }),
+  liabilityAccount: one(accounts, { fields: [taxAgencies.liabilityAccountId], references: [accounts.id] }),
+  components: many(taxComponents),
+}));
+export const taxComponentsRelations = relations(taxComponents, ({ one }) => ({
+  agency: one(taxAgencies, { fields: [taxComponents.agencyId], references: [taxAgencies.id] }),
+  salesAccount: one(accounts, { fields: [taxComponents.salesAccountId], references: [accounts.id] }),
+  purchaseAccount: one(accounts, { fields: [taxComponents.purchaseAccountId], references: [accounts.id] }),
+}));
+export const taxCodesRelations = relations(taxCodes, ({ many }) => ({
+  components: many(taxCodeComponents),
+}));
+export const taxCodeComponentsRelations = relations(taxCodeComponents, ({ one }) => ({
+  taxCode: one(taxCodes, { fields: [taxCodeComponents.taxCodeId], references: [taxCodes.id] }),
+  component: one(taxComponents, { fields: [taxCodeComponents.componentId], references: [taxComponents.id] }),
+}));
+
+// =========================================================================
 // AP — DIMENSIONS (projects, customers, classes, depts, tracking categories…)
 // =========================================================================
 export const apDimensions = pgTable("ap_dimensions", {

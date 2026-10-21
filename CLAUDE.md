@@ -1906,6 +1906,63 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 3a: native tax engine, schema + pure calc (2026-10-21)
+
+Phase 3 is staged (it's by far the largest phase of the spec): **3a** schema +
+pure calculation engine (this section) — **3b** wiring into
+`lib/accounting/documents.ts`'s posting — **3c** UI (tax code picker,
+inclusive/exclusive toggle, admin screens) — **3d** reverse-charge PDF
+wording, tax-label localization, `TaxProvider` interface. Only 3a is done.
+**Nothing from this section is wired into posting or the UI yet** — the
+engine exists and is fully tested, but every document still posts through
+the old flat `apTaxRates`/`withTax()` path exactly as before.
+
+- **New tables, `apTaxRates` untouched**: `tax_agencies`, `tax_components`,
+  `tax_codes`, `tax_code_components` (migration `0108_native_tax_engine`).
+  `apTaxRates` is confirmed (not assumed) to be the live QBO/Xero sync mirror
+  — `lib/qbo-ap-sync.ts`/`xero-ap-sync.ts` upsert into it directly, keyed on
+  `(org_id, external_id, source)` — so it stays exactly as it is; a synced
+  org's tax behaviour is completely unaffected by this refactor, matching the
+  native-only scope already decided for the whole spec.
+- **The model**: `tax_agencies` (who tax is remitted to + its liability
+  account) → `tax_components` (one named, DATED rate — "IE Standard 23%" from
+  2026-01-01 — with its own sales/purchase accounts; a rate change creates a
+  NEW component row rather than editing one in place, so a historical
+  document's tax is never restated) → `tax_codes` (what a user actually picks
+  — "IE Standard 23%", "EU B2B Reverse Charge" — carrying a `treatment` and a
+  `compound` flag) → `tax_code_components` (which components make up a code,
+  in what order).
+- **`lib/accounting/tax-engine.ts`** is the pure calculation half (client-safe,
+  no `db` import — same split as `account-roles.ts`/`account-roles-server.ts`;
+  the server-side resolver that picks which `tax_components` are effective for
+  a code on a document's date doesn't exist yet, that's 3b).
+  - **`compound` is the whole distinction** between India's CGST+SGST (both
+    9% computed on the SAME net, `compound: false`) and a true cascading tax
+    (each component computed on net PLUS every earlier component's amount,
+    `compound: true`) — confirmed there was zero prior precedent for either in
+    this codebase (grepped for CGST/SGST/compound/reverse_charge: nothing).
+  - **`treatment` decides whether components charge anything.** `standard`/
+    `reduced` post the computed amount; `zero_rated`/`exempt`/`out_of_scope`/
+    `export`/`reverse_charge` zero it on the document but still expose a
+    `notionalTotal` (what the components would have computed) for future
+    self-assessment/reporting use — never posted, never shown as owed.
+  - **Inclusive pricing backs the net out of a tax-inclusive gross** via the
+    same multiplier used to compute tax forward (sum of rates for non-compound,
+    product of `(1+rate/100)` per component for compound) — one function,
+    both directions, so they can never compute a different combined rate.
+  - **Two rounding modes**, `aggregateDocumentTax`'s `"perLine"` (sum each
+    line's already-rounded tax) vs `"perDocument"` (sum every line's
+    UNROUNDED amount per component first, round once) — the latter is the
+    standard VAT-return convention and is the only one that doesn't lose a
+    cent on many small same-rate lines; pinned by a test where three lines
+    each round to 0 individually but correctly total 0.01 together.
+- **Verified**: migration applied and `npm run db:verify`'d clean against the
+  dev branch (zero drift on the four new tables; the 2 pre-existing failures
+  and 32 warnings are the unrelated, already-documented legacy drift this file
+  describes elsewhere). 25 new unit tests in `tests/tax-engine.test.ts` cover
+  single-rate, compound, split/non-compound, both pricing modes, every
+  treatment, and both rounding modes.
+
 ## Sales document refactor — Phase 2: item-only lines (2026-10-21)
 
 Removes the Chart-of-Accounts line selector from **Invoice, Estimate,
