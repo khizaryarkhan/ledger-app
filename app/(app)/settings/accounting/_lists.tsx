@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, Pencil, Search, X, Lock, RefreshCw, BookOpen, Package, Percent, Tags, Sparkles } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
-import { Drawer } from "@/components/form-kit";
+import { Drawer, control, controlInset, fieldLabel } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { QBO_ACCOUNT_SUBTYPES, subtypeLabel } from "@/lib/accounting/qbo-account-subtypes";
@@ -272,69 +272,96 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
       .sort((a, b) => a.type.localeCompare(b.type));
   }, [rows, tab]);
 
-  const inputCls = "w-full text-[13px] border border-stone-700 rounded-lg px-3 py-2 bg-stone-900 text-stone-200 placeholder-stone-600 outline-none focus:ring-1 focus:ring-emerald-500";
-  const labelCls = "block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1";
+  // Drawer fields use controlInset (bg-stone-950) because the Drawer panel
+  // itself is bg-stone-900 — the old hand-rolled inputCls used bg-stone-900
+  // for these too, so a field nearly vanished into its own panel. control
+  // (bg-stone-900) is for the toolbar search box below, which sits on this
+  // page's bg-stone-950 surface — the same pairing form-kit's own doc comment
+  // and every other drawer in the app (new-document-form.tsx, etc.) already use.
+  const inputCls = controlInset;
+  const labelCls = fieldLabel;
   // Matches list-view.tsx's (unexported) header-cell style, so this hand-rolled
   // table reads as the same design system as the funnel-filter tables.
   const thCls = "px-2 py-2 text-[11px] font-medium text-stone-500 whitespace-nowrap text-left";
 
   const isSyncedEdit = editRec && editRec !== "new" && (editRec as Rec).source !== "native";
 
+  // Deep-linked from the Accounting sidebar (hideTabs), the header names the
+  // actual screen being shown — same as every other workspace page (e.g. the
+  // Collections Board always says "Collections Board", never the umbrella
+  // "Receivables"). At the standalone /settings/accounting entry point
+  // (hideTabs false, the in-page tab bar visible) it stays the umbrella
+  // "Accounting" heading, since the tabs below are the thing naming each list.
+  const activeMeta = TABS.find(t => t.key === tab);
+  const pageTitle = hideTabs ? (activeMeta?.label ?? "Accounting") : "Accounting";
+  const pageSub = hideTabs
+    ? "Records synced from QuickBooks/Xero are read-only; records created here are native to this app."
+    : "Chart of accounts, products & services, and tax rates. Records synced from QuickBooks/Xero are read-only; records created here are native to this app.";
+
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-200">
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <Link href="/settings" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2">
-          <ChevronLeft size={13} /> Settings
-        </Link>
-        <div className="flex items-end justify-between flex-wrap gap-3 mb-5">
-          <div>
-            <h1 className="text-xl font-bold text-white">Accounting</h1>
-            <p className="text-[13px] text-stone-500 mt-0.5">
-              Chart of accounts, products & services, and tax rates. Records synced from QuickBooks/Xero are read-only; records created here are native to this app.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/accounting/journal"
-              className="flex items-center gap-1.5 text-[13px] font-medium text-stone-300 border border-stone-700 rounded-lg px-3.5 py-2 hover:bg-stone-800 transition-colors">
-              <BookOpen size={14} /> General Ledger
+    // Same full-height, fixed-header/scrollable-body shell as the Collections
+    // Board (components/board-list.tsx's parent page) — this screen is a work
+    // surface (search, filter, create), not a simple settings form, so it
+    // should read as one.
+    <div className="flex flex-col h-[calc(100vh-44px)] bg-stone-950 text-stone-200">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-stone-800 flex items-center justify-between flex-wrap gap-3 bg-stone-950 flex-shrink-0">
+        <div>
+          {/* The sidebar already provides this nav once embedded in the
+              Accounting workspace — a breadcrumb back to Settings only makes
+              sense at the standalone /settings/accounting entry point. */}
+          {!hideTabs && (
+            <Link href="/settings" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-1">
+              <ChevronLeft size={13} /> Settings
             </Link>
-            <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
-            {tab === "accounts" && (
-              <button onClick={seedDefaults} disabled={seeding} title="Add the full standard starter chart (income, expense, asset, liability accounts). System accounts already exist automatically."
-                className="flex items-center gap-1.5 text-[13px] font-medium text-stone-300 border border-stone-700 rounded-lg px-3.5 py-2 hover:bg-stone-800 disabled:opacity-50 transition-colors">
-                {seeding ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />} Add starter chart
-              </button>
-            )}
-            <button onClick={openNew}
-              className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700 transition-colors">
-              <Plus size={14} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
-            </button>
-          </div>
+          )}
+          <h1 className="text-xl font-semibold text-white tracking-tight">{pageTitle}</h1>
+          <p className="text-sm text-stone-400 mt-0.5">{pageSub}</p>
         </div>
-
-        {/* Tabs */}
-        {!hideTabs && (
-        <div className="flex items-center gap-1 border-b border-stone-800 mb-4">
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => { setTab(t.key); setSearch(""); }}
-              className={`flex items-center gap-1.5 text-[13px] font-medium px-3.5 py-2.5 border-b-2 -mb-px transition-colors ${tab === t.key ? "border-emerald-500 text-white" : "border-transparent text-stone-500 hover:text-stone-300"}`}>
-              {t.icon} {t.label}
-              <span className="text-[11px] text-stone-600 ml-0.5">{tabSource(t.key).filter(r => r.status !== "Inactive").length}</span>
+        <div className="flex items-center gap-2">
+          <Link href="/accounting/journal"
+            className="flex items-center gap-1.5 h-8 text-xs font-medium text-stone-300 border border-stone-700 rounded-lg px-3 hover:bg-stone-800 transition-colors">
+            <BookOpen size={13} /> General Ledger
+          </Link>
+          <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+          {tab === "accounts" && (
+            <button onClick={seedDefaults} disabled={seeding} title="Add the full standard starter chart (income, expense, asset, liability accounts). System accounts already exist automatically."
+              className="flex items-center gap-1.5 h-8 text-xs font-medium text-stone-300 border border-stone-700 rounded-lg px-3 hover:bg-stone-800 disabled:opacity-50 transition-colors">
+              {seeding ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />} Add starter chart
             </button>
-          ))}
+          )}
+          <button onClick={openNew}
+            className="flex items-center gap-1.5 h-8 text-xs font-semibold bg-emerald-600 text-white rounded-lg px-3 hover:bg-emerald-700 transition-colors">
+            <Plus size={13} /> New {tab === "accounts" ? "account" : tab === "items" ? "item" : tab === "tax-rates" ? "tax rate" : tab === "classes" ? "class" : tab === "locations" ? "location" : tab === "cost-centres" ? "cost centre" : tab === "custom-fields" ? "custom field" : "dimension"}
+          </button>
         </div>
-        )}
+      </div>
 
-        {/* Toolbar */}
+      {/* Tabs */}
+      {!hideTabs && (
+      <div className="flex items-center gap-1 border-b border-stone-800 px-6 flex-shrink-0">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => { setTab(t.key); setSearch(""); }}
+            className={`flex items-center gap-1.5 text-[13px] font-medium px-3.5 py-2.5 border-b-2 -mb-px transition-colors ${tab === t.key ? "border-emerald-500 text-white" : "border-transparent text-stone-500 hover:text-stone-300"}`}>
+            {t.icon} {t.label}
+            <span className="text-[11px] text-stone-600 ml-0.5">{tabSource(t.key).filter(r => r.status !== "Inactive").length}</span>
+          </button>
+        ))}
+      </div>
+      )}
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {/* Toolbar — same compact (h-8, text-xs) search control the Board uses */}
         <div className="flex items-center gap-3 mb-3 flex-wrap">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600 pointer-events-none" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, code, type…"
-              className={`${inputCls} pl-9`} />
-            {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-600 hover:text-stone-300"><X size={13} /></button>}
+              className={`${control} h-8 pl-8 pr-7 text-xs`} />
+            {search && <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-600 hover:text-stone-300"><X size={13} /></button>}
           </div>
-          <label className="flex items-center gap-2 text-[12px] text-stone-500 cursor-pointer select-none">
-            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded border-stone-600" />
+          <label className={`h-8 flex items-center gap-1.5 px-2.5 text-xs rounded-md ring-1 cursor-pointer transition-colors select-none ${showInactive ? "ring-stone-600 bg-stone-700 text-stone-100" : "ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200"}`}>
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="w-3 h-3 rounded border-stone-600 accent-emerald-600 cursor-pointer" />
             Show inactive
           </label>
         </div>
