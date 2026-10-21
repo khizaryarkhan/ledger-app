@@ -60,6 +60,7 @@ const KIND_BADGE: Record<ItemKind, string> = {
   WorkInProgress:  "bg-violet-500/12 text-violet-400 border-violet-800/50",
   NonInventory:    "bg-stone-500/12 text-stone-300 border-stone-700",
   Service:         "bg-teal-500/12 text-teal-300 border-teal-800/50",
+  OtherCharge:     "bg-indigo-500/12 text-indigo-300 border-indigo-800/50",
 };
 function TypeBadge({ t }: { t: string }) {
   const m = kindOf(t);
@@ -845,11 +846,19 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
   }, [f.productType]);
 
   const incomeAccts  = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
+  // Other Charge may credit a liability instead (a deposit held until earned) —
+  // matches account-roles.ts's untrackedIncomeTypes().
+  const incomeOrLiabilityAccts = accounts.filter(a => ["Income", "Other Income", "Other Current Liability"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
 
   async function save() {
     if (!f.name.trim()) { setErr("Item name is required."); return; }
     if (meta.tracked && !f.baseUom) { setErr("A base UoM is required for inventory-tracked items."); return; }
+    // Same requirement the server enforces (account-roles-server.ts's
+    // prepareItemAccounting) — checked here too so the error appears next to
+    // the field instead of only after a round trip.
+    if (!meta.tracked && canBeSold && !f.incomeAccountId) { setErr("This item can be sold, so it needs an income account."); return; }
+    if (!meta.tracked && canBePurchased && !f.expenseAccountId) { setErr("This item can be purchased, so it needs an expense account."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked, canBeSold, canBePurchased, ...(canBePurchased ? { sourcingPolicy } : {}) }) });
     setSaving(false);
@@ -857,7 +866,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
     onCreated();
   }
 
-  const KIND_ICON: Record<string, any> = { FinishedProduct: Layers, StockItem: Boxes, RawMaterial: Package, WorkInProgress: Layers, NonInventory: Package, Service: Layers };
+  const KIND_ICON: Record<string, any> = { FinishedProduct: Layers, StockItem: Boxes, RawMaterial: Package, WorkInProgress: Layers, NonInventory: Package, Service: Layers, OtherCharge: Package };
 
   return (
     <Drawer title="New item" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create item" err={err} />}>
@@ -906,17 +915,17 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
             {canBeSold && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
             {canBePurchased && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
             {canBeSold && !meta.tracked && (
-              <Field label="Income account">
+              <Field label="Income account" required hint={f.productType === "OtherCharge" ? "Income, Other Income or a liability account (e.g. a deposit held until earned)." : undefined}>
                 <SelectField inset value={f.incomeAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-income"); return; } set("incomeAccountId", e.target.value); }}>
                   <option value="">Select…</option>
-                  {incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {(f.productType === "OtherCharge" ? incomeOrLiabilityAccts : incomeAccts).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   <option value="__add__">+ Add new income account…</option>
                 </SelectField>
               </Field>
             )}
             {!meta.tracked && (
               canBePurchased && (
-                <Field label="Expense account">
+                <Field label="Expense account" required>
                   <SelectField inset value={f.expenseAccountId} onChange={e => { if (e.target.value === "__add__") { setQuick("account-expense"); return; } set("expenseAccountId", e.target.value); }}>
                     <option value="">Select…</option>
                     {expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -985,10 +994,13 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
     fetch(`/api/accounting/tax-rates`).then(x => x.json()).then(r => setTaxes(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
   const incomeAccts = accounts.filter(a => ["Income", "Other Income"].includes(a.type));
+  const incomeOrLiabilityAccts = accounts.filter(a => ["Income", "Other Income", "Other Current Liability"].includes(a.type));
   const expenseAccts = accounts.filter(a => ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
 
   async function save() {
     if (!f.name.trim()) { setErr("Item name is required."); return; }
+    if (!meta.tracked && canBeSold && !f.incomeAccountId) { setErr("This item can be sold, so it needs an income account."); return; }
+    if (!meta.tracked && canBePurchased && !f.expenseAccountId) { setErr("This item can be purchased, so it needs an expense account."); return; }
     setSaving(true); setErr("");
     // The policy is sent only when it changed: the server refuses a switch to
     // "any supplier" while pack configurations exist, and an unrelated rename
@@ -1019,8 +1031,8 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             {canBeSold && <Field label="Default sales price"><input type="number" className={controlInset} value={f.unitPrice} onChange={e => set("unitPrice", e.target.value)} /></Field>}
             {canBePurchased && <Field label="Default purchase price" hint="Pre-fills purchase orders. Stock is valued at what was actually paid."><input type="number" className={controlInset} value={f.unitCost} onChange={e => set("unitCost", e.target.value)} /></Field>}
-            {canBeSold && !meta.tracked && <Field label="Income account"><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{incomeAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
-            {!meta.tracked && (canBePurchased && <Field label="Expense account"><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
+            {canBeSold && !meta.tracked && <Field label="Income account" required hint={item.productType === "OtherCharge" ? "Income, Other Income or a liability account (e.g. a deposit held until earned)." : undefined}><SelectField inset value={f.incomeAccountId} onChange={e => set("incomeAccountId", e.target.value)}><option value="">Select…</option>{(item.productType === "OtherCharge" ? incomeOrLiabilityAccts : incomeAccts).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>}
+            {!meta.tracked && (canBePurchased && <Field label="Expense account" required><SelectField inset value={f.expenseAccountId} onChange={e => set("expenseAccountId", e.target.value)}><option value="">Select…</option>{expenseAccts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectField></Field>)}
             {canBeSold && <Field label="Default sales tax"><SelectField inset value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)}><option value="">None</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>}
             {canBePurchased && <Field label="Default purchase tax"><SelectField inset value={f.purchaseTaxRateId} onChange={e => set("purchaseTaxRateId", e.target.value)}><option value="">None</option>{taxes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</SelectField></Field>}
           </div>

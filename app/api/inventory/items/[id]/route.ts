@@ -11,7 +11,7 @@ import { itemNameTaken, duplicateNameMessage } from "@/lib/inventory/item-name";
 import { apItems, itemSkus, itemSupplierSkus, apSuppliers, inventoryLots, inventoryMovements } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, asc, desc, inArray, isNotNull } from "drizzle-orm";
-import { kindOf, qboItemType } from "@/lib/inventory/item-kinds";
+import { kindOf, qboItemType, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 import { sourcingOf } from "@/lib/inventory/sourcing";
 import { prepareItemAccounting, effectiveInventoryAccount } from "@/lib/accounting/account-roles-server";
 import { onHandBySku } from "@/lib/inventory/valuation";
@@ -91,7 +91,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.minOhQty !== undefined) set.minOhQty = (numOrNull(b.minOhQty) ?? 0).toString();
   if (b.unitPrice !== undefined) set.unitPrice = numOrNull(b.unitPrice);
   if (b.unitCost !== undefined) set.unitCost = numOrNull(b.unitCost);
-  if (b.expenseAccountId !== undefined) set.expenseAccountId = s(b.expenseAccountId, 64);
+  // expenseAccountId is set below, through prepareItemAccounting — it needs
+  // the same income/expense requirement check an untracked item's incomeAccountId
+  // already gets, not a raw unvalidated write.
   if (b.lotTracked !== undefined) set.lotTracked = !!b.lotTracked;
   if (b.taxRateId !== undefined) set.taxRateId = s(b.taxRateId, 64);
   if (b.purchaseTaxRateId !== undefined) set.purchaseTaxRateId = s(b.purchaseTaxRateId, 64);
@@ -112,15 +114,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Accounting: group + validated overrides, evaluated against the kind the
   // item will HAVE (a Service turned Raw Material lands in a raw-material
   // group). Blank = inherit; a stale group of the wrong type falls back to the
-  // default group of the new type rather than refusing the edit.
-  const touchesAccounting = ["postingGroupId", "assetAccountId", "cogsAccountId", "incomeAccountId", "productType"].some(k => b[k] !== undefined);
+  // default group of the new type rather than refusing the edit. Also fires on
+  // expenseAccountId/canBeSold/canBePurchased now — an untracked item's income/
+  // expense requirement depends on those too, not just the account fields.
+  const touchesAccounting = ["postingGroupId", "assetAccountId", "cogsAccountId", "incomeAccountId", "expenseAccountId", "productType", "canBeSold", "canBePurchased"].some(k => b[k] !== undefined);
   if (touchesAccounting) {
-    const pick = (k: "postingGroupId" | "assetAccountId" | "cogsAccountId" | "incomeAccountId") => b[k] !== undefined ? s(b[k], 64) : (existing as any)[k] ?? null;
+    const pick = (k: "postingGroupId" | "assetAccountId" | "cogsAccountId" | "incomeAccountId" | "expenseAccountId") => b[k] !== undefined ? s(b[k], 64) : (existing as any)[k] ?? null;
     const productType = set.productType ?? existing.productType;
+    const canBeSold = typeof b.canBeSold === "boolean" ? b.canBeSold : itemCanBeSold({ productType, canBeSold: existing.canBeSold });
+    const canBePurchased = typeof b.canBePurchased === "boolean" ? b.canBePurchased : itemCanBePurchased({ productType, canBePurchased: existing.canBePurchased });
     const acc = await prepareItemAccounting(orgId!, {
-      productType,
+      name: existing.name, productType,
       postingGroupId: b.postingGroupId !== undefined ? s(b.postingGroupId, 64) : (changingKind ? null : existing.postingGroupId),
-      assetAccountId: pick("assetAccountId"), cogsAccountId: pick("cogsAccountId"), incomeAccountId: pick("incomeAccountId"),
+      assetAccountId: pick("assetAccountId"), cogsAccountId: pick("cogsAccountId"),
+      incomeAccountId: pick("incomeAccountId"), expenseAccountId: pick("expenseAccountId"),
+      canBeSold, canBePurchased,
     });
     if ("error" in acc) return bad(acc.error);
     // Moving an item's stock to a different inventory account while it holds

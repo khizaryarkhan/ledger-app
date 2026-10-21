@@ -18,8 +18,10 @@ import { LedgerValidationError, postJournalEntry } from "@/lib/ledger";
 import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, INVENTORIES_HEADER, MAPPING_PATH,
   TEMPLATE_VERSION, TRADING_DEFAULT_NAMES, defaultAccountName, groupTypeForKind, isGroupType, missingRoles, rolesForGroupType, isRoleForGroupType,
-  roleAccountError, roleForOverride, type AccountRole, type GroupType, type OverrideField,
+  roleAccountError, roleForOverride, accountTypeError, UNTRACKED_EXPENSE_TYPES, untrackedIncomeTypes,
+  type AccountRole, type GroupType, type OverrideField,
 } from "./account-roles";
+import { kindOf, itemCanBeSold, itemCanBePurchased } from "@/lib/inventory/item-kinds";
 
 /** A mapping gap. Extends LedgerValidationError so every route already turns it into a 400. */
 export class AccountMappingError extends LedgerValidationError {}
@@ -209,6 +211,11 @@ async function ensureScrapItem(orgId: string, scrapAccountId: string | null) {
   await db.insert(apItems).values({
     orgId, source: "native", name: SCRAP_ITEM_NAME, productType: "NonInventory", itemType: "Non-Inventory",
     incomeAccountId: scrapAccountId, sourcingPolicy: "open", status: "Active",
+    // Sell-only, explicitly — NonInventory defaults to canBePurchased: true
+    // (defaultTradeFlags), which this item never needs (nobody buys scrap) and
+    // which, since Phase 1, would otherwise require an expense account it has
+    // no use for.
+    canBeSold: true, canBePurchased: false,
     description: "Scrap and offcuts sold. Not stock: invoicing it credits Scrap Sales, with no cost of sales.",
   } as any);
 }
@@ -363,21 +370,59 @@ export async function accountReferences(orgId: string, accountId: string): Promi
 // ── Item accounting (create / edit) ─────────────────────────────────────────
 
 type ItemAccountingInput = {
+  name?: string;
   productType: string;
   postingGroupId?: string | null;
   assetAccountId?: string | null; cogsAccountId?: string | null; incomeAccountId?: string | null;
+  expenseAccountId?: string | null;
+  canBeSold?: boolean | null; canBePurchased?: boolean | null;
 };
+type ItemAccountingValues = { postingGroupId: string | null; assetAccountId: string | null; cogsAccountId: string | null; incomeAccountId: string | null; expenseAccountId: string | null };
 
 /**
  * Validate the accounting half of an item before it is written. For a tracked
  * kind: the group must be this org's and of the item's type (blank = the
  * default group of that type), and every override must be an account that may
  * play the role it stands in for. Returns the values to store, or an error.
- * Untracked kinds carry no group — their own income/expense fields stand.
+ *
+ * Untracked kinds (Service, Non-Inventory, Other Charge) carry no group — they
+ * post straight to their own income/expense fields. Spec rule (2026-10-21):
+ * an item cannot be saved without the mapping it needs to actually post — a
+ * sellable item needs an income account, a purchasable one an expense account
+ * — and whichever one is set must be an account of a type that direction can
+ * really use (never Bank/AR/AP/Tax). This used to be entirely unvalidated:
+ * `incomeAccountId` was stored verbatim with no presence or type check, which
+ * is exactly how a sales line could silently fall back to (or lose) its
+ * account at posting time — see buildSalesPurchaseLines's accountFor() in
+ * lib/accounting/documents.ts.
  */
-export async function prepareItemAccounting(orgId: string, b: ItemAccountingInput): Promise<{ error: string } | { values: { postingGroupId: string | null; assetAccountId: string | null; cogsAccountId: string | null; incomeAccountId: string | null } }> {
+export async function prepareItemAccounting(orgId: string, b: ItemAccountingInput): Promise<{ error: string } | { values: ItemAccountingValues }> {
   const t = groupTypeForKind(b.productType);
-  if (!t) return { values: { postingGroupId: null, assetAccountId: null, cogsAccountId: null, incomeAccountId: b.incomeAccountId ?? null } };
+  if (!t) {
+    const itemName = b.name?.trim() || "This item";
+    const kind = kindOf(b.productType).kind;
+    const sellable = itemCanBeSold({ productType: b.productType, canBeSold: b.canBeSold });
+    const purchasable = itemCanBePurchased({ productType: b.productType, canBePurchased: b.canBePurchased });
+    const incomeAccountId = b.incomeAccountId ?? null;
+    const expenseAccountId = b.expenseAccountId ?? null;
+    if (sellable && !incomeAccountId) return { error: `${itemName} can be sold, so it needs an income account before it can be saved.` };
+    if (purchasable && !expenseAccountId) return { error: `${itemName} can be purchased, so it needs an expense account before it can be saved.` };
+    if (incomeAccountId || expenseAccountId) {
+      const accts = await orgAccounts(orgId);
+      const byId = new Map(accts.map(a => [a.id, a]));
+      if (incomeAccountId) {
+        const acct = byId.get(incomeAccountId);
+        const why = acct ? accountTypeError("Income account", untrackedIncomeTypes(kind), acct) : "That income account doesn't exist in this organisation.";
+        if (why) return { error: why };
+      }
+      if (expenseAccountId) {
+        const acct = byId.get(expenseAccountId);
+        const why = acct ? accountTypeError("Expense account", UNTRACKED_EXPENSE_TYPES, acct) : "That expense account doesn't exist in this organisation.";
+        if (why) return { error: why };
+      }
+    }
+    return { values: { postingGroupId: null, assetAccountId: null, cogsAccountId: null, incomeAccountId, expenseAccountId } };
+  }
   await ensureInventoryAccounting(orgId);
   const groups = await loadGroupMaps(orgId);
   let g = b.postingGroupId ? groups.find(x => x.id === b.postingGroupId) : undefined;
@@ -388,7 +433,9 @@ export async function prepareItemAccounting(orgId: string, b: ItemAccountingInpu
 
   const accts = await orgAccounts(orgId);
   const byId = new Map(accts.map(a => [a.id, a]));
-  const out = { postingGroupId: g.id, assetAccountId: null as string | null, cogsAccountId: null as string | null, incomeAccountId: null as string | null };
+  // Tracked items never carry a direct expenseAccountId — purchases capitalise
+  // to the asset role instead (buildSalesPurchaseLines's accountFor()).
+  const out = { postingGroupId: g.id, assetAccountId: null as string | null, cogsAccountId: null as string | null, incomeAccountId: null as string | null, expenseAccountId: null as string | null };
   for (const field of ["assetAccountId", "cogsAccountId", "incomeAccountId"] as OverrideField[]) {
     const v = b[field];
     if (!v) continue;

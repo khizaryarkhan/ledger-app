@@ -1906,6 +1906,76 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 1: item account mapping completeness (2026-10-21)
+
+Client spec: Invoices/Sales Orders/Estimates should be item-only (no Chart of
+Accounts on sales lines), with posting derived entirely from each item's
+account mapping. **Scope confirmed native-only** — QuickBooks/Xero-synced
+orgs own their own tax/account mapping and their invoices are never posted
+locally (see "One path per document type" above); this refactor cannot and
+does not touch them. Phase 1 is the first of several phases; it closes the
+gap that made the rest of the spec unsafe to build on.
+
+- **The gap, exactly**: `prepareItemAccounting` (`lib/accounting/account-roles-server.ts`)
+  has always resolved a TRACKED item's accounts through its posting group
+  (RM/WIP/FP/TRADING — see the "Inventory Chart-of-Accounts mapping" section
+  below), fully validated. For an UNTRACKED item (Service, Non-Inventory) it
+  took a one-line early return: `incomeAccountId` was stored verbatim, with
+  **zero presence check and zero account-type check** — a Service item could
+  be saved with no income account at all, or with its income account pointed
+  at a Bank account. `expenseAccountId` wasn't even routed through this
+  function; it was written raw by both item API routes.
+  This is exactly how `buildSalesPurchaseLines`'s `accountFor()`
+  (`lib/accounting/documents.ts:188-207`) was already documented to behave —
+  "falls back to the account the caller supplied" when an item has no account
+  configured — a deliberate grandfather clause for items that predate this
+  rule, not a safety net to keep leaning on for new ones.
+- **Fixed**: `prepareItemAccounting`'s untracked branch now requires an income
+  account when the item `canBeSold`, an expense account when it
+  `canBePurchased`, and type-checks whichever is set — Income/Other Income for
+  Service/Non-Inventory (never Bank/AR/AP/Tax), Expense/COGS/Other Expense on
+  the purchase side. The check is shared with the tracked path's `roleAccountError`
+  via a new `accountTypeError(label, allowedTypes, account)` in
+  `lib/accounting/account-roles.ts` — same three mistakes (wrong type, header,
+  inactive), same message shape, one implementation.
+- **New item kind: Other Charge** (`lib/inventory/item-kinds.ts`) — freight,
+  recharges, fees, deposits. Untracked, sellable, buyable, like Service/
+  Non-Inventory, but its income side may ALSO be a liability account (a
+  deposit held until earned) — `untrackedIncomeTypes(kind)` in
+  `account-roles.ts` is the one place that distinction lives.
+  `qboItemType()` maps it to legacy `"Non-Inventory"` — there's no fourth
+  bucket in that field, and this is the closest untracked, non-service shape.
+- **Enforced at both create and edit** (`app/api/inventory/items/route.ts`,
+  `app/api/inventory/items/[id]/route.ts`), and the client-side drawers
+  (`components/products-register.tsx`) check the same rule first, so the
+  error lands next to the field instead of after a round trip. The edit
+  route's `touchesAccounting` gate — already presence-based, already re-runs
+  `prepareItemAccounting` on every save including unrelated ones, since the
+  edit form always sends every accounting field — now also fires on
+  `expenseAccountId`/`canBeSold`/`canBePurchased` changes, for the same
+  reason. **This deliberately means an existing item missing its mapping gets
+  blocked on its NEXT edit**, not just new items — the spec wants no
+  unmapped item going forward, and surfacing the gap on touch is the chosen
+  way to get there, not a side effect to work around.
+- **Verified against production before shipping**: a read-only scan
+  (`scripts/_scan_missing_item_accounts.ts`) found exactly one item that would
+  have been newly blocked — the system-seeded **"Scrap & offcuts"**
+  (`ensureScrapItem` in `account-roles-server.ts`), whose `canBePurchased` had
+  never been set and so inherited Non-Inventory's `canBePurchased: true`
+  default, even though nobody buys scrap and the item never had an expense
+  account. Fixed at the source (the seeder now sets `canBeSold: true,
+  canBePurchased: false` explicitly) and backfilled on the one existing
+  production row (Foodready.ai) via `scripts/_backfill_scrap_item_flags.ts`.
+  Re-scanning confirms zero items are blocked.
+- **Not done in Phase 1, deliberately**: removing the Chart-of-Accounts column
+  from Invoice/Estimate/SalesReceipt/CreditNote/RefundReceipt lines (those are
+  still `lineMode: "both"` in `new-document-form.tsx` — only SalesOrder/
+  PurchaseOrder are already item-only via `isOrderDoc`), killing the
+  `accountOverride`/silent-fallback escape hatch in `accountFor()`, the native
+  tax engine (agencies/components/compound codes/inclusive pricing), the
+  shared `SalesDocumentLines` component, discount/header fields, and the
+  richer per-document-type statuses. Those are later phases of the same spec.
+
 ## Item kinds — audit findings (2026-09-21)
 
 `ITEM_KINDS` flags are load-bearing: posting picks asset vs expense from

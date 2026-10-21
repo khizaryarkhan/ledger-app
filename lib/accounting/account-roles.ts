@@ -13,7 +13,7 @@
  * `lib/modules.ts` / `lib/modules-server.ts`.
  */
 
-import { kindOf } from "@/lib/inventory/item-kinds";
+import { kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
 
 export const ACCOUNT_ROLES = [
   "RM_INVENTORY", "WIP_STOCK", "WIP_OPEN_ORDERS", "FG_INVENTORY",
@@ -85,16 +85,45 @@ export const isAccountRole = (r: unknown): r is AccountRole =>
 /** Account types a role accepts. */
 export const allowedTypesFor = (role: AccountRole): readonly string[] => ROLE_ACCOUNT_TYPES[ROLES[role].kind];
 
-/** null when the account may play the role, else the reason it may not. */
-export function roleAccountError(role: AccountRole, account: { type?: string | null; name?: string | null; isHeader?: boolean | null; status?: string | null } | null | undefined): string | null {
-  if (!account) return `No account chosen for ${ROLES[role].label}.`;
+type AccountLike = { type?: string | null; name?: string | null; isHeader?: boolean | null; status?: string | null };
+
+/**
+ * Generic account-type/status gate: null when the account may be used for
+ * something requiring one of `allowedTypes`, else the reason it may not.
+ * Shared by `roleAccountError` (tracked items' posting-group roles) and the
+ * direct income/expense account a Service, Non-Inventory or Other Charge item
+ * carries — those items have no posting group, but the same three mistakes
+ * (wrong type, header, inactive) are just as wrong on them.
+ */
+export function accountTypeError(label: string, allowedTypes: readonly string[], account: AccountLike | null | undefined): string | null {
+  if (!account) return `No account chosen for ${label}.`;
   if (account.isHeader) return `"${account.name}" is a header account and cannot be posted to.`;
   if (account.status && account.status !== "Active") return `"${account.name}" is inactive.`;
-  const ok = allowedTypesFor(role);
-  if (!ok.includes(account.type ?? "")) {
-    return `${ROLES[role].label} must be ${ok.length > 1 ? "one of " + ok.join(" / ") : "a " + ok[0]} account — "${account.name}" is ${account.type ? "a " + account.type : "untyped"}.`;
+  if (!allowedTypes.includes(account.type ?? "")) {
+    return `${label} must be ${allowedTypes.length > 1 ? "one of " + allowedTypes.join(" / ") : "a " + allowedTypes[0]} account — "${account.name}" is ${account.type ? "a " + account.type : "untyped"}.`;
   }
   return null;
+}
+
+/** null when the account may play the role, else the reason it may not. */
+export function roleAccountError(role: AccountRole, account: AccountLike | null | undefined): string | null {
+  return accountTypeError(ROLES[role].label, allowedTypesFor(role), account);
+}
+
+/**
+ * Account types a direct (non-tracked) item's expense field may point at —
+ * same validation shape as a role, just without a posting group behind it.
+ */
+export const UNTRACKED_EXPENSE_TYPES = ["Expense", "Cost of Goods Sold", "Other Expense"] as const;
+
+/**
+ * Account types a direct (non-tracked) item's income field may point at.
+ * Service and Non-Inventory sell into ordinary income; Other Charge may also
+ * credit a liability — a deposit or recharge held there until it is earned or
+ * passed through, not recognised as revenue the moment it's invoiced.
+ */
+export function untrackedIncomeTypes(kind: ItemKind): readonly string[] {
+  return kind === "OtherCharge" ? ["Income", "Other Income", "Other Current Liability"] : ["Income", "Other Income"];
 }
 
 // ── Posting groups ──────────────────────────────────────────────────────────

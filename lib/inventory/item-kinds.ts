@@ -13,9 +13,13 @@
  *   WorkInProgress  (WIP)— intermediate produced/consumed. Tracked.
  *   NonInventory    (NI) — bought/sold but not stock-tracked (expensed on buy).
  *   Service              — services sold/bought; income/expense direct, no stock.
+ *   OtherCharge     (OC) — freight, recharges, fees, deposits; never stock. Its
+ *                          income side may be a liability account (a deposit
+ *                          held until earned), not just ordinary income — the
+ *                          one kind that isn't income-only on the sell side.
  */
 
-export type ItemKind = "FinishedProduct" | "StockItem" | "RawMaterial" | "WorkInProgress" | "NonInventory" | "Service";
+export type ItemKind = "FinishedProduct" | "StockItem" | "RawMaterial" | "WorkInProgress" | "NonInventory" | "Service" | "OtherCharge";
 
 export type KindMeta = {
   kind: ItemKind;
@@ -37,11 +41,12 @@ export const ITEM_KINDS: Record<ItemKind, KindMeta> = {
   WorkInProgress:  { kind: "WorkInProgress",  code: "WIP",label: "Work in Progress", blurb: "Intermediate produced then consumed further. Tracked.",                  tracked: true,  sellable: false, buyable: false, producible: true,  consumable: true,  lotTrackedDefault: true },
   NonInventory:    { kind: "NonInventory",    code: "NI", label: "Non-Inventory",    blurb: "Bought/sold but not stock-tracked (e.g. utilities). Expensed on buy.",   tracked: false, sellable: true,  buyable: true,  producible: false, consumable: false, lotTrackedDefault: false },
   Service:         { kind: "Service",         code: "SV", label: "Service",          blurb: "Services & subscriptions. Income/expense direct, no inventory.",         tracked: false, sellable: true,  buyable: true,  producible: false, consumable: false, lotTrackedDefault: false },
+  OtherCharge:     { kind: "OtherCharge",      code: "OC", label: "Other Charge",     blurb: "Freight, recharges, fees or deposits. Never stock, no SKUs.",            tracked: false, sellable: true,  buyable: true,  producible: false, consumable: false, lotTrackedDefault: false },
 };
 
 export const ITEM_KIND_LIST: KindMeta[] = [
   ITEM_KINDS.FinishedProduct, ITEM_KINDS.StockItem, ITEM_KINDS.RawMaterial,
-  ITEM_KINDS.WorkInProgress, ITEM_KINDS.NonInventory, ITEM_KINDS.Service,
+  ITEM_KINDS.WorkInProgress, ITEM_KINDS.NonInventory, ITEM_KINDS.Service, ITEM_KINDS.OtherCharge,
 ];
 
 /** Normalise any stored/legacy productType to a known kind. Legacy default = FinishedProduct. */
@@ -78,10 +83,13 @@ export function defaultTradeFlags(productType?: string | null): { canBeSold: boo
 export const itemCanBeSold = (i: { productType?: string | null; canBeSold?: boolean | null }) => i.canBeSold ?? kindOf(i.productType).sellable;
 export const itemCanBePurchased = (i: { productType?: string | null; canBePurchased?: boolean | null }) => i.canBePurchased ?? kindOf(i.productType).buyable;
 
-/** Legacy QBO itemType derived from the kind (kept in sync for report/sync compatibility). */
+/** Legacy QBO itemType derived from the kind (kept in sync for report/sync compatibility).
+ *  OtherCharge has no QBO equivalent in this legacy field — "Non-Inventory" is
+ *  the closest existing bucket (untracked, not a service), chosen rather than
+ *  adding a fourth legacy value this field was never meant to carry. */
 export function qboItemType(productType?: string | null): "Service" | "Non-Inventory" | "Inventory" {
   const m = kindOf(productType);
   if (m.kind === "Service") return "Service";
-  if (m.kind === "NonInventory") return "Non-Inventory";
+  if (m.kind === "NonInventory" || m.kind === "OtherCharge") return "Non-Inventory";
   return "Inventory";
 }

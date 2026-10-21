@@ -41,14 +41,27 @@ export async function POST(req: Request) {
   const meta = kindOf(b?.productType);
   const productType = meta.kind;
 
+  // New items carry the spec's defaults explicitly (null is kept only for
+  // items made before the switches existed). Computed BEFORE prepareItemAccounting
+  // so an untracked item's income/expense requirement is checked against what
+  // this item will actually be able to do, not a stale default.
+  const flags = defaultTradeFlags(productType);
+  const canBeSold = typeof b?.canBeSold === "boolean" ? b.canBeSold : flags.canBeSold;
+  const canBePurchased = typeof b?.canBePurchased === "boolean" ? b.canBePurchased : flags.canBePurchased;
+
   // A tracked item's accounts come from its POSTING GROUP (blank = the default
   // group of its type); the three account fields are optional overrides, each
   // checked against the role it stands in for. Nothing is defaulted onto the
   // item itself any more — an inherited account that was copied onto every item
-  // could never be remapped in one place.
+  // could never be remapped in one place. An untracked item (Service,
+  // Non-Inventory, Other Charge) has no group — its own income/expense fields
+  // are required and type-checked directly (sellable needs income, purchasable
+  // needs expense).
   const acc = await prepareItemAccounting(orgId!, {
-    productType, postingGroupId: s(b?.postingGroupId, 64),
-    assetAccountId: s(b?.assetAccountId, 64), cogsAccountId: s(b?.cogsAccountId, 64), incomeAccountId: s(b?.incomeAccountId, 64),
+    name, productType, postingGroupId: s(b?.postingGroupId, 64),
+    assetAccountId: s(b?.assetAccountId, 64), cogsAccountId: s(b?.cogsAccountId, 64),
+    incomeAccountId: s(b?.incomeAccountId, 64), expenseAccountId: s(b?.expenseAccountId, 64),
+    canBeSold, canBePurchased,
   });
   if ("error" in acc) return bad(acc.error);
   const lotTracked = b?.lotTracked === undefined ? meta.lotTrackedDefault : !!b.lotTracked;
@@ -56,19 +69,13 @@ export async function POST(req: Request) {
   // the column default, which is `restricted` for every kind.
   const sourcingPolicy = b?.sourcingPolicy ? sourcingOf(b.sourcingPolicy).policy : defaultSourcingPolicy(productType);
 
-  // New items carry the spec's defaults explicitly (null is kept only for
-  // items made before the switches existed).
-  const flags = defaultTradeFlags(productType);
-  const canBeSold = typeof b?.canBeSold === "boolean" ? b.canBeSold : flags.canBeSold;
-  const canBePurchased = typeof b?.canBePurchased === "boolean" ? b.canBePurchased : flags.canBePurchased;
-
   const [row] = await db.insert(apItems).values({
     orgId: orgId!, source: "native", name,
     productType, baseUom: s(b?.baseUom, 16), category: s(b?.category, 128), code: s(b?.code, 64),
     minOhQty: (numOrNull(b?.minOhQty) ?? 0).toString(),
     itemType: qboItemType(productType),
     unitPrice: numOrNull(b?.unitPrice) as any, unitCost: numOrNull(b?.unitCost) as any,
-    incomeAccountId: acc.values.incomeAccountId, expenseAccountId: s(b?.expenseAccountId, 64), taxRateId: s(b?.taxRateId, 64),
+    incomeAccountId: acc.values.incomeAccountId, expenseAccountId: acc.values.expenseAccountId, taxRateId: s(b?.taxRateId, 64),
     assetAccountId: acc.values.assetAccountId, cogsAccountId: acc.values.cogsAccountId, postingGroupId: acc.values.postingGroupId,
     lotTracked, sourcingPolicy, canBeSold, canBePurchased, purchaseTaxRateId: s(b?.purchaseTaxRateId, 64),
     status: "Active",

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ACCOUNT_ROLES, ROLES, GROUP_TYPES, GROUP_TYPE_META, INVENTORY_ROLES, TRADING_DEFAULT_NAMES,
   allowedTypesFor, roleAccountError, groupTypeForKind, missingRoles, defaultAccountName, roleForOverride,
-  rolesForGroupType, groupRoleSections,
+  rolesForGroupType, groupRoleSections, accountTypeError, untrackedIncomeTypes, UNTRACKED_EXPENSE_TYPES,
 } from "@/lib/accounting/account-roles";
 import { ITEM_KIND_LIST } from "@/lib/inventory/item-kinds";
 import { ACCOUNT_TYPE_NAMES } from "@/lib/accounting/account-types";
@@ -145,5 +145,49 @@ describe("posting groups", () => {
       expect([...shown].sort()).toEqual([...rolesForGroupType(t)].sort());
       expect(groupRoleSections(t)[0].roles.map(r => r.label)).toEqual(["Stock account", "Sales account", "Cost of sales account"]);
     }
+  });
+});
+
+// Untracked items (Service, Non-Inventory, Other Charge) have no posting
+// group — their income/expense fields are validated directly, through the
+// same accountTypeError gate a tracked item's role uses (Phase 1 of the
+// sales-document refactor, 2026-10-21). See account-roles-server.ts's
+// prepareItemAccounting for where this is actually enforced on save.
+describe("untracked item account validation", () => {
+  it("accountTypeError is the same gate roleAccountError delegates to", () => {
+    expect(accountTypeError("Income account", ["Income", "Other Income"], { name: "Sales", type: "Income" })).toBeNull();
+    expect(accountTypeError("Income account", ["Income", "Other Income"], { name: "Checking", type: "Bank" })).toMatch(/Income account must be/);
+    expect(accountTypeError("Income account", ["Income"], { name: "Inventories", type: "Income", isHeader: true })).toMatch(/header/);
+    expect(accountTypeError("Income account", ["Income"], { name: "Old", type: "Income", status: "Inactive" })).toMatch(/inactive/);
+    expect(accountTypeError("Income account", ["Income"], null)).toMatch(/No account/);
+  });
+
+  it("Service and Non-Inventory sell only into ordinary income; Other Charge may also credit a liability", () => {
+    expect(untrackedIncomeTypes("Service")).toEqual(["Income", "Other Income"]);
+    expect(untrackedIncomeTypes("NonInventory")).toEqual(["Income", "Other Income"]);
+    expect(untrackedIncomeTypes("OtherCharge")).toEqual(["Income", "Other Income", "Other Current Liability"]);
+    for (const kind of ["Service", "NonInventory", "OtherCharge"] as const)
+      for (const t of untrackedIncomeTypes(kind)) expect(ACCOUNT_TYPE_NAMES).toContain(t);
+  });
+
+  it("the expense side never accepts a control account (Bank/AR/AP/Tax)", () => {
+    expect(UNTRACKED_EXPENSE_TYPES).toEqual(["Expense", "Cost of Goods Sold", "Other Expense"]);
+    for (const t of UNTRACKED_EXPENSE_TYPES) expect(ACCOUNT_TYPE_NAMES).toContain(t);
+    for (const t of ["Bank", "Accounts Receivable", "Accounts Payable"])
+      expect(UNTRACKED_EXPENSE_TYPES as readonly string[]).not.toContain(t);
+    expect(accountTypeError("Expense account", UNTRACKED_EXPENSE_TYPES, { name: "Checking", type: "Bank" })).toMatch(/Expense account must be/);
+  });
+});
+
+describe("Other Charge item kind", () => {
+  it("is untracked, sellable and buyable like Service/Non-Inventory, with no group type", () => {
+    const oc = ITEM_KIND_LIST.find(k => k.kind === "OtherCharge")!;
+    expect(oc).toBeDefined();
+    expect(oc.tracked).toBe(false);
+    expect(oc.sellable).toBe(true);
+    expect(oc.buyable).toBe(true);
+    expect(oc.producible).toBe(false);
+    expect(oc.consumable).toBe(false);
+    expect(groupTypeForKind("OtherCharge")).toBeNull();
   });
 });
