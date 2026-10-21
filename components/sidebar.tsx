@@ -11,7 +11,7 @@ import {
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
   Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
-  CalendarClock, Wrench, MapPin
+  CalendarClock, Wrench, MapPin, Percent
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
@@ -301,6 +301,11 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       items: [
         { href: "/accounting/accounts",          label: "Chart of Accounts",   icon: BookOpen },
         { href: "/accounting/tax-rates",         label: "Tax Rates",           icon: Receipt },
+        // Native tax engine (sales-document refactor, Phase 3c): agencies,
+        // dated rates and the codes built from them — what Invoices/Estimates/
+        // etc. post tax through. Hides itself (shows a notice) for a synced
+        // (QuickBooks/Xero) org, same as Posting Groups below.
+        { href: "/accounting/tax-codes",         label: "Tax Codes",           icon: Percent },
         // The inventory Chart-of-Accounts mapping: which account each stock
         // posting goes to. Setup, not Ledger — it is configuration, like tax rates.
         { href: "/accounting/posting-groups",    label: "Posting Groups",      icon: Layers },

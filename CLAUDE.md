@@ -1906,6 +1906,53 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 3c: admin UI + line picker (2026-10-21)
+
+Builds the UI that actually makes Phase 3a/3b reachable: admin screens to
+create tax agencies/components/codes, and a picker on sales document lines
+that lets a native org choose a code (sending the `taxCodeId` field Phase 3b
+added) alongside the existing legacy tax-rate picker.
+
+- **`/accounting/tax-codes`** (`components/tax-codes.tsx`, new sidebar entry
+  under Setup next to Tax Rates and Posting Groups) — three stacked sections:
+  Agencies, Components, Codes. A synced (QuickBooks/Xero) org sees a notice
+  and nothing else, same rule Posting Groups already follows. No remap/
+  reclass flow like Posting Groups has — a tax code carries no balance of its
+  own to strand, so delete is a straight refuse-if-referenced check.
+- **`lib/accounting/tax-engine-server.ts`** gained the CRUD/listing functions
+  (`listTaxSetup`, `createTaxAgency`, `createTaxComponent`, `createTaxCode`,
+  `updateTaxCode`, the three `delete*` functions). Account-type validation
+  reuses Phase 1's `accountTypeError`/`UNTRACKED_EXPENSE_TYPES`/
+  `untrackedIncomeTypes` from `account-roles.ts` verbatim — a component's
+  sales account is the same "Income/Other Income" rule an untracked item's
+  income account already follows; its purchase account the same expense rule.
+- **Dedicated routes, not the generic `/api/accounting/[entity]` CRUD** —
+  `tax-agencies`, `tax-components`, `tax-codes` (+ `[id]`) under
+  `app/api/accounting/`. The generic route is flat single-table CRUD; a tax
+  code is a parent with an ordered child list (its components), which doesn't
+  fit that shape — same reasoning that already gave Posting Groups its own
+  routes rather than folding into the generic one.
+- **The document-form picker** (`new-document-form.tsx`): one combined
+  `<select>` per tax cell, `<optgroup>`-separated into "Tax codes" (native,
+  only shown when the org isn't synced) and "Tax rates" (the existing flat
+  list, labelled "(legacy)" once codes exist). The two are mutually
+  exclusive per line — picking one clears the other — so a line is never
+  ambiguous between them. No Zod schema strips the new `taxCodeId` field on
+  either the create or edit route; both already pass the body through to
+  `postDocument`/`updateDocument` unfiltered, so no route change was needed
+  there.
+- **Registered in `lib/modules.ts`** (`PAGE_OWNERS`/`API_OWNERS`, owner
+  `"accounting"`) — `tests/module-gating.test.ts`'s reverse-completeness check
+  caught these as unaccounted-for before this was added, exactly as it's
+  meant to. It also caught a `new Date().toISOString().slice(0,10)` in the
+  component form's date default — fixed to `localToday()` from `lib/format.ts`
+  before it could become the next "a date is a date" bug this file already
+  has two sections about.
+- **Not done in 3c**: the inclusive/exclusive pricing toggle (still hardcoded
+  `"exclusive"` in `withTax()`), the company-level rounding-mode setting
+  (still hardcoded `"perLine"`), reverse-charge PDF wording, tax-label
+  localization, and the `TaxProvider` interface — Phase 3d.
+
 ## Sales document refactor — Phase 3b: wired into posting (2026-10-21)
 
 Wires Phase 3a's tax engine into `lib/accounting/documents.ts`'s posting path.

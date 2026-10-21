@@ -80,7 +80,12 @@ const CFG: Record<DocType, Cfg> = {
 };
 
 type Line = {
-  itemId: string; accountId: string; accountOverride?: boolean; description: string; qty: string; rate: string; amount: string; taxRateId: string; classId: string; locationId: string; lotNo?: string; expiryDate?: string; orderUom?: string; packLevel?: string; unitsPerOrderUnit?: number; supplierSkuId?: string; skuId?: string;
+  itemId: string; accountId: string; accountOverride?: boolean; description: string; qty: string; rate: string; amount: string; taxRateId: string;
+  // Native tax engine (Phase 3c) — mutually exclusive with taxRateId; picking
+  // one clears the other so a line is never ambiguous between the legacy flat
+  // rate and a tax code. See withTax() in lib/accounting/documents.ts.
+  taxCodeId?: string;
+  classId: string; locationId: string; lotNo?: string; expiryDate?: string; orderUom?: string; packLevel?: string; unitsPerOrderUnit?: number; supplierSkuId?: string; skuId?: string;
   /** Which section a line sits in on a split (PO / Bill) form. Absent = infer from itemId. */
   kind?: "item" | "account";
   // The price as entered, per a unit that may differ from the order unit
@@ -168,6 +173,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   // The escape hatch: show every item regardless of kind or supplier link.
   const [showAllItems, setShowAllItems] = useState(false);
   const [taxes, setTaxes] = useState<any[]>([]);
+  // Native tax engine (Phase 3c) — only populated for a native (non-synced)
+  // org; empty array for a synced one, so the picker below simply shows no
+  // "Tax codes" group and nothing changes for them.
+  const [taxCodes, setTaxCodes] = useState<{ id: string; name: string; treatment: string }[]>([]);
   const [dims, setDims] = useState<any[]>([]);
   const [parties, setParties] = useState<any[]>([]);
   const [home, setHome] = useState("");
@@ -279,7 +288,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       setLoading(true);
       try {
         const partyUrl = cfg.party === "Vendor" ? "/api/parties/suppliers?native=1" : "/api/parties/customers?native=1";
-        const [a, i, t, dm, p, num, so] = await Promise.all([
+        const [a, i, t, dm, p, num, so, taxSetup] = await Promise.all([
           fetch("/api/accounting/accounts").then(r => r.json()).catch(() => []),
           fetch("/api/accounting/items").then(r => r.json()).catch(() => []),
           fetch("/api/accounting/tax-rates").then(r => r.json()).catch(() => []),
@@ -287,10 +296,14 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           cfg.party ? fetch(partyUrl).then(r => r.json()).catch(() => []) : Promise.resolve([]),
           fetch(`/api/numbering?peek=${type}`).then(r => r.json()).catch(() => null),
           type === "PurchaseOrder" ? fetch("/api/trade-documents/sales-orders").then(r => r.json()).catch(() => []) : Promise.resolve([]),
+          cfg.tax ? fetch("/api/accounting/tax-codes").then(r => (r.ok ? r.json() : null)).catch(() => null) : Promise.resolve(null),
         ]);
         setAccounts(Array.isArray(a) ? a.filter((x: any) => x.status !== "Inactive") : []);
         setItems(Array.isArray(i) ? i.filter((x: any) => x.status !== "Inactive") : []);
         setTaxes(Array.isArray(t) ? t.filter((x: any) => x.status !== "Inactive") : []);
+        // Synced org → taxSetup.synced is true → no native tax codes offered;
+        // same rule the admin screen itself uses (components/tax-codes.tsx).
+        setTaxCodes(taxSetup && !taxSetup.synced && Array.isArray(taxSetup.codes) ? taxSetup.codes.filter((c: any) => c.status !== "Inactive") : []);
         setDims(Array.isArray(dm) ? dm.filter((x: any) => x.status !== "Inactive") : []);
         setParties(Array.isArray(p) ? p : []);
         setOpenSalesOrders(Array.isArray(so) ? so.filter((x: any) => x.status !== "Closed") : []);
@@ -594,6 +607,19 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     applyItem(i, it);
     if (cfg.trade === "purchase-orders" || cfg.trade === "sales-orders") loadPacks(itemId);
   }
+
+  // Native tax engine (Phase 3c) — one combined picker offering both the
+  // legacy flat apTaxRates list and native tax_codes, prefixed so a single
+  // <select> value disambiguates them. Picking either clears the other field,
+  // so a line is never ambiguous between the two (lib/accounting/documents.ts's
+  // withTax() treats taxCodeId as authoritative when both are somehow set).
+  const taxSelectValue = (l: Line) => (l.taxCodeId ? `code:${l.taxCodeId}` : l.taxRateId ? `rate:${l.taxRateId}` : "");
+  function onTaxChange(i: number, raw: string) {
+    if (raw === ADD) { setQuickAdd({ kind: "tax", lineIndex: i }); return; }
+    if (raw.startsWith("code:")) { setLine(i, { taxCodeId: raw.slice(5), taxRateId: "" }); return; }
+    if (raw.startsWith("rate:")) { setLine(i, { taxRateId: raw.slice(5), taxCodeId: "" }); return; }
+    setLine(i, { taxRateId: "", taxCodeId: "" });
+  }
   function onOrderLevel(i: number, opt: OrderOption) {
     // On a sales order the pack option is a finished-product SKU (item_skus) —
     // that IS the stock SKU. On a purchase order it's a supplier SKU (ordering
@@ -728,7 +754,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           // came back empty, the line must still reach the server to get the
           // clear refusal in accountFor() rather than silently vanish here.
           .filter(l => (l.accountId || ((cfg.trade || isItemOnlySales) && l.itemId)) && num(l.amount) !== 0)
-          .map(l => ({ accountId: l.accountId || null, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
+          .map(l => ({ accountId: l.accountId || null, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, taxCodeId: l.taxCodeId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
             priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
       }
 
@@ -1071,9 +1097,16 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
             );
             const taxCell = (l: Line, i: number) => (
               <td className="px-1.5 py-1 align-top">
-                <CellSelect value={l.taxRateId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "tax", lineIndex: i }) : setLine(i, { taxRateId: e.target.value })}>
+                <CellSelect value={taxSelectValue(l)} onChange={e => onTaxChange(i, e.target.value)}>
                   <option value="">No tax</option>
-                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>)}
+                  {taxCodes.length > 0 && (
+                    <optgroup label="Tax codes">
+                      {taxCodes.map(c => <option key={c.id} value={`code:${c.id}`}>{c.name}</option>)}
+                    </optgroup>
+                  )}
+                  <optgroup label={taxCodes.length > 0 ? "Tax rates (legacy)" : "Tax rates"}>
+                    {taxes.map(t => <option key={t.id} value={`rate:${t.id}`}>{t.name} ({Number(t.rate)}%)</option>)}
+                  </optgroup>
                   <option value={ADD}>+ Add new tax rate…</option>
                 </CellSelect>
               </td>
@@ -1409,9 +1442,16 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                           <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.amount} onChange={e => setLine(i, { amount: e.target.value })} className={`${cell} text-right tabular-nums font-medium`} /></td>
                           {cfg.tax && (
                             <td className="px-1.5 py-1">
-                              <CellSelect value={l.taxRateId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "tax", lineIndex: i }) : setLine(i, { taxRateId: e.target.value })}>
+                              <CellSelect value={taxSelectValue(l)} onChange={e => onTaxChange(i, e.target.value)}>
                                 <option value="">No tax</option>
-                                {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>)}
+                                {taxCodes.length > 0 && (
+                                  <optgroup label="Tax codes">
+                                    {taxCodes.map(c => <option key={c.id} value={`code:${c.id}`}>{c.name}</option>)}
+                                  </optgroup>
+                                )}
+                                <optgroup label={taxCodes.length > 0 ? "Tax rates (legacy)" : "Tax rates"}>
+                                  {taxes.map(t => <option key={t.id} value={`rate:${t.id}`}>{t.name} ({Number(t.rate)}%)</option>)}
+                                </optgroup>
                                 <option value={ADD}>+ Add new tax rate…</option>
                               </CellSelect>
                             </td>

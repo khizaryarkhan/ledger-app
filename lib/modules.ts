@@ -107,6 +107,7 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   { path: "/accounting/reconcile", owner: "accounting" },
   { path: "/accounting/new", owner: "accounting" },       // native GL documents (PO/SO carved out above)
   { path: "/accounting/trade/estimates", owner: "accounting" }, // estimates commit nothing — Accounting's (CLAUDE.md IA rule)
+  { path: "/accounting/tax-codes", owner: "accounting" },       // native tax engine admin (sales-document refactor, Phase 3c)
   ...ACCOUNTING_REPORTS.map((r) => ({ path: `/accounting/reports/${r}`, owner: "accounting" as const })),
 
   // Receivables
@@ -156,6 +157,12 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/cash-flow", owner: "accounting" },
   { path: "/api/accounting/fx-exposure", owner: "accounting" },
   { path: "/api/accounting/tax-liability", owner: "accounting" },
+  // Native tax engine admin (sales-document refactor, Phase 3c) — Accounting-
+  // only, unlike posting-groups (no Supply Chain overlap: tax codes aren't
+  // an inventory-accounting concept).
+  { path: "/api/accounting/tax-agencies", owner: "accounting" },
+  { path: "/api/accounting/tax-components", owner: "accounting" },
+  { path: "/api/accounting/tax-codes", owner: "accounting" },
 
   // Supply Chain / Resources — every route here already called
   // requireModule() independently before it was registered; see the header
