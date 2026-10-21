@@ -373,6 +373,47 @@ never actually got.
   `projectId`) is already stored verbatim as `journalEntries.sourcePayload`
   and replayed by `documentPayload()` on reopen — no changes needed there.
 
+## Calculator-in-a-field for Qty/Rate/Amount (2026-10-21)
+
+Reported: "I don't see the purpose of having arrows in the value box" (the
+native number-input spin buttons on the New Document form's Rate field) —
+"we can have a calculator in these fields, similar to what QBO have."
+
+- **`lib/calc.ts`'s `evalArithmetic(input)`** — a hand-written recursive-
+  descent parser (tokenize → parse `+ - * /` with precedence, parentheses,
+  unary minus, decimals), deliberately NOT `eval`/`new Function`. It can
+  only ever produce a number from a fixed grammar; there is no path from a
+  string like `"); fetch(...)"` or `"process.exit(1)"` to anything executing
+  — pinned in `tests/calc.test.ts`, including that exact kind of input.
+  Returns `null` (never throws) for anything that isn't valid arithmetic,
+  including division by zero — the caller's job on `null` is to revert, not
+  to crash the field.
+- **`components/form-kit.tsx`'s `CalcInput`** — the drop-in replacement for
+  `<input type="number">`. Renders `type="text"` / `inputMode="decimal"`,
+  which is WHY the spin buttons disappear — they're purely a `type="number"`
+  artifact, and a native number input can't even accept `+`/`*` characters
+  in the first place, so the calculator feature requires leaving that type
+  behind, not just hiding the arrows with CSS. A plain number still commits
+  live on every keystroke (`onChange` fires immediately, byte-identical to
+  the old behaviour); an expression (anything with an operator or
+  parentheses) only evaluates on blur or Enter, so typing `100+5` doesn't
+  get fought mid-keystroke — exactly QBO's own timing. The evaluated result
+  is rounded to 6dp before being turned back into a string, to avoid handing
+  a field `0.30000000000000004` from `0.1+0.2`.
+- **Wired into every Qty/Rate/Amount field on `components/new-document-
+  form.tsx`** (line-item Qty/Rate/Amount, the account-mode line Amount,
+  header Amount/Exchange rate/Amount received, and the payment/credit
+  allocation cells) — all eight `type="number"` inputs on that form, so the
+  feature (and the arrow removal) is uniform across the whole screen rather
+  than present on some fields and not others.
+- **Not yet done**: every OTHER numeric field in the app still uses a plain
+  `type="number"` input (Receiving/Shipping/BOM/MO/Products drawers, etc.) —
+  this pass scoped to the screen the report was about. `CalcInput` is a
+  general-purpose form-kit export now, so extending it elsewhere is a
+  mechanical swap (`<input type="number" .../>` → `<CalcInput value={...}
+  onChange={...} className={...} />`, dropping the now-inert `step`/`min`/
+  `max` attributes), not a new feature to design.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,

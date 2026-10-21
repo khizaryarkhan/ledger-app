@@ -24,7 +24,7 @@ import { calcLineTax, type TaxCodeRates } from "@/lib/accounting/tax-engine";
 // commit time — never a user-editable field here (see the "Receive to lot"
 // row below and lib/inventory/valuation.ts's resolveLotNo).
 const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kindOf(it?.productType).kind);
-import { CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
+import { CalcInput, CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
 
 export type DocType =
@@ -1029,7 +1029,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               )}
               {foreign && (
                 <Field label="Exchange rate" required hint={`1 ${currency} = ${rate || "?"} ${home}`}>
-                  <input type="number" step="0.000001" min="0" value={rate} onChange={e => setRate(e.target.value)} className={input} />
+                  <CalcInput value={rate} onChange={setRate} className={input} />
                 </Field>
               )}
             </div>
@@ -1039,7 +1039,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           {cfg.mode === "transfer" && (
             <div className="w-52">
               <label className={label}>Amount *</label>
-              <input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} className={`${input} w-full text-right tabular-nums`} />
+              <CalcInput value={amount} onChange={setAmount} className={`${input} w-full text-right tabular-nums`} />
             </div>
           )}
 
@@ -1060,7 +1060,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                   </div>
                   <div className="w-52">
                     <label className={label}>Amount received *</label>
-                    <input type="number" step="0.01" min="0" value={amount} onChange={e => { setAmount(e.target.value); setAmountTouched(true); }} className={`${input} w-full text-right tabular-nums text-[15px]`} />
+                    <CalcInput value={amount} onChange={v => { setAmount(v); setAmountTouched(true); }} className={`${input} w-full text-right tabular-nums text-[15px]`} />
                   </div>
                   {partyId && openDocs && (
                     <div className="ml-auto text-right">
@@ -1106,7 +1106,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                                 <td className="px-3 py-2 text-right tabular-nums text-stone-400">{money(d.totalFx)}</td>
                                 <td className="px-3 py-2 text-right tabular-nums text-stone-300">{money(d.openFx)}</td>
                                 <td className="px-3 py-2 text-right">
-                                  <input type="number" step="0.01" min="0" max={d.openFx} value={alloc[d.id] ?? ""} onChange={e => setAllocSynced({ ...alloc, [d.id]: e.target.value })} className={`${input} w-28 text-right tabular-nums py-1.5`} />
+                                  <CalcInput value={alloc[d.id] ?? ""} onChange={v => setAllocSynced({ ...alloc, [d.id]: v })} className={`${input} w-28 text-right tabular-nums py-1.5`} />
                                 </td>
                               </tr>
                             );
@@ -1145,7 +1145,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                               <td className="px-3 py-2 text-right tabular-nums text-stone-400">{money(c.total)}</td>
                               <td className="px-3 py-2 text-right tabular-nums text-stone-300">{money(c.open)}</td>
                               <td className="px-3 py-2 text-right">
-                                <input type="number" step="0.01" min="0" max={c.open} value={creditAlloc[c.id] ?? ""} onChange={e => setCreditSynced({ ...creditAlloc, [c.id]: e.target.value })} className={`${input} w-28 text-right tabular-nums py-1.5`} />
+                                <CalcInput value={creditAlloc[c.id] ?? ""} onChange={v => setCreditSynced({ ...creditAlloc, [c.id]: v })} className={`${input} w-28 text-right tabular-nums py-1.5`} />
                               </td>
                             </tr>
                           ))}
@@ -1368,7 +1368,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                                 </CellSelect>
                               </td>
                               <td className="px-1.5 py-1"><input value={l.description} onChange={e => setLine(i, { description: e.target.value })} placeholder="—" className={cell} /></td>
-                              <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.amount} onChange={e => setLine(i, { amount: e.target.value })} className={`${cell} text-right tabular-nums font-medium`} /></td>
+                              <td className="px-1.5 py-1"><CalcInput value={l.amount} onChange={v => setLine(i, { amount: v })} className={`${cell} text-right tabular-nums font-medium`} /></td>
                               {cfg.tax && taxCell(l, i)}
                               {dimCells(l, i)}
                               <td className="px-1 py-1 text-center">{delBtn(i)}</td>
@@ -1532,9 +1532,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                             );
                           })()}
                           <td className="px-1.5 py-1"><input value={l.description} onChange={e => setLine(i, { description: e.target.value })} placeholder="—" className={cell} /></td>
-                          {cfg.mode === "lineItems" && <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.qty} onChange={e => recompute(i, { qty: e.target.value })} className={`${cell} text-right tabular-nums`} /></td>}
-                          {cfg.mode === "lineItems" && <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.rate} onChange={e => recompute(i, { rate: e.target.value })} className={`${cell} text-right tabular-nums`} /></td>}
-                          <td className="px-1.5 py-1"><input type="number" step="0.01" value={l.amount} onChange={e => setLine(i, { amount: e.target.value })} className={`${cell} text-right tabular-nums font-medium`} /></td>
+                          {cfg.mode === "lineItems" && <td className="px-1.5 py-1"><CalcInput value={l.qty} onChange={v => recompute(i, { qty: v })} className={`${cell} text-right tabular-nums`} /></td>}
+                          {cfg.mode === "lineItems" && <td className="px-1.5 py-1"><CalcInput value={l.rate} onChange={v => recompute(i, { rate: v })} className={`${cell} text-right tabular-nums`} /></td>}
+                          <td className="px-1.5 py-1"><CalcInput value={l.amount} onChange={v => setLine(i, { amount: v })} className={`${cell} text-right tabular-nums font-medium`} /></td>
                           {cfg.tax && (
                             <td className="px-1.5 py-1">
                               <CellSelect value={taxSelectValue(l)} onChange={e => onTaxChange(i, e.target.value)}>

@@ -16,8 +16,9 @@
  * feature components; compose from here so every form stays consistent.
  */
 
-import { ReactNode, SelectHTMLAttributes, useEffect } from "react";
+import { ReactNode, SelectHTMLAttributes, InputHTMLAttributes, useEffect, useState } from "react";
 import { ChevronDown, X, Check, Loader } from "lucide-react";
+import { evalArithmetic } from "@/lib/calc";
 
 // ── Typography ────────────────────────────────────────────────────────────
 /**
@@ -178,6 +179,63 @@ export const cell =
   "placeholder:text-stone-600 outline-none transition-[border-color,box-shadow,background-color] duration-150 " +
   "hover:bg-stone-900/70 hover:border-stone-700/70 focus:bg-stone-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 export const cellSelectCls = cell + " appearance-none pr-6 cursor-pointer";
+
+// A bare number as typed so far — including the empty string and a lone "-"
+// or trailing "." mid-keystroke — so typing a plain value behaves exactly as
+// a native number input always did (live onChange on every keystroke).
+const BARE_NUMBER = /^-?\d*\.?\d*$/;
+
+/**
+ * A numeric field that behaves like a calculator, the way QuickBooks' own
+ * Rate/Amount fields do: type "100+5*2", tab out, get 110. Plain numbers
+ * commit live (onChange fires every keystroke, unchanged from before); an
+ * expression (anything with an operator or parentheses) only evaluates on blur or Enter, so it
+ * doesn't fight the user mid-type. An invalid expression reverts to the
+ * last committed value rather than leaving garbage in the field.
+ *
+ * Renders as `type="text"` with `inputMode="decimal"`, not `type="number"` —
+ * deliberately: a native number input cannot accept "+"/"*" at all, and its
+ * built-in step spinner has no purpose on a field most users type into
+ * directly (reported: "I don't see the purpose of having arrows in the
+ * value box"). `className` is the caller's own control styling (`cell`,
+ * `control`, `controlInset`, …) — this is a drop-in replacement for a plain
+ * `<input type="number">`, not a new visual style.
+ */
+export function CalcInput({
+  value, onChange, className, onBlur, ...rest
+}: {
+  value: string;
+  onChange: (v: string) => void;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const [draft, setDraft] = useState(value);
+  // Resync when the parent changes `value` out from under us (e.g. a sibling
+  // field's change recomputes this one) — but never while the field itself
+  // has unresolved typed input the user hasn't committed yet.
+  useEffect(() => { setDraft(value); }, [value]);
+
+  function commit() {
+    if (BARE_NUMBER.test(draft)) return; // already live-synced via onChange below
+    const result = evalArithmetic(draft);
+    if (result == null) { setDraft(value); return; } // invalid — revert, nothing changed
+    const rounded = Math.round(result * 1e6) / 1e6; // avoid float noise (0.1+0.2 → 0.30000000000000004)
+    const str = String(rounded);
+    setDraft(str);
+    onChange(str);
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      onChange={e => { const v = e.target.value; setDraft(v); if (BARE_NUMBER.test(v)) onChange(v); }}
+      onBlur={e => { commit(); onBlur?.(e); }}
+      onKeyDown={e => { if (e.key === "Enter") commit(); }}
+      className={className}
+      {...rest}
+    />
+  );
+}
 /**
  * The header ROW of a table. Six variants of this existed across 31 tables —
  * 10px vs 11px, tracking-wider vs 0.07em, one with no divider at all — because
