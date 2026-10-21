@@ -1906,6 +1906,40 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 3d (trimmed): inclusive pricing + TaxProvider (2026-10-21)
+
+Scoped down from the original 3d (inclusive/exclusive toggle, rounding-mode
+setting, reverse-charge PDF wording, tax-label localization, `TaxProvider`)
+to just the toggle and the interface, by explicit choice at the time — this
+session's cost had crossed into territory where shipping a smaller, fully
+verified slice beat pushing through the whole remaining list. **Rounding-mode
+setting, reverse-charge PDF wording and tax-label localization are still not
+built.**
+
+- **Inclusive/exclusive pricing, end to end**: `PostDocInput.pricing` (new,
+  optional, defaults to `"exclusive"` — byte-identical to every document ever
+  posted) flows into `withTax()`, which now backs the net out of a tax-
+  inclusive line amount for BOTH the native (`taxCodeId`) and legacy flat
+  (`taxRateId`) paths, using the same math so a document can mix the two
+  without them disagreeing on what "inclusive" means. UI: a per-document
+  toggle next to "Line items" in `new-document-form.tsx`.
+- **A real bug caught and fixed in the same pass, not introduced by this
+  phase**: the client-side totals preview (`new-document-form.tsx`'s `totals`
+  useMemo) only ever read `l.taxRateId` — a line using Phase 3c's new native
+  `taxCodeId` showed **zero tax in the live total** even though the server
+  posted it correctly. Fixed by reusing `calcLineTax` client-side (it's pure
+  and already safe to import) against a locally-resolved `TaxCodeRates` built
+  from the already-fetched tax-codes/components lists — an approximation that
+  ignores a component's effective-dating (reasonable for a document being
+  composed today) while the server stays authoritative at post time.
+- **`TaxProvider` interface** (`lib/accounting/tax-engine.ts`) — the seam
+  spec section 4.3 asks for, so a US-sales-tax engine (Avalara/Stripe Tax/
+  TaxJar) could be plugged in later without `documents.ts` caring which engine
+  answered. **Not wired into posting** — `withTax()` still talks to
+  `calcLineTax`/`resolveTaxCodes` directly. `createNativeTaxProvider()` wraps
+  the existing engine in the interface shape, proving it's implementable and
+  giving a reference to compare a future external adapter against.
+
 ## Sales document refactor — Phase 3c: admin UI + line picker (2026-10-21)
 
 Builds the UI that actually makes Phase 3a/3b reachable: admin screens to

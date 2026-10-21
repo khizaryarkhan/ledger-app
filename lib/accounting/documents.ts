@@ -96,6 +96,10 @@ export type PostDocInput = {
   dueDate?: string | null;         // Invoice/Bill: when payable (aging basis)
   termsDays?: number | null;       // if dueDate omitted, due = date + termsDays
   reference?: string | null;       // supplier bill no. / customer PO / free ref
+  // Whether each line's `amount` already includes tax (Phase 3d). Absent or
+  // "exclusive" (the default) is byte-identical to every document posted
+  // before this existed — only an explicit "inclusive" changes the maths.
+  pricing?: "exclusive" | "inclusive" | null;
   projectId?: string | null;       // header-level project (matches the form's single picker — never per-line)
   /**
    * Physical stock location for any inventory-tracked line on this document.
@@ -162,8 +166,15 @@ async function controlAccounts(orgId: string) {
  * Every line also carries `taxComponents` (empty unless taxCodeId resolved to
  * a code with components) so the caller can post one journal line per
  * resolved tax account instead of one flat total — see pushTax() below.
+ *
+ * `pricing` (Phase 3d): "exclusive" (the default — every document before this
+ * existed) treats `amount` as the net, tax added on top. "inclusive" treats
+ * `amount` as already including tax, backing the net out of it — same math
+ * for both the native (taxCodeId) and legacy flat (taxRateId) paths, so a
+ * document can mix tax codes and flat rates under one pricing mode without
+ * the two disagreeing on what "inclusive" means.
  */
-async function withTax(orgId: string, lines: DocLineInput[], opts: { isSale: boolean; asOf: string }) {
+async function withTax(orgId: string, lines: DocLineInput[], opts: { isSale: boolean; asOf: string; pricing: "exclusive" | "inclusive" }) {
   const codeIds = [...new Set(lines.map(l => l.taxCodeId).filter(Boolean) as string[])];
   const codes = codeIds.length ? await resolveTaxCodes(orgId, codeIds, opts.asOf) : new Map();
 
@@ -177,14 +188,14 @@ async function withTax(orgId: string, lines: DocLineInput[], opts: { isSale: boo
   return lines.map(l => {
     if (l.taxCodeId) {
       const code = codes.get(l.taxCodeId) ?? null;
-      // Pricing is exclusive-only until Phase 3c exposes the inclusive/
-      // exclusive toggle — matches the flat calc's existing behaviour exactly.
-      const r = calcLineTax(l.amount, "exclusive", code, opts.isSale);
+      const r = calcLineTax(l.amount, opts.pricing, code, opts.isSale);
       return { ...l, net: r.net, tax: r.taxTotal, taxComponents: r.componentAmounts };
     }
-    const net = round2(l.amount);
     const pct = l.taxRateId ? (rateById.get(l.taxRateId) ?? 0) : 0;
-    return { ...l, net, tax: round2(net * pct / 100), taxComponents: [] as TaxComponentAmount[] };
+    if (!pct) { const net = round2(l.amount); return { ...l, net, tax: 0, taxComponents: [] as TaxComponentAmount[] }; }
+    const net = opts.pricing === "inclusive" ? round2(l.amount / (1 + pct / 100)) : round2(l.amount);
+    const tax = opts.pricing === "inclusive" ? round2(l.amount - net) : round2(net * pct / 100);
+    return { ...l, net, tax, taxComponents: [] as TaxComponentAmount[] };
   });
 }
 
@@ -278,7 +289,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   // section would raise stock in the GL with no lot, no quantity and nothing
   // that could ever relieve it. Stock enters the books only with an item.
   await assertNoControlAccounts(orgId, raw.filter(l => !(l.itemId && itemMap?.get(l.itemId)?.tracked)).map(l => ({ accountId: l.accountId! })));
-  const priced = await withTax(orgId, raw, { isSale, asOf: input.date });
+  const priced = await withTax(orgId, raw, { isSale, asOf: input.date, pricing: input.pricing === "inclusive" ? "inclusive" : "exclusive" });
   const netTotal = round2(priced.reduce((s, l) => s + l.net, 0));
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
   const grand = round2(netTotal + taxTotal);
@@ -1042,7 +1053,7 @@ async function bridgeNativeInvoice(orgId: string, entryId: string, docNumber: st
   // explicit account still posts (its account is derived from the item), so
   // filtering on accountId alone would understate the receivable against the
   // journal entry it mirrors.
-  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: true, asOf: input.date });
+  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: true, asOf: input.date, pricing: input.pricing === "inclusive" ? "inclusive" : "exclusive" });
   const net = round2(priced.reduce((s, l) => s + l.net, 0));
   const tax = round2(priced.reduce((s, l) => s + l.tax, 0));
   const total = round2(net + tax);
@@ -1078,7 +1089,7 @@ async function bridgeNativeBill(orgId: string, entryId: string, docNumber: strin
   // Same line filter the GL entry used — a line carrying an item but no
   // explicit account still posts (its account comes from the item), so
   // filtering on accountId alone would understate the payable.
-  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: false, asOf: input.date });
+  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: false, asOf: input.date, pricing: input.pricing === "inclusive" ? "inclusive" : "exclusive" });
   const net = round2(priced.reduce((s, l) => s + l.net, 0));
   const tax = round2(priced.reduce((s, l) => s + l.tax, 0));
   const total = round2(net + tax);

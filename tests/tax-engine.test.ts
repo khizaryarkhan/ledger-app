@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calcLineTax, aggregateDocumentTax, TAX_TREATMENTS, TAX_TREATMENT_META, isTaxTreatment,
+  createNativeTaxProvider,
   type TaxCodeRates, type TaxComponentRate,
 } from "@/lib/accounting/tax-engine";
 
@@ -163,3 +164,23 @@ describe("aggregateDocumentTax", () => {
 });
 
 function round2to(n: number) { return Math.round(n * 100) / 100; }
+
+describe("createNativeTaxProvider", () => {
+  it("delegates to calcLineTax using whatever resolveCode returns", async () => {
+    const provider = createNativeTaxProvider(async (taxCodeId, asOf) => {
+      expect(taxCodeId).toBe("code1");
+      expect(asOf).toBe("2026-10-21");
+      return code();
+    });
+    expect(provider.id).toBe("native");
+    const r = await provider.calcLine({ amount: 100, pricing: "exclusive", isSale: true, taxCodeId: "code1", asOf: "2026-10-21" });
+    expect(r.net).toBe(100);
+    expect(r.taxTotal).toBe(20);
+  });
+
+  it("resolves to no tax when the line carries no taxCodeId", async () => {
+    const provider = createNativeTaxProvider(async () => { throw new Error("should not be called"); });
+    const r = await provider.calcLine({ amount: 100, pricing: "exclusive", isSale: true, asOf: "2026-10-21" });
+    expect(r.taxTotal).toBe(0);
+  });
+});

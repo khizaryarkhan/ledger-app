@@ -16,6 +16,7 @@ import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
 import { sourcingViolations, SOURCING_ENFORCED_TYPES, allowsAnySupplier } from "@/lib/inventory/sourcing";
+import { calcLineTax, type TaxCodeRates } from "@/lib/accounting/tax-engine";
 
 // Finished Product / Work in Progress lots are always system-generated at
 // commit time — never a user-editable field here (see the "Receive to lot"
@@ -173,10 +174,18 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   // The escape hatch: show every item regardless of kind or supplier link.
   const [showAllItems, setShowAllItems] = useState(false);
   const [taxes, setTaxes] = useState<any[]>([]);
-  // Native tax engine (Phase 3c) — only populated for a native (non-synced)
+  // Native tax engine (Phase 3c/3d) — only populated for a native (non-synced)
   // org; empty array for a synced one, so the picker below simply shows no
-  // "Tax codes" group and nothing changes for them.
-  const [taxCodes, setTaxCodes] = useState<{ id: string; name: string; treatment: string }[]>([]);
+  // "Tax codes" group and nothing changes for them. `taxComponents` is the
+  // full component list (rate, sequence) so the live totals preview can
+  // actually compute a native code's tax instead of showing zero.
+  const [taxCodes, setTaxCodes] = useState<{ id: string; name: string; treatment: string; compound: boolean; components: { componentId: string; sequence: number }[] }[]>([]);
+  const [taxComponents, setTaxComponents] = useState<{ id: string; rate: string }[]>([]);
+  // Document-level pricing mode (Phase 3d) — whether line amounts already
+  // include tax. Defaults to "exclusive", matching every document posted
+  // before this existed; only changes behaviour when a user deliberately
+  // switches it.
+  const [pricing, setPricing] = useState<"exclusive" | "inclusive">("exclusive");
   const [dims, setDims] = useState<any[]>([]);
   const [parties, setParties] = useState<any[]>([]);
   const [home, setHome] = useState("");
@@ -304,6 +313,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         // Synced org → taxSetup.synced is true → no native tax codes offered;
         // same rule the admin screen itself uses (components/tax-codes.tsx).
         setTaxCodes(taxSetup && !taxSetup.synced && Array.isArray(taxSetup.codes) ? taxSetup.codes.filter((c: any) => c.status !== "Inactive") : []);
+        setTaxComponents(taxSetup && Array.isArray(taxSetup.components) ? taxSetup.components : []);
         setDims(Array.isArray(dm) ? dm.filter((x: any) => x.status !== "Inactive") : []);
         setParties(Array.isArray(p) ? p : []);
         setOpenSalesOrders(Array.isArray(so) ? so.filter((x: any) => x.status !== "Closed") : []);
@@ -671,11 +681,42 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   }
 
   const taxPct = (id: string) => Number(taxes.find(t => t.id === id)?.rate) || 0;
+  // Native tax codes, resolved into the shape calcLineTax expects — a client-
+  // side approximation of lib/accounting/tax-engine-server.ts's resolveTaxCodes:
+  // it ignores a component's effective-dating (always "current", since this is
+  // a document being composed today) and account ids (not needed for a total
+  // preview). The server remains authoritative at post time; this is only for
+  // an accurate running total while composing.
+  const taxCodeRates = useMemo(() => {
+    const componentById = new Map(taxComponents.map(c => [c.id, c]));
+    const out = new Map<string, TaxCodeRates>();
+    for (const code of taxCodes) {
+      out.set(code.id, {
+        id: code.id, name: code.name, treatment: (code.treatment as any) ?? "standard", compound: code.compound,
+        components: code.components.map(l => {
+          const c = componentById.get(l.componentId);
+          return { componentId: l.componentId, name: c ? (c as any).name ?? "" : "", rate: c ? Number(c.rate) : 0, sequence: l.sequence, salesAccountId: null, purchaseAccountId: null };
+        }),
+      });
+    }
+    return out;
+  }, [taxCodes, taxComponents]);
+  // One line's tax, honouring taxCodeId (native) over taxRateId (legacy flat)
+  // and the document's inclusive/exclusive pricing toggle — the exact same
+  // precedence and math lib/accounting/documents.ts's withTax() applies.
+  const lineTax = (l: Line) => {
+    if (l.taxCodeId) return calcLineTax(num(l.amount), pricing, taxCodeRates.get(l.taxCodeId) ?? null, cfg.side === "sales").taxTotal;
+    const pct = taxPct(l.taxRateId);
+    if (!pct) return 0;
+    const amt = num(l.amount);
+    return pricing === "inclusive" ? Math.round((amt - amt / (1 + pct / 100)) * 100) / 100 : Math.round(amt * pct / 100) / 1;
+  };
   const totals = useMemo(() => {
     if (cfg.mode === "lineItems") {
-      const net = lines.reduce((s, l) => s + num(l.amount), 0);
-      const tax = lines.reduce((s, l) => s + num(l.amount) * taxPct(l.taxRateId) / 100, 0);
-      return { net: Math.round(net * 100) / 100, tax: Math.round(tax * 100) / 100, total: Math.round((net + tax) * 100) / 100 };
+      const gross = lines.reduce((s, l) => s + num(l.amount), 0);
+      const tax = lines.reduce((s, l) => s + lineTax(l), 0);
+      const net = pricing === "inclusive" ? gross - tax : gross;
+      return { net: Math.round(net * 100) / 100, tax: Math.round(tax * 100) / 100, total: Math.round((pricing === "inclusive" ? gross : net + tax) * 100) / 100 };
     }
     if (cfg.mode === "deposit") {
       const net = lines.reduce((s, l) => s + num(l.amount), 0);
@@ -683,7 +724,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     }
     const a = num(amount);
     return { net: a, tax: 0, total: a };
-  }, [lines, amount, cfg.mode, taxes]);
+  }, [lines, amount, cfg.mode, taxes, pricing, taxCodeRates]);
 
   async function submit() {
     setPosting(true); setErr("");
@@ -744,6 +785,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         }
       }
       if (cfg.terms) payload.dueDate = dueDate || undefined;
+      if (cfg.tax) payload.pricing = pricing;
       if (cfg.refLabel && reference.trim()) payload.reference = reference.trim();
       if (cfg.mode === "deposit" && sweptPaymentIds.length) payload.sweptPaymentIds = sweptPaymentIds;
       if (cfg.mode === "lineItems" || cfg.mode === "deposit") {
@@ -1305,7 +1347,17 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
 
           {/* Line items / deposit lines */}
           {!split && (cfg.mode === "lineItems" || cfg.mode === "deposit") && (
-            <Section title={cfg.mode === "deposit" ? "Sources" : "Line items"}>
+            <Section title={cfg.mode === "deposit" ? "Sources" : "Line items"}
+              right={cfg.tax && (
+                <label className="flex items-center gap-1.5 text-[11px] text-stone-400 cursor-pointer" title="Whether the amounts typed on each line already include tax.">
+                  Amounts are
+                  <SelectField inset value={pricing} onChange={e => setPricing(e.target.value as "exclusive" | "inclusive")} className="!h-7 !text-[11px] !py-0 w-auto">
+                    <option value="exclusive">Exclusive of tax</option>
+                    <option value="inclusive">Inclusive of tax</option>
+                  </SelectField>
+                </label>
+              )}>
+
               {(cfg.lineMode === "item" || cfg.lineMode === "both") && items.length === 0 && !isItemOnlySales && (
                 <p className="text-[11px] text-stone-500">
                   Enter lines by income account below. To invoice by <b className="text-stone-400">Product/Service</b> (with Qty × Rate), add items in{" "}

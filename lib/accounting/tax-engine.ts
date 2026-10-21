@@ -198,3 +198,71 @@ export function aggregateDocumentTax(lines: LineTaxResult[], mode: RoundingMode)
   const total = round2(components.reduce((s, c) => s + c.amount, 0));
   return { components, total };
 }
+
+// ── TaxProvider — the pluggable-engine seam (Phase 3d) ──────────────────────
+//
+// The built-in engine above (calcLineTax/aggregateDocumentTax, backed by
+// tax_agencies/tax_components/tax_codes) handles VAT/GST-style jurisdictions,
+// where a tenant configures its own agencies and rates. US sales tax doesn't
+// fit that model well — rates vary by address down to the ZIP+4, nexus rules
+// change what's even taxable, and no org wants to hand-maintain that table.
+// A TaxProvider is the seam an external engine (Avalara, Stripe Tax, TaxJar)
+// would implement later to serve that case instead, without lib/accounting/
+// documents.ts caring which engine actually answered.
+//
+// NOT WIRED UP: nothing in documents.ts calls a TaxProvider yet — the posting
+// path (withTax()) talks to calcLineTax/resolveTaxCodes directly. This exists
+// so a future external-engine integration has a defined shape to implement
+// and a reference implementation (NativeTaxProvider) to compare against,
+// not as a currently-reachable code path.
+
+/** What a provider needs to price one line — intentionally a superset of what
+ *  the native engine itself needs, since an address-based engine (US sales
+ *  tax) requires ship-from/ship-to that a jurisdiction-rate engine does not. */
+export type TaxProviderLineInput = {
+  amount: number;
+  pricing: PricingMode;
+  isSale: boolean;
+  /** This org's native tax_codes.id, when the line used one. A non-native
+   *  provider would ignore this and use its own product tax code instead. */
+  taxCodeId?: string | null;
+  /** The provider's own product/service tax code (e.g. Avalara's "PC" codes),
+   *  for an external engine that classifies by product rather than by a
+   *  tenant-configured code. */
+  externalTaxCode?: string | null;
+  shipFrom?: { country: string; region?: string | null; postalCode?: string | null } | null;
+  shipTo?: { country: string; region?: string | null; postalCode?: string | null } | null;
+  /** YYYY-MM-DD — the document's own date, never "today" (see calcLineTax). */
+  asOf: string;
+};
+
+export type TaxProviderResult = LineTaxResult & {
+  /** The provider's own id for this calculation, if it tracks one (Avalara's
+   *  DocumentCode, for instance) — kept for audit/commit calls back to the
+   *  provider, not used by posting itself. */
+  providerRef?: string | null;
+};
+
+export interface TaxProvider {
+  /** "native" | "avalara" | "stripe-tax" | "taxjar" | … */
+  readonly id: string;
+  calcLine(input: TaxProviderLineInput): Promise<TaxProviderResult>;
+}
+
+/**
+ * The built-in engine, wrapped to the TaxProvider shape — proves the
+ * interface is implementable by what already exists, and is what
+ * `withTax()` would default to if a future org-level setting let a tenant
+ * choose a different provider. `resolveCode` is injected rather than
+ * imported directly so this file stays client-safe (resolving a tax_codes id
+ * needs `db` — lib/accounting/tax-engine-server.ts).
+ */
+export function createNativeTaxProvider(resolveCode: (taxCodeId: string, asOf: string) => Promise<TaxCodeRates | null>): TaxProvider {
+  return {
+    id: "native",
+    async calcLine(input) {
+      const code = input.taxCodeId ? await resolveCode(input.taxCodeId, input.asOf) : null;
+      return calcLineTax(input.amount, input.pricing, code, input.isSale);
+    },
+  };
+}
