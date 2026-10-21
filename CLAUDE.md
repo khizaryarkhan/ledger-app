@@ -261,6 +261,118 @@ create — not a simple form) that doesn't already match it:
   asked, using this section as the checklist rather than re-deriving the
   Board's pattern from scratch each time.
 
+## "Quick-add" inline drawers were silently a SECOND, thinner form (2026-10-21)
+
+Reported directly: clicking "+ Add new customer…" (or "+ Add new item…")
+from inside the Invoice/Bill/etc. form did not open the same drawer used to
+add a customer from the Customers page — and the user was right to read that
+as an integrity question, not a cosmetic one.
+
+- **What was actually happening**: `components/quick-add.tsx`'s `QuickAdd`
+  carried its OWN stripped-down copies of the customer/supplier form (name,
+  email, currency only — no address, payment terms, tax number) and the
+  item form (name, income account, price, tax only — no item kind, no trade
+  flags, no posting group), posting to the SAME endpoints
+  (`/api/parties/customers|suppliers`, `/api/accounting/items`) as the real
+  forms but via a parallel, incomplete field set. The real forms already
+  existed: `components/party-drawer.tsx`'s `PartyDrawer` (used from
+  `components/party-list.tsx` — Customers/Suppliers/Employees) and
+  `components/products-register.tsx`'s `NewItemDrawer` (used from the real
+  Products & Services page, `/accounting/products`).
+  - **The item side was a real, not just thinner, correctness gap**:
+    `/api/accounting/items` (the legacy entity-CRUD route QuickAdd posted to)
+    inserts straight into `apItems` with none of the Phase-1 account-mapping
+    validation (`prepareItemAccounting` — see the "sales document refactor"
+    Phase 1 section above) that `/api/inventory/items` (what `NewItemDrawer`
+    posts to) enforces, and leaves the newer `productType`/`canBeSold`/
+    `canBePurchased`/`sourcingPolicy` columns at their bare defaults instead
+    of the kind-appropriate values the real item-creation path computes. A
+    quick-added item was a quietly less-validated, less-complete row in the
+    exact same table.
+- **The fix is NOT a third drawer** — every caller now renders the one real
+  drawer directly for Customer/Supplier and Item, and `QuickAdd` no longer
+  accepts `"customer"`/`"supplier"`/`"item"` as a kind at all (its
+  `QuickAddKind` union was narrowed to exactly the kinds that have no richer
+  drawer elsewhere: Chart of Accounts entries, tax rates, classes,
+  locations). Three call sites changed:
+  - `components/new-document-form.tsx`'s party/item "+ Add new…" pickers now
+    render `<PartyDrawer type="customers"|"suppliers">` / `<NewItemDrawer
+    initialProductType="Service">` directly (Service, not the drawer's own
+    default FinishedProduct, since an ad-hoc invoice line is almost always a
+    service — still fully editable in the drawer).
+  - `components/products-register.tsx`'s `SupplierSkuDrawer` (the "+ Add new
+    supplier…" while linking a supplier to an item) now renders `PartyDrawer`
+    the same way, instead of `QuickAdd kind="supplier"`.
+  - Both `PartyDrawer` and `NewItemDrawer` gained an `elevated` prop
+    (passed through to form-kit's `Drawer`) — needed only when opened from
+    inside the New Document form, which is a full-page document sheet, not a
+    drawer itself; without it, the new drawer would share the page's
+    ordinary z-50 and DOM order would decide which element wins. `onCreated`
+    on both was widened from `() => void` to `(row?: any) => void` so the
+    document form can auto-select the freshly created record — their other,
+    pre-existing callers (`party-list.tsx`, the Products page's own "+ New
+    item" button) ignore the argument and are unaffected.
+  - **Avoided a circular import deliberately**: `NewItemDrawer` itself
+    renders `QuickAdd` internally for ITS OWN income/expense-account and tax
+    quick-adds (kinds `QuickAdd` still handles) — so `QuickAdd` must never
+    import `PartyDrawer`/`NewItemDrawer` back. The dependency only runs one
+    way: `new-document-form.tsx` → `products-register.tsx` →
+    `quick-add.tsx`/`party-drawer.tsx`. Verified with a standalone ESM
+    `import()` smoke test (not just `tsc`, which cannot catch a genuine
+    module-execution-order cycle) before shipping.
+- **Not fixed by this change, and not forgotten**: `QuickAdd`'s remaining
+  kinds (Chart of Accounts account, tax rate, class, location) are STILL a
+  thinner inline form than their own standalone pages
+  (`app/(app)/settings/accounting/_lists.tsx`'s own create drawers — Detail
+  type/subtype, parent account, currency for accounts; full tax type for tax
+  rates). Left alone deliberately: those are genuinely lightweight,
+  low-stakes records to create mid-line-entry (you're picking a GL account
+  while typing an invoice line, not managing the Chart of Accounts), unlike
+  Customer and Item, which the user specifically flagged and which carry
+  real downstream consequences (collections, inventory valuation). Revisit
+  if the same complaint is raised about any of these four.
+
+## Invoice/SalesReceipt/CreditNote/RefundReceipt can now carry a Project (2026-10-21)
+
+Reported alongside the quick-add issue above: the party picker on these
+forms had no way to also pick a Project, even though `PostDocInput.projectId`
+(`lib/accounting/documents.ts`) already existed, explicitly commented as
+"header-level project (matches the form's single picker — never per-line)"
+— the backend was built expecting a picker that `new-document-form.tsx`
+never actually got.
+
+- **Added**: a "Project" field next to the Customer field, shown only for
+  `party === "Customer" && mode === "lineItems" && !trade` (Invoice,
+  SalesReceipt, CreditNote, RefundReceipt) — **not** Estimate/SalesOrder,
+  whose `trade_documents` table has no `project_id` column at all (a
+  separate, larger gap: adding it needs a migration plus wiring into
+  `lib/accounting/trade-documents.ts`'s `createTradeDoc`, neither of which
+  exists). Showing the field there would have silently discarded the
+  selection — worse than not having it.
+- **Scoped to the selected customer**: `projects.customerId` is a required
+  FK (a project cannot exist without exactly one owning customer, QBO's
+  sub-customer/Job model), so the picker fetches `GET /api/projects?
+  customerId=<partyId>` whenever the party changes, and is cleared whenever
+  the customer changes (in `onParty` AND in the quick-add-created-customer
+  path, `onQuickCreated`) — a project selected for Customer A must never
+  silently ride along onto Customer B.
+- **A second, real bug found and fixed while wiring this through**:
+  `projectId` was already read into `journalLines.projectId` by `withTax`'s
+  `lineCommon()`, but `bridgeNativeInvoice`'s `common` object — the function
+  that mirrors a posted Invoice into the `invoices` table the Collections
+  Board actually reads — never included it. Even with the picker wired up,
+  a selected project would have posted to the ledger correctly but the
+  Board would never have shown it. Fixed by adding `projectId: input.projectId
+  ?? null` to that `common` object, the same way `customerId: input.partyId`
+  already works there. Only `bridgeNativeInvoice` needed this — SalesReceipt/
+  CreditNote/RefundReceipt don't bridge into `invoices` via this function at
+  all (only `type === "Invoice"` does), so adding the field to them only
+  benefits the General Ledger's own `projectId` dimension on those three,
+  not the Board.
+- Round-trips correctly on edit: the form's full submit payload (including
+  `projectId`) is already stored verbatim as `journalEntries.sourcePayload`
+  and replayed by `documentPayload()` on reopen — no changes needed there.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,

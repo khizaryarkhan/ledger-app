@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
+import { PartyDrawer } from "@/components/party-drawer";
+import { NewItemDrawer } from "@/components/products-register";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
 import { sourcingViolations, SOURCING_ENFORCED_TYPES, allowsAnySupplier } from "@/lib/inventory/sourcing";
@@ -204,6 +206,14 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const [goodsReturned, setGoodsReturned] = useState(false);
   const isReturnable = type === "CreditNote" || type === "RefundReceipt" || type === "VendorCredit";
   const [partyId, setPartyId] = useState("");
+  // A project is a customer-grouping entity (projects.customerId is a
+  // required FK), so the picker only makes sense for Customer-party,
+  // postDocument-backed types (Invoice/SalesReceipt/CreditNote/RefundReceipt)
+  // — trade_documents (Estimate/SalesOrder) has no project_id column at all,
+  // so showing the field there would silently discard the selection.
+  const supportsProject = cfg.party === "Customer" && !cfg.trade && cfg.mode === "lineItems";
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<any[]>([]);
   const [bankAccountId, setBankAccountId] = useState("");
   const [toBankAccountId, setToBankAccountId] = useState("");
   const [amount, setAmount] = useState("");
@@ -231,7 +241,12 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const [done, setDone] = useState<{ docNumber?: string; txnNo?: number } | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   // Inline "+ Add new" from a dropdown → quick-create drawer.
-  const [quickAdd, setQuickAdd] = useState<{ kind: QuickAddKind; lineIndex?: number; field?: "bank" | "toBank" } | null>(null);
+  // "customer"/"supplier"/"item" are NOT QuickAddKind values — they open the
+  // real PartyDrawer/NewItemDrawer directly (see the render block below),
+  // never the generic QuickAdd component. QuickAddKind covers only the kinds
+  // with no richer standalone drawer elsewhere (accounts, tax, class, location).
+  type AddKind = QuickAddKind | "customer" | "supplier" | "item";
+  const [quickAdd, setQuickAdd] = useState<{ kind: AddKind; lineIndex?: number; field?: "bank" | "toBank" } | null>(null);
 
   // Reopen-to-edit: /accounting/new/<Type>?edit=<entryId> loads the stored form
   // payload and switches Save to an in-place update.
@@ -246,6 +261,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       setMemo(p.memo ?? "");
       setGoodsReturned(!!p.goodsReturned);
       setPartyId(p.partyId ?? "");
+      setProjectId(p.projectId ?? "");
       setBankAccountId(p.bankAccountId ?? "");
       if (p.currency) setCurrency(p.currency);
       if (p.exchangeRate) setRate(String(p.exchangeRate));
@@ -368,6 +384,19 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     return accounts.filter(a => !isControl(a));
   }, [accounts, cfg.side]);
 
+  // Projects belong to exactly one customer — reload the list whenever the
+  // party changes (covers both a user picking a new customer via onParty
+  // below AND loading an existing document, which sets partyId directly).
+  // This does NOT clear a previously-selected projectId on its own — onParty
+  // does that explicitly when the customer actually changes, since this
+  // effect alone can't distinguish "same customer, just (re)fetching its
+  // project list" from "switched customer, drop the stale project".
+  useEffect(() => {
+    if (!supportsProject || !partyId) { setProjects([]); return; }
+    fetch(`/api/projects?customerId=${encodeURIComponent(partyId)}`).then(r => r.json())
+      .then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => setProjects([]));
+  }, [partyId, supportsProject]);
+
   function onParty(id: string) {
     if (id === "__add__") { setQuickAdd({ kind: cfg.party === "Vendor" ? "supplier" : "customer" }); return; }
     // Every pack choice on the document describes the OUTGOING supplier's
@@ -388,6 +417,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       }));
     }
     setPartyId(id);
+    // A project belongs to exactly one customer — switching customer always
+    // drops any previously-picked project rather than leaving a selection
+    // from a DIFFERENT customer silently attached to this document.
+    if (supportsProject) setProjectId("");
     if (mcEnabled) {
       const p = parties.find(x => x.id === id);
       // A party with a currency already set is LOCKED to it — the field below
@@ -647,6 +680,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     const q = quickAdd; if (!q) return;
     if (q.kind === "customer" || q.kind === "supplier") {
       setParties(p => [row, ...p]); setPartyId(row.id);
+      if (supportsProject) setProjectId(""); // same rule onParty follows — a brand-new customer has no projects yet
       if (mcEnabled) { const c = row.currency || home; setCurrency(c); if (c === home) setRate("1"); }
       if (cfg.mode === "payment") {
         const sideq = cfg.party === "Vendor" ? "vendor" : "customer";
@@ -734,6 +768,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       if (isReturnable) payload.goodsReturned = goodsReturned;
       if (foreign) { payload.currency = currency; payload.exchangeRate = num(rate); }
       if (cfg.party) { payload.partyType = cfg.party; payload.partyId = partyId || undefined; payload.partyLabel = party?.name || undefined; }
+      if (supportsProject) payload.projectId = projectId || undefined;
       if (cfg.bank) payload.bankAccountId = bankAccountId || undefined;
       if (cfg.mode === "transfer") { payload.bankAccountId = bankAccountId || undefined; payload.toBankAccountId = toBankAccountId || undefined; payload.amount = num(amount); }
       if (cfg.mode === "payment") {
@@ -906,6 +941,14 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                     <option value="">Select {cfg.partyLabel?.toLowerCase()}…</option>
                     {parties.map(p => <option key={p.id} value={p.id}>{p.name}{p.currency && p.currency !== home ? ` · ${p.currency}` : ""}</option>)}
                     <option value={ADD}>+ Add new {cfg.partyLabel?.toLowerCase()}…</option>
+                  </SelectField>
+                </Field>
+              )}
+              {supportsProject && (
+                <Field label="Project" hint={!partyId ? "Select a customer first" : projects.length === 0 ? "This customer has no projects" : "Optional"}>
+                  <SelectField value={projectId} onChange={e => setProjectId(e.target.value)} disabled={!partyId || projects.length === 0}>
+                    <option value="">None</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ""}{p.name}</option>)}
                   </SelectField>
                 </Field>
               )}
@@ -1656,8 +1699,16 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         )}
       </div>
 
-      {quickAdd && (
-        <QuickAdd kind={quickAdd.kind} home={home} accounts={accounts} taxes={taxes}
+      {quickAdd && (quickAdd.kind === "customer" || quickAdd.kind === "supplier") && (
+        <PartyDrawer type={quickAdd.kind === "customer" ? "customers" : "suppliers"} elevated
+          onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
+      )}
+      {quickAdd && quickAdd.kind === "item" && (
+        <NewItemDrawer initialProductType="Service" elevated
+          onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
+      )}
+      {quickAdd && quickAdd.kind !== "customer" && quickAdd.kind !== "supplier" && quickAdd.kind !== "item" && (
+        <QuickAdd kind={quickAdd.kind}
           onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
       )}
     </div>

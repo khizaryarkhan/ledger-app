@@ -1061,7 +1061,7 @@ async function bridgeNativeInvoice(orgId: string, entryId: string, docNumber: st
   const [existing] = await db.select({ id: invoices.id, paid: invoices.paid }).from(invoices)
     .where(and(eq(invoices.orgId, orgId), eq(invoices.journalEntryId, entryId))).limit(1);
   const common = {
-    customerId: input.partyId, invoiceNumber: docNumber ?? "", invoiceDate: input.date, dueDate,
+    customerId: input.partyId, projectId: input.projectId ?? null, invoiceNumber: docNumber ?? "", invoiceDate: input.date, dueDate,
     currency: (input.currency?.trim() || home) as any, amount: net, taxAmount: tax, total,
     poNumber: input.reference?.trim() || null, txnType: "Invoice", source: "native", updatedAt: new Date(),
   };

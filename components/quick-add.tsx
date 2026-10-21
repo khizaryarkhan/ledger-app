@@ -1,26 +1,34 @@
 "use client";
 
 /**
- * Inline "+ Add new" quick-create drawer for the transaction forms. Any
- * dropdown (customer, supplier, product/service, account, tax, class, location,
- * bank) can create a missing record on the spot; on save it returns the new
- * record so the caller adds it to the list and selects it — no context switch.
+ * Inline "+ Add new" quick-create drawer for the transaction forms, for the
+ * kinds that have no richer, standalone drawer elsewhere in the app: Chart of
+ * Accounts entries, tax rates, classes, locations. Any such dropdown can
+ * create a missing record on the spot; on save it returns the new record so
+ * the caller adds it to the list and selects it — no context switch.
+ *
+ * Customer/Supplier and Product/Service deliberately do NOT live here —
+ * this component used to carry its own stripped-down copies of those two
+ * forms (name/email/currency only; name/income account/price/tax only),
+ * a SEPARATE form from the real ones (components/party-drawer.tsx's
+ * PartyDrawer, components/products-register.tsx's NewItemDrawer) used
+ * everywhere else a customer or item is created. That meant a customer or
+ * item created inline from a transaction form silently skipped fields
+ * (address, payment terms, tax number; item kind, trade flags, accounting)
+ * the real forms require — reported as "this doesn't open the same drawer
+ * we use to add a customer" and fixed by having every caller render the one
+ * real drawer directly instead of asking this component to impersonate it.
  */
 
 import { useEffect, useState } from "react";
-import { X, Loader, Check } from "lucide-react";
-import { CURRENCIES } from "@/lib/accounting/currencies";
+import { Loader, Check } from "lucide-react";
 import { controlInset, Drawer } from "@/components/form-kit";
 
 export type QuickAddKind =
-  | "customer" | "supplier" | "item"
   | "account-income" | "account-expense" | "account-bank"
   | "tax" | "class" | "location";
 
 const META: Record<QuickAddKind, { title: string; noun: string }> = {
-  customer: { title: "New customer", noun: "customer" },
-  supplier: { title: "New supplier", noun: "supplier" },
-  item: { title: "New product / service", noun: "item" },
   "account-income": { title: "New income account", noun: "account" },
   "account-expense": { title: "New expense account", noun: "account" },
   "account-bank": { title: "New bank account", noun: "account" },
@@ -29,12 +37,12 @@ const META: Record<QuickAddKind, { title: string; noun: string }> = {
   location: { title: "New location", noun: "location" },
 };
 
-export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCreated }: {
-  kind: QuickAddKind; home?: string; accounts?: any[]; taxes?: any[];
+export function QuickAdd({ kind, onClose, onCreated }: {
+  kind: QuickAddKind;
   onClose: () => void; onCreated: (row: any) => void;
 }) {
   const meta = META[kind];
-  const [f, setF] = useState<Record<string, string>>({ name: "", email: "", currency: home || "", rate: "", accountId: "", taxRateId: "", code: "" });
+  const [f, setF] = useState<Record<string, string>>({ name: "", rate: "", code: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -44,21 +52,13 @@ export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCre
   }, [onClose]);
 
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const incomeAccts = accounts.filter(a => a.classification === "Revenue" || a.type === "Income" || a.type === "Other Income");
-  const expenseAccts = accounts.filter(a => a.classification === "Expense" || ["Expense", "Cost of Goods Sold", "Other Expense"].includes(a.type));
 
   async function save() {
     if (!f.name.trim()) { setErr("A name is required."); return; }
     setSaving(true); setErr("");
     try {
       let url = "", body: any = {};
-      if (kind === "customer" || kind === "supplier") {
-        url = `/api/parties/${kind === "customer" ? "customers" : "suppliers"}`;
-        body = { name: f.name, email: f.email || undefined, currency: f.currency || undefined };
-      } else if (kind === "item") {
-        url = "/api/accounting/items";
-        body = { name: f.name, itemType: "Service", unitPrice: f.rate ? Number(f.rate) : undefined, incomeAccountId: f.accountId || undefined, taxRateId: f.taxRateId || undefined };
-      } else if (kind.startsWith("account")) {
+      if (kind.startsWith("account")) {
         url = "/api/accounting/accounts";
         const type = kind === "account-income" ? "Income" : kind === "account-expense" ? "Expense" : "Bank";
         body = { name: f.name, type, code: f.code || undefined };
@@ -92,33 +92,9 @@ export function QuickAdd({ kind, home, accounts = [], taxes = [], onClose, onCre
       }>
         <div className="space-y-4">
           {err && <div className="text-[12px] text-rose-400">{err}</div>}
-          <div><label className={label}>{kind === "customer" || kind === "supplier" ? "Display name *" : kind === "item" ? "Item name *" : "Name *"}</label>
+          <div><label className={label}>Name *</label>
             <input autoFocus value={f.name} onChange={e => set("name", e.target.value)} className={input} /></div>
 
-          {(kind === "customer" || kind === "supplier") && (
-            <>
-              <div><label className={label}>Email</label><input value={f.email} onChange={e => set("email", e.target.value)} className={input} /></div>
-              {home && <div><label className={label}>Currency</label>
-                <select value={f.currency} onChange={e => set("currency", e.target.value)} className={input}>
-                  {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
-                </select></div>}
-            </>
-          )}
-          {kind === "item" && (
-            <>
-              <div><label className={label}>Income account</label>
-                <select value={f.accountId} onChange={e => set("accountId", e.target.value)} className={input}>
-                  <option value="">— choose —</option>
-                  {(incomeAccts.length ? incomeAccts : accounts).map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
-                </select></div>
-              <div><label className={label}>Sales price / rate</label><input type="number" step="0.01" value={f.rate} onChange={e => set("rate", e.target.value)} className={input} /></div>
-              <div><label className={label}>Tax</label>
-                <select value={f.taxRateId} onChange={e => set("taxRateId", e.target.value)} className={input}>
-                  <option value="">No tax</option>
-                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({Number(t.rate)}%)</option>)}
-                </select></div>
-            </>
-          )}
           {kind.startsWith("account") && (
             <div><label className={label}>Account number (optional)</label><input value={f.code} onChange={e => set("code", e.target.value)} placeholder="e.g. 4100" className={input} /></div>
           )}

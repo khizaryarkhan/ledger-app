@@ -20,6 +20,7 @@ import { Plus, RefreshCw, Search, ChevronRight, ChevronDown, Trash2, X, Loader, 
 import { UOMS, PACK_TYPES, needsConversionFactor } from "@/lib/inventory/uom";
 import { perSupplierUnit } from "@/lib/inventory/order-options";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
+import { PartyDrawer } from "@/components/party-drawer";
 import { ITEM_KIND_LIST, ITEM_KINDS, kindOf, type ItemKind } from "@/lib/inventory/item-kinds";
 import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/sourcing";
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
@@ -592,7 +593,10 @@ function SkuDrawer({ item, sku, onClose, onSaved }: { item: any; sku?: any; onCl
 
 function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; open: boolean; link?: any; onClose: () => void; onSaved: () => void }) {
   const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [quick, setQuick] = useState<QuickAddKind | null>(null);
+  // The real supplier-creation drawer (same one used from Payables/Suppliers),
+  // not a QuickAdd kind — QuickAdd no longer handles "supplier" at all, to
+  // avoid two different "Add new supplier" forms existing in the app.
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
   const [f, setF] = useState<Record<string, string>>({
     supplierId: link?.supplierId ?? "",
     // Defaults to the item's own unit: links created from purchase history
@@ -690,7 +694,7 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
         <Fold title="Supplier" summary={link?.supplierName || supplier?.name}>
           <Field label="Supplier" required>
             <SelectField inset value={f.supplierId} disabled={!!link} title={link ? "A link's supplier can't change — link the item to the other supplier instead." : undefined}
-              onChange={e => { if (e.target.value === "__add__") { setQuick("supplier"); return; } set("supplierId")(e.target.value); }}>
+              onChange={e => { if (e.target.value === "__add__") { setShowNewSupplier(true); return; } set("supplierId")(e.target.value); }}>
               <option value="">Select supplier…</option>
               {link && !suppliers.some(s => s.id === link.supplierId) && <option value={link.supplierId}>{link.supplierName || "Current supplier"}</option>}
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -775,7 +779,8 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
           </label>
         </Fold>
       </div>
-      {quick && <QuickAdd kind={quick} onClose={() => setQuick(null)} onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId")(row.id); setQuick(null); }} />}
+      {showNewSupplier && <PartyDrawer type="suppliers" elevated onClose={() => setShowNewSupplier(false)}
+        onCreated={(row) => { setSuppliers(p => [...p, row]); set("supplierId")(row.id); setShowNewSupplier(false); }} />}
     </Drawer>
   );
 }
@@ -821,15 +826,15 @@ function TradeFlags({ sold, purchased, onSold, onPurchased }: { sold: boolean; p
 
 /* ----------------------------- New item drawer ----------------------------- */
 
-function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+export function NewItemDrawer({ onClose, onCreated, initialProductType = "FinishedProduct", elevated }: { onClose: () => void; onCreated: (row?: any) => void; initialProductType?: string; elevated?: boolean }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [taxes, setTaxes] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
-  const [f, setF] = useState<Record<string, string>>({ name: "", productType: "FinishedProduct", baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "", purchaseTaxRateId: "", postingGroupId: "" });
+  const [f, setF] = useState<Record<string, string>>({ name: "", productType: initialProductType, baseUom: "", category: "", code: "", minOhQty: "0", unitPrice: "", unitCost: "", incomeAccountId: "", expenseAccountId: "", assetAccountId: "", cogsAccountId: "", taxRateId: "", purchaseTaxRateId: "", postingGroupId: "" });
   const [lotTracked, setLotTracked] = useState(true);
-  const [canBeSold, setCanBeSold] = useState(defaultTradeFlags("FinishedProduct").canBeSold);
-  const [canBePurchased, setCanBePurchased] = useState(defaultTradeFlags("FinishedProduct").canBePurchased);
-  const [sourcingPolicy, setSourcingPolicy] = useState<string>(defaultSourcingPolicy("FinishedProduct"));
+  const [canBeSold, setCanBeSold] = useState(defaultTradeFlags(initialProductType).canBeSold);
+  const [canBePurchased, setCanBePurchased] = useState(defaultTradeFlags(initialProductType).canBePurchased);
+  const [sourcingPolicy, setSourcingPolicy] = useState<string>(defaultSourcingPolicy(initialProductType));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -861,15 +866,16 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
     if (!meta.tracked && canBePurchased && !f.expenseAccountId) { setErr("This item can be purchased, so it needs an expense account."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, lotTracked, canBeSold, canBePurchased, ...(canBePurchased ? { sourcingPolicy } : {}) }) });
+    const created = await r.json().catch(() => ({}));
     setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
-    onCreated();
+    if (!r.ok) { setErr(created?.error || "Could not save."); return; }
+    onCreated(created);
   }
 
   const KIND_ICON: Record<string, any> = { FinishedProduct: Layers, StockItem: Boxes, RawMaterial: Package, WorkInProgress: Layers, NonInventory: Package, Service: Layers, OtherCharge: Package };
 
   return (
-    <Drawer title="New item" onClose={onClose} wide footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create item" err={err} />}>
+    <Drawer title="New item" onClose={onClose} wide elevated={elevated} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create item" err={err} />}>
       <div className="space-y-6">
         <Section title="Item type">
           <div className="grid grid-cols-2 gap-2">
@@ -959,7 +965,7 @@ function NewItemDrawer({ onClose, onCreated }: { onClose: () => void; onCreated:
             onChange={p => setF(prev => ({ ...prev, ...p }))} />
         )}
       </div>
-      {quick && <QuickAdd kind={quick} accounts={accounts} taxes={taxes}
+      {quick && <QuickAdd kind={quick}
         onClose={() => setQuick(null)}
         onCreated={(row) => {
           if (quick === "account-income") { setAccounts(p => [...p, row]); set("incomeAccountId", row.id); }

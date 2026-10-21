@@ -25,7 +25,7 @@ const empty = {
   taxNumber: "", paymentTerms: "30", notes: "", currency: "",
 };
 
-export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyType; editId?: string | null; onClose: () => void; onCreated: () => void }) {
+export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { type: PartyType; editId?: string | null; onClose: () => void; onCreated: (row?: any) => void; elevated?: boolean }) {
   const meta = META[type];
   const isPerson = type === "employees";
   const editing = !!editId;
@@ -74,7 +74,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyT
       });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || "Failed to save"); return; }
-      onCreated();
+      onCreated(d);
     } finally { setSaving(false); }
   }
 
@@ -84,7 +84,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated }: { type: PartyT
   const Icon = meta.icon;
 
   return (
-    <Drawer size="lg" title={editing ? `Edit ${meta.noun}` : meta.title} onClose={onClose}
+    <Drawer size="lg" title={editing ? `Edit ${meta.noun}` : meta.title} onClose={onClose} elevated={elevated}
       footer={
         <div className="flex items-center justify-end gap-3">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
