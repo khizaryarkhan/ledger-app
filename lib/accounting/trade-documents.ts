@@ -96,6 +96,19 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     }
   }
 
+  // Sales-document refactor, Phase 2 (2026-10-21): Estimate is item-only, like
+  // Invoice/SalesReceipt/CreditNote/RefundReceipt in lib/accounting/documents.ts.
+  // It converts to an Invoice unchanged (convertTradeDoc), so an account-only
+  // line here would become the exact Chart-of-Accounts line that conversion is
+  // meant never to produce. Checked against `raw` (post-filter), matching that
+  // function's own "defense in depth" comment above: the client already hides
+  // the account column for Estimate, this just stops a direct API call from
+  // bypassing it.
+  if (kind === "Estimate") {
+    const bad = raw.filter(l => !l.itemId);
+    if (bad.length) err("Every line needs a product or service — Estimates can no longer use a Chart of Accounts line directly.");
+  }
+
   const priced = await priceLines(orgId, raw);
   const subtotal = round2(priced.reduce((s, l) => s + l.net, 0));
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));

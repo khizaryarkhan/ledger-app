@@ -1906,6 +1906,64 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 2: item-only lines (2026-10-21)
+
+Removes the Chart-of-Accounts line selector from **Invoice, Estimate,
+SalesReceipt, CreditNote, RefundReceipt** and closes the `accountOverride`/
+silent-fallback escape hatch for the four that post (Estimate is non-posting —
+its own check is separate). SalesOrder and PurchaseOrder were already
+item-only via `isOrderDoc`; Bill/Expense/VendorCredit keep their items/
+accounts `SPLIT_TYPES` tab, untouched.
+
+- **`components/new-document-form.tsx`**: a new `isItemOnlySales` flag
+  (`["Invoice","Estimate","SalesReceipt","CreditNote","RefundReceipt"]`) feeds
+  `showAccountCol` (now `false` whenever `isOrderDoc || isItemOnlySales`,
+  removing the whole account cell AND its `accountOverride` "Change"/"Reset"
+  buttons) and widens `showItemCol` so the Product/Service column — and its
+  "+ Add new item…" option — shows even when the org has **zero** items yet,
+  rather than falling back to an account column the way `isOrderDoc` still
+  does for Sales/Purchase Orders. That fallback was deliberately NOT carried
+  over here: the spec wants these five always item-driven, and the one
+  pre-existing production document group that relied on a bare account line
+  (see below) was accepted as a known, narrow exception rather than a reason
+  to keep the escape hatch open for everyone.
+- **`lib/accounting/documents.ts`**: `buildSalesPurchaseLines`'s `accountFor()`
+  gained `ITEM_ONLY_SALES_TYPES = new Set(["Invoice","SalesReceipt",
+  "CreditNote","RefundReceipt"])`. For these four: a line with no item is
+  refused outright (no more "caller's account stands"), `accountOverride` is
+  ignored even when an item IS present, and an item whose resolved income/
+  expense account is still null (a pre-Phase-1 item nobody has re-saved) is
+  refused by name rather than silently falling through to `l.accountId` or
+  vanishing from the posted entry. `updateDocument` (edit) calls the exact
+  same function as `postDocument` (create) — one implementation, so this
+  closes the hole on both create and edit in one place.
+- **`lib/accounting/trade-documents.ts`**: `createTradeDoc` gained an
+  `if (kind === "Estimate")` block requiring every line to carry an `itemId`,
+  mirroring the existing `SalesOrder` "can be sold" check right above it.
+  Estimate still doesn't require a *resolved account* yet (same as Sales/
+  Purchase Order) — nothing posts until conversion, which re-resolves the
+  item's account fresh at that point.
+- **Verified against production before shipping** (read-only query,
+  `.env.production.vercel`): across every Invoice/SalesReceipt/CreditNote/
+  RefundReceipt/Estimate line in the database, exactly **5 lines on 3
+  Invoices, all at Foodready.ai**, have no `item_id` — a pure account line.
+  Also confirmed **zero** lines anywhere have ever actually used
+  `accountOverride: true` with an item present — the override escape hatch
+  has never been exercised in production, so closing it has zero blast
+  radius. The 3 Foodready.ai invoices become **un-resavable until an item is
+  added to those 5 lines** — the same "surface the gap on next touch, don't
+  silently carry it forward" precedent Phase 1 established for items missing
+  their account mapping. They remain viewable; nothing about already-posted
+  history changes.
+- **Not done in Phase 2**: the native tax engine (agencies/components/
+  compound codes/inclusive pricing/`TaxProvider`), the shared
+  `SalesDocumentLines` component (the five types still share
+  `new-document-form.tsx`'s single implementation, which is arguably already
+  the "shared component" the spec asks for, just not factored into its own
+  file), discount/header fields (billing/shipping address, tax registration
+  no., place of supply), and richer per-document-type statuses. Those are
+  later phases of the same spec.
+
 ## Sales document refactor — Phase 1: item account mapping completeness (2026-10-21)
 
 Client spec: Invoices/Sales Orders/Estimates should be item-only (no Chart of

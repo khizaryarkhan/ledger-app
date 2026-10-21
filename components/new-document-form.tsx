@@ -696,6 +696,11 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               setErr(`${nm} has no ${cfg.side === "sales" ? "income" : "expense"} account set — add one in Products & Services before using it here.`);
               setPosting(false); return;
             }
+          } else if (isItemOnlySales) {
+            // These five no longer offer a Chart-of-Accounts line at all — a
+            // bare account-only line here means stale form state, not a user
+            // choice, so it's refused rather than silently posted or dropped.
+            setErr("Each line needs a product or service — this document can't post to a Chart of Accounts line directly."); setPosting(false); return;
           } else if (!l.accountId || num(l.amount) === 0) {
             setErr("Each line needs an account (or a product/service) and an amount."); setPosting(false); return;
           }
@@ -718,8 +723,11 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       if (cfg.mode === "lineItems" || cfg.mode === "deposit") {
         payload.lines = lines
           // A trade document's item line may have no resolved account yet —
-          // it isn't dropped for that (see the validation above).
-          .filter(l => (l.accountId || (cfg.trade && l.itemId)) && num(l.amount) !== 0)
+          // it isn't dropped for that (see the validation above). Same for the
+          // four posting item-only sales types: if an item's own account ever
+          // came back empty, the line must still reach the server to get the
+          // clear refusal in accountFor() rather than silently vanish here.
+          .filter(l => (l.accountId || ((cfg.trade || isItemOnlySales) && l.itemId)) && num(l.amount) !== 0)
           .map(l => ({ accountId: l.accountId || null, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
             priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
       }
@@ -772,12 +780,20 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const partyRequired = !!cfg.party && cfg.mode !== "deposit";
   const close = () => router.back();
   const cur = currency || home;
+  // Sales-document refactor, Phase 2 (2026-10-21): these five post (or, for
+  // Estimate, will post on conversion) entirely from the item's own account
+  // mapping — never a hand-picked Chart of Accounts line. Unlike isOrderDoc
+  // below, this does NOT require items.length > 0: an org with no items yet
+  // still gets the item column (its "+ Add new item…" option works with zero
+  // items), never a fallback account column — lib/accounting/documents.ts and
+  // trade-documents.ts refuse a line with no item for these types regardless.
+  const isItemOnlySales = (["Invoice", "Estimate", "SalesReceipt", "CreditNote", "RefundReceipt"] as DocType[]).includes(type);
   // Which line columns to show (see the item/account model in CFG).
-  const showItemCol = (cfg.lineMode === "item" || cfg.lineMode === "both") && items.length > 0;
+  const showItemCol = ((cfg.lineMode === "item" || cfg.lineMode === "both") && items.length > 0) || isItemOnlySales;
   // A Purchase Order is item-based and non-accounting → one row per item, no
   // account column (the posting account is resolved when it becomes a Bill).
   const isOrderDoc = (cfg.trade === "purchase-orders" || cfg.trade === "sales-orders") && items.length > 0;
-  const showAccountCol = isOrderDoc ? false : ((cfg.lineMode === "account" || cfg.lineMode === "both") || (cfg.lineMode === "item" && items.length === 0));
+  const showAccountCol = (isOrderDoc || isItemOnlySales) ? false : ((cfg.lineMode === "account" || cfg.lineMode === "both") || (cfg.lineMode === "item" && items.length === 0));
   const accountHeader = cfg.side === "sales" ? "Income account" : cfg.side === "purchase" ? "Category / account" : "Account";
 
   return (
@@ -1257,10 +1273,15 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           {/* Line items / deposit lines */}
           {!split && (cfg.mode === "lineItems" || cfg.mode === "deposit") && (
             <Section title={cfg.mode === "deposit" ? "Sources" : "Line items"}>
-              {(cfg.lineMode === "item" || cfg.lineMode === "both") && items.length === 0 && (
+              {(cfg.lineMode === "item" || cfg.lineMode === "both") && items.length === 0 && !isItemOnlySales && (
                 <p className="text-[11px] text-stone-500">
                   Enter lines by income account below. To invoice by <b className="text-stone-400">Product/Service</b> (with Qty × Rate), add items in{" "}
                   <Link href="/accounting/items" className="text-emerald-400 hover:underline">Products &amp; Services</Link> — an Item column then appears here.
+                </p>
+              )}
+              {isItemOnlySales && items.length === 0 && (
+                <p className="text-[11px] text-stone-500">
+                  This document posts entirely from a product or service's own account — pick <b className="text-stone-400">+ Add new item…</b> in the Product/Service column below to create one.
                 </p>
               )}
               <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 overflow-hidden">

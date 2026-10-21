@@ -183,11 +183,28 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   // An override IS allowed, but only deliberately (`accountOverride`), never by
   // silently sending a different account — a real chart sometimes needs one
   // item posted somewhere else for a single document.
+  //
+  // EXCEPT on the four ITEM_ONLY_SALES_TYPES below (sales-document refactor,
+  // Phase 2, 2026-10-21): there, the fallback and the override are both closed
+  // entirely — the client no longer exposes a Chart-of-Accounts line or an
+  // override control for these types (new-document-form.tsx's showAccountCol),
+  // so a line that still reaches here with no item, or an item with no
+  // resolved account, is refused rather than silently posted or dropped.
+  // Estimate is the fifth item-only type in the spec but is non-posting — its
+  // own equivalent check lives in trade-documents.ts's createTradeDoc.
+  // SalesOrder/PurchaseOrder/Bill/Expense/VendorCredit are untouched: the first
+  // two are non-posting trade documents, the rest keep their items/accounts
+  // SPLIT_TYPES tab.
+  const ITEM_ONLY_SALES_TYPES = new Set<DocType>(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt"]);
+  const isItemOnlySale = ITEM_ONLY_SALES_TYPES.has(type);
   const isSale = type === "Invoice" || type === "SalesReceipt" || type === "CreditNote" || type === "RefundReceipt";
   const isReturn = type === "CreditNote" || type === "RefundReceipt";
   const accountFor = (l: DocLineInput): string | undefined => {
     const it = l.itemId && itemMap ? itemMap.get(l.itemId) : undefined;
-    if (!it) return l.accountId;                       // no item → caller's account stands
+    if (!it) {
+      if (isItemOnlySale && round2(l.amount) !== 0) err("Every line needs a product or service — this document can no longer post to a Chart of Accounts line directly.");
+      return l.accountId;                                 // no item → caller's account stands
+    }
     // NOT overridable: buying a stock-tracked item capitalises to its inventory
     // asset because a FIFO lot is created against that account. Sending the
     // debit elsewhere would raise stock in the subledger with no matching
@@ -199,11 +216,15 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
       if (type === "VendorCredit" && !input.goodsReturned) return it.accounts?.roles.PURCHASE_PRICE_VARIANCE ?? it.assetAccountId!;
       return it.assetAccountId!;                                    // resolved by role — never null once loaded
     }
-    if (l.accountOverride && l.accountId) return l.accountId;
+    if (l.accountOverride && l.accountId && !isItemOnlySale) return l.accountId;
     // A customer return of a stocked item is contra-revenue in its own
     // account (SALES_RETURNS), not a debit buried in the sales line.
     if (isReturn && it.tracked) return it.accounts?.roles.SALES_RETURNS ?? it.incomeAccountId ?? l.accountId;
-    return (isSale ? it.incomeAccountId : it.expenseAccountId) ?? l.accountId;
+    const resolved = isSale ? it.incomeAccountId : it.expenseAccountId;
+    if (!resolved && isItemOnlySale) {
+      err(`"${it.name}" has no ${isSale ? "income" : "expense"} account set — add one in Products & Services before using it on this document.`);
+    }
+    return resolved ?? l.accountId;
   };
   // Resolve first, THEN drop empty lines — so a line that names an item but no
   // account still posts (it previously vanished from the entry in silence).
