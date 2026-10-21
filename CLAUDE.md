@@ -1956,6 +1956,30 @@ production scan.
   Those are real IFRS-completeness gaps, not wiring bugs — nothing is
   currently miswired because of them, there's just no home for those items
   yet if/when a native IFRS preparer needs one.
+- **A second, independent instance of the same bug class, found by actually
+  running all three statements against every production org** (not just unit
+  tests): `lib/accounting/analysis.ts`'s `cashFlow()` decided "is this
+  account's balance change part of net income?" by reading the stored
+  `classification` **column** directly — a different, narrower check than
+  `place()`'s type-first resolution. A real production account (EDC London,
+  "Export Sales", `type="Income"`, `classification=null` — correctly synced
+  type, stale/never-populated classification column) was therefore excluded
+  from net income and had its balance movement leak into the **Financing**
+  bucket of the Cash Flow statement instead, even though P&L/Balance Sheet
+  classified the same account correctly via `place()`. Fixed by having
+  `cashFlow()` resolve classification the same way — `classificationForType(m.type)
+  ?? m.classification` — so type is authoritative everywhere, not just in
+  `place()`. Pinned in `tests/analysis-cashflow.test.ts`.
+- **Actually verified, not just fixed**: `scripts/_verify_statements.ts`
+  (read-only) runs `profitAndLoss`/`balanceSheet`/`cashFlow` for every real
+  org against production and checks `balanced`/`reconciles` plus whether any
+  account logs an unrecognized-type warning. Before the `cashFlow` fix above,
+  it caught the EDC London case live. After both fixes: **all 7 production
+  orgs — ACC, EDC, Aberny, MSQ, Test Organisation, EDC London, Foodready.ai —
+  show P&L ok, Balance Sheet balanced, Cash Flow reconciles, and zero
+  unrecognized-type warnings.** This is the concrete answer to "are P&L,
+  Balance Sheet and Cash Flow good now": yes, confirmed against real data,
+  not asserted from reading the code.
 
 ## Sales document refactor — Phase 3d (trimmed): inclusive pricing + TaxProvider (2026-10-21)
 

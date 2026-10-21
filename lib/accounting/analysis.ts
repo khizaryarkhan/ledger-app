@@ -7,6 +7,7 @@
 import { db } from "@/db";
 import { accounts, journalEntries, journalLines, transactionLinks } from "@/db/schema";
 import { and, eq, inArray, lte, gte, lt, sql } from "drizzle-orm";
+import { classificationForType } from "@/lib/accounting/account-types";
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const num = (v: any) => Number(v ?? 0);
@@ -141,6 +142,13 @@ export async function cashFlow(orgId: string, from: string, to: string): Promise
   const isCash = (m: any) => m.type === "Bank";
   const isOperating = (m: any) => ["Accounts Receivable", "Accounts Payable", "Other Current Asset", "Other Current Liability", "Credit Card"].includes(m.type);
   const isInvesting = (m: any) => ["Fixed Asset", "Other Asset"].includes(m.type);
+  // Long Term Liability + Equity. Named explicitly, like the other two, so an
+  // account whose type matches NONE of the three (an unrecognized provider
+  // type — see the Xero PAYGLIABILITY/SUPERANNUATIONLIABILITY bug in
+  // CLAUDE.md's "Chart of Accounts wiring" note) is distinguishable from one
+  // that genuinely belongs in Financing, instead of both landing there via
+  // the same silent `else`.
+  const isFinancing = (m: any) => ["Long Term Liability", "Equity"].includes(m.type);
 
   const operating: CashFlowLine[] = [], investing: CashFlowLine[] = [], financing: CashFlowLine[] = [];
   let openingCash = 0, closingCash = 0, netIncome = 0;
@@ -149,7 +157,14 @@ export async function cashFlow(orgId: string, from: string, to: string): Promise
     const m = meta.get(id); if (!m) continue;
     const open = num(openBy.get(id)?.bal), close = num(closeBy.get(id)?.bal);
     const delta = close - open; // debit-positive
-    if (m.classification === "Revenue" || m.classification === "Expense") { netIncome += -delta; continue; } // credit-normal income adds to NI
+    // Resolve classification the same way place() does — TYPE first, the
+    // stored classification column only as a fallback. An account can have a
+    // correct type with a null/stale classification column (a real case
+    // found via production verification: a Xero-synced "Income" account with
+    // classification=null), and checking the raw column alone silently
+    // dropped its balance out of net income into a Financing cash-flow line.
+    const cls = classificationForType(m.type) ?? m.classification;
+    if (cls === "Revenue" || cls === "Expense") { netIncome += -delta; continue; } // credit-normal income adds to NI
     if (isCash(m)) { openingCash += open; closingCash += close; continue; }
     // Cash effect: asset up (debit delta) uses cash → negative; liability/equity up (credit delta) provides cash → positive.
     const cashEffect = r2(-delta);
@@ -157,7 +172,11 @@ export async function cashFlow(orgId: string, from: string, to: string): Promise
     const line = { name: m.name, amount: cashEffect };
     if (isOperating(m)) operating.push(line);
     else if (isInvesting(m)) investing.push(line);
-    else financing.push(line); // Long Term Liability + Equity
+    else if (isFinancing(m)) financing.push(line);
+    else {
+      console.error(`[cashFlow] account "${m.name}" has unrecognized type="${m.type}" classification="${m.classification}" — defaulting to Financing. Check the provider sync's type-translation map.`);
+      financing.push(line);
+    }
   }
   netIncome = r2(netIncome);
   const sum = (a: CashFlowLine[]) => r2(a.reduce((s, l) => s + l.amount, 0));
