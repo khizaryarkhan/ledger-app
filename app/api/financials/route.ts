@@ -7,7 +7,7 @@
  */
 
 import { requireReadScope, ok, bad } from "@/lib/api";
-import { trialBalance, profitAndLoss, balanceSheet, generalLedger } from "@/lib/accounting/financials";
+import { trialBalance, profitAndLoss, balanceSheet, generalLedger, comprehensiveIncome, statementOfChangesInEquity } from "@/lib/accounting/financials";
 import { requireLedgerAuthority } from "@/lib/accounting/ledger-authority";
 import { db } from "@/db";
 import { organisations, orgGroups } from "@/db/schema";
@@ -59,6 +59,13 @@ export async function GET(req: Request) {
     }
     if (statement === "profit-loss") {
       return ok({ ...(await profitAndLoss(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined)), meta });
+    }
+    if (statement === "comprehensive-income") {
+      return ok({ ...(await comprehensiveIncome(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined)), meta });
+    }
+    if (statement === "changes-in-equity") {
+      if (!isDate(from) || !isDate(to)) return bad("from and to are required", 400);
+      return ok({ ...(await statementOfChangesInEquity(orgIds, from!, to!)), meta });
     }
     if (statement === "balance-sheet") {
       const [org] = orgIds.length

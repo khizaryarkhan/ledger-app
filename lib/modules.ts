@@ -79,7 +79,7 @@ function ownerOf(rules: readonly PathRule[], pathname: string): ModuleKey | null
 }
 
 const ACCOUNTING_REPORTS = [
-  "trial-balance", "profit-loss", "balance-sheet", "general-ledger", "cash-flow",
+  "trial-balance", "profit-loss", "comprehensive-income", "balance-sheet", "changes-in-equity", "general-ledger", "cash-flow",
   "tax-liability", "fx-exposure", "aged-receivables", "aged-payables",
 ];
 

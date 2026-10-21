@@ -51,18 +51,31 @@ export const ACCOUNT_TYPES: AccountTypeDef[] = [
     subtypes: ["Inventory", "Undeposited Funds", "Prepaid Expenses", "Short-term Investments", "Loans to Others", "Allowance for Bad Debts", "Advance Tax", "Other Current Assets"] },
 
   // ── Balance Sheet · Equity ──────────────────────────────────────────────
+  // IFRS-flavoured subtypes added 2026-10-21 (Share Premium, Revaluation
+  // Surplus, Foreign Currency Translation Reserve, Fair Value Reserve,
+  // General Reserve, Dividends Paid) — additive only, so an existing synced
+  // account's `type` is completely unaffected. `lib/accounting/ifrs.ts`
+  // recognizes these subtypes to drive OCI/distribution presentation in the
+  // Statement of Comprehensive Income and the Statement of Changes in
+  // Equity; `place()` below still routes every one of them to the ordinary
+  // "Equity" section exactly as before — the IFRS layer only changes how a
+  // NATIVE org's own statements present an account, never its GL placement.
   { type: "Equity", classification: "Equity", statement: "balance_sheet", section: "Equity", normalBalance: "credit", order: 30,
-    subtypes: ["Share Capital", "Common Stock", "Paid-in Capital", "Owner's Equity", "Partner Contributions", "Partner Distributions", "Owner's Drawings", "Opening Balance Equity", "Retained Earnings"] },
+    subtypes: ["Share Capital", "Common Stock", "Paid-in Capital", "Share Premium", "Owner's Equity", "Partner Contributions", "Partner Distributions", "Owner's Drawings", "Dividends Paid", "Opening Balance Equity", "Retained Earnings", "Revaluation Surplus", "Foreign Currency Translation Reserve", "Fair Value Reserve", "General Reserve"] },
 
   // ── Balance Sheet · Liabilities ─────────────────────────────────────────
+  // "Provisions" (added here, both non-current and current — IAS 37) is
+  // recognized the same way: `lib/accounting/ifrs.ts`'s `isProvision()`
+  // pulls accounts with this subtype into their own Balance Sheet line,
+  // separate from other liabilities, without changing `place()`'s section.
   { type: "Long Term Liability", classification: "Liability", statement: "balance_sheet", section: "Non-current Liabilities", normalBalance: "credit", order: 40,
-    subtypes: ["Notes Payable", "Bank Loans", "Shareholder Notes Payable", "Deferred Tax", "Other Long-term Liabilities"] },
+    subtypes: ["Notes Payable", "Bank Loans", "Shareholder Notes Payable", "Deferred Tax", "Provisions", "Other Long-term Liabilities"] },
   { type: "Accounts Payable", classification: "Liability", statement: "balance_sheet", section: "Current Liabilities", normalBalance: "credit", order: 50,
     subtypes: ["Accounts Payable"] },
   { type: "Credit Card", classification: "Liability", statement: "balance_sheet", section: "Current Liabilities", normalBalance: "credit", order: 51,
     subtypes: ["Credit Card"] },
   { type: "Other Current Liability", classification: "Liability", statement: "balance_sheet", section: "Current Liabilities", normalBalance: "credit", order: 52,
-    subtypes: ["Sales Tax Payable", "Payroll Tax Payable", "Payroll Clearing", "Accrued Liabilities", "Income Tax Payable", "Current Portion of Long-term Liabilities", "Due to Related Parties", "Other Current Liabilities"] },
+    subtypes: ["Sales Tax Payable", "Payroll Tax Payable", "Payroll Clearing", "Accrued Liabilities", "Income Tax Payable", "Current Portion of Long-term Liabilities", "Provisions", "Due to Related Parties", "Other Current Liabilities"] },
 
   // ── Profit & Loss ────────────────────────────────────────────────────────
   { type: "Income", classification: "Revenue", statement: "profit_loss", section: "Revenue", normalBalance: "credit", order: 60,

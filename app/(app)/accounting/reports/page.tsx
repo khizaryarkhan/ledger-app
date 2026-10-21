@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle } from "lucide-react";
+import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark } from "lucide-react";
 import { useData } from "@/components/data-provider";
 
 type Report = { href: string; title: string; sub: string; icon: any };
@@ -22,7 +22,9 @@ const CORE_GROUPS: Group[] = [
       { href: "/accounting/reports/general-ledger", title: "General Ledger", sub: "Every posting to every account, in date order.", icon: BookOpen },
       { href: "/accounting/reports/trial-balance",  title: "Trial Balance",  sub: "Each account's balance — debits must equal credits.", icon: ScrollText },
       { href: "/accounting/reports/profit-loss",    title: "Profit & Loss",  sub: "Income and expenses for a chosen period.", icon: TrendingUp },
+      { href: "/accounting/reports/comprehensive-income", title: "Comprehensive Income", sub: "Net profit plus Other Comprehensive Income for a chosen period.", icon: TrendingUp },
       { href: "/accounting/reports/balance-sheet",  title: "Balance Sheet",  sub: "Assets, equity and liabilities at a point in time.", icon: Scale },
+      { href: "/accounting/reports/changes-in-equity", title: "Changes in Equity", sub: "How each equity category moved over a chosen period.", icon: Landmark },
       { href: "/accounting/reports/cash-flow",      title: "Cash Flow",      sub: "Where cash came from and went — operating, investing, financing.", icon: TrendingUp },
     ],
   },

@@ -1981,6 +1981,97 @@ production scan.
   Balance Sheet and Cash Flow good now": yes, confirmed against real data,
   not asserted from reading the code.
 
+## IFRS structural gaps — OCI, Statement of Changes in Equity, Provisions (2026-10-21)
+
+Built at the client's explicit request, after the Chart of Accounts wiring
+audit above: "no active users on native accounting yet" was the stated
+reason it's cheap to build this now rather than later. These are presentation
+additions on top of the existing 15-type taxonomy, not a redesign — every
+existing account's GL placement (`place()`'s `statement`/`section`/`normal`)
+is byte-identical before and after; only how a NATIVE org's own statements
+choose to PRESENT certain accounts changes.
+
+- **The design choice**: classify by `accounts.subtype` string, not a new
+  schema column or a 16th top-level AccountType. `subtype` is already a free
+  `varchar(64)` with no constraint (same pattern `taxLiability()` already uses
+  for `salesTaxPayable`), so this needed **zero migration** and changes
+  nothing about QBO/Xero sync compatibility — `ACCOUNT_TYPE_NAMES` (the 15
+  canonical `type` strings) is completely untouched; only the `subtypes`
+  arrays under Equity/Long Term Liability/Other Current Liability gained new
+  entries. `lib/accounting/ifrs.ts` (new, pure, no `db` import — same split as
+  `account-roles.ts`/`modules.ts`) is the one place that recognizes these
+  subtype strings: `isOciReserve`, `isOtherReserve`, `isEquityDistribution`,
+  `isShareCapital`, `isRetainedEarningsAccount`, `isProvision`, and
+  `equityCategory()` (the SOCE row a subtype belongs to, defaulting to
+  `shareCapital` for anything unrecognized — same "must land somewhere" rule
+  `place()` follows for GL placement).
+- **New subtypes** (`account-types.ts`, additive only): Equity gained `Share
+  Premium`, `Revaluation Surplus`, `Foreign Currency Translation Reserve`,
+  `Fair Value Reserve`, `General Reserve`, `Dividends Paid`. Both `Long Term
+  Liability` and `Other Current Liability` gained `Provisions` (IAS 37 wants
+  both current and non-current shown).
+- **Provisions (IAS 37)**: `balanceSheet()` now peels `Provisions`-subtype
+  accounts out of ordinary Non-current/Current Liabilities into their own
+  `provisions: { nonCurrent, current, total }` line — already folded into
+  `liabilities.total`/`totalEquityAndLiabilities` so a caller that only reads
+  `liabilities` (the existing report page, before this change) still sees a
+  balanced total; it's purely a more granular additional view. The `pred`
+  parameter added to `balanceSheet()`'s internal `bySection()` helper is
+  shared by both the "exclude provisions" and "only provisions" filters, so
+  they can't silently drift into double-counting or dropping an account.
+- **`lib/accounting/financials.ts`'s `comprehensiveIncome(orgIds, from, to)`**
+  (new) wraps `profitAndLoss()` and adds an `oci: { lines, total }` section —
+  the period movement on `isOciReserve`-subtype equity accounts, read via the
+  same `natural()` credit-positive direction every other equity line uses —
+  plus `totalComprehensiveIncome = netProfit + ociTotal`. Nothing currently
+  posts to a revaluation/translation/fair-value account (no such posting path
+  exists yet), so on every org today this is a correct zero OCI section added
+  on top of an otherwise-unchanged P&L.
+- **`statementOfChangesInEquity(orgIds, from, to)`** (new): for the period,
+  shows each of four categories (Share capital & premium / Retained earnings
+  / Other reserves / Distributions) as opening → movement → closing. Profit
+  for the period rolls into Retained earnings' movement — there is still no
+  period-close journal entry that actually moves P&L into a Retained Earnings
+  account (same live-computed approach `balanceSheet()`'s own "Profit for the
+  period" line already uses, documented at the top of this file), so this
+  computes it the same way rather than inventing a second method that could
+  disagree. `plNet()` (the P&L-net-movement helper) was extracted from inside
+  `balanceSheet()` to module scope specifically so both functions compute
+  "what counts as profit" identically — it was a local closure before this.
+- **Wired through, not just built**: `GET /api/financials?statement=
+  comprehensive-income|changes-in-equity` (new cases in the existing route,
+  same `requireLedgerAuthority` gate as every other statement),
+  `app/(app)/accounting/reports/[statement]/page.tsx` renders both (`isPL`
+  generalized to `isPeriod` covering all three period-based statements;
+  `BalanceSheet`'s render gained the two new Provisions sections), and the
+  Reports hub (`app/(app)/accounting/reports/page.tsx`) lists both — a report
+  that exists but isn't linked from anywhere is as good as not built.
+  `lib/modules.ts`'s `ACCOUNTING_REPORTS` list gained the two new slugs —
+  `tests/module-gating.test.ts`'s reverse-completeness check would otherwise
+  flag both new pages as unowned, exactly as intended.
+- **Actually verified against production, not just unit-tested**:
+  `scripts/_verify_statements.ts` now also runs `comprehensiveIncome()` and
+  `statementOfChangesInEquity()` for every real org and asserts the SOCE's
+  closing total **ties exactly to `balanceSheet()`'s own `equity.total`** for
+  the same org and date — a real cross-check between the new statement and
+  the pre-existing engine, not just "it returned *a* number". Confirmed
+  2026-10-21: all 7 production orgs show Comprehensive Income computing
+  cleanly and Changes in Equity tying to the Balance Sheet exactly, with zero
+  unrecognized-account-type warnings. `tests/ifrs.test.ts` pins the pure
+  classifiers (including that every new subtype string is actually
+  registered in `account-types.ts`, so the classifier can't quietly become
+  dead code if a subtype name is ever renamed there without updating here).
+- **Not built, deliberately out of scope for this pass**: a real
+  revaluation/translation/fair-value POSTING path (nothing currently debits
+  or credits an OCI reserve account — this pass builds the presentation
+  layer and the classification rule, not a new transaction type), a
+  period-close journal entry that actually moves P&L into Retained Earnings
+  (both `balanceSheet()` and the new SOCE compute it live instead, by
+  deliberate consistency with the existing design), and IFRS 9 reclassification
+  rules (which OCI items eventually recycle through profit or loss on
+  derecognition vs. never reclassify) — `comprehensiveIncome()`'s OCI section
+  is presented as one undifferentiated total, not split by that distinction.
+
 ## Sales document refactor — Phase 3d (trimmed): inclusive pricing + TaxProvider (2026-10-21)
 
 Scoped down from the original 3d (inclusive/exclusive toggle, rounding-mode

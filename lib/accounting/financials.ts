@@ -19,10 +19,11 @@ import { db } from "@/db";
 import { journalLines, journalEntries, accounts } from "@/db/schema";
 import { and, eq, ne, inArray, gte, lte, sql } from "drizzle-orm";
 import { typeDef, type Classification, type Statement } from "./account-types";
+import { isProvision, isOciReserve, equityCategory } from "./ifrs";
 
 export type AccountBalance = {
   accountId: string; name: string; code: string | null;
-  type: string | null; classification: string | null;
+  type: string | null; classification: string | null; subtype: string | null;
   debit: number; credit: number;   // period movements
 };
 
@@ -76,17 +77,17 @@ async function balances(orgIds: string[], opts: { from?: string; to?: string; ex
   const rows = await db
     .select({
       accountId: journalLines.accountId,
-      name: accounts.name, code: accounts.code, type: accounts.type, classification: accounts.classification,
+      name: accounts.name, code: accounts.code, type: accounts.type, classification: accounts.classification, subtype: accounts.subtype,
       debit: sql<string>`sum(${journalLines.debit})`, credit: sql<string>`sum(${journalLines.credit})`,
     })
     .from(journalLines)
     .innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId))
     .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
     .where(and(...conds))
-    .groupBy(journalLines.accountId, accounts.name, accounts.code, accounts.type, accounts.classification);
+    .groupBy(journalLines.accountId, accounts.name, accounts.code, accounts.type, accounts.classification, accounts.subtype);
 
   return rows.map((r) => ({
-    accountId: r.accountId, name: r.name, code: r.code, type: r.type, classification: r.classification,
+    accountId: r.accountId, name: r.name, code: r.code, type: r.type, classification: r.classification, subtype: r.subtype,
     debit: Number(r.debit ?? 0), credit: Number(r.credit ?? 0),
   }));
 }
@@ -162,31 +163,45 @@ function dayBefore(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Net P&L movement (credit-positive) within a balances() result — shared by balanceSheet(), comprehensiveIncome() and statementOfChangesInEquity() so "what counts as profit" can never drift between them. */
+function plNet(bs: AccountBalance[]): number {
+  return round(bs
+    .filter((b) => place(b.type, b.classification).statement === "profit_loss")
+    .reduce((s, b) => { const p = place(b.type, b.classification); return s + (p.normal === "credit" ? b.credit - b.debit : -(b.debit - b.credit)); }, 0));
+}
+
 export async function balanceSheet(orgIds: string[], asOf?: string, fyStartMonth = 1) {
   const all = await balances(orgIds, { to: asOf });
   const bsAccts = all.filter((b) => place(b.type, b.classification).statement === "balance_sheet");
-  const bySection = (section: string): BsLine[] =>
-    bsAccts.filter((b) => place(b.type, b.classification).section === section)
+  // IAS 37: provisions are shown as their own line, separate from ordinary
+  // current/non-current liabilities, even though they still live in the
+  // SAME two sections for GL placement (place() never changes). `pred`
+  // lets the two helpers below peel provision-subtype accounts out of
+  // "Non-current Liabilities"/"Current Liabilities" into their own line,
+  // and vice versa, without maintaining two independent filter predicates
+  // that could silently drift apart and double-count or drop an account.
+  const bySection = (section: string, pred: (b: AccountBalance) => boolean = () => true): BsLine[] =>
+    bsAccts.filter((b) => place(b.type, b.classification).section === section && pred(b))
       .map((b) => ({ accountId: b.accountId, name: b.name, code: b.code, amount: natural(b) }))
       .filter((l) => l.amount !== 0)
       .sort((a, b) => (a.code ?? "").localeCompare(b.code ?? ""));
   const sum = (ls: BsLine[]) => round(ls.reduce((s, l) => s + l.amount, 0));
 
+  const isProvisionAcct = (b: AccountBalance) => isProvision(b.subtype);
+  const notProvision = (b: AccountBalance) => !isProvisionAcct(b);
   const ncAssets = bySection("Non-current Assets");
   const cAssets = bySection("Current Assets");
   const equity = bySection("Equity");
-  const ncLiab = bySection("Non-current Liabilities");
-  const cLiab = bySection("Current Liabilities");
+  const ncLiab = bySection("Non-current Liabilities", notProvision);
+  const cLiab = bySection("Current Liabilities", notProvision);
+  const ncProvisions = bySection("Non-current Liabilities", isProvisionAcct);
+  const cProvisions = bySection("Current Liabilities", isProvisionAcct);
 
   // Net income, split by fiscal year. PRIOR fiscal years roll into Retained
   // Earnings automatically the moment a new year starts (QBO/QBD behaviour — no
   // manual entry needed); the CURRENT fiscal year shows as Profit for the
   // period. Explicit closing entries, if used, are already in these balances,
   // so this can't double count either way.
-  const plNet = (bs: AccountBalance[]) => round(bs
-    .filter((b) => place(b.type, b.classification).statement === "profit_loss")
-    .reduce((s, b) => { const p = place(b.type, b.classification); return s + (p.normal === "credit" ? b.credit - b.debit : -(b.debit - b.credit)); }, 0));
-
   const refDate = asOf ?? new Date().toISOString().slice(0, 10);
   const fyStart = fyStartOnOrBefore(refDate, fyStartMonth);
   const priorEarnings = plNet(await balances(orgIds, { to: dayBefore(fyStart) }));
@@ -199,16 +214,100 @@ export async function balanceSheet(orgIds: string[], asOf?: string, fyStartMonth
     { accountId: null, name: "Profit for the period", code: null, amount: currentProfit },
   ];
   const totalEquity = round(sum(equity) + priorEarnings + currentProfit);
-  const totalLiabilities = round(sum(ncLiab) + sum(cLiab));
+  const totalProvisions = round(sum(ncProvisions) + sum(cProvisions));
+  const totalLiabilities = round(sum(ncLiab) + sum(cLiab) + totalProvisions);
 
   return {
     asOf: asOf ?? null,
     assets: { nonCurrent: ncAssets, current: cAssets, total: totalAssets },
     equity: { lines: equityWithProfit, total: totalEquity },
     liabilities: { nonCurrent: ncLiab, current: cLiab, total: totalLiabilities },
+    // IAS 37: provisions shown as their own Balance Sheet line, separate
+    // from other current/non-current liabilities — already included in
+    // `liabilities.total`/`totalEquityAndLiabilities` above, so a caller
+    // that only reads `liabilities` (as the existing report page does)
+    // still sees a balanced total; this is purely an additional, more
+    // granular view for a caller that wants to show it separately.
+    provisions: { nonCurrent: ncProvisions, current: cProvisions, total: totalProvisions },
     totalEquityAndLiabilities: round(totalEquity + totalLiabilities),
     balanced: Math.abs(totalAssets - (totalEquity + totalLiabilities)) < 0.01,
   };
+}
+
+// ── Statement of Comprehensive Income (IAS 1) ───────────────────────────────
+// P&L's net profit, plus Other Comprehensive Income: movements that bypass
+// profit or loss but still change equity directly — revaluation surpluses,
+// foreign-currency translation differences, fair-value-through-OCI
+// gains/losses (lib/accounting/ifrs.ts's isOciReserve()). These are reserve
+// ACCOUNTS whose period movement is read the same way any equity account's
+// is (natural(), credit-positive) — nothing currently posts to them (no
+// revaluation/translation/fair-value posting path exists yet), so on every
+// org today this adds a zero OCI section on top of the unchanged P&L.
+export async function comprehensiveIncome(orgIds: string[], from?: string, to?: string) {
+  const pl = await profitAndLoss(orgIds, from, to);
+  const periodBs = await balances(orgIds, { from, to, excludeClosing: true });
+  const ociLines: PlLine[] = periodBs
+    .filter((b) => {
+      const p = place(b.type, b.classification);
+      return p.statement === "balance_sheet" && p.section === "Equity" && isOciReserve(b.subtype);
+    })
+    .map((b) => ({ accountId: b.accountId, name: b.name, code: b.code, amount: natural(b) }))
+    .filter((l) => l.amount !== 0)
+    .sort((a, b) => (a.code ?? "").localeCompare(b.code ?? ""));
+  const ociTotal = round(ociLines.reduce((s, l) => s + l.amount, 0));
+  return {
+    ...pl,
+    oci: { lines: ociLines, total: ociTotal },
+    totalComprehensiveIncome: round(pl.netProfit + ociTotal),
+  };
+}
+
+// ── Statement of Changes in Equity ──────────────────────────────────────────
+// For the period [from, to]: opening balance per equity category, the
+// period's movements split into Profit for the period (rolled into Retained
+// earnings — there is no period-close journal entry that actually moves P&L
+// into a Retained Earnings account yet, so this computes it live, exactly as
+// balanceSheet()'s "Profit for the period" line does), Other Comprehensive
+// Income (Other reserves), and ordinary capital transactions (share
+// issues/distributions, via lib/accounting/ifrs.ts's equityCategory()), and
+// the resulting closing balance. The grand total ties to balanceSheet()'s
+// equity.total at `to` — proven in tests/ifrs-statements.test.ts.
+const EQUITY_CATEGORIES = [
+  { key: "shareCapital", label: "Share capital & premium" },
+  { key: "retainedEarnings", label: "Retained earnings" },
+  { key: "otherReserves", label: "Other reserves" },
+  { key: "distributions", label: "Distributions" },
+] as const;
+
+export async function statementOfChangesInEquity(orgIds: string[], from: string, to: string) {
+  const openingBs = await balances(orgIds, { to: dayBefore(from) });
+  const periodBs = await balances(orgIds, { from, to, excludeClosing: true });
+
+  const isEquityAcct = (b: AccountBalance) => {
+    const p = place(b.type, b.classification);
+    return p.statement === "balance_sheet" && p.section === "Equity";
+  };
+  const sumByCategory = (bs: AccountBalance[], key: string) =>
+    round(bs.filter((b) => isEquityAcct(b) && equityCategory(b.subtype) === key).reduce((s, b) => s + natural(b), 0));
+
+  const profitForPeriod = plNet(periodBs);
+
+  const rows = EQUITY_CATEGORIES.map(({ key, label }) => {
+    const opening = sumByCategory(openingBs, key);
+    // Profit for the period isn't yet reflected in any equity ACCOUNT's
+    // balance (see the comment above) — only Retained earnings' row gets it
+    // added as a movement on top of whatever its own accounts moved by.
+    const ownMovement = sumByCategory(periodBs, key);
+    const movement = key === "retainedEarnings" ? round(ownMovement + profitForPeriod) : ownMovement;
+    const closing = round(opening + movement);
+    return { category: key, label, opening, movement, closing };
+  });
+
+  const totalOpening = round(rows.reduce((s, r) => s + r.opening, 0));
+  const totalMovement = round(rows.reduce((s, r) => s + r.movement, 0));
+  const totalClosing = round(rows.reduce((s, r) => s + r.closing, 0));
+
+  return { from, to, rows, totalOpening, totalMovement, totalClosing };
 }
 
 // ── General Ledger ───────────────────────────────────────────────────────────

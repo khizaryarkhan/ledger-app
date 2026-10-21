@@ -1,9 +1,14 @@
 /**
- * READ-ONLY: actually run profitAndLoss / balanceSheet / cashFlow for every
- * real org and report whether they're correct, not just unit-tested in
- * isolation. Checks:
+ * READ-ONLY: actually run profitAndLoss / balanceSheet / cashFlow /
+ * comprehensiveIncome / statementOfChangesInEquity for every real org and
+ * report whether they're correct, not just unit-tested in isolation. Checks:
  *   - balanceSheet().balanced (Assets === Equity + Liabilities)
  *   - cashFlow().reconciles (computed net change === actual Bank movement)
+ *   - statementOfChangesInEquity()'s closing total ties to balanceSheet()'s
+ *     own equity.total for the same org/date — the real cross-check that the
+ *     new IFRS statements (comprehensive income, changes in equity,
+ *     provisions) agree with the pre-existing engine rather than just
+ *     returning *a* number.
  *   - whether an unrecognized account type logs a warning for any real account
  *
  * Usage: npx tsx scripts/_verify_statements.ts --env .env.production.vercel
@@ -20,7 +25,7 @@ async function main() {
 
   const { db } = await import("../db");
   const { organisations } = await import("../db/schema");
-  const { profitAndLoss, balanceSheet } = await import("../lib/accounting/financials");
+  const { profitAndLoss, balanceSheet, comprehensiveIncome, statementOfChangesInEquity } = await import("../lib/accounting/financials");
   const { cashFlow } = await import("../lib/accounting/analysis");
 
   const host = url.replace(/\/\/[^@]*@/, "//***@").split("/")[2];
@@ -36,21 +41,29 @@ async function main() {
 
   let failures = 0;
   for (const org of orgs) {
-    const [pl, bs, cf] = await Promise.all([
+    const [pl, bs, cf, ci, soce] = await Promise.all([
       profitAndLoss([org.id], yearStart, today).catch((e: any) => ({ error: String(e) })),
       balanceSheet([org.id], today).catch((e: any) => ({ error: String(e) })),
       cashFlow(org.id, yearStart, today).catch((e: any) => ({ error: String(e) })),
+      comprehensiveIncome([org.id], yearStart, today).catch((e: any) => ({ error: String(e) })),
+      statementOfChangesInEquity([org.id], yearStart, today).catch((e: any) => ({ error: String(e) })),
     ]);
     const plOk = !("error" in pl);
     const bsOk = !("error" in bs) && (bs as any).balanced;
     const cfOk = !("error" in cf) && (cf as any).reconciles;
-    const line = `[${org.name}] P&L: ${plOk ? "ok" : "FAILED"} - Balance Sheet: ${bsOk ? "balanced" : "NOT BALANCED"} - Cash Flow: ${cfOk ? "reconciles" : "DOES NOT RECONCILE"}`;
+    const ciOk = !("error" in ci);
+    const equityTotal = !("error" in bs) ? (bs as any).equity.total : null;
+    const soceTies = !("error" in soce) && equityTotal !== null && Math.abs((soce as any).totalClosing - equityTotal) < 0.01;
+    const line = `[${org.name}] P&L: ${plOk ? "ok" : "FAILED"} - Balance Sheet: ${bsOk ? "balanced" : "NOT BALANCED"} - Cash Flow: ${cfOk ? "reconciles" : "DOES NOT RECONCILE"} - Comprehensive Income: ${ciOk ? "ok" : "FAILED"} - Changes in Equity: ${soceTies ? "ties to Balance Sheet" : "DOES NOT TIE"}`;
     console.log(line);
     if ("error" in bs) console.log(`    Balance Sheet error: ${(bs as any).error}`);
     if ("error" in cf) console.log(`    Cash Flow error: ${(cf as any).error}`);
+    if ("error" in ci) console.log(`    Comprehensive Income error: ${(ci as any).error}`);
+    if ("error" in soce) console.log(`    Changes in Equity error: ${(soce as any).error}`);
     if (!bsOk && !("error" in bs)) console.log(`    Assets ${(bs as any).assets?.total} vs Equity+Liabilities ${(bs as any).totalEquityAndLiabilities}`);
     if (!cfOk && !("error" in cf)) console.log(`    Net change ${(cf as any).netChange} vs actual cash movement ${(cf as any).closingCash - (cf as any).openingCash}`);
-    if (!plOk || !bsOk || !cfOk) failures++;
+    if (!soceTies && !("error" in soce)) console.log(`    SOCE closing ${(soce as any).totalClosing} vs Balance Sheet equity.total ${equityTotal}`);
+    if (!plOk || !bsOk || !cfOk || !ciOk || !soceTies) failures++;
   }
   console.error = origError;
 
