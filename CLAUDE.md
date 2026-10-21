@@ -1906,6 +1906,52 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Sales document refactor — Phase 3b: wired into posting (2026-10-21)
+
+Wires Phase 3a's tax engine into `lib/accounting/documents.ts`'s posting path.
+**Caught and fixed a real bug before it shipped**, which is as important to
+record as the feature itself.
+
+- **The bug**: the first version branched `withTax()` on `isSyncedOrg(orgId)`
+  — "native org → new engine, synced org → old flat `apTaxRates` lookup
+  unchanged." That's wrong, and the reason is the same fact Phase 3a's own
+  investigation had already surfaced and should have been applied here:
+  `apTaxRates` is ONE shared table used by **every** org, not a synced-only
+  mirror — a native org has its own `source: 'native'` rows in it today, and
+  every existing native-org Invoice/Bill's `taxRateId` points at one of them.
+  Branching on chart-sync-status would have resolved those exact same ids
+  against the brand-new, **empty** `tax_codes` table instead — silently
+  zeroing the tax on every native org's invoices and bills the moment this
+  shipped, with no error (an unrecognised id just resolves to nothing).
+- **The fix**: the native engine is opt-in **per line**, through a new
+  `taxCodeId` field on `DocLineInput`, never a chart-sync-status branch.
+  `taxRateId` — what every existing document and every org uses today —
+  keeps resolving through `apTaxRates` completely unconditionally. Nothing
+  sends `taxCodeId` yet (no UI exists for it — that's Phase 3c), so this
+  phase changes **zero** behaviour for any document that exists today or gets
+  created before 3c ships. `tests/tax-engine-wiring.test.ts` pins this
+  exact failure mode so it can't quietly come back.
+- **`lib/accounting/tax-engine-server.ts`** (new) is the `db`-touching half —
+  same split as `account-roles.ts`/`account-roles-server.ts`. Its
+  `resolveTaxCodes(orgId, codeIds, asOf)` resolves a `tax_code`'s components
+  effective on `asOf` (the DOCUMENT's date, never "today" — a backdated
+  document must use the rate that applied then), falling back from a
+  component's own sales/purchase account to its agency's liability account.
+- **Posting**: `buildSalesPurchaseLines`'s four `if (taxTotal) lines.push({accountId: taxId!, ...})`
+  call sites (Invoice/SalesReceipt, CreditNote/RefundReceipt, Bill/Expense,
+  VendorCredit) are now one shared `pushTax(direction, label)` — when a
+  line's tax resolved through `taxCodeId` and has a component breakdown, it
+  posts **one journal line per resolved component's account**; otherwise
+  (every document today) it falls through to the exact same single
+  `taxId` control-account line as before. A resolved component with no
+  account at all (neither its own, nor its agency's liability account) is
+  refused by name rather than silently dropped or guessed.
+- **Not done in 3b**: there's still no way to actually create a `tax_code` or
+  pick one on a line — that UI, plus exposing the inclusive/exclusive toggle
+  (pricing is hardcoded `"exclusive"` here, matching the old calc's existing
+  behaviour exactly) and a company-level rounding-mode setting (hardcoded
+  `"perLine"` here), are Phase 3c/3d.
+
 ## Sales document refactor — Phase 3a: native tax engine, schema + pure calc (2026-10-21)
 
 Phase 3 is staged (it's by far the largest phase of the spec): **3a** schema +

@@ -34,6 +34,8 @@ import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
 import { openDocsForParty, availableCreditsForParty } from "@/lib/accounting/payments";
 import { loadItemCostInfo, planIssue, commitReceipt, commitIssue, commitLotIncrease, planCustomerReturn, revalueLot, reverseInventoryByEntry, type ItemCostInfo, type IssuePlan } from "@/lib/inventory/valuation";
 import { resolveLocationId } from "@/lib/inventory/locations";
+import { resolveTaxCodes } from "@/lib/accounting/tax-engine-server";
+import { calcLineTax, aggregateDocumentTax, type TaxComponentAmount } from "@/lib/accounting/tax-engine";
 import { baseQtyOfLine } from "@/lib/inventory/order-options";
 
 export type DocLineInput = {
@@ -47,6 +49,14 @@ export type DocLineInput = {
   rate?: number | null;
   amount: number;                 // net line amount (before tax)
   taxRateId?: string | null;
+  // Native tax engine (Phase 3, lib/accounting/tax-engine.ts) — opt-in and
+  // mutually exclusive with taxRateId: if set, this line's tax resolves
+  // through tax_codes instead of apTaxRates. No UI sends this yet (Phase 3c);
+  // every existing document and every org keeps using taxRateId exactly as
+  // before until that UI exists. See withTax() in this file for why this
+  // can't just be "native orgs use tax_codes" — apTaxRates already holds
+  // source='native' rows that native orgs' existing documents depend on.
+  taxCodeId?: string | null;
   classId?: string | null;
   locationId?: string | null;
   lotNo?: string | null;           // purchase receipts: supplier lot/batch no.
@@ -132,18 +142,49 @@ async function controlAccounts(orgId: string) {
   return { arId: ar?.id ?? null, apId: ap?.id ?? null, taxId: tax?.id ?? null, fxId: fx?.id ?? null };
 }
 
-/** Compute per-line tax from the tax-rate master (server-trusted). */
-async function withTax(orgId: string, lines: DocLineInput[]) {
-  const ids = [...new Set(lines.map(l => l.taxRateId).filter(Boolean) as string[])];
-  const rates = ids.length
+/**
+ * Compute per-line tax. `taxRateId` (every existing document, every org,
+ * native or synced) resolves through `apTaxRates` exactly as before this
+ * phase — flat `net * pct / 100`, no change. `taxCodeId` is the NEW native
+ * engine (Phase 3, lib/accounting/tax-engine.ts): opt-in per line, resolved
+ * for the document's OWN date (`asOf`), never "today", so a later rate change
+ * never restates a backdated document.
+ *
+ * This is deliberately NOT keyed on isSyncedOrg(): `apTaxRates` already holds
+ * `source: 'native'` rows a native org's EXISTING documents depend on today
+ * (confirmed — it's the one shared tax-rate table for every org, synced or
+ * not). Switching native orgs over by chart-sync-status alone would silently
+ * zero every one of their documents' tax the moment this shipped, since none
+ * of their real tax rates exist in the brand-new (empty) tax_codes table.
+ * `taxCodeId` only ever gets set once a future UI (Phase 3c) starts sending
+ * it — until then this function's behaviour is unchanged for everyone.
+ *
+ * Every line also carries `taxComponents` (empty unless taxCodeId resolved to
+ * a code with components) so the caller can post one journal line per
+ * resolved tax account instead of one flat total — see pushTax() below.
+ */
+async function withTax(orgId: string, lines: DocLineInput[], opts: { isSale: boolean; asOf: string }) {
+  const codeIds = [...new Set(lines.map(l => l.taxCodeId).filter(Boolean) as string[])];
+  const codes = codeIds.length ? await resolveTaxCodes(orgId, codeIds, opts.asOf) : new Map();
+
+  const rateIds = [...new Set(lines.filter(l => !l.taxCodeId).map(l => l.taxRateId).filter(Boolean) as string[])];
+  const rates = rateIds.length
     ? await db.select({ id: apTaxRates.id, rate: apTaxRates.rate }).from(apTaxRates)
-        .where(and(eq(apTaxRates.orgId, orgId), inArray(apTaxRates.id, ids)))
+        .where(and(eq(apTaxRates.orgId, orgId), inArray(apTaxRates.id, rateIds)))
     : [];
   const rateById = new Map(rates.map(r => [r.id, Number(r.rate) || 0]));
+
   return lines.map(l => {
+    if (l.taxCodeId) {
+      const code = codes.get(l.taxCodeId) ?? null;
+      // Pricing is exclusive-only until Phase 3c exposes the inclusive/
+      // exclusive toggle — matches the flat calc's existing behaviour exactly.
+      const r = calcLineTax(l.amount, "exclusive", code, opts.isSale);
+      return { ...l, net: r.net, tax: r.taxTotal, taxComponents: r.componentAmounts };
+    }
     const net = round2(l.amount);
     const pct = l.taxRateId ? (rateById.get(l.taxRateId) ?? 0) : 0;
-    return { ...l, net, tax: round2(net * pct / 100) };
+    return { ...l, net, tax: round2(net * pct / 100), taxComponents: [] as TaxComponentAmount[] };
   });
 }
 
@@ -237,11 +278,36 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   // section would raise stock in the GL with no lot, no quantity and nothing
   // that could ever relieve it. Stock enters the books only with an item.
   await assertNoControlAccounts(orgId, raw.filter(l => !(l.itemId && itemMap?.get(l.itemId)?.tracked)).map(l => ({ accountId: l.accountId! })));
-  const priced = await withTax(orgId, raw);
+  const priced = await withTax(orgId, raw, { isSale, asOf: input.date });
   const netTotal = round2(priced.reduce((s, l) => s + l.net, 0));
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
   const grand = round2(netTotal + taxTotal);
-  if (taxTotal !== 0 && !taxId) err("No Sales Tax Payable account is set up.");
+  // A line using the new taxCodeId gets one journal line per resolved tax
+  // component's account (Phase 3b). Every line still using taxRateId (which
+  // is every document today — see withTax()) has an empty taxComponents, so
+  // this is empty and posting falls through to the old single-control-account
+  // behaviour below — byte-identical to before this phase.
+  const taxBreakdown = aggregateDocumentTax(priced.map(l => ({
+    net: l.net, gross: round2(l.net + l.tax), taxTotal: l.tax,
+    componentAmounts: l.taxComponents, notionalComponentAmounts: [], notionalTotal: 0,
+  })), "perLine"); // company-configurable rounding mode is Phase 3c/3d
+  /** Post the tax for this document: one line per resolved component when
+   *  there is a breakdown (native orgs), else the old flat single line
+   *  against the one control account (synced orgs, or a native org whose
+   *  code had no components — e.g. "no tax"). */
+  const pushTax = (direction: "debit" | "credit", label: string) => {
+    if (taxBreakdown.components.length) {
+      for (const c of taxBreakdown.components) {
+        if (!c.amount) continue;
+        const acctId = c.accountId ?? taxId;
+        if (!acctId) err(`No account is set up for "${c.name}" — set a sales/purchase account on the tax component, or a liability account on its agency.`);
+        lines.push(direction === "debit" ? { accountId: acctId!, debit: c.amount, description: c.name } : { accountId: acctId!, credit: c.amount, description: c.name });
+      }
+    } else if (taxTotal) {
+      if (!taxId) err("No Sales Tax Payable account is set up.");
+      lines.push(direction === "debit" ? { accountId: taxId!, debit: taxTotal, description: label } : { accountId: taxId!, credit: taxTotal, description: label });
+    }
+  };
   // projectId is header-level (the form has one project picker per document,
   // not per line) — applied to every revenue/expense line, never the AR/AP
   // control line itself, matching how class/location already behave and how
@@ -250,7 +316,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
 
   if (type === "Invoice" || type === "SalesReceipt") {
     for (const l of priced) lines.push({ accountId: l.accountId!, credit: l.net, ...lineCommon(l) });
-    if (taxTotal) lines.push({ accountId: taxId!, credit: taxTotal, description: "Sales tax" });
+    pushTax("credit", "Sales tax");
     if (type === "Invoice") {
       if (!arId) err("No Accounts Receivable account is set up.");
       // An invoice needs a REAL customer, not just a typed name. QBO mandates
@@ -268,7 +334,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     }
   } else if (type === "CreditNote" || type === "RefundReceipt") {
     for (const l of priced) lines.push({ accountId: l.accountId!, debit: l.net, ...lineCommon(l) });
-    if (taxTotal) lines.push({ accountId: taxId!, debit: taxTotal, description: "Sales tax" });
+    pushTax("debit", "Sales tax");
     if (type === "CreditNote") {
       if (!arId) err("No Accounts Receivable account is set up.");
       if (!input.partyId && !input.partyLabel) err("Select a customer.");
@@ -281,7 +347,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     // A negative line (a supplier's discount, or an invoice price below the
     // receipt price) is a credit, not a negative debit the ledger would refuse.
     for (const l of priced) lines.push(l.net >= 0 ? { accountId: l.accountId!, debit: l.net, ...lineCommon(l) } : { accountId: l.accountId!, credit: -l.net, ...lineCommon(l) });
-    if (taxTotal) lines.push({ accountId: taxId!, debit: taxTotal, description: "Input tax" });
+    pushTax("debit", "Input tax");
     if (type === "Bill") {
       if (!apId) err("No Accounts Payable account is set up.");
       if (!input.partyId && !input.partyLabel) err("Select a supplier.");
@@ -295,7 +361,7 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     if (!input.partyId && !input.partyLabel) err("Select a supplier.");
     lines.push(name({ accountId: apId!, debit: grand }) as PostLine);
     for (const l of priced) lines.push({ accountId: l.accountId!, credit: l.net, ...lineCommon(l) });
-    if (taxTotal) lines.push({ accountId: taxId!, credit: taxTotal, description: "Input tax" });
+    pushTax("credit", "Input tax");
   }
   return lines;
 }
@@ -976,7 +1042,7 @@ async function bridgeNativeInvoice(orgId: string, entryId: string, docNumber: st
   // explicit account still posts (its account is derived from the item), so
   // filtering on accountId alone would understate the receivable against the
   // journal entry it mirrors.
-  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0));
+  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: true, asOf: input.date });
   const net = round2(priced.reduce((s, l) => s + l.net, 0));
   const tax = round2(priced.reduce((s, l) => s + l.tax, 0));
   const total = round2(net + tax);
@@ -1012,7 +1078,7 @@ async function bridgeNativeBill(orgId: string, entryId: string, docNumber: strin
   // Same line filter the GL entry used — a line carrying an item but no
   // explicit account still posts (its account comes from the item), so
   // filtering on accountId alone would understate the payable.
-  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0));
+  const priced = await withTax(orgId, (input.lines ?? []).filter(l => (l.accountId || l.itemId) && round2(l.amount) !== 0), { isSale: false, asOf: input.date });
   const net = round2(priced.reduce((s, l) => s + l.net, 0));
   const tax = round2(priced.reduce((s, l) => s + l.tax, 0));
   const total = round2(net + tax);
