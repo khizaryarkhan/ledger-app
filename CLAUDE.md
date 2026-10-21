@@ -262,11 +262,16 @@ exactly the anti-pattern this rule exists to prevent.)
     links keep working. `app/api/**` was NOT touched; the mobile app calls
     those routes directly.
 - **Accounting**'s old "Master Data" section mixed the ledger itself with
-  genuine setup/reference lists — split into **Ledger** (Chart of Accounts,
-  Journal, Opening Balances, Trial Balance — always-expanded, core nav, not
-  reference data) and **Setup** (Tax Rates, Classes, Locations, Cost Centres,
-  Custom Fields, Employees, Products & Services — kept as the collapsible
-  flyout "Master Data" used to be). Sales/Purchases sections now hold only
+  genuine setup/reference lists — split into **Ledger** (Journal, Opening
+  Balances, Trial Balance — always-expanded, core nav, not reference data)
+  and **Setup** (Chart of Accounts, Tax Rates, Classes, Locations, Cost
+  Centres, Custom Fields, Employees, Products & Services — kept as the
+  collapsible flyout "Master Data" used to be). **Chart of Accounts moved
+  from Ledger into Setup on 2026-10-21 at the client's request** — it was
+  originally called out as the one Ledger item that is "core nav, not
+  reference data"; that's no longer the product decision, so don't move it
+  back on the strength of this file's own earlier wording. Sales/Purchases
+  sections now hold only
   Customers/Estimates and Suppliers respectively — Sales Orders, Purchase
   Orders, Shipping, Receiving and Bill of Materials all moved to Supply Chain.
   There's currently no dedicated Accounting-scoped list view for Invoices,

@@ -252,11 +252,15 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
 
   // Phase 1a module IA restructure (see CLAUDE.md "Module information
   // architecture" section): Accounting's old "Master Data" group mixed the
-  // ledger itself (Chart of Accounts, Journal, Opening Balances) with genuine
-  // setup/reference lists (Tax Rates, Classes, ...) — split into LEDGER
-  // (core GL, always expanded — this is core navigation, not reference data)
-  // and SETUP (the actual reference/config lists, kept as the collapsible
-  // flyout "Master Data" used to be, since it's the larger of the two).
+  // ledger itself (Journal, Opening Balances) with genuine setup/reference
+  // lists (Tax Rates, Classes, ...) — split into LEDGER (core GL, always
+  // expanded — this is core navigation, not reference data) and SETUP (the
+  // actual reference/config lists, kept as the collapsible flyout "Master
+  // Data" used to be, since it's the larger of the two). Chart of Accounts
+  // moved from Ledger into Setup on 2026-10-21 at the client's request — see
+  // docs/11-risks-debt-and-open-questions.md's "Smaller debt" table for the
+  // superseded rationale (it used to be called out as core nav specifically
+  // to keep it out of Setup).
   // Sales Orders, Purchase Orders, Shipping, Receiving and Bill of Materials
   // moved OUT entirely — they commit to or execute physical goods movement,
   // which is Supply Chain's job now, not Accounting's. Sales/Purchases here
@@ -281,7 +285,6 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       label: "Ledger",
       items: [
         { href: "/accounting/dashboard",              label: "Dashboard",        icon: LayoutDashboard },
-        { href: "/accounting/accounts",              label: "Chart of Accounts", icon: BookOpen },
         { href: "/accounting/journal",                label: "Journal",          icon: FileText },
         { href: "/accounting/opening-balances",       label: "Opening Balances", icon: Scale },
         // Qualified because Reporting carries a second "Trial Balance" that is
@@ -296,6 +299,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       collapsible: true,
       icon: Database,
       items: [
+        { href: "/accounting/accounts",          label: "Chart of Accounts",   icon: BookOpen },
         { href: "/accounting/tax-rates",         label: "Tax Rates",           icon: Receipt },
         // The inventory Chart-of-Accounts mapping: which account each stock
         // posting goes to. Setup, not Ledger — it is configuration, like tax rates.

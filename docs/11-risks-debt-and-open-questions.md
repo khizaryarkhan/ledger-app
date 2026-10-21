@@ -208,6 +208,7 @@ data model carries neither a rate nor a billable flag.
 | No dependency scanning | No `npm audit` in CI, no Dependabot configuration |
 | `tsconfig.tsbuildinfo` is committed | 47 of the last 300 commits touched it |
 | Documentation is scattered across the root | `CLAUDE.md`, `PROJECT-REFERENCE.md` (1,232 lines), `DEPLOY.md`, `SETUP-GUIDE.md`, `INTEGRITY_AUDIT.md`, `IT-ADMIN-EMAIL.md`, plus this `/docs` set. Overlapping and partly contradictory. |
+| ~~Client request (2026-10-21): move Chart of Accounts under Accounting's "Setup" flyout~~ | Done (2026-10-21) — moved in `components/sidebar.tsx`. Supersedes the "Chart of Accounts is core nav, not reference data" rationale this file used to repeat from CLAUDE.md's "Module information architecture" note. |
 
 Only **one** `TODO`/`FIXME` marker exists in the entire `lib/`, `app/`,
 `components/` and `inngest/` tree. Debt here is recorded in prose, not in
