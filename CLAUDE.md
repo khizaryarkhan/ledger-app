@@ -210,6 +210,57 @@ with "Send 228 invoices" below the fold, because the whole box was
   to `undefined` once the work is committed, leaving the result panel its own
   Done, rather than a live Send under something already sent.
 
+## Visual-consistency sweep — screens should match the Collections Board (started 2026-10-21)
+
+Client feedback, verbatim in substance: "the app does not feel like a
+product — everything is scattered." Rather than a full redesign, the
+decision is to adjust **page by page**, matching each screen's chrome to
+the app's most-polished, most-used screen: the **Collections Board**
+(`app/(app)/board/page.tsx` + `components/board-list.tsx`). Treat the
+Board as the reference shell for any work-surface screen (search, filter,
+create — not a simple form) that doesn't already match it:
+
+- **Full-height, fixed-header/scrollable-body shell**: `flex flex-col
+  h-[calc(100vh-44px)]` (44px = the app shell's own `h-11` top bar,
+  `app/(app)/layout.tsx`), header `px-6 py-4 border-b border-stone-800
+  bg-stone-950 flex-shrink-0`, content `flex-1 overflow-y-auto px-6 py-4`
+  — not a centered, page-scrolling `max-w-* mx-auto` settings layout.
+- **Header**: `h1` is `text-xl font-semibold text-white tracking-tight`
+  (NOT `font-bold`) naming the actual screen, subtitle `text-sm
+  text-stone-400 mt-0.5`.
+- **Toolbar controls** are compact (`h-8`, `text-xs`), built from
+  `components/form-kit.tsx`'s `control`/`SelectField`, never a
+  hand-rolled input class string — form-kit's own doc comment already
+  names this exact problem ("the inconsistency everyone can see comes
+  from the ~2/3 of components that bypass form-kit"). A binary toggle
+  (like the Board's "Show future-dated (N)") is a pill: `h-8 ... rounded-md
+  ring-1`, active = `ring-stone-600 bg-stone-700 text-stone-100`, inactive
+  = `ring-stone-700 bg-stone-800 text-stone-400 hover:text-stone-200` —
+  not a bare checkbox-and-label.
+- **Drawer form fields use `controlInset` (bg-stone-950), never `control`
+  (bg-stone-900)** — the Drawer panel itself is `bg-stone-900`
+  (`form-kit.tsx`'s `Drawer`), so a field styled with `control` is the
+  SAME colour as the panel it sits on and nearly disappears. This is a
+  real, previously-shipped bug, not just a style nit — caught while fixing
+  the first screen below, so check for it specifically whenever auditing
+  another screen's drawer.
+- **No breadcrumb back to a parent section once a screen is reached via
+  the sidebar** — the sidebar already provides that nav (the Board has no
+  "← Receivables" link). Keep a breadcrumb only at a screen's OWN
+  standalone settings-page entry point, if it still has one separate from
+  the sidebar-driven route.
+- **First screen done**: Chart of Accounts / Accounting Setup
+  (`app/(app)/settings/accounting/_lists.tsx`'s `AccountingLists` —
+  one shared component serving Chart of Accounts, Products & Services,
+  Tax Rates, Classes, Locations, Cost Centres and Custom Fields, all
+  reached from the Accounting sidebar's Setup group via
+  `app/(app)/accounting/[list]/page.tsx`, plus the standalone
+  `/settings/accounting` entry point). Fixed exactly the five points
+  above. **Not yet done**: every other screen in the app — this is a
+  page-by-page sweep, not a one-shot redesign; pick the next screen when
+  asked, using this section as the checklist rather than re-deriving the
+  Board's pattern from scratch each time.
+
 ## Module information architecture (Phase 1a, 2026-09-06)
 
 Six top-level modules in the workspace switcher, in this order: **Receivables,
