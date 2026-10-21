@@ -31,6 +31,19 @@ type Placed = { statement: Statement; section: string; normal: "debit" | "credit
 export function place(type: string | null, classification: string | null): Placed {
   const def = typeDef(type);
   if (def) return { statement: def.statement, section: def.section, normal: def.normalBalance };
+  // `classification` alone (no recognized `type`) still places a Liability/
+  // Equity/Revenue account correctly below — this only guesses wrong when
+  // BOTH are unrecognized, which happens when a provider sync (QBO/Xero)
+  // writes a type string this app's taxonomy doesn't know, e.g. a Xero
+  // AccountType the translation map in xero-ap-sync.ts didn't cover (that
+  // exact bug — PAYGLIABILITY/SUPERANNUATIONLIABILITY — shipped once; see
+  // CLAUDE.md "Chart of Accounts wiring" note). Logged loudly rather than
+  // silently reported as a debit-normal Current Asset, so a future gap in
+  // that map surfaces immediately instead of quietly misstating the Balance
+  // Sheet for weeks.
+  if (classification !== "Asset" && classification !== "Liability" && classification !== "Equity" && classification !== "Revenue" && classification !== "Expense") {
+    console.error(`[financials.place] unrecognized account type="${type}" classification="${classification}" — defaulting to Current Asset. Check the provider sync's type-translation map.`);
+  }
   switch (classification as Classification) {
     case "Asset":     return { statement: "balance_sheet", section: "Current Assets", normal: "debit" };
     case "Liability": return { statement: "balance_sheet", section: "Current Liabilities", normal: "credit" };

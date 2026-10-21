@@ -1906,6 +1906,57 @@ are what this lays down.
   products, serial numbers (per-unit tracking is its own feature), and the
   mobile scan → `parseGs1` → identifier lookup → receiving line.
 
+## Chart of Accounts wiring — a real, latent Xero misclassification bug (2026-10-21)
+
+Prompted by: "no active users on native accounting yet, the one paying client
+is Receivables + QBO" — the point being that right now is the cheapest moment
+to audit the Chart-of-Accounts → financial-statement wiring, before anyone
+depends on its current (wrong, in one place) behaviour. This is NOT a
+hypothetical IFRS-nicety finding — it's a concrete bug in a translation table,
+confirmed against Xero's own documented `AccountType` enum and a read-only
+production scan.
+
+- **The bug**: `lib/xero-ap-sync.ts`'s `xeroAccountType()` mapped the key
+  `PAYGLIAB` to `"Other Current Liability"`. **`PAYGLIAB` was never a real
+  Xero `AccountType` value** — Xero's actual enum uses `PAYGLIABILITY` (and a
+  separate bare `PAYG` in some API responses). The key could never match a
+  real account, so any AU/NZ org's PAYG withholding-tax liability fell
+  through to `map[acc.Type] ?? acc.Type`, storing the raw, unrecognized
+  string `"PAYGLIABILITY"` as the account's `type`. `SUPERANNUATIONLIABILITY`
+  (pension liability, the counterpart to the already-mapped
+  `SUPERANNUATIONEXPENSE`) was missing from the map entirely — same failure.
+- **What that did downstream**: `lib/accounting/financials.ts`'s `place()`
+  couldn't find either unrecognized string in `account-types.ts`'s 15-type
+  taxonomy, and its own fallback defaulted to **"Current Assets, debit-
+  normal"** — a payroll/pension LIABILITY silently shown as an ASSET on the
+  Balance Sheet, with inverted sign, in the wrong statement section.
+- **Verified NOT currently live**: a read-only scan of all 898 production
+  `accounts` rows (`scripts/_scan_unrecognized_account_types.ts`) found zero
+  rows with an unrecognized `type` — no org synced so far happens to carry a
+  PAYG or superannuation liability account. Latent, not active; fixed now
+  while it costs nothing to fix.
+- **Fixed at the root**: the map now has `PAYGLIABILITY`, `PAYG`, and
+  `SUPERANNUATIONLIABILITY`, all → `"Other Current Liability"`.
+- **Fixed the symptom too, for next time**: `place()`'s fallback branch now
+  `console.error`s when BOTH `type` and `classification` are unrecognized,
+  instead of silently returning the same guess it always did. The guess
+  itself is unchanged (still has to return *something* so report generation
+  doesn't crash on one bad account) — what changed is that this class of gap
+  can no longer go unnoticed. `tests/financials-place.test.ts` pins that the
+  15 canonical types and a recognized `classification` alone never log, and
+  that an unrecognized combination always does.
+- **QBO side checked too, and is clean**: `lib/qbo-ap-sync.ts` passes QBO's
+  `AccountType` straight through with no translation map — and QBO's
+  documented `AccountType` enum has exactly the 15 values
+  `account-types.ts` models (`account-types.ts` is explicitly built on QBO's
+  vocabulary), so there's no equivalent typo risk on that side.
+- **What this does NOT fix** (separate, larger conversation, see the earlier
+  "IFRS basis" discussion above this section): no Other Comprehensive Income
+  concept, no Statement of Changes in Equity, no first-class Provisions line.
+  Those are real IFRS-completeness gaps, not wiring bugs — nothing is
+  currently miswired because of them, there's just no home for those items
+  yet if/when a native IFRS preparer needs one.
+
 ## Sales document refactor — Phase 3d (trimmed): inclusive pricing + TaxProvider (2026-10-21)
 
 Scoped down from the original 3d (inclusive/exclusive toggle, rounding-mode

@@ -1100,7 +1100,20 @@ export function xeroAccountType(acc: { Type?: string | null; SystemAccount?: str
   const map: Record<string, string> = {
     BANK: "Bank", CURRENT: "Other Current Asset", INVENTORY: "Other Current Asset", PREPAYMENT: "Other Current Asset",
     FIXED: "Fixed Asset", NONCURRENT: "Other Asset",
-    CURRLIAB: "Other Current Liability", LIABILITY: "Other Current Liability", PAYGLIAB: "Other Current Liability", TERMLIAB: "Long Term Liability",
+    // PAYGLIAB was never a real Xero AccountType value — confirmed against
+    // Xero's documented enum (2026-10-21), which uses PAYGLIABILITY (and a
+    // separate bare PAYG in some API versions). The old key could never match
+    // a real account, so any AU/NZ org's PAYG withholding liability silently
+    // fell through to place()'s "Current Asset, debit" default in
+    // financials.ts — a payroll tax LIABILITY shown as an asset. Confirmed
+    // via a production scan that no existing account hit this (none of the
+    // orgs synced so far happen to carry one), so this was latent, not live.
+    CURRLIAB: "Other Current Liability", LIABILITY: "Other Current Liability", PAYGLIABILITY: "Other Current Liability", PAYG: "Other Current Liability",
+    TERMLIAB: "Long Term Liability",
+    // Superannuation (AU/NZ pension) liability — was entirely unmapped,
+    // same failure mode as PAYG above. SUPERANNUATIONEXPENSE (its P&L
+    // counterpart) was already handled; this was the missing half.
+    SUPERANNUATIONLIABILITY: "Other Current Liability",
     EQUITY: "Equity",
     REVENUE: "Income", SALES: "Income", OTHERINCOME: "Other Income",
     DIRECTCOSTS: "Cost of Goods Sold", EXPENSE: "Expense", OVERHEADS: "Expense", DEPRECIATN: "Expense", WAGESEXPENSE: "Expense",
