@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Drawer } from "@/components/form-kit";
 import { Send, X, AlertTriangle, FileText } from "lucide-react";
-import { genEmailRef } from "@/lib/email-ref";
 import {
   groupByCustomer, mergeCandidates, applyMerges, splitEmails, uniqEmails,
   type SendGroup,
@@ -50,7 +49,6 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
     [perCustomer, mergedDomains, candidates]);
 
   const multiGroup = sendable.length > 1;
-  const [baseRef] = useState(genEmailRef);
 
   // Email templates
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string; subject: string; body: string; isDefault?: boolean }[]>([]);
@@ -63,13 +61,21 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
         if (def) { setSubject(def.subject); setBody(def.body); }
       })
       .catch(() => {});
-  }, []);                  // ref for the single-email cases
+  }, []);
   // Per-group recipient overrides. Keyed by group key; a group with no entry
   // uses its customer's own addresses, which is the correct default.
   const [tos, setTos] = useState<Record<string, string>>({});
   const toFor = (g: SendGroup<SendRow>) => (tos[g.key] ?? g.emails.join(", ")).trim();
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(`Open Invoices — Ref ${baseRef}`);
+  // {ref} is a live placeholder, filled server-side (lib/bulk-send.ts) with the
+  // SAME reference that gets stored as the communication's refNumber. This used
+  // to be a literal ref baked in here client-side (genEmailRef(), shown once as
+  // "baseRef") — a DIFFERENT ref than the one the server later generated and
+  // stored, so the "Last Email Ref" column (read from refNumber) never matched
+  // what the customer actually received, and a multi-recipient send printed one
+  // customer's ref in every other customer's email too. Never resolve {ref} to
+  // a literal value client-side — the server is the single source of truth.
+  const [subject, setSubject] = useState(`Open Invoices — Ref {ref}`);
   const [body, setBody] = useState(
     `Hi,\n\nPlease find attached a statement of your open invoices along with copies of each invoice for your reference.\nCould you please share the expected payment dates at your earliest convenience?\nFeel free to reach out if you have any questions.`
   );
@@ -169,9 +175,7 @@ export function SendInvoicesModal({ rows, ccy, orgName, logoUrl, onClose, onSent
       size="lg"
       onClose={onClose}
       title={`Send ${rows.length} invoice${rows.length !== 1 ? "s" : ""}${willSplit ? ` \u00b7 ${sendable.length} recipients` : ""}`}
-      subtitle={willSplit
-        ? <>Reference: <span className="font-mono text-emerald-400">one per email (auto)</span></>
-        : <>Email reference: <span className="font-mono text-emerald-400">{baseRef}</span></>}
+      subtitle={<>Reference: <span className="font-mono text-emerald-400">generated automatically{willSplit ? ", one per email" : ""}</span></>}
       footer={
         <div className="flex items-center gap-2 w-full">
             {/* Spacer so Cancel/Send stay right-aligned when there is no job

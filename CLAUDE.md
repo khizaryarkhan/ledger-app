@@ -624,6 +624,43 @@ recoverable instead of silent:
   correct regardless of status) plus, once paid, the real payment amount and
   date separately.
 
+## "Last Email Ref" showed a ref that was never actually emailed (2026-10-21)
+
+Reported by the client: the board's "Last Email Ref" column showed
+`AR-261006-BMY5` for an invoice, but that string appears nowhere in their
+inbox — the real email (confirmed via the invoice's Activity log) carried
+`AR-261006-GOMK` in its subject instead.
+
+Root cause: `components/send-invoices-modal.tsx` (the "Send invoices" bulk
+composer) built its default subject as `` `Open Invoices — Ref ${baseRef}` ``
+where `baseRef = genEmailRef()` ran **in the browser**. That literal ref was
+sent to the server as plain subject text. The server
+(`lib/bulk-send.ts`'s `sendGroupEmail`) then generated its **own**, unrelated
+`ref = genEmailRef()` per recipient group and stored *that* as the
+communication's `refNumber` — the field the board's "Last Email Ref" column
+reads (`app/(app)/board/page.tsx`'s `lastSentByInv`). Since
+`fillTemplate` (`lib/email-template.ts`) only substitutes a literal `{ref}`
+token — and the client had already expanded it to plain text, not a token —
+the subject that actually went out kept the browser's ref, while the
+dashboard recorded a ref that was never printed anywhere a customer could see
+it. For a multi-customer bulk send this was worse: every recipient's subject
+carried the *same* client-generated ref, while each got a *different*
+`refNumber` recorded against their own invoices.
+- **Fix**: the modal's default subject now reads
+  `` `Open Invoices — Ref {ref}` `` — a live placeholder, resolved
+  server-side by the same `fillTemplate` call that already fills it in before
+  sending, using the exact `ref` value that gets stored as `refNumber`. No
+  ref is ever generated client-side any more. `tests/email-ref-template.test.ts`
+  pins this (asserts the component source never reintroduces
+  `genEmailRef()`/a baked `${baseRef}`, and that `fillTemplate` resolves the
+  placeholder the same way the server does when sending).
+- **Not affected**: `lib/bulk-send.ts`/`inngest/functions/chase.ts` (ref
+  generated once, used identically in both the subject and `refNumber`) and
+  `components/feature.tsx`'s free-text composer (same single-generation
+  pattern) were already self-consistent — this bug was isolated to the one
+  path that pre-baked a ref into a default subject string before handing it
+  to the server.
+
 ## AR invoice emails — QBO "Pay online" link (2026-09-09)
 
 Reported: invoices sent directly from QuickBooks Online carry a clickable
