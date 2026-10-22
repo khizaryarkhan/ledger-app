@@ -1079,6 +1079,24 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                   <CalcInput value={rate} onChange={setRate} className={input} />
                 </Field>
               )}
+              {showHeaderDims && classes.length > 0 && (
+                <Field label="Class" hint="This document's own A/R, A/P or Bank line — not the revenue/expense lines below.">
+                  <SelectField value={controlClassId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "class" }) : setControlClassId(e.target.value)}>
+                    <option value="">—</option>
+                    {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value={ADD}>+ Add new class…</option>
+                  </SelectField>
+                </Field>
+              )}
+              {showHeaderDims && locations.length > 0 && (
+                <Field label="Location" hint="Same, for this document's own control-account line.">
+                  <SelectField value={controlLocationId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "location" }) : setControlLocationId(e.target.value)}>
+                    <option value="">—</option>
+                    {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value={ADD}>+ Add new location…</option>
+                  </SelectField>
+                </Field>
+              )}
             </div>
           </div>
 
@@ -1703,33 +1721,11 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               </div>
             </label>
           )}
-          {/* Memo + control-account Class/Location + totals */}
+          {/* Memo + totals */}
           <div className="flex flex-wrap items-start justify-between gap-5 pt-1">
             <Field label="Memo" className="flex-1 min-w-[240px]">
               <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Internal note (optional)" className={input} />
             </Field>
-            {showHeaderDims && (
-              <>
-                {classes.length > 0 && (
-                  <Field label="Class (A/R, A/P & Bank)" hint="Classifies this document's own receivable/payable/bank line — not the revenue or expense lines above." className="w-52">
-                    <SelectField value={controlClassId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "class" }) : setControlClassId(e.target.value)}>
-                      <option value="">—</option>
-                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      <option value={ADD}>+ Add new class…</option>
-                    </SelectField>
-                  </Field>
-                )}
-                {locations.length > 0 && (
-                  <Field label="Location (A/R, A/P & Bank)" hint="Same, for this document's own control-account line." className="w-52">
-                    <SelectField value={controlLocationId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "location" }) : setControlLocationId(e.target.value)}>
-                      <option value="">—</option>
-                      {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      <option value={ADD}>+ Add new location…</option>
-                    </SelectField>
-                  </Field>
-                )}
-              </>
-            )}
             {(cfg.mode === "lineItems") && (
               <div className="w-64 rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 text-[13px] space-y-2">
                 <div className="flex justify-between text-stone-400"><span>Subtotal</span><span className="tabular-nums text-stone-200">{money(totals.net)}</span></div>
