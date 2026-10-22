@@ -8,7 +8,7 @@ import { txnTypeLabel } from "@/lib/accounting/doc-format";
 import { useData } from "@/components/data-provider";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
 import { ReportShell } from "@/components/ui";
-import { control, SelectField } from "@/components/form-kit";
+import { controlCompact, SelectField } from "@/components/form-kit";
 
 const today = () => new Date().toISOString().slice(0, 10);
 function fyStart() { const n = new Date(); const y = n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1; return `${y}-07-01`; }
@@ -86,8 +86,8 @@ function GeneralLedgerInner() {
             {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </SelectField>
         </div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={`${control} h-8 text-[12px]`} /></div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={`${control} h-8 text-[12px]`} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={controlCompact} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={controlCompact} /></div>
         {anyFx && (
           <label className="flex items-center gap-1.5 text-[12px] text-stone-400 mb-2 cursor-pointer">
             <input type="checkbox" checked={showFx} onChange={e => setShowFx(e.target.checked)} /> Show foreign currency

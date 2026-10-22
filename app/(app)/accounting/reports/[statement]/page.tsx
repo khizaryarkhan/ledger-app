@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, ScrollText, Scale, TrendingUp, Landmark } from "lucide-react";
 import { ReportShell } from "@/components/ui";
-import { control } from "@/components/form-kit";
+import { controlCompact } from "@/components/form-kit";
 
 const TITLES: Record<string, { title: string; formal: string; sub: string; icon: any }> = {
   "trial-balance":  { title: "Trial Balance",   formal: "Trial Balance",                    sub: "Every account's balance — total debits must equal total credits.", icon: ScrollText },
@@ -78,18 +78,18 @@ export default function FinancialStatementPage() {
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         {isPeriod ? (
           <>
-            <label className="text-[12px] text-stone-400">From
-              <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={`ml-2 ${control} h-8 text-[12px]`} />
+            <label className="flex items-center gap-2 text-[12px] text-stone-400">From
+              <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={controlCompact} />
             </label>
-            <label className="text-[12px] text-stone-400">To
-              <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={`ml-2 ${control} h-8 text-[12px]`} />
+            <label className="flex items-center gap-2 text-[12px] text-stone-400">To
+              <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={controlCompact} />
             </label>
             <button onClick={() => { setFrom(fyStart()); setTo(today()); }}
               className="h-8 text-[12px] text-teal-400 hover:text-teal-300 border border-stone-700 rounded-lg px-2.5">This financial year</button>
           </>
         ) : (
-          <label className="text-[12px] text-stone-400">As at
-            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className={`ml-2 ${control} h-8 text-[12px]`} />
+          <label className="flex items-center gap-2 text-[12px] text-stone-400">As at
+            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className={controlCompact} />
           </label>
         )}
       </div>
