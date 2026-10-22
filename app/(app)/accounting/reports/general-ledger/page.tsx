@@ -63,31 +63,31 @@ function GeneralLedgerInner() {
     <ReportShell title="General Ledger" sub={`${data?.meta?.entity ?? ""} — every posting with its type, document and running balance.`} icon={BookOpen} onRefresh={run} loading={loading}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Account</label>
-          <SelectField value={accountId} onChange={e => setAccountId(e.target.value)} className="min-w-[240px]">
+          <SelectField value={accountId} onChange={e => setAccountId(e.target.value)} className="h-8 min-w-[220px] text-[12px]">
             <option value="">All accounts</option>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
           </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Customer</label>
-          <SelectField value={customerId} onChange={e => setCustomerId(e.target.value)} className="min-w-[200px]">
+          <SelectField value={customerId} onChange={e => setCustomerId(e.target.value)} className="h-8 min-w-[180px] text-[12px]">
             <option value="">All customers</option>
             {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Supplier</label>
-          <SelectField value={nameId} onChange={e => setNameId(e.target.value)} className="min-w-[200px]">
+          <SelectField value={nameId} onChange={e => setNameId(e.target.value)} className="h-8 min-w-[180px] text-[12px]">
             <option value="">All suppliers</option>
             {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.displayName || s.name}</option>)}
           </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Project</label>
-          <SelectField value={projectId} onChange={e => setProjectId(e.target.value)} className="min-w-[200px]">
+          <SelectField value={projectId} onChange={e => setProjectId(e.target.value)} className="h-8 min-w-[180px] text-[12px]">
             <option value="">All projects</option>
             {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </SelectField>
         </div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={control} /></div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={control} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={`${control} h-8 text-[12px]`} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={`${control} h-8 text-[12px]`} /></div>
         {anyFx && (
           <label className="flex items-center gap-1.5 text-[12px] text-stone-400 mb-2 cursor-pointer">
             <input type="checkbox" checked={showFx} onChange={e => setShowFx(e.target.checked)} /> Show foreign currency
