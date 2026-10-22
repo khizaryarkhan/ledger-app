@@ -32,9 +32,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { error, orgId, role } = await requireOrg();
+  // Deliberately NOT admin-gated (PATCH/DELETE in [id]/route.ts still are —
+  // editing or deactivating an EXISTING item's accounting stays an admin
+  // action). Creating one is reachable from any transaction form's "+ Add
+  // new item…" quick-add (new-document-form.tsx), and posting a document —
+  // which already lets any org member choose accounts, tax codes and
+  // amounts — carries the same trust level; gating creation here while
+  // posting itself has no role check at all just 403'd a non-admin mid
+  // invoice with no way to continue. prepareItemAccounting below still
+  // fully validates the result regardless of who created it.
+  const { error, orgId } = await requireOrg();
   if (error) return error;
-  if (!["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
   const b = await req.json().catch(() => ({}));
   const name = s(b?.name); if (!name) return bad("Item name is required");
   if (await itemNameTaken(orgId!, name)) return bad(duplicateNameMessage(name), 409);

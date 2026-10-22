@@ -26,15 +26,13 @@ import { allowsPackConfiguration, defaultSourcingPolicy } from "@/lib/inventory/
 import { classifyBarcode, showBarcode, levelLabel, type PackLevel } from "@/lib/inventory/identifiers";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { fmt } from "@/lib/format";
-import { Field, Section, SelectField, QtyUnitField, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { Field, Section, SelectField, QtyUnitField, control, controlInset, th, Drawer, DrawerFooter } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listNumCell, type ListColumn,
 } from "@/components/list-view";
 
 type ProductType = ItemKind;
-
-const inputCls = controlInset;
 
 const UOM_GROUPS: { dim: string; label: string }[] = [
   { dim: "mass", label: "Mass" }, { dim: "volume", label: "Volume" },
@@ -116,17 +114,29 @@ export function ProductsRegister() {
   return (
     <ListPage>
       <ListPageHeader title="Products & Services" subtitle={<>Your inventory register. <span className="text-emerald-400">Finished products</span> carry a base UoM and packaging SKUs; <span className="text-amber-400">raw materials</span> link to suppliers with their UoM and a conversion factor when units differ.</>}>
+        {/* Same compact (h-8) toolbar controls as the Collections Board —
+            these two were on controlInset (bg-stone-950), the SAME colour as
+            this header's own bg-stone-950 surface, so they nearly
+            disappeared into it; control (bg-stone-900) is the pairing
+            form-kit's own doc comment specifies for a stone-950 page. The
+            type filter was also a raw <select>, missing the custom chevron
+            every other dropdown in the app has. Sized with the literal
+            text-[12px] token, not a named Tailwind size class — this file
+            sits on tests/architecture.test.ts's enforced type scale
+            (components/ only; the Board's own page.tsx lives under app/ and
+            is outside that guard's scope, which is why it can get away with
+            a named size class this file can't). */}
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, code or category…" className={`${inputCls} pl-9 w-56`} />
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, code or category…" className={`${control} h-8 pl-8 w-56 text-[12px]`} />
         </div>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className={`${inputCls} max-w-[220px]`}>
+        <SelectField value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className="h-8 max-w-[220px] text-[12px]">
           <option value="all">All types ({counts.all ?? 0})</option>
           {ITEM_KIND_LIST.map(m => <option key={m.kind} value={m.kind}>{m.label} ({counts[m.kind] ?? 0})</option>)}
-        </select>
+        </SelectField>
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={rows === null ? "animate-spin" : ""} /></button>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg px-3.5 py-2 hover:bg-emerald-700">
-          <Plus size={14} /> New item
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 h-8 text-[12px] font-semibold bg-emerald-600 text-white rounded-lg px-3 hover:bg-emerald-700">
+          <Plus size={13} /> New item
         </button>
       </ListPageHeader>
 
@@ -826,7 +836,16 @@ function TradeFlags({ sold, purchased, onSold, onPurchased }: { sold: boolean; p
 
 /* ----------------------------- New item drawer ----------------------------- */
 
-export function NewItemDrawer({ onClose, onCreated, initialProductType = "FinishedProduct", elevated }: { onClose: () => void; onCreated: (row?: any) => void; initialProductType?: string; elevated?: boolean }) {
+export function NewItemDrawer({ onClose, onCreated, initialProductType = "FinishedProduct", elevated, simple }: { onClose: () => void; onCreated: (row?: any) => void; initialProductType?: string; elevated?: boolean;
+  /** Opened inline from a transaction form (an ad-hoc invoice/bill line), not
+   *  from the Products & Services catalog page — the kind picker narrows to
+   *  the three untracked kinds (a one-off line is never inventory), and
+   *  Sourcing Policy (which supplier may bill for it) is skipped entirely,
+   *  since it is never relevant for a quick service/charge added mid-document
+   *  and would otherwise be one more decision in the way of finishing the
+   *  line. The full catalog page (where real stock items are set up) always
+   *  gets every control. */
+  simple?: boolean }) {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [taxes, setTaxes] = useState<any[]>([]);
   const [quick, setQuick] = useState<QuickAddKind | null>(null);
@@ -879,7 +898,7 @@ export function NewItemDrawer({ onClose, onCreated, initialProductType = "Finish
       <div className="space-y-6">
         <Section title="Item type">
           <div className="grid grid-cols-2 gap-2">
-            {ITEM_KIND_LIST.map(m => {
+            {(simple ? ITEM_KIND_LIST.filter(m => !m.tracked) : ITEM_KIND_LIST).map(m => {
               const Icon = KIND_ICON[m.kind] || Package;
               const active = f.productType === m.kind;
               return (
@@ -896,10 +915,14 @@ export function NewItemDrawer({ onClose, onCreated, initialProductType = "Finish
         <Section title="Identity">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Field label="Item name" required className="col-span-2"><input className={controlInset} value={f.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Olive Oil" /></Field>
-            <Field label="Base UoM" required={meta.tracked}><UomSelect value={f.baseUom} onChange={v => set("baseUom", v)} /></Field>
+            {/* Base UoM and Min on-hand qty are physical-stock concepts — hidden
+                for every untracked kind (Service/Non-Inventory/Other Charge),
+                not only in simple mode, since they are equally meaningless
+                for a Service created from the full catalog page. */}
+            {meta.tracked && <Field label="Base UoM" required><UomSelect value={f.baseUom} onChange={v => set("baseUom", v)} /></Field>}
             <Field label="Category"><input className={controlInset} value={f.category} onChange={e => set("category", e.target.value)} placeholder="e.g. Oils" /></Field>
             <Field label="Item code"><input className={controlInset} value={f.code} onChange={e => set("code", e.target.value)} /></Field>
-            <Field label="Min required on-hand qty"><input type="number" className={controlInset} value={f.minOhQty} onChange={e => set("minOhQty", e.target.value)} /></Field>
+            {meta.tracked && <Field label="Min required on-hand qty"><input type="number" className={controlInset} value={f.minOhQty} onChange={e => set("minOhQty", e.target.value)} /></Field>}
           </div>
         </Section>
 
@@ -914,7 +937,7 @@ export function NewItemDrawer({ onClose, onCreated, initialProductType = "Finish
         )}
 
         <TradeFlags sold={canBeSold} purchased={canBePurchased} onSold={setCanBeSold} onPurchased={setCanBePurchased} />
-        {canBePurchased && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
+        {canBePurchased && !simple && <SourcingToggle policy={sourcingPolicy} onChange={setSourcingPolicy} baseUom={f.baseUom} />}
 
         <Section title={meta.tracked ? "Pricing & tax" : "Accounting"} className="pt-2 border-t border-stone-800">
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -1027,7 +1050,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
             <Field label="Item name" required><input className={controlInset} value={f.name} onChange={e => set("name", e.target.value)} /></Field>
             <Field label="Category"><input className={controlInset} value={f.category} onChange={e => set("category", e.target.value)} /></Field>
             <Field label="Item code"><input className={controlInset} value={f.code} onChange={e => set("code", e.target.value)} /></Field>
-            <Field label="Min on-hand"><input type="number" className={controlInset} value={f.minOhQty} onChange={e => set("minOhQty", e.target.value)} /></Field>
+            {meta.tracked && <Field label="Min on-hand"><input type="number" className={controlInset} value={f.minOhQty} onChange={e => set("minOhQty", e.target.value)} /></Field>}
             <Field label="Status" className="col-span-2"><SelectField inset value={f.status} onChange={e => set("status", e.target.value)}><option>Active</option><option>Inactive</option></SelectField></Field>
           </div>
         </Section>

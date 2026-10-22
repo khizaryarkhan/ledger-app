@@ -260,6 +260,58 @@ create — not a simple form) that doesn't already match it:
   page-by-page sweep, not a one-shot redesign; pick the next screen when
   asked, using this section as the checklist rather than re-deriving the
   Board's pattern from scratch each time.
+- **Second screen done (2026-10-22)**: Products & Services
+  (`components/products-register.tsx`'s `ProductsRegister`, at
+  `/accounting/products`). This one was ALREADY on the shared `ListPage`/
+  `ListPageHeader` system (`components/list-view.tsx`) — that system
+  already implements this exact shell (confirmed by reading it: same
+  `h-[calc(100vh-44px)]`, same header classes, same `h1` size/weight) — so
+  there was no shell rewrite needed, only its own page-level toolbar
+  controls (the search box and type filter sitting in `ListPageHeader`'s
+  children) were hand-rolled and off: they used `controlInset`
+  (bg-stone-950) on a bg-stone-950 header — the SAME invisible-control bug
+  as the Chart of Accounts drawer, just on a page toolbar instead of a
+  drawer — and the type filter was a raw `<select>`, missing the custom
+  chevron. Fixed to `control` + `SelectField`, compact `h-8`/`text-[12px]`
+  sizing matching the Board's own toolbar. **Any OTHER screen already built
+  on `ListPage`/`ListPageHeader`** (grep for the import) likely only needs
+  this same narrow toolbar-control check, not a shell rewrite — check that
+  first before assuming every screen needs Chart of Accounts' full treatment.
+
+## Products & Services item creation — audited and fixed (2026-10-22)
+
+Prompted by: "can you have a look on the product & service — the way we are
+creating items. Are you comfortable with that?" An investigation (not a
+report) found one real functional gap and two UX-complexity issues, all
+fixed in the same pass as the toolbar restyle above.
+
+- **Real gap: `POST /api/inventory/items` was admin-only, but is now
+  reachable from ANY transaction form's "+ Add new item…" quick-add**
+  (since the quick-add-consolidation fix earlier this week routed it
+  through `NewItemDrawer`, the real drawer, instead of a separate thinner
+  form). A non-admin company user can fully create and post an Invoice —
+  `/api/documents/*` has NO role check at all — but would 403 trying to
+  add one new service line to it, with no explanation. Fixed by removing
+  the `company_admin`/`super_admin` gate from item CREATE only; PATCH/
+  DELETE in `[id]/route.ts` (editing or deactivating an EXISTING item's
+  accounting) stay admin-gated. `prepareItemAccounting` still fully
+  validates the result regardless of who created it, so this doesn't
+  loosen what can actually be saved, only who can reach the form.
+- **`NewItemDrawer` gained a `simple` prop**, passed only from
+  `new-document-form.tsx`'s inline quick-add (`initialProductType="Service"
+  elevated simple`). When set: the Item Type grid narrows to the three
+  untracked kinds (Service/Non-Inventory/Other Charge) — a one-off invoice
+  line is never inventory — and the Sourcing Policy toggle (which supplier
+  may bill for it) is skipped entirely, since it is never relevant for a
+  quick line and would be one more decision in the way of finishing it.
+  The full Products & Services page's own "+ New item" button passes
+  no `simple` flag and keeps every control.
+- **Fixed regardless of `simple`, in BOTH `NewItemDrawer` and
+  `EditItemDrawer`**: "Base UoM" and "Min required on-hand qty" now only
+  render when the item's kind `tracked` (`lib/inventory/item-kinds.ts`) —
+  they are physical-stock concepts with zero meaning for a Service/
+  Non-Inventory/Other Charge item, in the full catalog page just as much
+  as in quick-add, so this wasn't gated on `simple` at all.
 
 ## "Quick-add" inline drawers were silently a SECOND, thinner form (2026-10-21)
 

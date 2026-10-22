@@ -1731,7 +1731,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
       )}
       {quickAdd && quickAdd.kind === "item" && (
-        <NewItemDrawer initialProductType="Service" elevated
+        <NewItemDrawer initialProductType="Service" elevated simple
           onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
       )}
       {quickAdd && quickAdd.kind !== "customer" && quickAdd.kind !== "supplier" && quickAdd.kind !== "item" && (
