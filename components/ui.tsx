@@ -12,17 +12,21 @@ import { t, Drawer } from "@/components/form-kit";
  */
 export function ReportShell({ title, sub, icon: Icon, children, onRefresh, loading }: { title: string; sub: string; icon: any; children: ReactNode; onRefresh: () => void; loading: boolean }) {
   return (
-    <div className="p-6 max-w-5xl">
-      <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-3"><ArrowLeft size={13} /> All reports</Link>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Icon size={18} className="text-indigo-400" /></div>
-          <h1 className={t.pageTitle}>{title}</h1>
+    <div className="flex flex-col h-[calc(100vh-44px)]">
+      <div className="px-6 py-4 border-b border-stone-800 bg-stone-950 flex-shrink-0 flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300 mb-1.5"><ArrowLeft size={12} /> All reports</Link>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center shrink-0"><Icon size={16} className="text-indigo-400" /></div>
+            <div className="min-w-0">
+              <h1 className="text-[20px] font-semibold text-white tracking-tight">{title}</h1>
+              <p className="text-[13px] text-stone-400 mt-0.5">{sub}</p>
+            </div>
+          </div>
         </div>
-        <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+        <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500 shrink-0" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
       </div>
-      <p className={`${t.secondary} mb-5 ml-12`}>{sub}</p>
-      {children}
+      <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
     </div>
   );
 }

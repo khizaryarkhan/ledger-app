@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, ScrollText, Scale, TrendingUp, Landmark } from "lucide-react";
+import { ReportShell } from "@/components/ui";
+import { control } from "@/components/form-kit";
 
 const TITLES: Record<string, { title: string; formal: string; sub: string; icon: any }> = {
   "trial-balance":  { title: "Trial Balance",   formal: "Trial Balance",                    sub: "Every account's balance — total debits must equal total credits.", icon: ScrollText },
@@ -46,7 +48,7 @@ export default function FinancialStatementPage() {
   const [from, setFrom] = useState<string>(fyStart);     // period statements' start
   const [to, setTo] = useState<string>(today);           // period statements' end
 
-  useEffect(() => {
+  function load() {
     setData(null); setError(null);
     const qs = isPeriod
       ? `statement=${statement}&from=${from}&to=${to}`
@@ -54,7 +56,8 @@ export default function FinancialStatementPage() {
     fetch(`/api/financials?${qs}`)
       .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d; })
       .then(setData).catch((e) => setError(e.message));
-  }, [statement, asOf, from, to, isPeriod]);
+  }
+  useEffect(load, [statement, asOf, from, to, isPeriod]);
 
   const Icon = meta.icon;
   const periodLine = isPeriod
@@ -71,31 +74,22 @@ export default function FinancialStatementPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
-      <div className="flex items-center gap-3 mb-1">
-        <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><Icon size={18} className="text-teal-400" /></div>
-        <h1 className="text-xl font-semibold text-stone-100">{meta.title}</h1>
-      </div>
-      <p className="text-sm text-stone-400 mb-4 ml-12">{meta.sub}</p>
-
-      <div className="flex items-center gap-3 mb-5 ml-12 flex-wrap">
+    <ReportShell title={meta.title} sub={meta.sub} icon={Icon} onRefresh={load} loading={!data && !error}>
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
         {isPeriod ? (
           <>
             <label className="text-[12px] text-stone-400">From
-              <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)}
-                className="ml-2 bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-sm text-stone-100" />
+              <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={`ml-2 ${control}`} />
             </label>
             <label className="text-[12px] text-stone-400">To
-              <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)}
-                className="ml-2 bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-sm text-stone-100" />
+              <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={`ml-2 ${control}`} />
             </label>
             <button onClick={() => { setFrom(fyStart()); setTo(today()); }}
               className="text-[12px] text-teal-400 hover:text-teal-300 border border-stone-700 rounded-lg px-2.5 py-1">This financial year</button>
           </>
         ) : (
           <label className="text-[12px] text-stone-400">As at
-            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)}
-              className="ml-2 bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-sm text-stone-100" />
+            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className={`ml-2 ${control}`} />
           </label>
         )}
       </div>
@@ -104,7 +98,7 @@ export default function FinancialStatementPage() {
       {!data && !error && <div className="text-sm text-stone-500 flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Building statement…</div>}
 
       {data && (
-        <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden">
+        <div className="rounded-xl bg-stone-900 border border-stone-800 overflow-hidden max-w-3xl">
           {/* Statement header — the way a CA presents it */}
           <div className="text-center px-4 py-4 border-b border-stone-800">
             <div className="text-[15px] font-bold text-stone-100">{data.meta?.entity ?? ""}</div>
@@ -119,7 +113,7 @@ export default function FinancialStatementPage() {
           {statement === "balance-sheet" && <BalanceSheet data={data} drill={drill} />}
         </div>
       )}
-    </div>
+    </ReportShell>
   );
 }
 

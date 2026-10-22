@@ -7,6 +7,8 @@ import { BookOpen, Loader } from "lucide-react";
 import { txnTypeLabel } from "@/lib/accounting/doc-format";
 import { useData } from "@/components/data-provider";
 import { listTable, listRow, listCell, listNumCell } from "@/components/list-view";
+import { ReportShell } from "@/components/ui";
+import { control, SelectField } from "@/components/form-kit";
 
 const today = () => new Date().toISOString().slice(0, 10);
 function fyStart() { const n = new Date(); const y = n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1; return `${y}-07-01`; }
@@ -55,44 +57,37 @@ function GeneralLedgerInner() {
   useEffect(() => { run(); /* eslint-disable-next-line */ }, [accountId, customerId, projectId, nameId, from, to]);
 
   const curr = data?.meta?.currency || "";
-  const input = "bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-100";
   const anyFx = useMemo(() => (data?.accounts ?? []).some((a: any) => a.rows.some((r: any) => r.currency)), [data]);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-1">
-        <div className="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center"><BookOpen size={17} className="text-teal-400" /></div>
-        <h1 className="text-xl font-semibold text-stone-100">General Ledger</h1>
-      </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">{data?.meta?.entity} — every posting with its type, document and running balance.</p>
-
+    <ReportShell title="General Ledger" sub={`${data?.meta?.entity ?? ""} — every posting with its type, document and running balance.`} icon={BookOpen} onRefresh={run} loading={loading}>
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Account</label>
-          <select value={accountId} onChange={e => setAccountId(e.target.value)} className={`${input} min-w-[240px]`}>
+          <SelectField value={accountId} onChange={e => setAccountId(e.target.value)} className="min-w-[240px]">
             <option value="">All accounts</option>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.code ? `${a.code} · ` : ""}{a.name}</option>)}
-          </select>
+          </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Customer</label>
-          <select value={customerId} onChange={e => setCustomerId(e.target.value)} className={`${input} min-w-[200px]`}>
+          <SelectField value={customerId} onChange={e => setCustomerId(e.target.value)} className="min-w-[200px]">
             <option value="">All customers</option>
             {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Supplier</label>
-          <select value={nameId} onChange={e => setNameId(e.target.value)} className={`${input} min-w-[200px]`}>
+          <SelectField value={nameId} onChange={e => setNameId(e.target.value)} className="min-w-[200px]">
             <option value="">All suppliers</option>
             {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.displayName || s.name}</option>)}
-          </select>
+          </SelectField>
         </div>
         <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} className={`${input} min-w-[200px]`}>
+          <SelectField value={projectId} onChange={e => setProjectId(e.target.value)} className="min-w-[200px]">
             <option value="">All projects</option>
             {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </SelectField>
         </div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={input} /></div>
-        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={input} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={control} /></div>
+        <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} className={control} /></div>
         {anyFx && (
           <label className="flex items-center gap-1.5 text-[12px] text-stone-400 mb-2 cursor-pointer">
             <input type="checkbox" checked={showFx} onChange={e => setShowFx(e.target.checked)} /> Show foreign currency
@@ -168,6 +163,6 @@ function GeneralLedgerInner() {
           ))}
         </div>
       )}
-    </div>
+    </ReportShell>
   );
 }

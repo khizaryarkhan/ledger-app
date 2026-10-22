@@ -277,6 +277,43 @@ create — not a simple form) that doesn't already match it:
   on `ListPage`/`ListPageHeader`** (grep for the import) likely only needs
   this same narrow toolbar-control check, not a shell rewrite — check that
   first before assuming every screen needs Chart of Accounts' full treatment.
+- **Third surface done (2026-10-22): the whole Accounting Reports section.**
+  Prompted by: "The reports are not competent enough" + "All reports pages
+  should follow the theme we use in the Collection Board." Unlike the first
+  two screens, this wasn't one page — every report under `/accounting/
+  reports/*` rendered inside a centered, page-scrolling `p-6 max-w-5xl`/
+  `max-w-3xl` div (the exact anti-pattern this sweep exists to fix), because
+  nearly all of them (Aging, Tax Liability, Stock Valuation/Status, Stock vs
+  GL, all Purchasing/Sales reports, Lot Traceability, Subcontractor Yield,
+  Delivery Risk — 14 report pages in total) share ONE component,
+  `components/ui.tsx`'s `ReportShell`. Fixing `ReportShell` once — full-height
+  `flex flex-col h-[calc(100vh-44px)]` shell, fixed `bg-stone-950
+  border-b border-stone-800` header (back-link, icon, title, refresh button),
+  `flex-1 overflow-y-auto` scrolling body — fixed all 14 at once, the same
+  "one shared component, many callers" leverage the `Drawer` consolidation
+  used earlier. **Four reports did NOT go through `ReportShell` and needed
+  their own fix**: `components/cash-flow-report.tsx` and
+  `components/fx-report.tsx` each hand-rolled an exact duplicate of
+  `ReportShell`'s old header (now switched to use `ReportShell` itself,
+  removing the duplication); `app/(app)/accounting/reports/general-ledger/
+  page.tsx` and `app/(app)/accounting/reports/[statement]/page.tsx` (Trial
+  Balance/P&L/Balance Sheet/Comprehensive Income/Changes in Equity) hand-rolled
+  their own header AND their own filter controls — raw `<select>`s with no
+  chevron (the same "never rely on the native OS select arrow" rule
+  form-kit's own doc comment states) and a hand-built input class string
+  instead of form-kit's `control`/`SelectField` — both switched to
+  `ReportShell` + `control`/`SelectField`. The **Reports hub itself**
+  (`app/(app)/accounting/reports/page.tsx`) was also the old centered
+  pattern with a hand-rolled search input; converted to `ListPage`/
+  `ListPageHeader` (the same primitives the Board, Products & Services and
+  this shell all now share) with the search box on `controlCompactIcon`.
+  **Not done in this pass, flagged as the actual answer to "not competent
+  enough" rather than guessed at**: no report (financial statement or
+  otherwise) can be exported or printed; the financial statements have no
+  comparative-period column (this period vs last); General Ledger/[statement]
+  date pickers have no quick-range presets besides "This financial year" on
+  the period statements only. These are feature gaps, not styling, and need
+  their own scoped pass once prioritised.
 
 ## Products & Services item creation — audited and fixed (2026-10-22)
 

@@ -3,10 +3,10 @@
 /** Currency Exposure & FX revaluation — enter today's rate per currency to see unrealised gain/loss. */
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
+import { Coins } from "lucide-react";
 import { fmt, localToday } from "@/lib/format";
 import { controlCompact } from "@/components/form-kit";
+import { ReportShell } from "@/components/ui";
 import { useListView, ListHead, listTable, listRow, listCell, listNumCell, listMoneyCell, type ListColumn } from "@/components/list-view";
 
 const money = fmt.num2;
@@ -55,17 +55,7 @@ export function FxExposureReport() {
   const totalGL = useMemo(() => lv.rows.reduce((s: number, r: any) => s + r.gl, 0), [lv.rows]);
 
   return (
-    <div className="p-6 max-w-5xl">
-      <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-3"><ArrowLeft size={13} /> All reports</Link>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><Coins size={18} className="text-indigo-400" /></div>
-          <h1 className="text-[20px] font-semibold text-stone-100">Currency Exposure &amp; FX Revaluation</h1>
-        </div>
-        <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={data === null ? "animate-spin" : ""} /></button>
-      </div>
-      <p className="text-[13px] text-stone-400 mb-5 ml-12">Foreign-currency balances and the home value they were booked at. Enter today's rate per currency to see the unrealised gain/loss if revalued now. Home currency: {home}.</p>
-
+    <ReportShell title="Currency Exposure & FX Revaluation" sub={`Foreign-currency balances and the home value they were booked at. Enter today's rate per currency to see the unrealised gain/loss if revalued now. Home currency: ${home}.`} icon={Coins} onRefresh={load} loading={data === null}>
       <div className="flex items-center gap-2 mb-3 text-[12px] text-stone-400">As of <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className={controlCompact} /></div>
 
       <div className="rounded-lg bg-stone-900 border border-stone-800 overflow-hidden"><div className="overflow-x-auto">
@@ -95,6 +85,6 @@ export function FxExposureReport() {
         </table>
       </div></div>
       <p className="text-[11px] text-stone-500 mt-3">This is a position report. Posting the revaluation to the ledger (and recognising realised FX at settlement) is a scheduled enhancement.</p>
-    </div>
+    </ReportShell>
   );
 }

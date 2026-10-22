@@ -9,6 +9,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { ListPage, ListPageHeader } from "@/components/list-view";
+import { controlCompactIcon } from "@/components/form-kit";
 
 type Report = { href: string; title: string; sub: string; icon: any };
 type Group = { label: string; reports: Report[] };
@@ -89,16 +91,12 @@ export default function ReportsHubPage() {
   }, [q, ALL_GROUPS]);
 
   return (
-    <div className="p-6 max-w-5xl">
-      <div className="flex items-center gap-3 mb-1">
-        <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center"><BookOpen size={18} className="text-indigo-400" /></div>
-        <h1 className="text-xl font-semibold text-stone-100">Reports</h1>
-      </div>
-      <p className="text-sm text-stone-400 mb-5 ml-12">All your accounting reports in one place.</p>
-
+    <ListPage>
+      <ListPageHeader title="Reports" subtitle="All your accounting reports in one place." />
+      <div className="flex-1 overflow-y-auto px-6 py-4">
       <div className="relative max-w-sm mb-6">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search reports…" className="bg-stone-950 border border-stone-700 rounded-lg pl-9 pr-3 py-2 text-sm text-stone-100 w-full focus:outline-none focus:border-emerald-600" />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search reports…" className={`${controlCompactIcon} w-full`} />
       </div>
 
       {groups.map(g => (
@@ -121,6 +119,7 @@ export default function ReportsHubPage() {
         </div>
       ))}
       {groups.length === 0 && <p className="text-sm text-stone-500">No reports match “{q}”.</p>}
-    </div>
+      </div>
+    </ListPage>
   );
 }
