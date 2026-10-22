@@ -310,6 +310,71 @@ export async function statementOfChangesInEquity(orgIds: string[], from: string,
   return { from, to, rows, totalOpening, totalMovement, totalClosing };
 }
 
+// ── Multi-column (period-bucket / compare-to) wrappers ──────────────────────
+// Each calls the existing single-period `profitAndLoss`/`balanceSheet` once
+// per column and zips the results by account — those functions are
+// completely unchanged, so every existing caller (Cash Flow, reconcile,
+// tests) is unaffected whether this is ever used or not. This is the engine
+// behind the report page's "Display columns by" and "Compare to" controls.
+export type ReportColumnMeta = { key: string; label: string; from?: string; to?: string; asOf?: string };
+type MultiLine = { accountId: string | null; name: string; code: string | null; values: number[] };
+
+/** Union of lines across columns, keyed by accountId (fallback to name for a
+ *  synthetic line like "Profit for the period" which carries accountId: null),
+ *  each column's amount zipped into `values[]` (0 where that column has none). */
+function zipLines(perColumn: PlLine[][] | BsLine[][]): MultiLine[] {
+  const order: string[] = [];
+  const byKey = new Map<string, MultiLine>();
+  perColumn.forEach((lines, colIdx) => {
+    for (const l of lines) {
+      const k = l.accountId ?? `~${l.name}`;
+      let row = byKey.get(k);
+      if (!row) { row = { accountId: l.accountId, name: l.name, code: l.code, values: perColumn.map(() => 0) }; byKey.set(k, row); order.push(k); }
+      row.values[colIdx] = l.amount;
+    }
+  });
+  return order.map((k) => byKey.get(k)!);
+}
+
+export async function multiPeriodProfitAndLoss(orgIds: string[], periods: { key: string; label: string; from: string; to: string }[]) {
+  const results = await Promise.all(periods.map((p) => profitAndLoss(orgIds, p.from, p.to)));
+  const columns: ReportColumnMeta[] = periods.map((p) => ({ key: p.key, label: p.label, from: p.from, to: p.to }));
+  return {
+    columns,
+    revenue: { rows: zipLines(results.map((r) => r.sections[0].lines)), totals: results.map((r) => r.sections[0].total) },
+    costOfSales: { rows: zipLines(results.map((r) => r.sections[1].lines)), totals: results.map((r) => r.sections[1].total) },
+    grossProfit: results.map((r) => r.grossProfit),
+    otherIncome: { rows: zipLines(results.map((r) => r.otherIncome.lines)), totals: results.map((r) => r.otherIncome.total) },
+    operatingExpenses: { rows: zipLines(results.map((r) => r.operatingExpenses.lines)), totals: results.map((r) => r.operatingExpenses.total) },
+    financeCosts: { rows: zipLines(results.map((r) => r.financeCosts.lines)), totals: results.map((r) => r.financeCosts.total) },
+    profitBeforeTax: results.map((r) => r.profitBeforeTax),
+    taxation: { rows: zipLines(results.map((r) => r.taxation.lines)), totals: results.map((r) => r.taxation.total) },
+    netProfit: results.map((r) => r.netProfit),
+  };
+}
+
+export async function multiAsOfBalanceSheet(orgIds: string[], snapshots: { key: string; label: string; asOf: string }[], fyStartMonth = 1) {
+  const results = await Promise.all(snapshots.map((s) => balanceSheet(orgIds, s.asOf, fyStartMonth)));
+  const columns: ReportColumnMeta[] = snapshots.map((s) => ({ key: s.key, label: s.label, asOf: s.asOf }));
+  const sumAmt = (ls: BsLine[]) => round(ls.reduce((s, l) => s + l.amount, 0));
+  return {
+    columns,
+    assets: {
+      nonCurrent: { rows: zipLines(results.map((r) => r.assets.nonCurrent)), totals: results.map((r) => sumAmt(r.assets.nonCurrent)) },
+      current: { rows: zipLines(results.map((r) => r.assets.current)), totals: results.map((r) => sumAmt(r.assets.current)) },
+      total: results.map((r) => r.assets.total),
+    },
+    equity: { rows: zipLines(results.map((r) => r.equity.lines)), totals: results.map((r) => r.equity.total) },
+    liabilities: {
+      nonCurrent: { rows: zipLines(results.map((r) => r.liabilities.nonCurrent)), totals: results.map((r) => sumAmt(r.liabilities.nonCurrent)) },
+      current: { rows: zipLines(results.map((r) => r.liabilities.current)), totals: results.map((r) => sumAmt(r.liabilities.current)) },
+      total: results.map((r) => r.liabilities.total),
+    },
+    totalEquityAndLiabilities: results.map((r) => r.totalEquityAndLiabilities),
+    balanced: results.map((r) => r.balanced),
+  };
+}
+
 // ── General Ledger ───────────────────────────────────────────────────────────
 // Per-account transaction listing with a running balance — the classic ledger
 // where every line shows the NATURE of the posting (Invoice, Bill, Payment…),

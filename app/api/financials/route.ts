@@ -7,7 +7,8 @@
  */
 
 import { requireReadScope, ok, bad } from "@/lib/api";
-import { trialBalance, profitAndLoss, balanceSheet, generalLedger, comprehensiveIncome, statementOfChangesInEquity } from "@/lib/accounting/financials";
+import { trialBalance, profitAndLoss, balanceSheet, generalLedger, comprehensiveIncome, statementOfChangesInEquity, multiPeriodProfitAndLoss, multiAsOfBalanceSheet } from "@/lib/accounting/financials";
+import { splitRangeByBucket, splitAsOfByBucket, compareRange, compareAsOf, type BucketSize, type CompareMode } from "@/lib/accounting/report-periods";
 import { requireLedgerAuthority } from "@/lib/accounting/ledger-authority";
 import { db } from "@/db";
 import { organisations, orgGroups } from "@/db/schema";
@@ -34,6 +35,12 @@ async function buildMeta(orgIds: string[], groupId: string | null) {
   return { entity, currency: orgs[0]?.currency || "PKR", consolidated: orgIds.length > 1 };
 }
 
+async function fiscalYearStartMonth(orgIds: string[]): Promise<number> {
+  if (!orgIds.length) return 1;
+  const [org] = await db.select({ fym: organisations.fiscalYearStartMonth }).from(organisations).where(eq(organisations.id, orgIds[0])).limit(1);
+  return org?.fym ?? 1;
+}
+
 export async function GET(req: Request) {
   const { error, orgIds, groupId } = await requireReadScope();
   if (error) return error;
@@ -43,6 +50,8 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const asOf = url.searchParams.get("asOf");
+  const columns = (url.searchParams.get("columns") || "total") as BucketSize;
+  const compareTo = (url.searchParams.get("compareTo") || "none") as CompareMode;
 
   // General Ledger is a raw transaction list, not a claim about complete
   // books — only the summary statements need the org(s) to be the book of
@@ -53,12 +62,19 @@ export async function GET(req: Request) {
   }
 
   try {
-    const meta = await buildMeta(orgIds, groupId ?? null);
+    const meta = { ...(await buildMeta(orgIds, groupId ?? null)), fiscalYearStartMonth: await fiscalYearStartMonth(orgIds) };
     if (statement === "trial-balance") {
       return ok({ ...(await trialBalance(orgIds, isDate(asOf) ? asOf! : undefined)), meta });
     }
     if (statement === "profit-loss") {
-      return ok({ ...(await profitAndLoss(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined)), meta });
+      const primary = await profitAndLoss(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined);
+      let table = null;
+      if (isDate(from) && isDate(to) && (columns !== "total" || compareTo !== "none")) {
+        const cols = splitRangeByBucket(from!, to!, columns);
+        const cmp = compareRange(from!, to!, compareTo);
+        table = await multiPeriodProfitAndLoss(orgIds, cmp ? [...cols, cmp] : cols);
+      }
+      return ok({ ...primary, table, meta });
     }
     if (statement === "comprehensive-income") {
       return ok({ ...(await comprehensiveIncome(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined)), meta });
@@ -68,10 +84,20 @@ export async function GET(req: Request) {
       return ok({ ...(await statementOfChangesInEquity(orgIds, from!, to!)), meta });
     }
     if (statement === "balance-sheet") {
-      const [org] = orgIds.length
-        ? await db.select({ fym: organisations.fiscalYearStartMonth }).from(organisations).where(eq(organisations.id, orgIds[0])).limit(1)
-        : [];
-      return ok({ ...(await balanceSheet(orgIds, isDate(asOf) ? asOf! : undefined, org?.fym ?? 1)), meta });
+      const fym = meta.fiscalYearStartMonth;
+      const primary = await balanceSheet(orgIds, isDate(asOf) ? asOf! : undefined, fym);
+      let table = null;
+      // `from` anchors the bucket-column window ("Display columns by") — the
+      // single-column figure above only ever depends on `asOf`, matching the
+      // route's existing behaviour exactly when columns/compareTo are left
+      // at their defaults.
+      if (isDate(asOf) && (columns !== "total" || compareTo !== "none")) {
+        const windowFrom = isDate(from) ? from! : asOf!;
+        const cols = splitAsOfByBucket(windowFrom, asOf!, columns);
+        const cmp = compareAsOf(asOf!, compareTo);
+        table = await multiAsOfBalanceSheet(orgIds, cmp ? [...cols, cmp] : cols, fym);
+      }
+      return ok({ ...primary, table, meta });
     }
     if (statement === "general-ledger") {
       const accountId = url.searchParams.get("accountId") || undefined;

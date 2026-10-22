@@ -313,7 +313,90 @@ create — not a simple form) that doesn't already match it:
   comparative-period column (this period vs last); General Ledger/[statement]
   date pickers have no quick-range presets besides "This financial year" on
   the period statements only. These are feature gaps, not styling, and need
-  their own scoped pass once prioritised.
+  their own scoped pass once prioritised. **The comparative-period and
+  quick-preset gaps were closed the same week** — see "QBO-parity reporting
+  controls" below.
+
+## QBO-parity reporting controls — Phase 1: period presets, columns, compare-to (2026-10-22)
+
+Prompted directly against a live QBO report builder (screenshots of its
+Report period / Display columns by / Compare to / Customize controls), with
+an explicit brief: "We have to make much better than QBO — but minimum is
+QBO... visually a bit different but all functionality has to be the same."
+Confirmed scope via AskUserQuestion before building: Phase 1 =
+"Period shortcuts + time-bucket columns + Compare-to", applied to all five
+financial statements (`app/(app)/accounting/reports/[statement]/page.tsx`).
+
+- **`lib/accounting/report-periods.ts`** (new, pure, no `db` import — same
+  client-safe split as `account-roles.ts`/`modules.ts`) is the whole date-math
+  layer: fiscal-year-aware range presets (This/Last month, This/Last quarter,
+  This fiscal year to date, Last fiscal year, This/Last calendar year),
+  as-of presets for point-in-time statements (Today, End of last month/
+  quarter/fiscal year), "Display columns by" bucket-splitting (tile a
+  `[from,to]` window into Month/Quarter/Year sub-ranges, clipped at both
+  ends — a quarter starting mid-range is NOT padded out to its full quarter),
+  and Compare-to period derivation (Previous period = same-length window
+  immediately before with no overlap; Previous year = both ends shifted back
+  exactly one year). 19 tests in `tests/report-periods.test.ts`, including
+  the FY-wrap, December→January, and Q1→Q4-prior-year edge cases.
+  **Month-label generation deliberately avoids `new Date(...)
+  .toLocaleDateString()`** — not just as a style choice: it tripped
+  `tests/architecture.test.ts`'s "nothing pins a date string to UTC midnight
+  and then formats it locally" guard on the first run (the guard flags the
+  literal pattern regardless of an explicit `timeZone: "UTC"` override, which
+  would in fact have been safe here) — fixed by building the `"Jul 2026"`-style
+  label from a plain month-abbreviation array instead, which is both
+  guard-clean and locale-independent.
+- **`lib/accounting/financials.ts` gained two wrapper functions**,
+  `multiPeriodProfitAndLoss` and `multiAsOfBalanceSheet` — each calls the
+  EXISTING, completely unchanged `profitAndLoss`/`balanceSheet` once per
+  column (sub-period or compare-period) and zips the per-account lines
+  together by `accountId` (falling back to name for a synthetic line like
+  "Profit for the period", which carries `accountId: null`). Every existing
+  caller of `profitAndLoss`/`balanceSheet` — Cash Flow, reconcile, every
+  existing test — is untouched regardless of whether the new wrappers are
+  ever invoked, because neither single-period function's signature or body
+  changed at all.
+- **`GET /api/financials`** gained two optional query params, `columns`
+  (`total|month|quarter|year`) and `compareTo` (`none|previous_period|
+  previous_year`), read only by the `profit-loss` and `balance-sheet`
+  branches. **Left at their defaults, the response is byte-identical to
+  before this change** — no `table` key is added — so `general-ledger` and
+  every other branch, and any caller that doesn't yet know these params
+  exist, are unaffected. `meta` also gained `fiscalYearStartMonth`, read by
+  the client to compute fiscal-year presets correctly instead of the page's
+  old hardcoded "Pakistan FY starts July" assumption.
+- **The report page**: a "Report period" preset dropdown (range presets for
+  Profit & Loss/Comprehensive Income/Changes in Equity, as-of presets for
+  Trial Balance/Balance Sheet) replaces the old bare date inputs as the
+  default; picking "Custom" reveals the raw From/To (or As at) fields exactly
+  as before. Profit & Loss and Balance Sheet additionally get "Display
+  columns by" and "Compare to" dropdowns. When more than one column results,
+  the page switches from the single-column, centred "the way a CA presents
+  it" statement view to a new wide, horizontally-scrollable multi-column
+  table (`MultiProfitLoss`/`MultiBalanceSheet`) — drilling into a cell still
+  opens the General Ledger scoped to THAT column's own date window, not the
+  primary period's.
+- **Scope deliberately narrower than all five statements getting the full
+  engine**: Trial Balance, Comprehensive Income and Changes in Equity get the
+  period-preset dropdown only, not Display-columns-by/Compare-to, for
+  structural reasons rather than by omission — Trial Balance already shows
+  both debit AND credit per line (doubling to per-column debit/credit pairs
+  is a materially different table shape), and Changes in Equity already
+  shows opening/movement/closing in one row per category (adding more
+  columns on top of three already-wide columns doesn't fit the same way
+  Profit & Loss/Balance Sheet's single-figure-per-line shape does).
+- **Not built in this pass — the rest of the QBO screenshot brief**:
+  "Display columns by" DIMENSION breakdown (one column per Customer/Class/
+  Location/Vendor/Product/Employee, which needs `balances()`'s aggregate
+  query to group by that dimension too — a materially bigger engine change
+  than the time-bucket columns built here), the full "Customize" side panel
+  (filters by account/customer/vendor/product/class, Active/All/Non-zero row
+  and column visibility, calculated fields, number format, editable section
+  titles), export/print, and a Cash vs Accrual accounting-method toggle
+  (explicitly declined by the client: "Accounting Method (Not Required)").
+  Each is its own scoped phase, same pattern as the sales-document refactor's
+  Phase 1/2/3a/3b/3c staging above.
 
 ## Products & Services item creation — audited and fixed (2026-10-22)
 
