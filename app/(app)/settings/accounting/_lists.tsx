@@ -210,7 +210,15 @@ export function AccountingLists({ initialTab = "accounts", hideTabs = false }: {
       });
       // Parent account: "" (the "No parent" option) means explicitly clear it,
       // not "leave unchanged" — so send null rather than omitting the key.
+      // Every OTHER tab (classes/locations/cost centres/custom fields, all the
+      // "dimensions" entity) has no parent-picker in this form at all —
+      // `openEdit`'s blanket `{...r}` spread still carries the row's own
+      // `parentId` (set only by a QBO/Xero sync) into `form`, and the
+      // dimensions PATCH schema is `.strict()` with no `parentId` field, so
+      // leaving it in the payload 400'd every single dimension edit, not just
+      // ones with a parent.
       if (tab === "accounts") payload.parentId = payload.parentId || null;
+      else delete payload.parentId;
       // Only send known fields
       delete payload.id; delete payload.orgId; delete payload.source; delete payload.externalId;
       delete payload.raw; delete payload.lastSyncedAt; delete payload.createdAt; delete payload.updatedAt;
