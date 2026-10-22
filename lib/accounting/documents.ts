@@ -107,6 +107,18 @@ export type PostDocInput = {
    * one place. Omitted resolves to the org default.
    */
   locationId?: string | null;
+  /**
+   * Class/Location for the document's CONTROL account line(s) — A/R, A/P, or
+   * the bank/asset account — as opposed to `DocLineInput.classId`/`locationId`,
+   * which only ever reach the revenue/expense/item lines (see "double-entry
+   * impact" discussion, CLAUDE.md). Deliberately named `control*`, not
+   * `classId`/`locationId`, to avoid colliding with the unrelated physical
+   * stock `locationId` field above. Header-level like `projectId` — a
+   * document's AR/AP/Bank posting is ONE line, so it can only ever carry one
+   * class and one location, never a per-revenue-line breakdown.
+   */
+  controlClassId?: string | null;
+  controlLocationId?: string | null;
   lines?: DocLineInput[];
   sweptPaymentIds?: string[];      // Deposit: native Payment entry ids being swept into this deposit
 };
@@ -324,6 +336,11 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
   // control line itself, matching how class/location already behave and how
   // QBO never puts Customer:Job on the control line either.
   const lineCommon = (l: typeof priced[number]) => ({ description: l.description ?? null, classId: l.classId ?? null, locationId: l.locationId ?? null, projectId: input.projectId ?? null });
+  // The document's OWN control-account line (A/R, A/P or Bank) posts ONE line
+  // for the whole total, so it can only ever carry ONE class/location — set
+  // explicitly via the header picker (controlClassId/controlLocationId),
+  // never derived from the revenue/expense lines above it.
+  const controlDim = { classId: input.controlClassId ?? null, locationId: input.controlLocationId ?? null };
 
   if (type === "Invoice" || type === "SalesReceipt") {
     for (const l of priced) lines.push({ accountId: l.accountId!, credit: l.net, ...lineCommon(l) });
@@ -338,10 +355,10 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
       // in the ledger and invisible to collections — see the "posted-but-
       // unbridged" check in scripts/reconcile-foundation.ts.
       if (!input.partyId) err("Choose the customer from the list — an invoice must be linked to a customer record so it can be collected.");
-      lines.push(name({ accountId: arId!, debit: grand }) as PostLine);
+      lines.push(name({ accountId: arId!, debit: grand, ...controlDim }) as PostLine);
     } else {
       if (!input.bankAccountId) err("Select the account to deposit to.");
-      lines.push({ accountId: input.bankAccountId!, debit: grand, description: "Sales receipt" });
+      lines.push({ accountId: input.bankAccountId!, debit: grand, description: "Sales receipt", ...controlDim });
     }
   } else if (type === "CreditNote" || type === "RefundReceipt") {
     for (const l of priced) lines.push({ accountId: l.accountId!, debit: l.net, ...lineCommon(l) });
@@ -349,10 +366,10 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     if (type === "CreditNote") {
       if (!arId) err("No Accounts Receivable account is set up.");
       if (!input.partyId && !input.partyLabel) err("Select a customer.");
-      lines.push(name({ accountId: arId!, credit: grand }) as PostLine);
+      lines.push(name({ accountId: arId!, credit: grand, ...controlDim }) as PostLine);
     } else {
       if (!input.bankAccountId) err("Select the account to refund from.");
-      lines.push({ accountId: input.bankAccountId!, credit: grand, description: "Refund" });
+      lines.push({ accountId: input.bankAccountId!, credit: grand, description: "Refund", ...controlDim });
     }
   } else if (type === "Bill" || type === "Expense") {
     // A negative line (a supplier's discount, or an invoice price below the
@@ -362,15 +379,15 @@ async function buildSalesPurchaseLines(orgId: string, type: DocType, input: Post
     if (type === "Bill") {
       if (!apId) err("No Accounts Payable account is set up.");
       if (!input.partyId && !input.partyLabel) err("Select a supplier.");
-      lines.push(name({ accountId: apId!, credit: grand }) as PostLine);
+      lines.push(name({ accountId: apId!, credit: grand, ...controlDim }) as PostLine);
     } else {
       if (!input.bankAccountId) err("Select the account it was paid from.");
-      lines.push({ accountId: input.bankAccountId!, credit: grand, description: "Expense" });
+      lines.push({ accountId: input.bankAccountId!, credit: grand, description: "Expense", ...controlDim });
     }
   } else { // VendorCredit
     if (!apId) err("No Accounts Payable account is set up.");
     if (!input.partyId && !input.partyLabel) err("Select a supplier.");
-    lines.push(name({ accountId: apId!, debit: grand }) as PostLine);
+    lines.push(name({ accountId: apId!, debit: grand, ...controlDim }) as PostLine);
     for (const l of priced) lines.push({ accountId: l.accountId!, credit: l.net, ...lineCommon(l) });
     pushTax("credit", "Input tax");
   }
@@ -683,16 +700,21 @@ async function settlePayment(orgId: string, type: DocType, input: PostDocInput, 
   // produced (amtHome, already computed below).
   const cashLines: PostLine[] = [];
   const extraHomeLines: PostLine[] = [];
+  // Same header-level control dimension as buildSalesPurchaseLines — a
+  // Payment/BillPayment's bank and A/R-or-A/P legs are each ONE line apiece,
+  // so they can only ever carry one class/location, set explicitly rather
+  // than derived (a payment has no revenue/expense lines to derive from).
+  const controlDim = { classId: input.controlClassId ?? null, locationId: input.controlLocationId ?? null };
   if (amt > 0) {
-    if (isCust) extraHomeLines.push({ accountId: input.bankAccountId!, debit: amtHome, description: "Payment received" });
-    else extraHomeLines.push({ accountId: input.bankAccountId!, credit: amtHome, description: "Bill payment" });
+    if (isCust) extraHomeLines.push({ accountId: input.bankAccountId!, debit: amtHome, description: "Payment received", ...controlDim });
+    else extraHomeLines.push({ accountId: input.bankAccountId!, credit: amtHome, description: "Bill payment", ...controlDim });
     // Cash beyond what's tied to a specific invoice (over-receipt/on-account)
     // has no "original rate" to honour — it converts at the payment's own rate.
     const unallocatedForeign = round2(amt - allocatedForeignSum);
     const unallocatedHome = round2(unallocatedForeign * rate);
     const controlHome = round2(totalAlloc + unallocatedHome);
     if (Math.abs(controlHome) > 0.005) {
-      extraHomeLines.push(nm(isCust ? { accountId: controlId!, credit: controlHome } : { accountId: controlId!, debit: controlHome }) as PostLine);
+      extraHomeLines.push(nm(isCust ? { accountId: controlId!, credit: controlHome, ...controlDim } : { accountId: controlId!, debit: controlHome, ...controlDim }) as PostLine);
     }
     // The FX line is whatever's left to balance the bank + control legs
     // already pushed above. This single "residue" *is* the realized gain/
@@ -787,16 +809,26 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
     if (amt <= 0) err("Enter an amount to transfer.");
     if (!input.bankAccountId || !input.toBankAccountId) err("Select both the source and destination accounts.");
     if (input.bankAccountId === input.toBankAccountId) err("Source and destination must be different accounts.");
-    lines.push({ accountId: input.toBankAccountId!, debit: amt, description: "Transfer in" });
-    lines.push({ accountId: input.bankAccountId!, credit: amt, description: "Transfer out" });
+    // Same header control dimension as every other control-account line —
+    // a transfer is two bank legs with no revenue/expense line to derive
+    // one from, so the one class/location picked for the document applies
+    // to both.
+    const controlDim = { classId: input.controlClassId ?? null, locationId: input.controlLocationId ?? null };
+    lines.push({ accountId: input.toBankAccountId!, debit: amt, description: "Transfer in", ...controlDim });
+    lines.push({ accountId: input.bankAccountId!, credit: amt, description: "Transfer out", ...controlDim });
   }
   else if (type === "Deposit") {
     const raw = (input.lines ?? []).filter(l => l.accountId && round2(l.amount) !== 0);
     if (raw.length === 0) err("Add at least one line with an account and amount.");
     if (!input.bankAccountId) err("Select the account to deposit to.");
     const total = round2(raw.reduce((s, l) => s + round2(l.amount), 0));
-    for (const l of raw) lines.push({ accountId: l.accountId!, credit: round2(l.amount), description: l.description ?? null });
-    lines.push({ accountId: input.bankAccountId!, debit: total, description: "Bank deposit" });
+    // Each source line keeps its OWN class/location (the form shows a picker
+    // per line here, same as Invoice/Bill) — this was silently discarded
+    // before (the UI collected it, nothing downstream read it). The single
+    // aggregate Bank debit line below gets the header control dimension,
+    // like every other control-account line.
+    for (const l of raw) lines.push({ accountId: l.accountId!, credit: round2(l.amount), description: l.description ?? null, classId: l.classId ?? null, locationId: l.locationId ?? null });
+    lines.push({ accountId: input.bankAccountId!, debit: total, description: "Bank deposit", classId: input.controlClassId ?? null, locationId: input.controlLocationId ?? null });
 
     // Sweeping a Payment into this deposit is a TRACEABILITY link only — it
     // does not alter either side's postings. Native Payments already post Dr

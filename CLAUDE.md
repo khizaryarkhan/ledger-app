@@ -469,6 +469,53 @@ columns next, Custom Fields (see below) deferred.
     side with no cross-org name-matching — the same simplification every
     other multi-org figure in this file already makes.
 
+## Class/Location on the CONTROL-account line (A/R, A/P, Bank) — not just the item lines (2026-10-23)
+
+Raised directly: "our Forms have a double entry impact... Our Forms only
+showing classes & Location at the item level... how would we do the same for
+the debtor (A/R) account?" — followed by the decision: "line level is fine -
+but we should be able to classify class & Locations for the AP/AR & Asset
+Accounts." Confirmed by reading the posting code: every document was already
+(deliberately — see the Phase 1b section above) posting its A/R/A/P/Bank
+control line as ONE line with no class/location at all, matching QBO's own
+behaviour (QBO's "Balance Sheet by Class" is notorious for lumping A/R, A/P,
+Bank and Equity into "Not Specified" for exactly this reason). The decision
+here is to go further than QBO: keep per-line Class/Location on the revenue/
+expense/item lines exactly as-is, and ADD an explicit, user-chosen
+Class/Location for the document's own control line.
+
+- **`PostDocInput` gained `controlClassId?`/`controlLocationId?`** —
+  deliberately NOT named `classId`/`locationId` at this level, because
+  `PostDocInput.locationId` already exists and means something completely
+  different (the PHYSICAL stock/warehouse location for inventory-tracked
+  lines, references `stock_locations`) — reusing the name would have been a
+  real, silent collision. Header-level, like `projectId`: the control line is
+  ONE line, so it can only ever carry one class and one location, set
+  explicitly rather than derived from the (possibly multiple, possibly
+  differently-classed) revenue/expense lines above it.
+- **Wired into every control-line push** in `lib/accounting/documents.ts`:
+  `buildSalesPurchaseLines`'s A/R line (Invoice/CreditNote), A/P line (Bill/
+  VendorCredit) and Bank line (SalesReceipt/RefundReceipt/Expense);
+  `settlePayment`'s bank leg and A/R-or-A/P leg (Payment/BillPayment); both
+  legs of a Transfer; and Deposit's aggregate Bank debit line. The realized
+  FX gain/loss line (Payment/BillPayment, foreign currency) and the tax
+  control line are deliberately left unclassified, matching how the sales
+  tax line already isn't classified on sales/purchase documents.
+- **A real, separate bug found and fixed in the same pass**: Deposit's
+  "Sources" line table already SHOWED a Class/Location picker per line (the
+  Phase 1b Deposit fix, previous section) — but `postDocument`'s Deposit
+  branch never read `l.classId`/`l.locationId` when building the credit
+  lines, so a value picked there was silently discarded on save and never
+  reached the ledger. Fixed in the same edit as the control-line wiring.
+- **UI**: one Class/Location picker pair in `new-document-form.tsx`'s
+  Memo/totals row (`showHeaderDims`, gated on "org has at least one of
+  either" — no document-mode restriction, since every document type posts
+  SOME control-account line, including Payment/BillPayment/Transfer which
+  have no line-item table at all to host a per-line picker). Labelled
+  "Class/Location (A/R, A/P & Bank)" with a hint naming what it does and
+  does not affect, so it reads as a different control from the per-line
+  pickers above it rather than a duplicate of them.
+
 ## Products & Services item creation — audited and fixed (2026-10-22)
 
 Prompted by: "can you have a look on the product & service — the way we are

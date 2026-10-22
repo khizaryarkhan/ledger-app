@@ -227,6 +227,12 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const [bankAccountId, setBankAccountId] = useState("");
   const [toBankAccountId, setToBankAccountId] = useState("");
   const [amount, setAmount] = useState("");
+  // The document's OWN control-account line (A/R, A/P or Bank/Asset) — ONE
+  // line for the whole total, so ONE class/location, set here rather than
+  // derived from the revenue/expense lines above it. Shown on every document
+  // type (not just lineItems/deposit) since every type posts a control line.
+  const [controlClassId, setControlClassId] = useState("");
+  const [controlLocationId, setControlLocationId] = useState("");
   const [openDocs, setOpenDocs] = useState<any[] | null>(null);
   const [alloc, setAlloc] = useState<Record<string, string>>({});
   // PurchaseOrder only — optional link to the Sales Order this purchase is
@@ -272,6 +278,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       setGoodsReturned(!!p.goodsReturned);
       setPartyId(p.partyId ?? "");
       setProjectId(p.projectId ?? "");
+      setControlClassId(p.controlClassId ?? "");
+      setControlLocationId(p.controlLocationId ?? "");
       setBankAccountId(p.bankAccountId ?? "");
       if (p.currency) setCurrency(p.currency);
       if (p.exchangeRate) setRate(String(p.exchangeRate));
@@ -386,6 +394,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   // source lines are just as classifiable in QBO as any other account line —
   // so it belongs here alongside lineItems mode, not excluded by it.
   const showDims = (cfg.mode === "lineItems" || cfg.mode === "deposit") && (classes.length > 0 || locations.length > 0);
+  // The control-account picker (above) is independent of mode — a Payment or
+  // Transfer has no revenue/expense lines at all, but it still posts a
+  // control-account line that can be classified.
+  const showHeaderDims = classes.length > 0 || locations.length > 0;
 
   // Account partitions
   const isControl = (a: any) => a.type === "Accounts Receivable" || a.type === "Accounts Payable" || a.subtype === "SalesTaxPayable";
@@ -723,9 +735,13 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
     } else if (q.kind === "tax") {
       setTaxes(t => [row, ...t]); if (q.lineIndex != null) setLine(q.lineIndex, { taxRateId: row.id });
     } else if (q.kind === "class") {
-      setDims(d => [row, ...d]); if (q.lineIndex != null) setLine(q.lineIndex, { classId: row.id });
+      setDims(d => [row, ...d]);
+      if (q.lineIndex != null) setLine(q.lineIndex, { classId: row.id });
+      else setControlClassId(row.id); // header "+ Add new class…" (the control-account picker)
     } else if (q.kind === "location") {
-      setDims(d => [row, ...d]); if (q.lineIndex != null) setLine(q.lineIndex, { locationId: row.id });
+      setDims(d => [row, ...d]);
+      if (q.lineIndex != null) setLine(q.lineIndex, { locationId: row.id });
+      else setControlLocationId(row.id); // header "+ Add new location…"
     }
     setQuickAdd(null);
   }
@@ -795,6 +811,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       if (foreign) { payload.currency = currency; payload.exchangeRate = num(rate); }
       if (cfg.party) { payload.partyType = cfg.party; payload.partyId = partyId || undefined; payload.partyLabel = party?.name || undefined; }
       if (supportsProject) payload.projectId = projectId || undefined;
+      if (showHeaderDims) { payload.controlClassId = controlClassId || undefined; payload.controlLocationId = controlLocationId || undefined; }
       if (cfg.bank) payload.bankAccountId = bankAccountId || undefined;
       if (cfg.mode === "transfer") { payload.bankAccountId = bankAccountId || undefined; payload.toBankAccountId = toBankAccountId || undefined; payload.amount = num(amount); }
       if (cfg.mode === "payment") {
@@ -1686,11 +1703,33 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               </div>
             </label>
           )}
-          {/* Memo + totals */}
+          {/* Memo + control-account Class/Location + totals */}
           <div className="flex flex-wrap items-start justify-between gap-5 pt-1">
             <Field label="Memo" className="flex-1 min-w-[240px]">
               <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="Internal note (optional)" className={input} />
             </Field>
+            {showHeaderDims && (
+              <>
+                {classes.length > 0 && (
+                  <Field label="Class (A/R, A/P & Bank)" hint="Classifies this document's own receivable/payable/bank line — not the revenue or expense lines above." className="w-52">
+                    <SelectField value={controlClassId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "class" }) : setControlClassId(e.target.value)}>
+                      <option value="">—</option>
+                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value={ADD}>+ Add new class…</option>
+                    </SelectField>
+                  </Field>
+                )}
+                {locations.length > 0 && (
+                  <Field label="Location (A/R, A/P & Bank)" hint="Same, for this document's own control-account line." className="w-52">
+                    <SelectField value={controlLocationId} onChange={e => e.target.value === ADD ? setQuickAdd({ kind: "location" }) : setControlLocationId(e.target.value)}>
+                      <option value="">—</option>
+                      {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value={ADD}>+ Add new location…</option>
+                    </SelectField>
+                  </Field>
+                )}
+              </>
+            )}
             {(cfg.mode === "lineItems") && (
               <div className="w-64 rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 text-[13px] space-y-2">
                 <div className="flex justify-between text-stone-400"><span>Subtotal</span><span className="tabular-nums text-stone-200">{money(totals.net)}</span></div>
