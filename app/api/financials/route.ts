@@ -7,8 +7,13 @@
  */
 
 import { requireReadScope, ok, bad } from "@/lib/api";
-import { trialBalance, profitAndLoss, balanceSheet, generalLedger, comprehensiveIncome, statementOfChangesInEquity, multiPeriodProfitAndLoss, multiAsOfBalanceSheet } from "@/lib/accounting/financials";
+import {
+  trialBalance, profitAndLoss, balanceSheet, generalLedger, comprehensiveIncome, statementOfChangesInEquity,
+  multiPeriodProfitAndLoss, multiAsOfBalanceSheet, multiDimensionProfitAndLoss, multiDimensionBalanceSheet,
+} from "@/lib/accounting/financials";
 import { splitRangeByBucket, splitAsOfByBucket, compareRange, compareAsOf, type BucketSize, type CompareMode } from "@/lib/accounting/report-periods";
+
+type ColumnMode = BucketSize | "class" | "location";
 import { requireLedgerAuthority } from "@/lib/accounting/ledger-authority";
 import { db } from "@/db";
 import { organisations, orgGroups } from "@/db/schema";
@@ -50,7 +55,7 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const asOf = url.searchParams.get("asOf");
-  const columns = (url.searchParams.get("columns") || "total") as BucketSize;
+  const columns = (url.searchParams.get("columns") || "total") as ColumnMode;
   const compareTo = (url.searchParams.get("compareTo") || "none") as CompareMode;
 
   // General Ledger is a raw transaction list, not a claim about complete
@@ -69,10 +74,14 @@ export async function GET(req: Request) {
     if (statement === "profit-loss") {
       const primary = await profitAndLoss(orgIds, isDate(from) ? from! : undefined, isDate(to) ? to! : undefined);
       let table = null;
-      if (isDate(from) && isDate(to) && (columns !== "total" || compareTo !== "none")) {
-        const cols = splitRangeByBucket(from!, to!, columns);
-        const cmp = compareRange(from!, to!, compareTo);
-        table = await multiPeriodProfitAndLoss(orgIds, cmp ? [...cols, cmp] : cols);
+      if (isDate(from) && isDate(to)) {
+        if (columns === "class" || columns === "location") {
+          table = await multiDimensionProfitAndLoss(orgIds, from!, to!, columns === "class" ? "Class" : "Location");
+        } else if (columns !== "total" || compareTo !== "none") {
+          const cols = splitRangeByBucket(from!, to!, columns);
+          const cmp = compareRange(from!, to!, compareTo);
+          table = await multiPeriodProfitAndLoss(orgIds, cmp ? [...cols, cmp] : cols);
+        }
       }
       return ok({ ...primary, table, meta });
     }
@@ -91,11 +100,15 @@ export async function GET(req: Request) {
       // single-column figure above only ever depends on `asOf`, matching the
       // route's existing behaviour exactly when columns/compareTo are left
       // at their defaults.
-      if (isDate(asOf) && (columns !== "total" || compareTo !== "none")) {
-        const windowFrom = isDate(from) ? from! : asOf!;
-        const cols = splitAsOfByBucket(windowFrom, asOf!, columns);
-        const cmp = compareAsOf(asOf!, compareTo);
-        table = await multiAsOfBalanceSheet(orgIds, cmp ? [...cols, cmp] : cols, fym);
+      if (isDate(asOf)) {
+        if (columns === "class" || columns === "location") {
+          table = await multiDimensionBalanceSheet(orgIds, asOf!, columns === "class" ? "Class" : "Location", fym);
+        } else if (columns !== "total" || compareTo !== "none") {
+          const windowFrom = isDate(from) ? from! : asOf!;
+          const cols = splitAsOfByBucket(windowFrom, asOf!, columns);
+          const cmp = compareAsOf(asOf!, compareTo);
+          table = await multiAsOfBalanceSheet(orgIds, cmp ? [...cols, cmp] : cols, fym);
+        }
       }
       return ok({ ...primary, table, meta });
     }

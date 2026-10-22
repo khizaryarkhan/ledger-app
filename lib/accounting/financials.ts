@@ -16,8 +16,8 @@
  */
 
 import { db } from "@/db";
-import { journalLines, journalEntries, accounts } from "@/db/schema";
-import { and, eq, ne, inArray, gte, lte, sql } from "drizzle-orm";
+import { journalLines, journalEntries, accounts, apDimensions } from "@/db/schema";
+import { and, eq, ne, inArray, gte, lte, sql, isNull } from "drizzle-orm";
 import { typeDef, type Classification, type Statement } from "./account-types";
 import { isProvision, isOciReserve, equityCategory } from "./ifrs";
 
@@ -62,7 +62,11 @@ function natural(b: AccountBalance): number {
   return Math.round(n * 100) / 100;
 }
 
-async function balances(orgIds: string[], opts: { from?: string; to?: string; excludeClosing?: boolean } = {}): Promise<AccountBalance[]> {
+/** A single dimension column's filter — `value: null` means "this line has no
+ *  value for this dimension at all", i.e. the "Unclassified" column. */
+export type DimFilter = { column: "classId" | "locationId"; value: string | null };
+
+async function balances(orgIds: string[], opts: { from?: string; to?: string; excludeClosing?: boolean; dim?: DimFilter } = {}): Promise<AccountBalance[]> {
   if (orgIds.length === 0) return [];
   // Include BOTH Posted and Reversed: reversing flips the original to
   // "Reversed" and adds an opposite "Posted" reversal, so the pair nets to zero.
@@ -73,6 +77,10 @@ async function balances(orgIds: string[], opts: { from?: string; to?: string; ex
   // Year-end closing entries move P&L to Retained Earnings; excluding them keeps
   // the P&L report showing real trading activity (the Balance Sheet includes them).
   if (opts.excludeClosing) conds.push(ne(journalEntries.sourceType, "Closing"));
+  if (opts.dim) {
+    const col = opts.dim.column === "classId" ? journalLines.classId : journalLines.locationId;
+    conds.push(opts.dim.value === null ? isNull(col) : eq(col, opts.dim.value));
+  }
 
   const rows = await db
     .select({
@@ -111,8 +119,8 @@ export async function trialBalance(orgIds: string[], asOf?: string) {
 
 // ── Profit & Loss ──────────────────────────────────────────────────────────────
 type PlLine = { accountId: string | null; name: string; code: string | null; amount: number };
-export async function profitAndLoss(orgIds: string[], from?: string, to?: string) {
-  const bs = (await balances(orgIds, { from, to, excludeClosing: true })).filter((b) => place(b.type, b.classification).statement === "profit_loss");
+export async function profitAndLoss(orgIds: string[], from?: string, to?: string, dim?: DimFilter) {
+  const bs = (await balances(orgIds, { from, to, excludeClosing: true, dim })).filter((b) => place(b.type, b.classification).statement === "profit_loss");
   const bySection = (section: string): PlLine[] =>
     bs.filter((b) => place(b.type, b.classification).section === section)
       .map((b) => ({ accountId: b.accountId, name: b.name, code: b.code, amount: natural(b) }))
@@ -170,8 +178,14 @@ function plNet(bs: AccountBalance[]): number {
     .reduce((s, b) => { const p = place(b.type, b.classification); return s + (p.normal === "credit" ? b.credit - b.debit : -(b.debit - b.credit)); }, 0));
 }
 
-export async function balanceSheet(orgIds: string[], asOf?: string, fyStartMonth = 1) {
-  const all = await balances(orgIds, { to: asOf });
+export async function balanceSheet(orgIds: string[], asOf?: string, fyStartMonth = 1, dim?: DimFilter) {
+  // `dim` scopes the asset/liability/equity balances below to one class or
+  // location. Retained Earnings / Profit-for-the-period (below) are
+  // deliberately NOT dimension-filtered — equity movements don't carry a
+  // class/location in practice (QBO's own Balance Sheet by Class has the same
+  // gap), so splitting them would misleadingly attribute a single org-wide
+  // "Profit for the period" figure across every class column.
+  const all = await balances(orgIds, { to: asOf, dim });
   const bsAccts = all.filter((b) => place(b.type, b.classification).statement === "balance_sheet");
   // IAS 37: provisions are shown as their own line, separate from ordinary
   // current/non-current liabilities, even though they still live in the
@@ -336,9 +350,11 @@ function zipLines(perColumn: PlLine[][] | BsLine[][]): MultiLine[] {
   return order.map((k) => byKey.get(k)!);
 }
 
-export async function multiPeriodProfitAndLoss(orgIds: string[], periods: { key: string; label: string; from: string; to: string }[]) {
-  const results = await Promise.all(periods.map((p) => profitAndLoss(orgIds, p.from, p.to)));
-  const columns: ReportColumnMeta[] = periods.map((p) => ({ key: p.key, label: p.label, from: p.from, to: p.to }));
+/** Shared shape-builder: zips N already-computed `profitAndLoss()` results
+ *  into one multi-column table. Used for BOTH period-bucket columns and
+ *  dimension columns — the two differ only in how `results`/`columns` were
+ *  produced, never in the table shape itself. */
+function assemblePL(results: Awaited<ReturnType<typeof profitAndLoss>>[], columns: ReportColumnMeta[]) {
   return {
     columns,
     revenue: { rows: zipLines(results.map((r) => r.sections[0].lines)), totals: results.map((r) => r.sections[0].total) },
@@ -353,9 +369,8 @@ export async function multiPeriodProfitAndLoss(orgIds: string[], periods: { key:
   };
 }
 
-export async function multiAsOfBalanceSheet(orgIds: string[], snapshots: { key: string; label: string; asOf: string }[], fyStartMonth = 1) {
-  const results = await Promise.all(snapshots.map((s) => balanceSheet(orgIds, s.asOf, fyStartMonth)));
-  const columns: ReportColumnMeta[] = snapshots.map((s) => ({ key: s.key, label: s.label, asOf: s.asOf }));
+/** Same idea for `balanceSheet()` results. */
+function assembleBS(results: Awaited<ReturnType<typeof balanceSheet>>[], columns: ReportColumnMeta[]) {
   const sumAmt = (ls: BsLine[]) => round(ls.reduce((s, l) => s + l.amount, 0));
   return {
     columns,
@@ -373,6 +388,50 @@ export async function multiAsOfBalanceSheet(orgIds: string[], snapshots: { key: 
     totalEquityAndLiabilities: results.map((r) => r.totalEquityAndLiabilities),
     balanced: results.map((r) => r.balanced),
   };
+}
+
+export async function multiPeriodProfitAndLoss(orgIds: string[], periods: { key: string; label: string; from: string; to: string }[]) {
+  const results = await Promise.all(periods.map((p) => profitAndLoss(orgIds, p.from, p.to)));
+  return assemblePL(results, periods.map((p) => ({ key: p.key, label: p.label, from: p.from, to: p.to })));
+}
+
+export async function multiAsOfBalanceSheet(orgIds: string[], snapshots: { key: string; label: string; asOf: string }[], fyStartMonth = 1) {
+  const results = await Promise.all(snapshots.map((s) => balanceSheet(orgIds, s.asOf, fyStartMonth)));
+  return assembleBS(results, snapshots.map((s) => ({ key: s.key, label: s.label, asOf: s.asOf })));
+}
+
+/** Every Active Class/Location for the given orgs — one column per value,
+ *  plus a synthetic "Unclassified" column for lines with none set at all.
+ *  Multi-org consolidation lists every org's own dimension rows side by
+ *  side (no cross-org name-matching/merging) — the same simplification
+ *  every other multi-org report in this file already makes. */
+async function activeDimensionColumns(orgIds: string[], dimensionType: "Class" | "Location"): Promise<{ id: string; name: string }[]> {
+  if (!orgIds.length) return [];
+  return db.select({ id: apDimensions.id, name: apDimensions.name }).from(apDimensions)
+    .where(and(inArray(apDimensions.orgId, orgIds), eq(apDimensions.dimensionType, dimensionType), eq(apDimensions.status, "Active")))
+    .orderBy(apDimensions.name);
+}
+
+export async function multiDimensionProfitAndLoss(orgIds: string[], from: string, to: string, dimensionType: "Class" | "Location") {
+  const column = dimensionType === "Class" ? "classId" as const : "locationId" as const;
+  const values = await activeDimensionColumns(orgIds, dimensionType);
+  const results = await Promise.all([
+    ...values.map((v) => profitAndLoss(orgIds, from, to, { column, value: v.id })),
+    profitAndLoss(orgIds, from, to, { column, value: null }),
+  ]);
+  const columns: ReportColumnMeta[] = [...values.map((v) => ({ key: v.id, label: v.name, from, to })), { key: "unclassified", label: "Unclassified", from, to }];
+  return assemblePL(results, columns);
+}
+
+export async function multiDimensionBalanceSheet(orgIds: string[], asOf: string, dimensionType: "Class" | "Location", fyStartMonth = 1) {
+  const column = dimensionType === "Class" ? "classId" as const : "locationId" as const;
+  const values = await activeDimensionColumns(orgIds, dimensionType);
+  const results = await Promise.all([
+    ...values.map((v) => balanceSheet(orgIds, asOf, fyStartMonth, { column, value: v.id })),
+    balanceSheet(orgIds, asOf, fyStartMonth, { column, value: null }),
+  ]);
+  const columns: ReportColumnMeta[] = [...values.map((v) => ({ key: v.id, label: v.name, asOf })), { key: "unclassified", label: "Unclassified", asOf }];
+  return assembleBS(results, columns);
 }
 
 // ── General Ledger ───────────────────────────────────────────────────────────

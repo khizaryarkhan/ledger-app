@@ -386,17 +386,88 @@ financial statements (`app/(app)/accounting/reports/[statement]/page.tsx`).
   shows opening/movement/closing in one row per category (adding more
   columns on top of three already-wide columns doesn't fit the same way
   Profit & Loss/Balance Sheet's single-figure-per-line shape does).
-- **Not built in this pass — the rest of the QBO screenshot brief**:
-  "Display columns by" DIMENSION breakdown (one column per Customer/Class/
-  Location/Vendor/Product/Employee, which needs `balances()`'s aggregate
-  query to group by that dimension too — a materially bigger engine change
-  than the time-bucket columns built here), the full "Customize" side panel
-  (filters by account/customer/vendor/product/class, Active/All/Non-zero row
-  and column visibility, calculated fields, number format, editable section
-  titles), export/print, and a Cash vs Accrual accounting-method toggle
-  (explicitly declined by the client: "Accounting Method (Not Required)").
-  Each is its own scoped phase, same pattern as the sales-document refactor's
-  Phase 1/2/3a/3b/3c staging above.
+- **Not built in this pass — the rest of the QBO screenshot brief** (Class/
+  Location dimension columns were built the next day — see "Phase 1b" below):
+  "Display columns by" DIMENSION breakdown for Customer/Vendor/Product/
+  Employee (only Class/Location were requested and built), the full
+  "Customize" side panel (filters by account/customer/vendor/product/class,
+  Active/All/Non-zero row and column visibility, calculated fields, number
+  format, editable section titles), export/print, and a Cash vs Accrual
+  accounting-method toggle (explicitly declined by the client: "Accounting
+  Method (Not Required)"). Each is its own scoped phase, same pattern as the
+  sales-document refactor's Phase 1/2/3a/3b/3c staging above.
+
+## QBO-parity reporting controls — Phase 1b: Display columns by Class/Location (2026-10-23)
+
+Prompted the day after Phase 1, alongside a real bug report: "I AM NOT ABLE
+TO EDIT CLASSES or LOCATIONS... Unrecognized key(s) in object: 'parentId'" —
+plus "these things has to be appear on every forms - if a user has enabled
+them... any unclassified transaction would appear as unclassified column."
+Confirmed scope via AskUserQuestion: fix the Deposit gap now, dimension
+columns next, Custom Fields (see below) deferred.
+
+- **The `parentId` bug, fixed**: `_lists.tsx`'s `openEdit()` spreads the
+  whole row (`{...r}`) into form state regardless of tab, so `form` always
+  carries `parentId` — but Classes/Locations/Cost Centres/Custom Fields (all
+  the `apDimensions`/"dimensions" entity) have no parent-picker UI at all,
+  and `app/api/accounting/[entity]/[id]/route.ts`'s `"dimensions"` PATCH
+  schema is `.strict()` with no `parentId` field. Every dimension edit — not
+  just ones with a parent — 400'd. `apDimensions.parentId` DOES exist in the
+  schema (a real column, set only by a QBO/Xero sync for a genuine
+  sub-class/sub-location); there's just no UI to edit it locally, so `save()`
+  now strips it from the payload for every tab except `"accounts"` (which has
+  a real parent-account picker and already handled this correctly).
+- **The Deposit gap, fixed**: `new-document-form.tsx`'s `showDims` (whether
+  Class/Location columns render on the line table) was gated on
+  `cfg.mode === "lineItems"` only — excluding Bank Deposit (`mode:
+  "deposit"`) even though Deposit's "Sources" section renders through the
+  EXACT SAME shared line table (confirmed by reading the JSX: one `<Section>`
+  covers both modes). The backend (`lib/accounting/documents.ts`'s
+  `lineCommon()`) already reads `classId`/`locationId` generically off every
+  line regardless of document type, so this was a pure frontend display
+  gap — fixed by widening `showDims` to `cfg.mode === "lineItems" ||
+  cfg.mode === "deposit"`. Every OTHER document type already showed these
+  columns correctly (gated on "the org has at least one Class/Location at
+  all," matching the new reports work below); Payment/BillPayment (no line
+  table, just an allocation list) and Transfer (two bare accounts, no lines)
+  genuinely have nowhere to put a per-line dimension and are unaffected.
+- **"Display columns by" now also offers Class and Location** on Profit &
+  Loss and Balance Sheet (only when the org actually has at least one Active
+  Class/Location — fetched once from `GET /api/accounting/dimensions`, same
+  gate the New Document form itself uses). Picking one produces one column
+  per Class/Location value **plus a synthetic "Unclassified" column** for
+  every line with that dimension left blank — never silently dropped or
+  folded into a value that was never chosen.
+  - **`lib/accounting/financials.ts`**: `balances()` gained an optional
+    `dim?: DimFilter` (`{ column: "classId"|"locationId"; value: string |
+    null }`, `value: null` meaning "this line has no value for this
+    dimension at all" via `isNull()`, not `eq()`) — threaded through
+    `profitAndLoss`/`balanceSheet` as a new, optional trailing parameter, so
+    every existing call site (both signatures were already being called
+    with 2–3 positional args everywhere in this codebase) is unaffected.
+    `multiDimensionProfitAndLoss`/`multiDimensionBalanceSheet` enumerate the
+    org's Active dimension rows, call the single-column function once per
+    value **plus once more for `value: null`** (Unclassified), and reuse the
+    exact same `assemblePL`/`assembleBS` shape-builders the time-bucket
+    columns (Phase 1) already use — extracted from
+    `multiPeriodProfitAndLoss`/`multiAsOfBalanceSheet` into shared helpers
+    for this reuse, with zero behaviour change to either.
+  - **Balance Sheet's Retained Earnings / "Profit for the period" lines are
+    deliberately NOT dimension-filtered** — equity movements don't carry a
+    class/location in practice (confirmed: QBO's own "Balance Sheet by
+    Class" has the identical gap), so splitting a single org-wide profit
+    figure across every class column would misattribute it. Only the
+    ordinary asset/liability/equity account balances are filtered per
+    column.
+  - **Compare-to and dimension columns don't combine in this pass** — the
+    UI hides the "Compare to" control entirely when "Display columns by" is
+    Class or Location, rather than silently ignoring a selection (the route
+    would ignore it anyway: the `columns === "class" || columns ===
+    "location"` branch in `app/api/financials/route.ts` is checked before
+    the bucket/compare branch).
+  - Multi-org consolidation lists every org's own dimension rows side by
+    side with no cross-org name-matching — the same simplification every
+    other multi-org figure in this file already makes.
 
 ## Products & Services item creation — audited and fixed (2026-10-22)
 

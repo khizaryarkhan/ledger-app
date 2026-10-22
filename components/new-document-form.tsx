@@ -382,7 +382,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   }
   const classes = useMemo(() => dims.filter(d => d.dimensionType === "Class"), [dims]);
   const locations = useMemo(() => dims.filter(d => d.dimensionType === "Location"), [dims]);
-  const showDims = (cfg.mode === "lineItems") && (classes.length > 0 || locations.length > 0);
+  // Deposit ("Sources") shares this exact same line table — a bank deposit's
+  // source lines are just as classifiable in QBO as any other account line —
+  // so it belongs here alongside lineItems mode, not excluded by it.
+  const showDims = (cfg.mode === "lineItems" || cfg.mode === "deposit") && (classes.length > 0 || locations.length > 0);
 
   // Account partitions
   const isControl = (a: any) => a.type === "Accounts Receivable" || a.type === "Accounts Payable" || a.subtype === "SalesTaxPayable";

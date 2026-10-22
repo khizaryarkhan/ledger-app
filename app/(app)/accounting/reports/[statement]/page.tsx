@@ -11,6 +11,8 @@ import {
   rangeForPreset, asOfForPreset, type RangePresetKey, type AsOfPresetKey, type BucketSize, type CompareMode,
 } from "@/lib/accounting/report-periods";
 
+type ColumnMode = BucketSize | "class" | "location";
+
 const TITLES: Record<string, { title: string; formal: string; sub: string; icon: any }> = {
   "trial-balance":  { title: "Trial Balance",   formal: "Trial Balance",                    sub: "Every account's balance — total debits must equal total credits.", icon: ScrollText },
   "profit-loss":    { title: "Profit & Loss",   formal: "Statement of Profit or Loss",      sub: "Income and expenses for a chosen period.", icon: FileText },
@@ -58,8 +60,21 @@ export default function FinancialStatementPage() {
   const [asOf, setAsOf] = useState<string>(today);
   const [from, setFrom] = useState<string>(() => rangeForPreset("this_fy_to_date", today(), 1)!.from);
   const [to, setTo] = useState<string>(today);
-  const [columns, setColumns] = useState<BucketSize>("total");
+  const [columns, setColumns] = useState<ColumnMode>("total");
   const [compareTo, setCompareTo] = useState<CompareMode>("none");
+  const [hasClasses, setHasClasses] = useState(false);
+  const [hasLocations, setHasLocations] = useState(false);
+
+  // Only offer "Display columns by Class/Location" when the org actually has
+  // some — same "org has at least one" gate new-document-form.tsx already
+  // uses for showing the Class/Location columns on transaction lines.
+  useEffect(() => {
+    fetch("/api/accounting/dimensions").then((r) => r.json()).then((rows: any[]) => {
+      if (!Array.isArray(rows)) return;
+      setHasClasses(rows.some((d) => d.dimensionType === "Class" && d.status === "Active"));
+      setHasLocations(rows.some((d) => d.dimensionType === "Location" && d.status === "Active"));
+    }).catch(() => {});
+  }, []);
 
   // Re-derive a non-custom preset's dates once the org's real fiscal year
   // start month is known (defaults to 1 until then) — a "This fiscal year to
@@ -149,15 +164,23 @@ export default function FinancialStatementPage() {
         {hasColumnEngine && (
           <>
             <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Display columns by</label>
-              <SelectField value={columns} onChange={(e) => setColumns(e.target.value as BucketSize)} className="h-8 min-w-[130px] text-[12px]">
+              <SelectField value={columns} onChange={(e) => setColumns(e.target.value as ColumnMode)} className="h-8 min-w-[130px] text-[12px]">
                 {COLUMN_BUCKETS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+                {hasClasses && <option value="class">Class</option>}
+                {hasLocations && <option value="location">Location</option>}
               </SelectField>
             </div>
-            <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Compare to</label>
-              <SelectField value={compareTo} onChange={(e) => setCompareTo(e.target.value as CompareMode)} className="h-8 min-w-[150px] text-[12px]">
-                {COMPARE_MODES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </SelectField>
-            </div>
+            {/* Compare-to layers onto the time-bucket engine only — combining it
+                with a dimension breakdown (every class, AND a prior period, in
+                one table) isn't built in this pass, so the control is hidden
+                rather than offered and silently ignored. */}
+            {columns !== "class" && columns !== "location" && (
+              <div><label className="block text-[11px] uppercase tracking-wider text-stone-500 mb-1">Compare to</label>
+                <SelectField value={compareTo} onChange={(e) => setCompareTo(e.target.value as CompareMode)} className="h-8 min-w-[150px] text-[12px]">
+                  {COMPARE_MODES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </SelectField>
+              </div>
+            )}
           </>
         )}
       </div>
