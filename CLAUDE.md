@@ -2071,6 +2071,42 @@ we creating that? ... Clearing Account is fine — which is really a need."
   own `withAccounts: !synced` call still matters for a tenant actually being
   migrated off a pre-existing catch-all account.
 
+## Receiving — count in packs, and manually close an unfulfillable PO line (2026-10-23)
+
+Two related gaps raised against the Receiving screen: "Receive stock" forced
+every quantity into the item's raw base unit (type "2560" instead of "4
+case"), and there was no way to stop a partially-received PO line from
+staying open forever once a supplier would never deliver the rest.
+
+- **Partial receiving across multiple visits already worked before this** —
+  `app/api/inventory/po-open/route.ts` only drops a line once its
+  `remainingQty` hits zero, so a PO stays on the "In progress" tab and keeps
+  offering what's left until it's fully received. That was never the gap;
+  the gap was having no way to manually stop expecting the rest.
+- **"Count in" picker (`components/receiving-console.tsx`'s `LotCapture`)**
+  reuses `orderOptions()` (`lib/inventory/order-options.ts`) — the same
+  supplier-scoped pack-conversion helper Manufacturing Order consumption/
+  output capture already use — to offer base UoM + the supplier's own unit +
+  inner/outer pack, defaulting to whichever unit the PO line was actually
+  raised in (matched by `packLevel`). The row's stored `qty` stays in BASE
+  units throughout (unchanged `total`/`over`/payload logic); only the
+  displayed/entered number is converted live by the chosen unit's
+  `unitsPerOrderUnit` — switching units mid-entry re-reads correctly because
+  the base value was never lost.
+- **Manual per-line close** (`POST /api/inventory/po-lines/[id]/close`,
+  "Close remaining" on each line in the PO drilldown): requires a reason —
+  this is a buyer giving up on part of an order, not a routine action, and
+  it's worth a record. It does **not** touch `orderedBaseQty`/`receivedQty`
+  (the true ordered-vs-received history stays honest); `po-open` just treats
+  a closed line's `remainingQty` as 0, so it stops being offered and the PO
+  drops off the hub once every line is closed-or-fully-received. Scoped
+  per-line, not per-PO, by explicit product decision — one short-shipped item
+  shouldn't force closing lines still genuinely expected.
+- Migration `0109_po_line_close.sql` adds `closed`/`close_reason`/`closed_at`
+  to `trade_document_lines`, purely additive (every existing row defaults to
+  unclosed) — verified against production with `npm run db:verify` before
+  shipping; no other drift introduced.
+
 ## Manufacturing orders — nothing posts until Completed; lots are allocated (2026-09-24)
 
 The product owner's lifecycle, and now the only one:
