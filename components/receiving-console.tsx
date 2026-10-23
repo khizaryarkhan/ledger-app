@@ -13,7 +13,8 @@ import { useData } from "@/components/data-provider";
 import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
-import { QTY_EPSILON } from "@/lib/inventory/round";
+import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
+import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
@@ -161,6 +162,7 @@ function isFPWIP(it: any) { return ["FinishedProduct", "WorkInProgress"].include
 type PoLine = {
   lineId: string; itemId: string; skuId: string | null; itemName: string; skuLabel: string | null;
   baseUom: string | null; orderedBaseQty: number; receivedQty: number; remainingQty: number; unitCostBase: number;
+  orderUom?: string | null; packLevel?: string | null; unitsPerOrderUnit?: number;
 };
 type OpenPo = {
   id: string; docNumber: string | null; partyId: string | null; partyLabel: string | null;
@@ -217,7 +219,13 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
         )}
         {view.v === "items" && selectedPo && (
           <ItemsHub po={selectedPo} notice={notice} onBack={backToHub}
-            onOpenLine={(lineId) => setView({ v: "lots", poId: selectedPo.id, lineId })} />
+            onOpenLine={(lineId) => setView({ v: "lots", poId: selectedPo.id, lineId })}
+            onClosed={async (msg) => {
+              const fresh = await fetchPos();
+              const stillOpen = fresh.find(p => p.id === selectedPo.id);
+              setNotice(msg);
+              setView(stillOpen ? { v: "items", poId: stillOpen.id } : { v: "hub" });
+            }} />
         )}
         {view.v === "lots" && selectedPo && selectedLine && (
           <LotCapture
@@ -309,7 +317,19 @@ function TabButton({ active, onClick, label, count }: { active: boolean; onClick
 
 /* --------------------------- PO drilldown: items ------------------------- */
 
-function ItemsHub({ po, notice, onBack, onOpenLine }: { po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void }) {
+function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void }) {
+  const [closing, setClosing] = useState<string | null>(null);
+  async function closeLine(l: PoLine) {
+    const reason = window.prompt(`Close the remaining ${fmt.qty(l.remainingQty)} ${l.baseUom || ""} of "${l.itemName}"? This stops it being offered for receiving.\n\nWhy — e.g. supplier short-shipped, order cancelled:`);
+    if (reason === null) return;
+    if (!reason.trim()) { alert("A reason is required to close a line."); return; }
+    setClosing(l.lineId);
+    const r = await fetch(`/api/inventory/po-lines/${l.lineId}/close`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: reason.trim() }) });
+    const d = await r.json().catch(() => ({}));
+    setClosing(null);
+    if (!r.ok) { alert(d?.error || "Could not close the line."); return; }
+    onClosed(`Closed the remaining quantity on ${l.itemName}.`);
+  }
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
@@ -330,18 +350,25 @@ function ItemsHub({ po, notice, onBack, onOpenLine }: { po: OpenPo; notice: stri
           {po.lines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
             return (
-              <button key={l.lineId} onClick={() => onOpenLine(l.lineId)}
-                className="text-left rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-700 hover:bg-stone-800/50 p-4 transition-colors">
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <span className="text-[13px] font-semibold text-stone-100 truncate">{l.itemName}</span>
-                  <ChevronRight size={15} className="text-stone-600 shrink-0" />
+              <div key={l.lineId} className="rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-700 hover:bg-stone-800/50 transition-colors">
+                <button onClick={() => onOpenLine(l.lineId)} className="w-full text-left p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <span className="text-[13px] font-semibold text-stone-100 truncate">{l.itemName}</span>
+                    <ChevronRight size={15} className="text-stone-600 shrink-0" />
+                  </div>
+                  {l.skuLabel && <div className="text-[11.5px] text-stone-500 mb-1.5 truncate">{l.skuLabel}</div>}
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-stone-300">Expected <span className="font-semibold text-stone-100">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}</span>
+                    {started && <span className="text-[10.5px] text-amber-400">{fmt.qty(l.receivedQty)} already in</span>}
+                  </div>
+                </button>
+                <div className="px-4 pb-2.5 -mt-1">
+                  <button onClick={e => { e.stopPropagation(); closeLine(l); }} disabled={closing === l.lineId}
+                    className="text-[11px] text-stone-500 hover:text-rose-400 disabled:opacity-50">
+                    {closing === l.lineId ? "Closing…" : "Close remaining"}
+                  </button>
                 </div>
-                {l.skuLabel && <div className="text-[11.5px] text-stone-500 mb-1.5 truncate">{l.skuLabel}</div>}
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="text-stone-300">Expected <span className="font-semibold text-stone-100">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}</span>
-                  {started && <span className="text-[10.5px] text-amber-400">{fmt.qty(l.receivedQty)} already in</span>}
-                </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -364,6 +391,25 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+
+  // Let the receiver count in whichever pack level they're actually looking
+  // at — a case or a bag, not a raw base-unit figure they'd have to compute
+  // themselves. Scoped to this PO's supplier, same rule orderOptions already
+  // enforces for ordering (one vendor's "bag" isn't another's). Defaults to
+  // whatever unit the PO line was actually raised in.
+  const [unitOpts, setUnitOpts] = useState<OrderOption[]>([]);
+  const [unitIdx, setUnitIdx] = useState(0);
+  const unit = unitOpts[unitIdx];
+  const per = unit?.unitsPerOrderUnit && unit.unitsPerOrderUnit > 0 ? unit.unitsPerOrderUnit : 1;
+  useEffect(() => {
+    fetch(`/api/inventory/items/${line.itemId}`).then(r => r.json()).then(r => {
+      const opts = orderOptions(item?.baseUom ?? line.baseUom ?? null, r?.supplierSkus ?? [], po.partyId || "");
+      setUnitOpts(opts);
+      const match = line.packLevel ? opts.findIndex(o => o.packLevel === line.packLevel) : -1;
+      setUnitIdx(match >= 0 ? match : 0);
+    }).catch(() => setUnitOpts([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.lineId]);
 
   useEffect(() => {
     if (fpwip) return;
@@ -439,6 +485,13 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
           <p className="text-[11.5px] text-stone-500 mb-2">
             {fpwip ? "This item's lot number is assigned automatically when it's produced." : "Split the delivery into more than one lot if it arrived with different batch numbers or expiry dates."}
           </p>
+          {unitOpts.length > 1 && (
+            <Field label="Count in" hint="Quantities below are entered in this unit, then converted to stock automatically.">
+              <SelectField value={String(unitIdx)} onChange={e => setUnitIdx(Number(e.target.value))} className="!h-8">
+                {unitOpts.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
+              </SelectField>
+            </Field>
+          )}
           <div className="space-y-2">
             {rows.map((r, idx) => (
               <div key={r.key} className="rounded-lg border border-stone-800 p-3">
@@ -447,7 +500,11 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
                   {rows.length > 1 && <button onClick={() => removeRow(r.key)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
                 </div>
                 <div className="grid grid-cols-3 gap-x-3 gap-y-3">
-                  <Field label={`Qty (${line.baseUom || "base"})`}><input type="number" className={`${controlInset} !h-8`} value={r.qty} onChange={e => update(r.key, { qty: e.target.value })} /></Field>
+                  <Field label={`Qty (${unit?.orderUom || line.baseUom || "base"})`}>
+                    <input type="number" className={`${controlInset} !h-8`}
+                      value={r.qty ? String(roundQty(Number(r.qty) / per)) : ""}
+                      onChange={e => update(r.key, { qty: e.target.value ? String(roundQty(Number(e.target.value) * per)) : "" })} />
+                  </Field>
                   <Field label="Lot / batch no.">
                     {fpwip
                       ? <input className={`${controlInset} !h-8 opacity-60`} value="assigned automatically" disabled />

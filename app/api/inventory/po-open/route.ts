@@ -43,7 +43,11 @@ export async function GET(req: Request) {
     const poLines = lines.filter(l => l.documentId === po.id && l.itemId).map(l => {
       const ordered = num(l.orderedBaseQty) || num(l.qty) * num(l.unitsPerOrderUnit || 1);
       const received = num(l.receivedQty);
-      const remaining = roundQty(ordered - received);
+      // A closed line is never offered for receiving again, regardless of
+      // what's technically still outstanding — the buyer has said they don't
+      // expect the rest. orderedBaseQty/receivedQty are untouched, so the true
+      // ordered-vs-received history is never rewritten by closing a line.
+      const remaining = l.closed ? 0 : roundQty(ordered - received);
       const it = l.itemId ? itemById.get(l.itemId) : null;
       const sku = l.skuId ? skuById.get(l.skuId) : null;
       return {

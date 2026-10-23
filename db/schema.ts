@@ -2788,6 +2788,14 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   orderedBaseQty:    numeric("ordered_base_qty", { precision: 20, scale: 6 }).notNull().default("0"), // qty × unitsPerOrderUnit
   receivedQty:       numeric("received_qty", { precision: 20, scale: 6 }).notNull().default("0"),     // base UoM received to date
   billedQty:         numeric("billed_qty", { precision: 20, scale: 6 }).notNull().default("0"),       // base UoM billed to date
+  // Manual per-line close (0109): a buyer stops expecting the remainder of a
+  // PO line a supplier will never fully deliver, without inventing a fake
+  // receivedQty. orderedBaseQty/receivedQty stay the true history; closed
+  // just tells po-open to treat remainingQty as 0 for this line. Requires a
+  // reason — this is a buyer giving up on part of an order, worth a record.
+  closed:            boolean("closed").notNull().default(false),
+  closeReason:       text("close_reason"),
+  closedAt:          timestamp("closed_at"),
 }, (t) => ({
   trade_document_lines_doc_idx: index("trade_document_lines_doc_idx").on(t.documentId),
 }));
