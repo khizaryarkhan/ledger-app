@@ -2018,6 +2018,59 @@ and the item's POSTING GROUP says which of the tenant's accounts plays it.
   could never pass role validation. Both syncs now set `classification`. Pickers
   filter by type, so the extra accounts only reach the lists they belong in.
 
+### Correction (2026-10-23): native orgs no longer get the 18-account template automatically
+
+The "Provisioning is lazy" bullet above — "a native chart gets the 18 default
+accounts (+3 trading)... a synced chart... gets the groups only" — is now
+**stale on the native half**. Raised directly: "the inventory account has to
+be chosen by the User, not by us... they might want to map [WIP] under a
+finished product — and that account they want to create themselves — why are
+we creating that? ... Clearing Account is fine — which is really a need."
+
+- **The real distinction isn't native-vs-synced, it's mechanical-vs-structural.**
+  GR/IR Clearing and Suspense are genuine plumbing — there is no accounting
+  judgment call behind them, a user couldn't design them differently even if
+  asked, and they rightly stay system-created on demand (see the sections
+  above). Finished Goods Inventory, Raw Materials Inventory, Semi-finished
+  Goods Inventory, Trading Goods Inventory, their Sales/COGS splits, Labour/
+  Overhead Absorbed, Production/Purchase Price Variance, Scrap & Yield Loss,
+  Inventory Adjustments/Write-downs are NOT plumbing — whether to split
+  inventory by category at all, and how, is a real chart-of-accounts design
+  decision QuickBooks itself deliberately leaves to the user (confirmed: QBO's
+  own hard-coded system accounts are a short, fixed list — A/R, A/P,
+  Undeposited Funds, Opening Balance Equity, Retained Earnings, Exchange Gain
+  or Loss, Reconciliation Discrepancies, Sales Tax Payable — and creating your
+  first Inventory item in QBO asks you to pick or create the Asset/COGS
+  accounts; QBO never invents a category split or cost-accounting variance
+  accounts on your behalf).
+- **`ensureInventoryAccounting`** (`lib/accounting/account-roles-server.ts`)
+  now calls `provisionInventoryAccounting(orgId, { withAccounts: false })`
+  unconditionally — every tenant, native or synced, gets the four default
+  GROUPS on first use, every role left UNMAPPED. This is the exact path a
+  synced tenant already went through (R-03: never duplicate an external
+  chart); native tenants simply weren't routed through it before. Nothing
+  breaks on an unmapped role: `loadItemCostInfo` already refuses to post a
+  tracked item whose group has one, naming Posting Groups as where to fix it
+  — the same safety net synced orgs have always relied on.
+  "Create missing default accounts" on the Posting Groups mapping screen
+  (`POST /api/accounting/posting-groups/provision`, still passing
+  `withAccounts: true` explicitly) is now the ONLY way our suggested accounts
+  get created — an explicit ask, never automatic, for every tenant.
+- **A quieter side effect, consistent with the same principle**:
+  `ensureScrapItem` (creates the "Scrap & offcuts" item against the
+  SCRAP_SALES role account) only ran as part of the `withAccounts: true`
+  branch, so it no longer fires automatically either — a native org that
+  hasn't explicitly provisioned accounts gets no auto-created Scrap Sales
+  account OR item, matching the same "nothing invented until asked" rule.
+- **Changed with zero production orgs live on native accounting** (confirmed
+  directly before making this change — the one paying client is Receivables
+  + QBO), so there was no existing data to migrate, reclass or risk orphaning.
+  `scripts/migrate-inventory-accounting.ts` (the R-10 one-time reclass script
+  for orgs that already had the old catch-all "Inventory Asset") is untouched
+  — it's an explicit, dry-run-by-default CLI tool, not a live path, and its
+  own `withAccounts: !synced` call still matters for a tenant actually being
+  migrated off a pre-existing catch-all account.
+
 ## Manufacturing orders — nothing posts until Completed; lots are allocated (2026-09-24)
 
 The product owner's lifecycle, and now the only one:

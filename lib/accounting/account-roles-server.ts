@@ -4,9 +4,16 @@
  *
  *   resolve:   item → its posting group (or the default group of its type)
  *              → role → account, with a validated Finance-Admin override on top.
- *   provision: seeds the default accounts + the four default groups for a
- *              native tenant; a synced tenant gets the groups only and maps
- *              each role to one of its own accounts on the mapping screen.
+ *   provision: on first use, every tenant (native or synced) gets the four
+ *              default GROUPS only, every role unmapped — never a chart of
+ *              accounts invented on their behalf. A posting group's name/
+ *              account split IS a real accounting decision (how granular to
+ *              report inventory/COGS/sales), not mechanical plumbing like
+ *              GR/IR Clearing or Suspense, which have no such choice and stay
+ *              system-created. "Create missing default accounts" on the
+ *              mapping screen (`provisionInventoryAccounting` called directly
+ *              with `withAccounts: true`) is the one place a tenant can ask
+ *              for our suggested accounts — never automatic.
  *   block:     a tracked item whose group has any role unmapped cannot move
  *              stock — `loadItemCostInfo` refuses it, which covers every poster.
  */
@@ -222,14 +229,29 @@ async function ensureScrapItem(orgId: string, scrapAccountId: string | null) {
 
 /**
  * Lazy provisioning on first use — same rule as locations and Suspense: nothing
- * appears in an org's chart until that org actually does inventory. A native
- * tenant gets the full template; a synced one only its groups (R-03: never
- * duplicate an external chart).
+ * appears in an org's chart until that org actually does inventory. EVERY
+ * tenant, native or synced, gets groups only here — `withAccounts: false`.
+ *
+ * Native used to get the full 18-account template automatically
+ * (`withAccounts: !isSyncedOrg`), which meant the system invented and named
+ * an org's Inventory/COGS/Sales split (Finished Goods Inventory, Raw
+ * Materials Inventory, Sales – Trading Goods, Purchase Price Variance, …)
+ * before anyone asked for it — a real chart-of-accounts decision, not
+ * mechanical plumbing (contrast GR/IR Clearing and Suspense, which have no
+ * such decision and are rightly still system-created elsewhere). A tracked
+ * item simply can't post until its group's roles are mapped
+ * (`loadItemCostInfo` refuses it with a message pointing at Posting Groups),
+ * so leaving every role unmapped here is safe, not a silent gap — the user
+ * either maps their OWN accounts or clicks "Create missing default accounts"
+ * (`provisionInventoryAccounting` called directly with `withAccounts: true`)
+ * if they want our suggestions. Changed with zero orgs live on native
+ * accounting yet (confirmed before this change), so nothing existing is
+ * migrated or orphaned by it.
  */
 export async function ensureInventoryAccounting(orgId: string): Promise<void> {
   const [org] = await db.select({ v: organisations.inventoryTemplateVersion }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
   if (org?.v != null && org.v >= TEMPLATE_VERSION) return;
-  await provisionInventoryAccounting(orgId, { withAccounts: !(await isSyncedOrg(orgId)) });
+  await provisionInventoryAccounting(orgId, { withAccounts: false });
 }
 
 // ── Resolution ──────────────────────────────────────────────────────────────
