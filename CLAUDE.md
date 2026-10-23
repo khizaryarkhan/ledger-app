@@ -1356,17 +1356,27 @@ than depend on it, **we stamp the button on ourselves**:
 
 ## ⚠️ Gotchas that have bitten us
 
-- **Native form chrome (a `<select>`'s own dropdown popup, date/time pickers,
-  checkboxes, scrollbars) ignores every Tailwind class — it's rendered by the
-  OS/browser, not by our CSS.** It only follows the CSS `color-scheme`
-  property, which `app/globals.css` never set before 2026-10-23, so every
-  native select's option list rendered in the browser's light default no
-  matter how dark the rest of the page was (reported: the "Count in"
-  pack-unit picker on Receiving showed a white dropdown on the dark theme).
-  Fixed with `color-scheme: dark` under `:root` and `color-scheme: light`
-  under `[data-theme="light"]`, tracking the app's own theme switch exactly
-  the way every other token in that file already does. If a native control
-  ever looks "off-theme" again, check this before reaching for more CSS.
+- **A native `<select>`'s OPTION POPUP is NOT controlled by the CSS
+  `color-scheme` property the way it's commonly assumed to be — it is NOT
+  controlled by Tailwind classes either.** Added `color-scheme: dark`/`light`
+  to `app/globals.css` first (2026-10-23) on the assumption that would fix a
+  reported white dropdown on the dark theme ("Count in" pack-unit picker on
+  Receiving); it didn't — the report came back "drop still not fixed" with
+  the fix already live. **The real rule, confirmed against Firefox's own bug
+  tracker and matching Chrome/Windows in practice: the popup's light/dark
+  rendering is inferred from the SELECT ELEMENT'S OWN `background-color`,
+  not from `color-scheme`.** `form-kit.tsx`'s `QtyUnitField` had its unit
+  `<select>` set to `bg-transparent` (it sits on a shell that draws the real
+  background), so the element had nothing dark to report and the browser
+  fell back to its light default, even though `color-scheme` was correctly
+  set and the control visually looked dark. Fixed by giving the select an
+  explicit, opaque `bg-stone-950` — visually identical, since the shell
+  behind it was already that colour, but now the SELECT ITSELF truthfully
+  reports it. **Check every native `<select>` this way, not with
+  `color-scheme`, if one ever renders its popup off-theme again** — the
+  `color-scheme` property is still correct to keep (it governs scrollbars,
+  date pickers, and is the right signal to set regardless), it just isn't
+  the lever for this specific symptom.
 - **neon-http has NO transactions.** `db.transaction()` throws. Use
   pre-validation + a single multi-row statement, or compensating deletes with
   loud error logs. Never assume atomicity across statements.
