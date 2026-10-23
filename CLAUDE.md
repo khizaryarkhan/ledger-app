@@ -1356,6 +1356,17 @@ than depend on it, **we stamp the button on ourselves**:
 
 ## ⚠️ Gotchas that have bitten us
 
+- **Native form chrome (a `<select>`'s own dropdown popup, date/time pickers,
+  checkboxes, scrollbars) ignores every Tailwind class — it's rendered by the
+  OS/browser, not by our CSS.** It only follows the CSS `color-scheme`
+  property, which `app/globals.css` never set before 2026-10-23, so every
+  native select's option list rendered in the browser's light default no
+  matter how dark the rest of the page was (reported: the "Count in"
+  pack-unit picker on Receiving showed a white dropdown on the dark theme).
+  Fixed with `color-scheme: dark` under `:root` and `color-scheme: light`
+  under `[data-theme="light"]`, tracking the app's own theme switch exactly
+  the way every other token in that file already does. If a native control
+  ever looks "off-theme" again, check this before reaching for more CSS.
 - **neon-http has NO transactions.** `db.transaction()` throws. Use
   pre-validation + a single multi-row statement, or compensating deletes with
   loud error logs. Never assume atomicity across statements.
