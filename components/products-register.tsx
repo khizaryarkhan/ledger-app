@@ -644,9 +644,16 @@ function SupplierSkuDrawer({ item, open, link, onClose, onSaved }: { item: any; 
     ...(hasInner && f.innerPackType && innerN > 0 ? [{ label: f.innerPackType, qty: innerN }] : []),
     ...(hasOuter && f.outerPackType && outerN > 0 && innerN > 0 ? [{ label: f.outerPackType, qty: outerN * innerN }] : []),
   ];
-  const config = !supplierSteps.length ? undefined
-    : per > 0 ? ladderTotal(supplierSteps.map(x => ({ ...x, qty: x.qty * per })), base)
-    : `${ladderTotal(supplierSteps, unit || "unit")}${crossDim ? ` — enter what 1 ${f.supplierUom} is in ${base} to convert` : ""}`;
+  // Read back in the SUPPLIER's own unit first — that's what goes on a PO to
+  // them, and what "lb" means on their invoice. When their unit is a different
+  // dimension from the item's base unit (lb vs oz), append the base-unit total
+  // too, rather than replacing the supplier chain with it: a buyer ordering
+  // from this supplier thinks in lb, not oz, but the base total still matters
+  // for checking stock receives correctly.
+  const supplierChain = supplierSteps.length ? ladderTotal(supplierSteps, unit || "unit") : undefined;
+  const config = !supplierChain ? undefined
+    : per > 0 && base && unit !== base ? `${supplierChain} = ${fmt.qty(supplierSteps[supplierSteps.length - 1].qty * per)} ${base}`
+    : `${supplierChain}${crossDim ? ` — enter what 1 ${f.supplierUom} is in ${base} to convert` : ""}`;
 
   // Currency is the SUPPLIER's, set on the supplier and fixed there.
   const supplier = suppliers.find(s => s.id === f.supplierId);
