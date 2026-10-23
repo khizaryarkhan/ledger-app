@@ -15,7 +15,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
 import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
-import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -168,10 +168,16 @@ type OpenPo = {
   id: string; docNumber: string | null; partyId: string | null; partyLabel: string | null;
   currency: string | null; exchangeRate: number; issueDate: string | null; expiryDate: string | null; lines: PoLine[];
 };
-type LotRow = { key: string; qty: string; lotNo: string; expiryDate: string; supplierBatchNo: string; productionDate: string; bestBeforeDate: string };
+type LotRow = { key: string; qty: string; unitIdx: number; lotNo: string; expiryDate: string; supplierBatchNo: string; productionDate: string; bestBeforeDate: string };
 let lotKeySeq = 0;
-const newLotRow = (qty = ""): LotRow => ({ key: `lot${lotKeySeq++}`, qty, lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" });
+const newLotRow = (qty = "", unitIdx = 0): LotRow => ({ key: `lot${lotKeySeq++}`, qty, unitIdx, lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" });
 const lotQtyTotal = (rows: LotRow[]) => rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+
+/** "4 case" — a base quantity read back in the line's own order unit, when one is known. */
+function packEquivalent(baseQty: number, orderUom?: string | null, unitsPerOrderUnit?: number): string | null {
+  if (!orderUom || !unitsPerOrderUnit || unitsPerOrderUnit <= 1) return null;
+  return `${fmt.qty(roundQty(baseQty / unitsPerOrderUnit))} ${orderUom}`;
+}
 
 // A PO with nothing received yet is "Expected"; one line's receivedQty above
 // zero moves the whole PO to "In progress" — it stays there until every line
@@ -358,7 +364,12 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; no
                   </div>
                   {l.skuLabel && <div className="text-[11.5px] text-stone-500 mb-1.5 truncate">{l.skuLabel}</div>}
                   <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-stone-300">Expected <span className="font-semibold text-stone-100">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}</span>
+                    <span className="text-stone-300">
+                      Expected <span className="font-semibold text-stone-100">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
+                      {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && (
+                        <span className="text-stone-500"> ({packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})</span>
+                      )}
+                    </span>
                     {started && <span className="text-[10.5px] text-amber-400">{fmt.qty(l.receivedQty)} already in</span>}
                   </div>
                 </button>
@@ -392,21 +403,25 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
 
-  // Let the receiver count in whichever pack level they're actually looking
-  // at — a case or a bag, not a raw base-unit figure they'd have to compute
-  // themselves. Scoped to this PO's supplier, same rule orderOptions already
-  // enforces for ordering (one vendor's "bag" isn't another's). Defaults to
-  // whatever unit the PO line was actually raised in.
+  // Let the receiver count each LOT in whichever pack level is actually in
+  // front of them — the first few pallets might arrive by the case, the last
+  // partial one by the bag, or even loose at the base unit. So the unit choice
+  // lives per ROW, not once for the whole line. Scoped to this PO's supplier,
+  // same rule orderOptions already enforces for ordering (one vendor's "bag"
+  // isn't another's). Each new row defaults to whatever unit the PO line was
+  // actually raised in — or, once a row exists, whatever the previous row used.
   const [unitOpts, setUnitOpts] = useState<OrderOption[]>([]);
-  const [unitIdx, setUnitIdx] = useState(0);
-  const unit = unitOpts[unitIdx];
-  const per = unit?.unitsPerOrderUnit && unit.unitsPerOrderUnit > 0 ? unit.unitsPerOrderUnit : 1;
+  const perOf = (idx: number) => { const u = unitOpts[idx]; return u?.unitsPerOrderUnit && u.unitsPerOrderUnit > 0 ? u.unitsPerOrderUnit : 1; };
   useEffect(() => {
     fetch(`/api/inventory/items/${line.itemId}`).then(r => r.json()).then(r => {
       const opts = orderOptions(item?.baseUom ?? line.baseUom ?? null, r?.supplierSkus ?? [], po.partyId || "");
       setUnitOpts(opts);
       const match = line.packLevel ? opts.findIndex(o => o.packLevel === line.packLevel) : -1;
-      setUnitIdx(match >= 0 ? match : 0);
+      const def = match >= 0 ? match : 0;
+      // Only the still-pristine rows from before options loaded get the
+      // matched default — a user who has already touched the picker (unlikely
+      // in the brief window before this resolves, but possible) keeps their choice.
+      setRows(rs => rs.map(r => r.unitIdx === 0 ? { ...r, unitIdx: def } : r));
     }).catch(() => setUnitOpts([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.lineId]);
@@ -423,7 +438,8 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   function update(key: string, patch: Partial<LotRow>) { setRows(rs => rs.map(r => r.key === key ? { ...r, ...patch } : r)); }
   async function addRow() {
     const remaining = Math.max(0, line.remainingQty - lotQtyTotal(rows));
-    const row = newLotRow(remaining > 0 ? String(remaining) : "");
+    const unitIdx = rows[rows.length - 1]?.unitIdx ?? 0;
+    const row = newLotRow(remaining > 0 ? String(remaining) : "", unitIdx);
     setRows(rs => [...rs, row]);
     if (!fpwip) {
       const s = await fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).catch(() => null);
@@ -467,11 +483,23 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
           <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0"><Package size={15} className="text-cyan-400" /></div>
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-stone-100 truncate">{line.itemName}</div>
-            <div className="text-[11.5px] text-stone-500">{line.skuLabel ? `${line.skuLabel} · ` : ""}Expecting {fmt.qty(line.remainingQty)} {line.baseUom || ""}</div>
+            <div className="text-[11.5px] text-stone-500">
+              {line.skuLabel ? `${line.skuLabel} · ` : ""}Expecting {fmt.qty(line.remainingQty)} {line.baseUom || ""}
+              {packEquivalent(line.remainingQty, line.orderUom, line.unitsPerOrderUnit) && ` (${packEquivalent(line.remainingQty, line.orderUom, line.unitsPerOrderUnit)})`}
+            </div>
           </div>
         </div>
       </div>
       <div className="p-5 space-y-4">
+        {/* Ordered vs received-to-date vs balance — the PO's own history, not
+            just what's being entered in this receipt. A line received over
+            several visits needs this to say where it actually stands. */}
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-stone-800 bg-stone-900/40 px-3 py-2 text-[12px]">
+          <div><div className="text-stone-500">Ordered</div><div className="text-stone-200 font-medium">{fmt.qty(line.orderedBaseQty)} {line.baseUom || ""}</div></div>
+          <div><div className="text-stone-500">Received so far</div><div className="text-stone-200 font-medium">{fmt.qty(line.receivedQty)} {line.baseUom || ""}</div></div>
+          <div><div className="text-stone-500">Balance</div><div className="text-stone-200 font-medium">{fmt.qty(line.remainingQty)} {line.baseUom || ""}</div></div>
+        </div>
+
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
           <Field label="Receipt date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
           <LocationField label="Receive into" value={locationId} onChange={setLocationId} locations={locations} hint="Where the goods physically landed" />
@@ -483,15 +511,8 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
             <button onClick={addRow} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add another lot</button>
           </div>
           <p className="text-[11.5px] text-stone-500 mb-2">
-            {fpwip ? "This item's lot number is assigned automatically when it's produced." : "Split the delivery into more than one lot if it arrived with different batch numbers or expiry dates."}
+            {fpwip ? "This item's lot number is assigned automatically when it's produced." : "Split the delivery into more than one lot if it arrived with different batch numbers or expiry dates — each one can be counted in a different pack size."}
           </p>
-          {unitOpts.length > 1 && (
-            <Field label="Count in" hint="Quantities below are entered in this unit, then converted to stock automatically.">
-              <SelectField value={String(unitIdx)} onChange={e => setUnitIdx(Number(e.target.value))} className="!h-8">
-                {unitOpts.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
-              </SelectField>
-            </Field>
-          )}
           <div className="space-y-2">
             {rows.map((r, idx) => (
               <div key={r.key} className="rounded-lg border border-stone-800 p-3">
@@ -500,10 +521,23 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
                   {rows.length > 1 && <button onClick={() => removeRow(r.key)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
                 </div>
                 <div className="grid grid-cols-3 gap-x-3 gap-y-3">
-                  <Field label={`Qty (${unit?.orderUom || line.baseUom || "base"})`}>
-                    <input type="number" className={`${controlInset} !h-8`}
-                      value={r.qty ? String(roundQty(Number(r.qty) / per)) : ""}
-                      onChange={e => update(r.key, { qty: e.target.value ? String(roundQty(Number(e.target.value) * per)) : "" })} />
+                  <Field label="Qty">
+                    {unitOpts.length > 1 ? (
+                      <QtyUnitField variant="inset"
+                        qty={r.qty ? String(roundQty(Number(r.qty) / perOf(r.unitIdx))) : ""}
+                        onQty={v => update(r.key, { qty: v ? String(roundQty(Number(v) * perOf(r.unitIdx))) : "" })}
+                        unit={String(r.unitIdx)}
+                        onUnit={v => {
+                          // Reinterpret the SAME base quantity in the newly
+                          // chosen unit — switching units never silently
+                          // rescales what was already typed.
+                          update(r.key, { unitIdx: Number(v) });
+                        }}
+                        options={unitOpts.map((o, i) => ({ value: String(i), label: o.label }))}
+                        unitPlaceholder={null} qtyLabel={`Lot ${idx + 1} quantity`} unitLabel={`Lot ${idx + 1} unit`} />
+                    ) : (
+                      <input type="number" className={`${controlInset} !h-8`} value={r.qty} onChange={e => update(r.key, { qty: e.target.value })} />
+                    )}
                   </Field>
                   <Field label="Lot / batch no.">
                     {fpwip
