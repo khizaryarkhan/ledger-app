@@ -27,6 +27,7 @@ export async function GET(req: Request) {
     unitPrice: r.unitPrice, unitCost: r.unitCost, incomeAccountId: r.incomeAccountId, expenseAccountId: r.expenseAccountId, taxRateId: r.taxRateId,
     assetAccountId: r.assetAccountId, cogsAccountId: r.cogsAccountId, lotTracked: r.lotTracked, postingGroupId: r.postingGroupId,
     canBeSold: r.canBeSold, canBePurchased: r.canBePurchased, purchaseTaxRateId: r.purchaseTaxRateId,
+    sourcingPolicy: r.sourcingPolicy,
     onHandQty: Number(r.onHandQty ?? 0), invValue: Number(r.invValue ?? 0),
   })));
 }
