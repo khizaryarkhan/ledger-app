@@ -25,24 +25,29 @@ import { Loader, Check } from "lucide-react";
 import { controlInset, Drawer } from "@/components/form-kit";
 
 export type QuickAddKind =
-  | "account-income" | "account-expense" | "account-bank"
+  | "account-income" | "account-expense" | "account-bank" | "account"
   | "tax" | "class" | "location";
 
 const META: Record<QuickAddKind, { title: string; noun: string }> = {
   "account-income": { title: "New income account", noun: "account" },
   "account-expense": { title: "New expense account", noun: "account" },
   "account-bank": { title: "New bank account", noun: "account" },
+  account: { title: "New account", noun: "account" },
   tax: { title: "New tax rate", noun: "tax rate" },
   class: { title: "New class", noun: "class" },
   location: { title: "New location", noun: "location" },
 };
 
-export function QuickAdd({ kind, onClose, onCreated }: {
+export function QuickAdd({ kind, accountTypes, onClose, onCreated }: {
   kind: QuickAddKind;
+  // Only for kind "account" — the caller restricts which AccountTypes are
+  // valid here (e.g. a posting-group role only accepts "Cost of Goods Sold"),
+  // same rule the role's own dropdown already filters existing accounts by.
+  accountTypes?: readonly string[];
   onClose: () => void; onCreated: (row: any) => void;
 }) {
   const meta = META[kind];
-  const [f, setF] = useState<Record<string, string>>({ name: "", rate: "", code: "" });
+  const [f, setF] = useState<Record<string, string>>({ name: "", rate: "", code: "", type: accountTypes?.[0] ?? "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -60,7 +65,7 @@ export function QuickAdd({ kind, onClose, onCreated }: {
       let url = "", body: any = {};
       if (kind.startsWith("account")) {
         url = "/api/accounting/accounts";
-        const type = kind === "account-income" ? "Income" : kind === "account-expense" ? "Expense" : "Bank";
+        const type = kind === "account-income" ? "Income" : kind === "account-expense" ? "Expense" : kind === "account-bank" ? "Bank" : f.type;
         body = { name: f.name, type, code: f.code || undefined };
       } else if (kind === "tax") {
         url = "/api/accounting/tax-rates";
@@ -85,7 +90,7 @@ export function QuickAdd({ kind, onClose, onCreated }: {
       footer={
         <div className="flex items-center justify-end gap-3">
           <button onClick={onClose} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-          <button onClick={save} disabled={saving || !f.name.trim()} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
+          <button onClick={save} disabled={saving || !f.name.trim() || (kind === "account" && !f.type)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50">
             {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} Add {meta.noun}
           </button>
         </div>
@@ -95,6 +100,16 @@ export function QuickAdd({ kind, onClose, onCreated }: {
           <div><label className={label}>Name *</label>
             <input autoFocus value={f.name} onChange={e => set("name", e.target.value)} className={input} /></div>
 
+          {kind === "account" && accountTypes && accountTypes.length > 1 && (
+            <div><label className={label}>Type *</label>
+              <select value={f.type} onChange={e => set("type", e.target.value)} className={input}>
+                {accountTypes.map(ty => <option key={ty} value={ty}>{ty}</option>)}
+              </select>
+            </div>
+          )}
+          {kind === "account" && accountTypes && accountTypes.length === 1 && (
+            <div className="text-[12px] text-stone-400">Type: {accountTypes[0]}</div>
+          )}
           {kind.startsWith("account") && (
             <div><label className={label}>Account number (optional)</label><input value={f.code} onChange={e => set("code", e.target.value)} placeholder="e.g. 4100" className={input} /></div>
           )}

@@ -983,7 +983,7 @@ export function NewItemDrawer({ onClose, onCreated, initialProductType = "Finish
           </div>
         </Section>
         {meta.tracked && (
-          <ItemAccountingSection productType={f.productType}
+          <ItemAccountingSection productType={f.productType} canBeSold={canBeSold}
             value={{ postingGroupId: f.postingGroupId, assetAccountId: f.assetAccountId, cogsAccountId: f.cogsAccountId, incomeAccountId: f.incomeAccountId }}
             onChange={p => setF(prev => ({ ...prev, ...p }))} />
         )}
@@ -1067,7 +1067,7 @@ function EditItemDrawer({ item, onClose, onSaved }: { item: any; onClose: () => 
           </div>
         </Section>
         {meta.tracked && (
-          <ItemAccountingSection productType={item.productType}
+          <ItemAccountingSection productType={item.productType} canBeSold={canBeSold}
             value={{ postingGroupId: f.postingGroupId, assetAccountId: f.assetAccountId, cogsAccountId: f.cogsAccountId, incomeAccountId: f.incomeAccountId }}
             onChange={p => setF(prev => ({ ...prev, ...p }))} />
         )}

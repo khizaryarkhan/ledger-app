@@ -15,7 +15,6 @@ import {
   GROUP_TYPE_META, ROLES, allowedTypesFor, groupTypeForKind, roleForOverride,
   type AccountRole, type GroupType, type OverrideField,
 } from "@/lib/accounting/account-roles";
-import { kindOf } from "@/lib/inventory/item-kinds";
 
 type Acct = { id: string; name: string; code: string | null; type: string | null; status: string; isHeader: boolean };
 type Group = { id: string; name: string; groupType: GroupType; isDefault: boolean; roles: Partial<Record<AccountRole, string>> };
@@ -23,8 +22,9 @@ export type ItemAccountingValue = { postingGroupId: string; assetAccountId: stri
 
 const label = (a?: Acct) => a ? `${a.code ? a.code + " · " : ""}${a.name}` : "";
 
-export function ItemAccountingSection({ productType, value, onChange }: {
+export function ItemAccountingSection({ productType, canBeSold, value, onChange }: {
   productType: string;
+  canBeSold: boolean;
   value: ItemAccountingValue;
   onChange: (patch: Partial<ItemAccountingValue>) => void;
 }) {
@@ -36,15 +36,21 @@ export function ItemAccountingSection({ productType, value, onChange }: {
 
   const type = groupTypeForKind(productType);
   if (!type) return null;
-  const meta = kindOf(productType);
   const groups = (data?.groups ?? []).filter(g => g.groupType === type);
   const group = groups.find(g => g.id === value.postingGroupId) ?? groups.find(g => g.isDefault);
   const byId = new Map((data?.accounts ?? []).map(a => [a.id, a]));
 
+  // Stock always applies to a tracked item. Cost of sales and Sales only ever
+  // post when the item is actually sold (COGS at shipment/invoice time) — so
+  // they follow the item's live canBeSold toggle, not the kind's static
+  // default. Without this, a Raw Material or WIP item flipped to "can be
+  // sold" (e.g. surplus sale) would have no way to see or override its
+  // Sales/Cost-of-sales accounts, and a non-sellable item (the common WIP
+  // case) would be shown a Cost-of-sales row it will never use.
   const rows: { field: OverrideField; title: string; show: boolean }[] = [
     { field: "assetAccountId",  title: "Stock",          show: true },
-    { field: "cogsAccountId",   title: "Cost of sales",  show: true },
-    { field: "incomeAccountId", title: "Sales",          show: meta.sellable },
+    { field: "cogsAccountId",   title: "Cost of sales",  show: canBeSold },
+    { field: "incomeAccountId", title: "Sales",          show: canBeSold },
   ];
 
   return (

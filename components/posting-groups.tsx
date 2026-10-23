@@ -22,6 +22,7 @@ import {
 } from "@/lib/accounting/account-roles";
 import { fmt, localToday } from "@/lib/format";
 import { useData } from "@/components/data-provider";
+import { QuickAdd } from "@/components/quick-add";
 
 type Acct = { id: string; name: string; code: string | null; type: string | null; status: string; isHeader: boolean; defaultRole: string | null; source: string };
 type Group = { id: string; name: string; groupType: GroupType; isDefault: boolean; roles: Partial<Record<AccountRole, string>>; itemCount: number; missing: AccountRole[] };
@@ -41,6 +42,7 @@ export function PostingGroups() {
   const [confirm, setConfirm] = useState<Reclass[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<any>(null);
+  const [quickAddRole, setQuickAddRole] = useState<AccountRole | null>(null);
 
   async function load(keep?: string | null) {
     const res = await fetch("/api/accounting/posting-groups");
@@ -178,10 +180,11 @@ export function PostingGroups() {
                             </td>
                             <td className="px-4 py-2 align-top">
                               <SelectField value={value} disabled={!data.canEdit}
-                                onChange={e => setDraft(d => ({ ...d, [r]: e.target.value }))}>
+                                onChange={e => { if (e.target.value === "__add__") { setQuickAddRole(r); return; } setDraft(d => ({ ...d, [r]: e.target.value })); }}>
                                 <option value="">{value ? "" : "— Not mapped —"}</option>
                                 {optionsFor(r).map(a => <option key={a.id} value={a.id}>{acctLabel(a)}{a.source !== "native" ? ` (${a.source.toUpperCase()})` : ""}</option>)}
                                 {value && !optionsFor(r).some(a => a.id === value) && <option value={value}>{acctLabel(byId.get(value)) || "(unknown account)"}</option>}
+                                {data.canEdit && <option value="__add__">+ Add new account…</option>}
                               </SelectField>
                               {!value && <p className="mt-1 text-[11px] text-amber-400">Not mapped — blocks stock movements for this group.</p>}
                               {bad && <p className="mt-1 text-[11px] text-rose-400">{bad}</p>}
@@ -233,6 +236,15 @@ export function PostingGroups() {
       </Modal>
 
       {creating && <NewGroupDrawer onClose={() => setCreating(false)} onCreated={id => { setCreating(false); load(id); setToast({ message: "Group created from the default mapping", type: "success" }); }} />}
+      {quickAddRole && (
+        <QuickAdd kind="account" accountTypes={allowedTypesFor(quickAddRole)}
+          onClose={() => setQuickAddRole(null)}
+          onCreated={(row) => {
+            setData(d => d ? { ...d, accounts: [...d.accounts, row] } : d);
+            setDraft(d => ({ ...d, [quickAddRole]: row.id }));
+            setQuickAddRole(null);
+          }} />
+      )}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </ListPage>
   );
