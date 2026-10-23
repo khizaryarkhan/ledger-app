@@ -68,7 +68,7 @@ describe("orderOptions — supplier scoping", () => {
 
   it("always includes base UoM, so an item is orderable with no packs configured", () => {
     expect(orderOptions("kg", [], SUPPLIER_A)[0]).toMatchObject({ packLevel: "base", unitsPerOrderUnit: 1 });
-    expect(orderOptions(null, [], SUPPLIER_A)[0]).toMatchObject({ label: "unit — base", orderUom: "" });
+    expect(orderOptions(null, [], SUPPLIER_A)[0]).toMatchObject({ label: "unit — item's own unit", orderUom: "" });
   });
 });
 

@@ -48,7 +48,7 @@ export function perSupplierUnit(supplierUom: string | null, baseUom: string | nu
 
 /** The always-available, always-safe choice: transact in the item's own unit. */
 const baseOption = (baseUom: string | null, unitPrice: number | null = null, currency: string | null = null): OrderOption => ({
-  label: `${baseUom || "unit"} — base`,
+  label: `${baseUom || "unit"} — item's own unit`,
   packLevel: "base",
   orderUom: baseUom || "",
   unitsPerOrderUnit: 1,
@@ -105,7 +105,7 @@ export function orderOptions(baseUom: string | null, supplierSkus: any[], suppli
     const push = (o: Omit<OrderOption, "unitPrice" | "currency">) =>
       opts.push({ ...o, unitPrice: priceFor(o.unitsPerOrderUnit), currency: basePrice == null ? null : ccy });
     if (s.supplierUom && s.supplierUom !== baseUom) {
-      push({ label: `${s.supplierUom} — supplier UoM`, packLevel: "supplier", orderUom: s.supplierUom, unitsPerOrderUnit: per, supplierSkuId: s.id });
+      push({ label: `${s.supplierUom} — supplier's unit`, packLevel: "supplier", orderUom: s.supplierUom, unitsPerOrderUnit: per, supplierSkuId: s.id });
     }
     const inner = Number(s.innerUnitPackSize) || 0;
     if (inner > 0) {

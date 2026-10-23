@@ -16,6 +16,15 @@
    contrast on white. Meaning never changes per theme, only the exact step.
    ══════════════════════════════════════════════════════════════════════════ */
 :root {
+  /* Tells the browser which palette to use for NATIVE form chrome (select
+     dropdown popups, date/time pickers, checkboxes, scrollbars) — these are
+     rendered by the OS/browser, not by our CSS, and ignore the app's own
+     dark Tailwind classes entirely. Without this, every native <select>'s
+     OPTION LIST renders with the browser's light default regardless of how
+     dark the rest of the page is (reported: the "Count in" pack-unit picker
+     on Receiving showed a white dropdown on the dark theme). Must track
+     [data-theme] below, not just assume dark. */
+  color-scheme: dark;
   /* stone ramp (Tailwind defaults) */
   --st-50: 250 250 249; --st-100: 245 245 244; --st-200: 231 229 228;
   --st-300: 214 211 209; --st-400: 168 162 158; --st-500: 120 113 108;
@@ -45,6 +54,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   /* stone ramp inverted — bg-stone-950 becomes near-white, text-stone-300
      becomes dark ink, stone-500 is the pivot and stays put */
   --st-50: 12 10 9; --st-100: 28 25 23; --st-200: 41 37 36;

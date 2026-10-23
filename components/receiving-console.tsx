@@ -179,6 +179,22 @@ function packEquivalent(baseQty: number, orderUom?: string | null, unitsPerOrder
   return `${fmt.qty(roundQty(baseQty / unitsPerOrderUnit))} ${orderUom}`;
 }
 
+/**
+ * "20 case · 80 bag · 1,280 lb" — every pack level AND the supplier's own
+ * unit read back from one base quantity, largest first. packEquivalent()
+ * above only knows the single unit the PO line happened to be raised in; this
+ * reads the full set orderOptions() already resolved (inner/outer packs plus
+ * the supplier's own UoM), so a receiver sees the inner-pack count too, not
+ * just the outer one.
+ */
+function packLadder(baseQty: number, opts: OrderOption[]): string | null {
+  const parts = opts
+    .filter(o => o.packLevel !== "base" && o.unitsPerOrderUnit > 0)
+    .sort((a, b) => b.unitsPerOrderUnit - a.unitsPerOrderUnit)
+    .map(o => `${fmt.qty(roundQty(baseQty / o.unitsPerOrderUnit))} ${o.orderUom}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 // A PO with nothing received yet is "Expected"; one line's receivedQty above
 // zero moves the whole PO to "In progress" — it stays there until every line
 // is fully received, at which point po-open stops returning it and it drops
@@ -485,7 +501,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
             <div className="text-[15px] font-semibold text-stone-100 truncate">{line.itemName}</div>
             <div className="text-[11.5px] text-stone-500">
               {line.skuLabel ? `${line.skuLabel} · ` : ""}Expecting {fmt.qty(line.remainingQty)} {line.baseUom || ""}
-              {packEquivalent(line.remainingQty, line.orderUom, line.unitsPerOrderUnit) && ` (${packEquivalent(line.remainingQty, line.orderUom, line.unitsPerOrderUnit)})`}
+              {packLadder(line.remainingQty, unitOpts) && ` (${packLadder(line.remainingQty, unitOpts)})`}
             </div>
           </div>
         </div>
