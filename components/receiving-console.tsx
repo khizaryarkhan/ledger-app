@@ -230,8 +230,13 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   function openPo(po: OpenPo) { setNotice(""); setView({ v: "items", poId: po.id }); }
   function backToHub() { setNotice(""); setView({ v: "hub" }); }
 
+  // xl, not wide (max-w-lg) — the lot row's Qty column now holds a combined
+  // qty+unit control (QtyUnitField), which was being squeezed to near-zero
+  // width in a 512px drawer, so the selected unit was invisible once picked.
+  // form-kit.tsx's own Drawer doc comment: "xl is for grids — five columns of
+  // cells do not fit in 32rem."
   return (
-    <Drawer title="Receive stock" onClose={onClose} wide pad={false}>
+    <Drawer title="Receive stock" onClose={onClose} size="xl" pad={false}>
       {view.v === "hub" && (
           <ReceiveHub
             expected={expected} inProgress={inProgress} loaded={openPos !== null}
@@ -536,7 +541,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
                   <span className="text-[11.5px] font-semibold text-stone-400">Lot {idx + 1}</span>
                   {rows.length > 1 && <button onClick={() => removeRow(r.key)} className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
                 </div>
-                <div className="grid grid-cols-3 gap-x-3 gap-y-3">
+                <div className="grid grid-cols-[1.3fr_1fr_1fr] gap-x-3 gap-y-3">
                   <Field label="Qty">
                     {unitOpts.length > 1 ? (
                       <QtyUnitField variant="inset"

@@ -316,8 +316,17 @@ export function QtyUnitField({
         className={`${qtyWidth ?? (isCell ? "w-20" : "w-28")} shrink-0 bg-transparent ${pad} text-right tabular-nums text-[13px] text-stone-100 placeholder:text-stone-600 outline-none disabled:cursor-not-allowed`} />
       <span className="w-px my-1.5 bg-stone-700/70" />
       <div className="relative flex-1 min-w-0">
+        {/* bg-stone-950 (NOT transparent) is load-bearing, not decorative: the
+            browser's own dark-mode heuristic for a native <select>'s OPTION
+            POPUP reads the select element's OWN background-color — Firefox
+            documents this explicitly, and Chrome/Windows matches it in
+            practice — `color-scheme` alone does not reliably control it. A
+            transparent select (even sitting visibly on a dark shell) gives
+            the browser nothing to key off, so the popup fell back to its
+            light default. Visually identical to before: the shell behind it
+            is already this same colour. */}
         <select value={unit} onChange={e => onUnit(e.target.value)} disabled={disabled} aria-label={unitLabel}
-          className={`w-full h-full appearance-none bg-transparent pl-2 pr-7 ${isCell ? "text-[12px] text-stone-300" : "text-[13px] text-stone-100"} outline-none cursor-pointer disabled:cursor-not-allowed truncate`}>
+          className={`w-full h-full appearance-none bg-stone-950 pl-2 pr-7 ${isCell ? "text-[12px] text-stone-300" : "text-[13px] text-stone-100"} outline-none cursor-pointer disabled:cursor-not-allowed truncate`}>
           {unitPlaceholder != null && <option value="">{unitPlaceholder}</option>}
           {options.map(o => typeof o === "string"
             ? <option key={o} value={o}>{o}</option>
