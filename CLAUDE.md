@@ -1764,6 +1764,44 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
+## "Add from purchase order or goods receipt" on the New Bill screen (2026-10-24)
+
+Requested directly against QBO's own "Add to Bill" panel (screenshots of a QBO
+Bill form listing open POs down the right side, each with an "Add" button that
+links its lines onto the bill). Built as `GET /api/accounting/bill-suggestions
+?supplierId=` + a panel in `components/new-document-form.tsx`, shown on the
+Bill screen once a supplier is picked.
+
+- **Scope decision, made deliberately narrower than QBO's exact UX**: QBO lets
+  several POs' lines merge into ONE still-editable bill draft before saving.
+  Here, clicking "Add" **posts its own bill immediately**, reusing the two
+  already-existing, already-correct posting paths — `convertTradeDoc` (PO →
+  Bill, the PO detail page's own "Convert to Bill" button) and
+  `billFromReceipts` (Goods Receipt → Bill, the Receiving console's own "Bill"
+  action) — rather than teaching `postDocument` a third way to post a Bill.
+  The panel's own hint text says so ("Add creates its own bill right away,
+  from that document's own supplier and lines") so this isn't a silent
+  surprise. Merging multiple sources into one hand-edited draft would need
+  `postDocument` itself to understand PO-line and receipt-line tags, which is
+  real new ledger-posting logic — deferred rather than built speculatively.
+- **A PO line for a stocked item is never offered.** See `convertTradeDoc`'s
+  own doc comment a few sections below — billing a stocked item straight from
+  a PO (skipping the Goods Receipt) is exactly how BILL-0004 double-counted
+  stock in production. `bill-suggestions` computes, per PO, which lines are
+  addable (`!isTracked`) vs which still need receiving first
+  (`hasStockedRemaining`, shown as a note rather than hidden), and "Add" sends
+  only the addable lines as an explicit `{ lines: [...] }` plan to
+  `convertTradeDoc` — never `{ full: true }`, which would refuse the whole
+  call outright if any remaining line were stocked.
+- **Goods Receipts bill through the unmodified `billFromReceipts`**, using the
+  Bill form's own Date field as `billDate`. Its lines post to GR/IR clearing,
+  not an expense/item account, so they cannot share the generic Items table —
+  this is why a receipt and a PO can't be combined into one draft here either.
+- Registered in `lib/modules.ts`'s `API_OWNERS` (owner `"accounting"`) —
+  `tests/module-gating.test.ts`'s reverse-completeness check catches an
+  unregistered route exactly like this, which is how the omission was caught
+  before shipping.
+
 ## Receiving two items in one visit was creating two GRNs (2026-10-24)
 
 Reported: "In a single receiving - I received two items: but it created two

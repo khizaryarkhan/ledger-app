@@ -163,6 +163,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/tax-agencies", owner: "accounting" },
   { path: "/api/accounting/tax-components", owner: "accounting" },
   { path: "/api/accounting/tax-codes", owner: "accounting" },
+  { path: "/api/accounting/bill-suggestions", owner: "accounting" },
 
   // Supply Chain / Resources — every route here already called
   // requireModule() independently before it was registered; see the header
