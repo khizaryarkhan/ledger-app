@@ -10,10 +10,11 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight, Download, Printer } from "lucide-react";
+import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight, Download, Printer, Mail } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { PartyDrawer } from "@/components/party-drawer";
+import { DocumentEmailModal } from "@/components/document-email-modal";
 import { NewItemDrawer } from "@/components/products-register";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
@@ -280,6 +281,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   // with no richer standalone drawer elsewhere (accounts, tax, class, location).
   type AddKind = QuickAddKind | "customer" | "supplier" | "item";
   const [quickAdd, setQuickAdd] = useState<{ kind: AddKind; lineIndex?: number; field?: "bank" | "toBank" } | null>(null);
+  // "Email this document" (QBO form-parity, Phase 2) — only meaningful for
+  // trade documents here, since native documents get this from the page
+  // wrapper's own actions bar instead (see transactions/[id]/page.tsx).
+  const [emailOpen, setEmailOpen] = useState(false);
 
   // Reopen-to-edit: /accounting/new/<Type>?edit=<entryId> loads the stored form
   // payload and switches Save to an in-place update.
@@ -1070,6 +1075,10 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
                   <Printer size={14} /> Print
                 </a>
+                <button onClick={() => setEmailOpen(true)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                  <Mail size={14} /> Email
+                </button>
               </>
             )}
             {actions}
@@ -1992,6 +2001,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
       {quickAdd && quickAdd.kind !== "customer" && quickAdd.kind !== "supplier" && quickAdd.kind !== "item" && (
         <QuickAdd kind={quickAdd.kind}
           onClose={() => setQuickAdd(null)} onCreated={onQuickCreated} />
+      )}
+      {emailOpen && cfg.trade && editId && (
+        <DocumentEmailModal kind="trade" id={editId} onClose={() => setEmailOpen(false)} />
       )}
     </div>
   );

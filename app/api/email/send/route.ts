@@ -41,9 +41,23 @@ const Schema = z.object({
     contentBase64: z.string().min(1).max(28_000_000), // ~20MB decoded
     contentType:   z.string().max(128).optional(),
   })).max(5).optional(),
+  // "Email this document" from any native document form (QBO form-parity,
+  // Phase 2) — the server renders the SAME PDF /api/print/pdf would produce
+  // (lib/pdf/document-pdf.ts) and attaches it directly, rather than having
+  // the client fetch, base64-encode and re-upload it through extraAttachments
+  // (avoids the ~33% base64 size bloat and an extra round trip).
+  attachDocument:      z.object({
+    kind:     z.enum(["ledger", "trade"]),
+    id:       z.string().uuid(),
+    filename: noCRLF.min(1).max(255).optional(),
+  }).optional(),
 });
 
 const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
+
+// attachDocument renders a PDF via headless Chromium (lib/pdf/render-html.ts),
+// which cannot run on the Edge runtime — explicit here, matching /api/print/pdf.
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const { error, orgId: actingOrg, orgIds } = await requireReadScope();
@@ -71,6 +85,17 @@ export async function POST(req: Request) {
     // Invoice PDFs — shared with the background bulk sender.
     const { attachments, errors: attachmentErrors } =
       await fetchInvoicePdfAttachments(targetOrg, data.attachInvoiceIds ?? []);
+
+    // "Email this document" — render it server-side, the same way Download
+    // PDF does, and attach it directly.
+    if (data.attachDocument) {
+      const { renderLedgerDocumentPdf, renderTradeDocumentPdf } = await import("@/lib/pdf/document-pdf");
+      const pdf = data.attachDocument.kind === "trade"
+        ? await renderTradeDocumentPdf(targetOrg, data.attachDocument.id)
+        : await renderLedgerDocumentPdf(targetOrg, data.attachDocument.id);
+      if (!pdf) return bad("Document not found", 404);
+      attachments.push({ filename: data.attachDocument.filename || "Document.pdf", content: Buffer.from(pdf), contentType: "application/pdf" });
+    }
 
     // Client-provided attachments (statement PDF, etc.).
     if (data.extraAttachments?.length) {

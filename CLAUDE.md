@@ -1764,6 +1764,55 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
+## QBO form-parity sweep — Phase 2: Email/Send inline from the document form (2026-10-24)
+
+Client chose this as the next piece after Phase 1 (Print/Download). Built as
+a genuinely generic capability, not an Invoice-only one — reused everything
+Phase 1 already built rather than inventing a parallel data path.
+
+- **`components/document-email-modal.tsx`** (new) is self-contained: given
+  only `{kind: "ledger"|"trade", id}`, it fetches the document's print-ready
+  shape from the SAME `GET /api/print/document` endpoint the `/print/...`
+  preview pages already use — which already resolves company name, party
+  email, and the document's label/number — and prefills To/Subject/Body from
+  it. No new data plumbing was needed for this: every field the modal shows
+  was already computed by the Print/Download work.
+- **`POST /api/email/send` gained an `attachDocument: {kind, id, filename?}`
+  field.** The server renders the exact PDF `/api/print/pdf` would produce
+  (same `lib/pdf/document-pdf.ts` functions) and attaches it directly —
+  deliberately NOT routed through the existing `extraAttachments` (base64)
+  field, which would mean the client fetching the PDF, base64-encoding it
+  (~33% size bloat) and re-uploading it, for no benefit over rendering it
+  once, server-side, where it was going to be rendered anyway.
+  `export const runtime = "nodejs"` was added explicitly (headless Chromium
+  cannot run on the Edge runtime — the same constraint `/api/print/pdf`
+  already states) even though Node was already the implicit default.
+- **Scope matches QBO's own action bar, not "every document type."**
+  Invoice/Sales Receipt/Credit Note/Refund Receipt/Payment/Bill Payment (to a
+  Customer) and Estimate/Purchase Order/Sales Order (to a Customer or
+  Supplier) can be emailed. **Bill/Expense/Supplier Credit deliberately
+  cannot** — those are purchase documents received FROM a supplier, not sent
+  to one; QBO's own action bar has no "Send" on a Bill either, and adding one
+  here would imply a workflow (negotiating a bill by email from inside the
+  app) nobody asked for.
+- **Wired into two places, not a shared page**, because trade documents and
+  native ledger documents are opened differently: `components/new-document-
+  form.tsx` carries its own Email button (self-contained, reading its own
+  `editId`/`cfg.trade` state) for Estimate/PO/SO, which have no detail page
+  of their own — the SAME reasoning the Phase 1 Print/Download buttons there
+  already followed. `app/(app)/accounting/transactions/[id]/page.tsx` carries
+  the native-document Email button in its shared `actionsBar` (both the
+  read-only form view and the generic ledger view render it), gated by a new
+  `EMAILABLE` set alongside the existing `LINE_EDITABLE`/`PAYMENT_EDITABLE`.
+- **This is still Phase 2 of several** — no outbound record of an emailed
+  Bill/Estimate/PO is kept anywhere (no `communications` row, no activity
+  timeline entry) the way an Invoice's AR emails already are; that's Phase 5
+  (Audit history) territory, not solved here. Recipients are always typed or
+  taken from the party's own email on file — there is no template/customize
+  system for these bodies yet (Receivables already has one, for AR chase
+  emails specifically; extending it to every document type is a separate,
+  unscoped ask).
+
 ## QBO form-parity sweep — Phase 1: Print + Download everywhere (2026-10-24)
 
 Client: *"Can you match all forms with the QBO?... Every form is missing even

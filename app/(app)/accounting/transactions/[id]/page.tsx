@@ -3,12 +3,19 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2 } from "lucide-react";
+import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2, Mail } from "lucide-react";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 import { NewDocumentForm, type DocType } from "@/components/new-document-form";
+import { DocumentEmailModal } from "@/components/document-email-modal";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
 const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
+// QBO form-parity, Phase 2 — "Email this document" from the form itself.
+// Scoped to documents that go OUT to a party: sales documents to a customer,
+// Payment/BillPayment as a receipt/remittance. Bill/Expense/VendorCredit are
+// deliberately excluded — those are purchase documents received FROM a
+// supplier, and QBO's own action bar offers no "Send" on a Bill either.
+const EMAILABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Payment", "BillPayment"]);
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -55,6 +62,7 @@ export default function TransactionDetailPage() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [emailOpen, setEmailOpen] = useState(false);
 
   async function load() {
     const r = await fetch(`/api/ledger/journal/${id}`).then(x => x.json()).catch(() => null);
@@ -94,6 +102,7 @@ export default function TransactionDetailPage() {
   // settlement concept, and need their own voucher-style template rather
   // than being forced through this invoice-shaped one.
   const canPrint = e && (LINE_EDITABLE.has(e.sourceType) || PAYMENT_EDITABLE.has(e.sourceType) || e.sourceType === "Deposit");
+  const canEmail = e && EMAILABLE.has(e.sourceType);
   // Opening a posted transaction shows the SAME form it was entered on
   // (QBO/QBD parity) for every type that form already knows how to edit —
   // reusing that exact, already-proven data path in a read-only rendering
@@ -159,6 +168,12 @@ export default function TransactionDetailPage() {
           </a>
         </>
       )}
+      {canEmail && (
+        <button onClick={() => setEmailOpen(true)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+          <Mail size={14} /> Email
+        </button>
+      )}
       {canEdit && (
         <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
@@ -197,6 +212,7 @@ export default function TransactionDetailPage() {
           <>
             {msg && <div className="max-w-[1200px] mb-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
             {related}
+            {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
           </>
         }
       />
@@ -288,6 +304,7 @@ export default function TransactionDetailPage() {
           {actionsBar}
         </div>
       </div>
+      {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
     </div>
   );
 }
