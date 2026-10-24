@@ -12,6 +12,42 @@ const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// A related-transaction link's `id` is only safe to open at
+// /accounting/transactions/[id] when its type is itself a posted GL entry.
+// GoodsReceipt/PurchaseOrder/Estimate are non-posting trade/receipt documents
+// whose `id` points at a different table (goods_receipts / trade_documents)
+// with no confirmed standalone detail page (see CLAUDE.md's "known,
+// deliberate duplication" + Supplier Transactions notes) — linking those here
+// 404s. SalesOrder is the one trade-doc kind that DOES have a real page.
+// Render the rest as plain, non-clickable rows, the same "viewHref: null"
+// rule the Supplier/Customer transaction feeds already use for these types.
+const NO_DETAIL_PAGE = new Set(["GoodsReceipt", "PurchaseOrder", "Estimate"]);
+
+function relatedRow(lk: any, i: number) {
+  const inner = (
+    <>
+      <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
+      <ArrowRight size={12} className="text-stone-600" />
+      <span className="font-mono text-stone-300">{lk.docNumber}</span>
+      <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
+      <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
+    </>
+  );
+  if (NO_DETAIL_PAGE.has(lk.type)) {
+    return (
+      <div key={i} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 opacity-80 cursor-default" title="No detail page for this document yet">
+        {inner}
+      </div>
+    );
+  }
+  const href = lk.type === "SalesOrder" ? `/accounting/trade/sales-orders/${lk.id}` : `/accounting/transactions/${lk.id}`;
+  return (
+    <Link key={i} href={href} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
+      {inner}
+    </Link>
+  );
+}
+
 export default function TransactionDetailPage() {
   const id = String(useParams().id || "");
   const router = useRouter();
@@ -138,15 +174,7 @@ export default function TransactionDetailPage() {
       <div className="max-w-[1200px] mt-2">
         <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">Related transactions</div>
         <div className="space-y-1">
-          {data.links.map((lk: any, i: number) => (
-            <Link key={i} href={`/accounting/transactions/${lk.id}`} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
-              <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
-              <ArrowRight size={12} className="text-stone-600" />
-              <span className="font-mono text-stone-300">{lk.docNumber}</span>
-              <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
-              <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
-            </Link>
-          ))}
+          {data.links.map((lk: any, i: number) => relatedRow(lk, i))}
         </div>
       </div>
     );
@@ -239,15 +267,7 @@ export default function TransactionDetailPage() {
             <div>
               <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">Related transactions</div>
               <div className="space-y-1">
-                {data.links.map((lk: any, i: number) => (
-                  <Link key={i} href={`/accounting/transactions/${lk.id}`} className="flex items-center gap-3 text-[12px] rounded-lg px-3 py-2 bg-stone-900 border border-stone-800 hover:border-stone-600">
-                    <span className="text-stone-500 w-20">{lk.relation === "progress_invoice" ? "invoiced" : lk.relation === "po_bill" ? "billed" : lk.relation === "deposit_sweep" ? "swept" : lk.relation}</span>
-                    <ArrowRight size={12} className="text-stone-600" />
-                    <span className="font-mono text-stone-300">{lk.docNumber}</span>
-                    <span className="text-stone-500">{txnTypeLabel(lk.type)}</span>
-                    <span className="tabular-nums text-stone-300 ml-auto">{money(lk.linkedAmount)}</span>
-                  </Link>
-                ))}
+                {data.links.map((lk: any, i: number) => relatedRow(lk, i))}
               </div>
             </div>
           )}

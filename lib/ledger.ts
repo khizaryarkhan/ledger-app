@@ -148,6 +148,65 @@ export async function assertNoControlAccounts(orgId: string, lines: { accountId:
   }
 }
 
+/**
+ * Collapse lines that share the exact same account + every posting dimension
+ * (class/location/cost centre/project/name/currency/rate) into one row,
+ * summing their amounts — this is how SAP (FI document summarization),
+ * NetSuite (its GL Impact view) and Oracle (Subledger Accounting) all post:
+ * one GL line per account+dimension combination per document, not one line
+ * per source item. Item-level detail is never lost by doing this — it lives
+ * in the document's own line items, goods_receipt_lines/shipment_lines, and
+ * the transaction_links graph, none of which this touches.
+ *
+ * A singleton group (the overwhelming common case — most documents never put
+ * two lines on the same account) is returned completely untouched, so every
+ * existing document type keeps posting exactly as it does today unless it
+ * genuinely has two-or-more lines landing on the same account+dimensions.
+ */
+export function lineGroupKey(l: PostLine): string {
+  return [
+    l.accountId, l.classId ?? "", l.locationId ?? "", l.costCentreId ?? "",
+    l.projectId ?? "", l.nameType ?? "", l.nameId ?? "", l.currency ?? "",
+    l.exchangeRate != null ? l.exchangeRate.toFixed(6) : "",
+  ].join("|");
+}
+
+export function netLines(lines: PostLine[], fallbackDescription: string | null): PostLine[] {
+  const groups = new Map<string, PostLine[]>();
+  const order: string[] = [];
+  for (const l of lines) {
+    const key = lineGroupKey(l);
+    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+    groups.get(key)!.push(l);
+  }
+
+  const out: PostLine[] = [];
+  for (const key of order) {
+    const group = groups.get(key)!;
+    if (group.length === 1) { out.push(group[0]); continue; }
+
+    const sumDebit  = round2(group.reduce((s, l) => s + Number(l.debit  ?? 0), 0));
+    const sumCredit = round2(group.reduce((s, l) => s + Number(l.credit ?? 0), 0));
+    const net = round2(sumDebit - sumCredit);
+    if (Math.abs(net) < 0.005) continue; // fully self-cancelling within this one document — nothing to post
+
+    const hasFx = group.some(l => l.fxDebit != null || l.fxCredit != null);
+    const netFx = hasFx
+      ? round2(group.reduce((s, l) => s + Number(l.fxDebit ?? 0), 0) - group.reduce((s, l) => s + Number(l.fxCredit ?? 0), 0))
+      : null;
+
+    out.push({
+      ...group[0],
+      description: fallbackDescription || group[0].description || null,
+      debit:  net > 0 ? net : 0,
+      credit: net < 0 ? -net : 0,
+      fxDebit:  netFx != null ? (netFx > 0 ? netFx : 0) : group[0].fxDebit,
+      fxCredit: netFx != null ? (netFx < 0 ? -netFx : 0) : group[0].fxCredit,
+    });
+  }
+  return out;
+}
+
 /** Next sequential entry number for the org. */
 async function nextEntryNumber(orgId: string): Promise<number> {
   const [row] = await db
@@ -162,8 +221,9 @@ async function nextEntryNumber(orgId: string): Promise<number> {
  * Returns the created entry with its lines.
  */
 export async function postJournalEntry(input: PostEntryInput) {
-  await validateEntry(input.orgId, input.lines);
-  if (HAND_ENTERED.has(input.sourceType ?? "Manual") && !input.externalSource) await assertNoControlAccounts(input.orgId, input.lines);
+  const lines = netLines(input.lines, input.memo ?? null);
+  await validateEntry(input.orgId, lines);
+  if (HAND_ENTERED.has(input.sourceType ?? "Manual") && !input.externalSource) await assertNoControlAccounts(input.orgId, lines);
 
   // Period lock: nothing may be posted on/before the book close date, except
   // the system closing entry itself (which is dated the period end).
@@ -217,7 +277,7 @@ export async function postJournalEntry(input: PostEntryInput) {
 
   try {
     await db.insert(journalLines).values(
-      input.lines.map((l, i) => ({
+      lines.map((l, i) => ({
         orgId:        input.orgId,
         entryId:      entry.id,
         lineNo:       i + 1,

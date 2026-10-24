@@ -1764,6 +1764,69 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
+## The GL nets same-account lines per document — one line per account+dimension, not per item (2026-10-24)
+
+Raised directly against the "Add to Bill" work above: a single Bill against one
+Goods Receipt (3 lines: Chicken/Chicken/Salt, all clearing the same GR/IR
+account) posted **three separate debit lines to GR/IR** instead of one —
+correct in total, but not how a real accounting system presents it, and the
+client's own words on this: *"Accounting system is the solid stone for any
+organisation: they will never tolerate anything which does not make sense."*
+Researched against SAP, Oracle, NetSuite and Odoo before building, per the
+explicit ask to "build once rather than back & forth changes":
+
+- **The majority pattern (SAP FI document summarization, NetSuite's GL Impact
+  view, Oracle Subledger Accounting) posts ONE GL line per account+dimension
+  combination per document** — PO/receipt-line-level matching detail lives in
+  a subledger/assignment field, not as separate GL rows. Odoo is the outlier
+  (one journal item per invoice line even on a shared account). The decision
+  here follows the majority: the GL is a summary of financial impact, not a
+  transcript of line items — this app's own Items table on the document,
+  `goods_receipt_lines`, and `transaction_links` already ARE that subledger,
+  so nothing is lost by not re-exploding the GL.
+- **`lib/ledger.ts`'s `postJournalEntry` — the single GL writer every poster in
+  the app goes through — now runs every entry's lines through `netLines`
+  before validating/inserting.** It collapses lines that share the exact same
+  `accountId` + **every** posting dimension (class/location/cost centre/
+  project/name/currency/exchange rate) into one row, summing debit/credit (and
+  `fxDebit`/`fxCredit` where present); a debit and a credit on the same
+  account+dimensions net to one line in whichever direction survives, and a
+  group that fully cancels out within one document is dropped entirely. **A
+  singleton group — the overwhelming majority of documents, which never put
+  two lines on the same account — is returned completely untouched**, so this
+  changes nothing for any document type unless it genuinely has two+ lines
+  landing on the same account+dimensions. Built ONCE at the engine level
+  (not per-poster) deliberately: `billFromReceipts` was the reported case, but
+  the identical pattern (two lines on one account) can happen on an Invoice,
+  Expense, or any other document type — fixing it in one choke point is what
+  "build once" means here, matching how `resolveLocationId`/
+  `fetchQboInvoicePayInfo` already centralize their own single-decision rules.
+- **The netted line's description is the document's own memo** (e.g. "Bill for
+  goods received (GRN-0003)"), not a comma-joined item list — confirmed with
+  the client before building. Falls back to the first line's own description
+  only when no memo is given (e.g. a bare manual entry).
+- **Verified safe to do at the engine level, not just assumed**: grepped every
+  `createLink`/`transactionLinks` call site — none keys a link to a specific
+  `journal_lines` row by its position in the array posted to
+  `postJournalEntry` (every link is header-level, `toId: entry.id`, amount-
+  based). Every report (`financials.ts`, `reconcile.ts`, trial balance,
+  general ledger) aggregates by account over however many rows exist, so
+  fewer, larger rows produce byte-identical totals — confirmed by the full
+  686-test suite passing unchanged plus 11 new tests
+  (`tests/ledger-netting.test.ts`) pinning the merge, the per-dimension
+  non-merge cases (class/location/cost centre/project/name/FX rate), the
+  description rule, and the fully-self-cancelling-group drop.
+- **Not the same bug, fixed in the same session**: the Bill's "Related
+  transactions" panel linked every row (including `GoodsReceipt`/
+  `PurchaseOrder`/`Estimate`) to `/accounting/transactions/[id]`, which is a
+  `journal_entries.id` route — those three types' `id` points at
+  `goods_receipts`/`trade_documents` instead, so opening a GRN from a Bill
+  errored. Fixed in `app/(app)/accounting/transactions/[id]/page.tsx`
+  (`relatedRow()`): those three render as plain non-clickable rows (the same
+  "no detail page yet" rule the Supplier/Customer transaction feeds already
+  use), and `SalesOrder` — which DOES have a real detail page — now links
+  there instead of to the wrong route.
+
 ## "Add to Bill" reworked: stage, don't post — and a view-link fix (2026-10-24)
 
 Direct feedback on the first version (previous section, below, kept for the
