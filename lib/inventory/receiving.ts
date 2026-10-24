@@ -23,6 +23,7 @@ import { postDocument, type DocRevaluation } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
 import { round2, round4, round6, roundQty } from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
+import { voidGoodsReceipt } from "@/lib/inventory/void";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
@@ -171,6 +172,55 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
   }
 
   return { id: receiptId, receiptNo, entryId: entry?.id ?? null, grirTotal };
+}
+
+/**
+ * Re-runs postGoodsReceipt's own up-front, read-only checks (date, lines
+ * present, items resolve and are tracked, currency/rate) — WITHOUT writing
+ * anything — so a mistake in the correction itself is caught before the
+ * original receipt is voided, not after. Deliberately duplicated rather than
+ * extracted into postGoodsReceipt's own body: postGoodsReceipt stays the one,
+ * unmodified create path; this is purely a pre-void safety check for edit.
+ */
+async function preflightReceipt(orgId: string, input: ReceiptInput) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.receiptDate)) err("A valid receipt date is required.");
+  const rows = (input.lines ?? []).filter(l => l.itemId && Math.abs(Number(l.qtyBase) || 0) > 0);
+  if (!rows.length) err("Add at least one line with an item and a received quantity.");
+
+  const [org] = await db.select({ home: organisations.currency, mc: organisations.multicurrencyEnabled })
+    .from(organisations).where(eq(organisations.id, orgId)).limit(1);
+  const home = org?.home ?? "PKR";
+  const currency = (input.currency?.trim() || home).toUpperCase();
+  const rate = currency === home ? 1 : (Number(input.exchangeRate) || 0);
+  if (currency !== home) {
+    if (!org?.mc) err("Enable multi-currency before receiving in a foreign currency.");
+    if (!(rate > 0)) err("Enter a valid exchange rate.");
+  }
+
+  const itemMap = await loadItemCostInfo(orgId, rows.map(r => r.itemId));
+  for (const r of rows) {
+    const item = itemMap.get(r.itemId);
+    if (!item) err(`Item ${r.itemId} not found.`);
+    if (!item!.tracked) err(`${item!.name} isn't an inventory-tracked item — only tracked items can be received into stock.`);
+  }
+  await resolveLocationId(orgId, input.locationId, { label: "Receiving location" });
+}
+
+/**
+ * Correct an already-posted receipt. This ledger is immutable and
+ * reversal-only (see CLAUDE.md's "Accounting foundation" section) — there is
+ * no in-place edit of a posted GL entry anywhere in this app, and a goods
+ * receipt is no exception. "Editing" here means: validate the correction
+ * first (preflightReceipt), void the original receipt (voidGoodsReceipt —
+ * the SAME guards a manual void already enforces: refused if billed, refused
+ * if the received stock has since been consumed/sold on), then post the
+ * corrected lines as a fresh receipt. The PO's receivedQty is restored by the
+ * void and re-advanced by the repost, so it ends up correct either way.
+ */
+export async function editGoodsReceipt(orgId: string, receiptId: string, input: ReceiptInput, actorId: string | null) {
+  await preflightReceipt(orgId, input);
+  await voidGoodsReceipt(orgId, receiptId);
+  return postGoodsReceipt(orgId, input, actorId);
 }
 
 export type BillFromReceiptsInput = {

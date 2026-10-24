@@ -1715,6 +1715,55 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## Correcting an already-posted GRN (2026-10-24)
+
+Follow-up to the receiving two-GRN fix above: the user asked for a GRN to be
+openable and correctable, "similar to the PO form," with the correction
+adjusting the linked PO's quantity automatically — confirmed before building
+that this would be implemented as void-and-repost, since this ledger has no
+in-place edit anywhere (reversal-only, see "Accounting foundation" below).
+
+- **`lib/inventory/receiving.ts`'s new `editGoodsReceipt(orgId, receiptId,
+  input, actorId)`**: runs `preflightReceipt` (the same up-front, read-only
+  checks `postGoodsReceipt` itself does — date format, lines present, items
+  resolve and are tracked, currency/rate — deliberately duplicated rather
+  than extracted into `postGoodsReceipt`'s body, so the create path stays
+  untouched) BEFORE calling `voidGoodsReceipt`, so a mistake in the
+  correction itself is caught before the original receipt is gone, not
+  after. `voidGoodsReceipt`'s own guards apply unchanged: refused if the
+  receipt has been billed, or if the received stock has since been
+  consumed/sold on. On success, `postGoodsReceipt` posts the corrected
+  lines as a fresh receipt (new `GRN-` number) — the PO's `receivedQty` is
+  restored by the void and re-advanced by the repost, landing correct
+  either way.
+- **New `PATCH /api/inventory/receiving/[id]`** calls `editGoodsReceipt`.
+  `GET /api/inventory/receiving/[id]` was extended to also join
+  `inventory_lots` for `supplierBatchNo`/`productionDate`/`bestBeforeDate` —
+  those GS1 fields live on the LOT, not `goods_receipt_lines` (which only
+  has `lotNo`/`expiryDate`), so the edit form couldn't otherwise resume
+  what was originally entered.
+- **UI**: `components/receiving-console.tsx`'s new `EditReceiptDrawer` — a
+  flat, `AdhocReceive`-styled multi-line editor (not the PO-drilldown's
+  per-line `LotCapture`, which is built around an *open* PO line's
+  remaining-quantity context that doesn't apply to an already-posted
+  receipt) pre-filled from `GET .../[id]`. A PO-linked line's item is
+  locked (changing which item a PO line received doesn't make sense without
+  also changing which PO line it's linked to); qty, lot/batch, expiry, and
+  the GS1 fields are all editable, and lines can be added or removed.
+  Supplier is read-only — changing a receipt's supplier on a "correction"
+  would re-attribute PO-linked lines to a PO they don't belong to; that's a
+  void-and-re-receive-under-the-right-PO case, not an edit.
+- **Entry point**: a Pencil icon per row on the Receiving list, next to the
+  existing void (Trash) icon — shown live only when `billedAmount <= 0.005`
+  (dimmed with a tooltip otherwise, matching the exact condition
+  `voidGoodsReceipt` itself enforces, so the UI never offers an edit the
+  server would refuse).
+- **Not done**: editing a receipt whose lines were already partially billed
+  is refused outright (reverse the bill first) — there's no partial-edit
+  path that only touches the still-unbilled portion of a receipt. This
+  matches how every other correction in this app already works (void,
+  don't partially patch).
+
 ## Receiving two items in one visit was creating two GRNs (2026-10-24)
 
 Reported: "In a single receiving - I received two items: but it created two

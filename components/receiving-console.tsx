@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
-import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes } from "lucide-react";
+import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes, Pencil } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
@@ -34,6 +34,7 @@ export function ReceivingConsole() {
   const [sel, setSel] = useState<Record<string, boolean>>({});
   const [billing, setBilling] = useState(false);
   const [voidErr, setVoidErr] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function load() {
     const r = await fetch(`/api/inventory/receiving`).then(x => x.json()).catch(() => []);
@@ -110,6 +111,7 @@ export function ReceivingConsole() {
 
       {showNew && <ReceiveDrawer suppliers={suppliers} items={items} onClose={() => { setShowNew(false); load(); }} />}
       {billing && <BillDrawer receipts={selectedReceipts} taxes={taxes} onClose={() => setBilling(false)} onDone={() => { setBilling(false); setSel({}); load(); }} />}
+      {editingId && <EditReceiptDrawer receiptId={editingId} items={items} onClose={() => { setEditingId(null); load(); }} />}
 
       {rows === null ? (
         <div className="px-4 py-8 text-center text-stone-500 text-[13px]">Loading…</div>
@@ -135,7 +137,14 @@ export function ReceivingConsole() {
                       <td className={`${listNumCell} text-stone-300`}>{money(r.grirTotal)}</td>
                       <td className={`${listNumCell} text-stone-400`}>{money(r.billedAmount)}</td>
                       <td className={listMoneyCell}><span className={r.open > 0.005 ? "text-amber-400 font-medium" : "text-stone-500"}>{money(r.open)}</span></td>
-                      <td className="px-2 py-2"><button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void receipt"><Trash2 size={13} /></button></td>
+                      <td className="px-2 py-2 flex items-center gap-0.5">
+                        {r.billedAmount <= 0.005 ? (
+                          <button onClick={() => setEditingId(r.id)} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-stone-200" title="Edit / correct this receipt"><Pencil size={13} /></button>
+                        ) : (
+                          <span className="p-1 text-stone-500 opacity-40" title="Already billed — reverse the bill first to edit"><Pencil size={13} /></span>
+                        )}
+                        <button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void receipt"><Trash2 size={13} /></button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -786,6 +795,140 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
         <DrawerFooter saving={saving} onClose={onBack} onSave={save} saveLabel="Post receipt" err={err} pendingMsg={pendingMsg} />
       </div>
     </>
+  );
+}
+
+/* -------------------------- Edit / correct a receipt ---------------------- */
+
+/**
+ * Opens an already-posted GRN for correction. The ledger has no in-place
+ * edit (reversal-only, see CLAUDE.md) — saving here calls PATCH
+ * /api/inventory/receiving/[id], which voids the original receipt and posts
+ * the corrected lines as one user action, adjusting any linked PO's received
+ * quantity automatically. Refused server-side (same as a manual void) if the
+ * receipt has been billed or the received stock has since been consumed.
+ */
+function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; items: any[]; onClose: () => void }) {
+  const { locations } = useStockLocations();
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
+  const [receipt, setReceipt] = useState<any>(null);
+  const [lines, setLines] = useState<RLine[]>([]);
+  const [date, setDate] = useState(localToday());
+  const [locationId, setLocationId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/inventory/receiving/${receiptId}`).then(r => r.json()).then(d => {
+      if (!d?.receipt) { setLoadErr("Could not load this receipt."); setLoading(false); return; }
+      setReceipt(d.receipt);
+      setDate(d.receipt.receiptDate);
+      setLocationId(d.receipt.locationId || "");
+      setLines((d.lines || []).map((l: any): RLine => ({
+        key: newKey(), itemId: l.itemId, itemName: l.item?.name || "", baseUom: l.item?.baseUom || null,
+        skuId: l.skuId ?? null, poId: l.poId ?? null, poLineId: l.poLineId ?? null,
+        qtyBase: String(l.qtyBase), unitCost: String(l.unitCost),
+        lotNo: l.lotNo || "", expiryDate: l.expiryDate || "",
+        supplierBatchNo: l.supplierBatchNo || "", productionDate: l.productionDate || "", bestBeforeDate: l.bestBeforeDate || "",
+      })));
+      setLoading(false);
+    }).catch(() => { setLoadErr("Could not load this receipt."); setLoading(false); });
+  }, [receiptId]);
+
+  function setLine(key: string, patch: Partial<RLine>) { setLines(ls => ls.map(l => l.key === key ? { ...l, ...patch } : l)); }
+  function removeLine(key: string) { setLines(ls => ls.filter(l => l.key !== key)); }
+  function addLine() { setLines(ls => [...ls, { key: newKey(), itemId: "", itemName: "", baseUom: null, skuId: null, poId: null, poLineId: null, qtyBase: "", unitCost: "", lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" }]); }
+  function onItem(key: string, itemId: string) {
+    const it = items.find(x => x.id === itemId);
+    setLine(key, { itemId, itemName: it?.name ?? "", baseUom: it?.baseUom ?? null });
+  }
+
+  async function save() {
+    const payloadLines = lines.filter(l => l.itemId && Number(l.qtyBase) > 0).map(l => ({
+      itemId: l.itemId, skuId: l.skuId, poId: l.poId, poLineId: l.poLineId, description: l.itemName,
+      qtyBase: Number(l.qtyBase), unitCost: Number(l.unitCost) || 0, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null,
+      supplierBatchNo: l.supplierBatchNo || null, productionDate: l.productionDate || null, bestBeforeDate: l.bestBeforeDate || null,
+    }));
+    if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
+    setSaving(true); setErr("");
+    const r = await fetch(`/api/inventory/receiving/${receiptId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      supplierId: receipt.supplierId, supplierLabel: receipt.supplierLabel, receiptDate: date,
+      currency: receipt.currency, exchangeRate: Number(receipt.exchangeRate) || 1, locationId: locationId || null, lines: payloadLines,
+    }) });
+    const d = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (!r.ok) { setErr(d?.error || "Could not save the correction."); return; }
+    onClose();
+  }
+
+  return (
+    <Drawer title={`Edit receipt${receipt?.receiptNo ? ` ${receipt.receiptNo}` : ""}`} onClose={onClose} size="xl">
+      {loading ? (
+        <div className="p-6 text-center text-stone-500 text-[13px]">Loading…</div>
+      ) : loadErr ? (
+        <div className="p-6 text-center text-rose-400 text-[13px]">{loadErr}</div>
+      ) : (
+        <>
+          <div className="p-5 space-y-5">
+            <div className="text-[12px] text-stone-400 bg-stone-800/40 border border-stone-800 rounded-lg px-3 py-2">
+              Saving voids the original receipt and posts the correction as a new one — any purchase order this
+              receipt advanced is adjusted to match automatically.
+            </div>
+            <Section title="Supplier & date">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                <Field label="Supplier" hint="Fixed — void and re-receive under a different supplier instead">
+                  <input className={`${controlInset} opacity-70`} value={receipt.supplierLabel || "—"} disabled />
+                </Field>
+                <Field label="Receipt date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
+                <LocationField label="Receive into" value={locationId} onChange={setLocationId} locations={locations} hint="Where the goods physically landed" />
+              </div>
+            </Section>
+
+            <Section title="Lines"
+              right={<button onClick={addLine} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add line</button>}>
+              <div className="space-y-2">
+                {lines.map(l => (
+                  <div key={l.key} className="rounded-lg border border-stone-800 p-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      {l.poId ? (
+                        <div className="flex-1 flex items-center gap-1.5 text-[12.5px] text-stone-300">
+                          <FileText size={12} className="text-cyan-500" /> {l.itemName}
+                          <span className="text-[10.5px] text-stone-600">linked to PO — item can't change here</span>
+                        </div>
+                      ) : (
+                        <SelectField inset className="!h-8" value={l.itemId} onChange={e => onItem(l.key, e.target.value)}>
+                          <option value="">Select item…</option>{items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                        </SelectField>
+                      )}
+                      {lines.length > 1 && <button onClick={() => removeLine(l.key)} className="ml-auto text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
+                    </div>
+                    <div className="grid grid-cols-4 gap-x-4 gap-y-4">
+                      <Field label={`Qty (${l.baseUom || "base"})`}><input type="number" className={`${controlInset} !h-8`} value={l.qtyBase} onChange={e => setLine(l.key, { qtyBase: e.target.value })} /></Field>
+                      <Field label="Unit cost"><input type="number" className={`${controlInset} !h-8`} value={l.unitCost} onChange={e => setLine(l.key, { unitCost: e.target.value })} /></Field>
+                      <Field label="Lot / batch no.">
+                        {isFPWIP(items.find(x => x.id === l.itemId)) ? (
+                          <input className={`${controlInset} !h-8 opacity-60`} value="assigned automatically" disabled />
+                        ) : (
+                          <input className={`${controlInset} !h-8`} value={l.lotNo} onChange={e => setLine(l.key, { lotNo: e.target.value })} />
+                        )}
+                      </Field>
+                      <Field label="Expiry"><input type="date" className={`${controlInset} !h-8`} value={l.expiryDate} onChange={e => setLine(l.key, { expiryDate: e.target.value })} /></Field>
+                      <Field label="Supplier batch no." hint="As printed — GS1 (10)"><input className={`${controlInset} !h-8`} value={l.supplierBatchNo} onChange={e => setLine(l.key, { supplierBatchNo: e.target.value })} /></Field>
+                      <Field label="Production date"><input type="date" className={`${controlInset} !h-8`} value={l.productionDate} onChange={e => setLine(l.key, { productionDate: e.target.value })} /></Field>
+                      <Field label="Best before"><input type="date" className={`${controlInset} !h-8`} value={l.bestBeforeDate} onChange={e => setLine(l.key, { bestBeforeDate: e.target.value })} /></Field>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          </div>
+          <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
+            <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Save correction" err={err} />
+          </div>
+        </>
+      )}
+    </Drawer>
   );
 }
 
