@@ -1764,7 +1764,71 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
-## "Add from purchase order or goods receipt" on the New Bill screen (2026-10-24)
+## "Add to Bill" reworked: stage, don't post — and a view-link fix (2026-10-24)
+
+Direct feedback on the first version (previous section, below, kept for the
+history): *"The bill automatically added the lines and saved the bill —
+didn't give user chance to review any other thing - I even did not put the
+bill number which is supposed to be the supplier's number."* Plus: *"A user
+could create a bill for multiple GRNs"* and *"Suggestions needs to be on the
+right side."* All three are now fixed — the "immediate post" design in the
+section below is **superseded**, not just extended.
+
+- **"Add" now STAGES, it never posts.** A Purchase Order's addable
+  (non-stocked) lines are pushed straight into the Bill's own, still-editable
+  Items table (`addPoToBill`), tagged with `poId`/`poLineId` — the user can
+  edit qty/rate/tax, add another PO's lines, type the Supplier ref/Bill No.,
+  pick the date, then press the form's own Save. A Goods Receipt is added to
+  a `stagedReceipts` list (`addReceiptToBill`) instead — several receipts can
+  be staged and billed together in ONE call. Nothing touches the server until
+  Save.
+- **Save branches, once, at the top of `submit()`**: if any receipts are
+  staged, it calls `billFromReceipts` (`receiptIds`, the form's own
+  `date`/`dueDate`/`reference`/`memo`) and returns — the Items/Accounts
+  sections are hidden whenever a receipt is staged (shown in their place:
+  a read-only "Goods receipts on this bill" list, fetched from the existing
+  `GET /api/inventory/receiving/bill?ids=`) for the same reason the two can't
+  combine in one entry: a receipt's lines post to GR/IR clearing, not a
+  normal expense/item account. With no receipts staged, Save posts the Bill
+  exactly as before — PO-staged lines are now ordinary payload lines, just
+  carrying `poLineId`.
+- **Closing out a staged PO line's progress** — advancing its billed amount,
+  recomputing the PO's status, creating the `po_bill` link — now happens
+  inside `lib/accounting/documents.ts`'s `postDocument` itself
+  (`closePoLinesOnBill`, called from the existing Bill-bridging tail), since
+  lines from SEVERAL POs can land on one Bill here, unlike `convertTradeDoc`
+  which only ever closes one PO at a time. **Deliberately duplicates a small
+  piece of `convertTradeDoc`'s own tail logic rather than importing it** —
+  `trade-documents.ts` already imports `postDocument` FROM `documents.ts`, so
+  the reverse import would be circular. The one simplification versus
+  `convertTradeDoc`: this path's `po_bill` link amount is net-only, no
+  tax-rate lookup, since the net `invoicedAmount` — not the link's own amount
+  — is what actually decides whether a PO line counts as billed.
+- **Panel moved to the right side of the form**, QBO-style, running the full
+  height of the header + Items area (Memo/Totals/footer stay full width below
+  it). The sheet widens to `max-w-[1560px]` only for Bill, so the panel adds
+  space rather than squeezing the existing columns. Implemented with a
+  `display: contents` wrapper for every OTHER document type, so nothing about
+  Invoice/PO/Expense/etc.'s layout changed — only Bill's own two-column
+  branch is new.
+- `bill-suggestions`' PO lines now carry full editable-line data (item, qty,
+  rate, tax, dimensions), not just `{lineId, amount}` — needed so a staged
+  line is a real, editable Items row rather than an opaque lump sum. A line
+  with nothing billed yet shows its true ordered qty/rate; a line a PRIOR
+  bill already partly covered (via `convertTradeDoc` or an earlier staged
+  bill) degrades to one lump-sum row at qty 1, since there's no "remaining
+  quantity" to attach a rate to without risking double-counting.
+- **Separately, a real bug in the unified Supplier Transactions feed (shipped
+  the same day, prior section)**: every Bill row's "View" linked to
+  `/payables/bills/[id]` — the QBO/Xero-sync approval-workflow screen — even
+  for a **native** bill, which has no approval record there and so can't be
+  opened from it. A native bill's real document lives in `journal_entries`,
+  viewed at `/accounting/transactions/[entryId]` — the exact page the same
+  feed's Expense/VendorCredit/BillPayment rows already link to. Fixed by
+  branching on `apBills.source`: `"native"` → `/accounting/transactions/
+  [entryId]`, anything else → the existing `/payables/bills/[id]`.
+
+## "Add from purchase order or goods receipt" on the New Bill screen — v1, superseded above (2026-10-24)
 
 Requested directly against QBO's own "Add to Bill" panel (screenshots of a QBO
 Bill form listing open POs down the right side, each with an "Add" button that
@@ -1772,31 +1836,19 @@ links its lines onto the bill). Built as `GET /api/accounting/bill-suggestions
 ?supplierId=` + a panel in `components/new-document-form.tsx`, shown on the
 Bill screen once a supplier is picked.
 
-- **Scope decision, made deliberately narrower than QBO's exact UX**: QBO lets
-  several POs' lines merge into ONE still-editable bill draft before saving.
-  Here, clicking "Add" **posts its own bill immediately**, reusing the two
-  already-existing, already-correct posting paths — `convertTradeDoc` (PO →
-  Bill, the PO detail page's own "Convert to Bill" button) and
-  `billFromReceipts` (Goods Receipt → Bill, the Receiving console's own "Bill"
-  action) — rather than teaching `postDocument` a third way to post a Bill.
-  The panel's own hint text says so ("Add creates its own bill right away,
-  from that document's own supplier and lines") so this isn't a silent
-  surprise. Merging multiple sources into one hand-edited draft would need
-  `postDocument` itself to understand PO-line and receipt-line tags, which is
-  real new ledger-posting logic — deferred rather than built speculatively.
-- **A PO line for a stocked item is never offered.** See `convertTradeDoc`'s
-  own doc comment a few sections below — billing a stocked item straight from
-  a PO (skipping the Goods Receipt) is exactly how BILL-0004 double-counted
-  stock in production. `bill-suggestions` computes, per PO, which lines are
-  addable (`!isTracked`) vs which still need receiving first
-  (`hasStockedRemaining`, shown as a note rather than hidden), and "Add" sends
-  only the addable lines as an explicit `{ lines: [...] }` plan to
-  `convertTradeDoc` — never `{ full: true }`, which would refuse the whole
-  call outright if any remaining line were stocked.
-- **Goods Receipts bill through the unmodified `billFromReceipts`**, using the
-  Bill form's own Date field as `billDate`. Its lines post to GR/IR clearing,
-  not an expense/item account, so they cannot share the generic Items table —
-  this is why a receipt and a PO can't be combined into one draft here either.
+- **This version's central scope decision — immediate posting on "Add" rather
+  than staging into a reviewable draft — was reversed the same day** (see the
+  section above). Kept here only for the historical reasoning: the trade-off
+  was single-source `convertTradeDoc`/`billFromReceipts` calls (simple, zero
+  new posting logic) versus a multi-source staged draft (what was actually
+  wanted, and what shipped above instead).
+- **A PO line for a stocked item is never offered — this part is unchanged.**
+  See `convertTradeDoc`'s own doc comment a few sections below — billing a
+  stocked item straight from a PO (skipping the Goods Receipt) is exactly how
+  BILL-0004 double-counted stock in production. `bill-suggestions` computes,
+  per PO, which lines are addable (`!isTracked`) vs which still need
+  receiving first (`hasStockedRemaining`, shown as a note rather than
+  hidden).
 - Registered in `lib/modules.ts`'s `API_OWNERS` (owner `"accounting"`) —
   `tests/module-gating.test.ts`'s reverse-completeness check catches an
   unregistered route exactly like this, which is how the omission was caught

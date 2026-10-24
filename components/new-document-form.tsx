@@ -95,6 +95,11 @@ type Line = {
   // ("5 cartons at 2.00 per metre"). `rate` is derived from it — always per
   // ORDER unit, so qty × rate = amount everywhere downstream.
   priceLevel?: string; priceUom?: string; unitsPerPriceUnit?: number; priceInput?: string;
+  // Bill only — set when this line was staged from an open Purchase Order's
+  // "Add" suggestion (see addPoToBill). Sent through to the server so
+  // lib/accounting/documents.ts's closePoLinesOnBill can advance that PO
+  // line's billed progress once the bill actually posts.
+  poId?: string; poLineId?: string;
 };
 
 const emptyLine = (kind?: "item" | "account"): Line => ({ itemId: "", accountId: "", description: "", qty: "", rate: "", amount: "", taxRateId: "", classId: "", locationId: "", ...(kind ? { kind } : {}) });
@@ -236,9 +241,16 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const [openDocs, setOpenDocs] = useState<any[] | null>(null);
   const [alloc, setAlloc] = useState<Record<string, string>>({});
   // Bill only — the "Add from purchase order or goods receipt" panel (QBO's
-  // "Add to Bill"). null = not loaded / no supplier picked yet.
+  // "Add to Bill"). null = not loaded / no supplier picked yet. Add STAGES —
+  // a PO's lines land in `lines` below (tagged poId/poLineId) as ordinary,
+  // still-editable rows; a Goods Receipt's id lands in `stagedReceipts`,
+  // since its accounting (GR/IR clearing) can't share the Items line shape.
+  // Nothing posts until the user presses the form's own Save.
   const [billSuggestions, setBillSuggestions] = useState<{ purchaseOrders: any[]; goodsReceipts: any[] } | null>(null);
-  const [addingSuggestion, setAddingSuggestion] = useState<string | null>(null);
+  const [addedPoIds, setAddedPoIds] = useState<Set<string>>(new Set());
+  const [stagedReceipts, setStagedReceipts] = useState<{ id: string; receiptNo: string | null; receiptDate: string; currency: string | null; balance: number }[]>([]);
+  const [stagedReceiptLines, setStagedReceiptLines] = useState<any[]>([]);
+  const [loadingReceiptLines, setLoadingReceiptLines] = useState(false);
   const [suggestionErr, setSuggestionErr] = useState("");
   // PurchaseOrder only — optional link to the Sales Order this purchase is
   // for, so it shows up on that order's Production Tracker.
@@ -472,54 +484,57 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         .then(d => setCredits(Array.isArray(d) ? d : [])).catch(() => setCredits([]));
     } else { setOpenDocs(null); setAlloc({}); setCredits(null); setCreditAlloc({}); }
     if (type === "Bill" && id) {
-      setBillSuggestions(null); setSuggestionErr("");
+      setBillSuggestions(null); setSuggestionErr(""); setAddedPoIds(new Set()); setStagedReceipts([]);
       fetch(`/api/accounting/bill-suggestions?supplierId=${id}`).then(r => r.json())
         .then(d => setBillSuggestions(d && typeof d === "object" && !Array.isArray(d) ? d : { purchaseOrders: [], goodsReceipts: [] }))
         .catch(() => setBillSuggestions({ purchaseOrders: [], goodsReceipts: [] }));
     } else if (type === "Bill") {
-      setBillSuggestions(null);
+      setBillSuggestions(null); setAddedPoIds(new Set()); setStagedReceipts([]);
     }
   }
-  // "Add" on a suggested Purchase Order — converts its billable (non-stocked)
-  // open lines into a Bill right away, through the same convertTradeDoc path
-  // the PO's own "Convert to Bill" button uses. This creates its OWN bill from
-  // the PO's own supplier/currency/lines, not from whatever is typed into the
-  // current draft — the panel's own hint says so.
-  async function addPoToBill(po: any) {
-    setAddingSuggestion(po.id); setSuggestionErr("");
-    try {
-      const r = await fetch(`/api/trade-documents/PurchaseOrder/${po.id}/convert`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: po.lines }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d?.error || "Could not create a bill from this purchase order.");
-      setDone({ docNumber: d.docNumber, txnNo: d.txnNo });
-    } catch (e: any) {
-      setSuggestionErr(e?.message || "Could not create a bill from this purchase order.");
-    } finally {
-      setAddingSuggestion(null);
-    }
+  // "Add" on a suggested Purchase Order — STAGES its billable (non-stocked)
+  // open lines as ordinary, still-editable Items rows on this draft (each
+  // tagged poId/poLineId), rather than posting anything. The user can still
+  // adjust qty/rate/tax, add more lines, or add another PO's lines before
+  // pressing Save; on a successful save, lib/accounting/documents.ts's
+  // closePoLinesOnBill advances each tagged line's PO progress.
+  function addPoToBill(po: any) {
+    const staged: Line[] = po.lines.map((l: any) => ({
+      ...emptyLine("item"), itemId: l.itemId || "", description: l.description || "",
+      qty: String(l.qty), rate: String(l.rate), amount: String(l.amount),
+      taxRateId: l.taxRateId || "", classId: l.classId || "", locationId: l.locationId || "",
+      poId: po.id, poLineId: l.lineId,
+    }));
+    setLines(ls => {
+      // Drop a single still-blank starter row so the first "Add" doesn't
+      // leave an empty line sitting above the staged ones.
+      const base = ls.filter(l => l.itemId || l.accountId || num(l.amount));
+      return [...base, ...staged];
+    });
+    setAddedPoIds(prev => new Set(prev).add(po.id));
   }
-  // "Add" on a suggested Goods Receipt — bills its unbilled remainder through
-  // billFromReceipts (Dr GR/IR / Cr Accounts Payable), the same path the
-  // Receiving console's own "Bill" action uses. Kept separate from the Items
-  // table above: a receipt's lines post to GR/IR clearing, not an expense/item
-  // account, so it cannot share the generic Bill line shape.
-  async function addReceiptToBill(gr: any) {
-    setAddingSuggestion(gr.id); setSuggestionErr("");
-    try {
-      const r = await fetch(`/api/inventory/receiving/bill`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptIds: [gr.id], billDate: date }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d?.error || "Could not create a bill from this receipt.");
-      setDone({ docNumber: d.docNumber, txnNo: d.txnNo });
-    } catch (e: any) {
-      setSuggestionErr(e?.message || "Could not create a bill from this receipt.");
-    } finally {
-      setAddingSuggestion(null);
-    }
+  // "Add" on a suggested Goods Receipt — STAGES it for billing through
+  // billFromReceipts (Dr GR/IR / Cr Accounts Payable) on Save, the same path
+  // the Receiving console's own "Bill" action uses. Several receipts can be
+  // staged onto one bill and billed together. Kept separate from the Items
+  // table: a receipt's lines post to GR/IR clearing, not an expense/item
+  // account, so while any receipt is staged the form hides Items/Accounts
+  // and shows the receipts' own lines instead (read-only, fetched below).
+  function addReceiptToBill(gr: any) {
+    setStagedReceipts(prev => prev.some(r => r.id === gr.id) ? prev : [...prev, gr]);
   }
+  function removeStagedReceipt(id: string) {
+    setStagedReceipts(prev => prev.filter(r => r.id !== id));
+  }
+  const stagedReceiptIdsKey = stagedReceipts.map(r => r.id).join(",");
+  useEffect(() => {
+    if (!stagedReceiptIdsKey) { setStagedReceiptLines([]); return; }
+    setLoadingReceiptLines(true);
+    fetch(`/api/inventory/receiving/bill?ids=${stagedReceiptIdsKey}`).then(r => r.json())
+      .then(d => setStagedReceiptLines(Array.isArray(d) ? d : []))
+      .catch(() => setStagedReceiptLines([]))
+      .finally(() => setLoadingReceiptLines(false));
+  }, [stagedReceiptIdsKey]);
   // The combined Customer:Project dropdown's onChange — a `project:<id>`
   // value resolves to its OWN customer before calling onParty, so a project
   // can be picked in one action without first hand-picking its parent
@@ -858,6 +873,24 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   async function submit() {
     setPosting(true); setErr("");
     try {
+      // Goods receipts staged via "Add from purchase order or goods receipt"
+      // bill through billFromReceipts, not the generic document path below —
+      // see addReceiptToBill's doc comment for why the two line shapes can't
+      // combine in one entry. Any manual Items/Accounts lines are irrelevant
+      // here (the form hides those sections while a receipt is staged).
+      if (type === "Bill" && stagedReceipts.length > 0) {
+        const res = await fetch(`/api/inventory/receiving/bill`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            receiptIds: stagedReceipts.map(r => r.id), billDate: date,
+            dueDate: dueDate || undefined, reference: reference.trim() || undefined, memo: memo.trim() || undefined,
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) { setErr(d.error || "Failed to save"); return; }
+        setDone({ docNumber: d.docNumber, txnNo: d.txnNo });
+        return;
+      }
       const party = parties.find(p => p.id === partyId);
       const payload: any = { date, docNumber: docNumber.trim() || undefined, memo: memo.trim() || undefined };
       if (isReturnable) payload.goodsReturned = goodsReturned;
@@ -928,7 +961,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           // clear refusal in accountFor() rather than silently vanish here.
           .filter(l => (l.accountId || ((cfg.trade || isItemOnlySales) && l.itemId)) && num(l.amount) !== 0)
           .map(l => ({ accountId: l.accountId || null, accountOverride: !!l.accountOverride, itemId: l.itemId || null, description: l.description.trim() || null, qty: num(l.qty) || null, rate: num(l.rate) || null, amount: num(l.amount), taxRateId: l.taxRateId || null, taxCodeId: l.taxCodeId || null, classId: l.classId || null, locationId: l.locationId || null, lotNo: l.lotNo || null, expiryDate: l.expiryDate || null, orderUom: l.orderUom || null, packLevel: l.packLevel || null, unitsPerOrderUnit: l.unitsPerOrderUnit ?? 1, supplierSkuId: l.supplierSkuId || null, skuId: l.skuId || null,
-            priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null }));
+            priceLevel: l.priceLevel || null, priceUom: l.priceUom || null, unitsPerPriceUnit: l.unitsPerPriceUnit ?? null, priceInput: l.priceInput != null && l.priceInput !== "" ? num(l.priceInput) : null,
+            poLineId: l.poLineId || null }));
       }
 
       let url = `/api/documents/${type}`;
@@ -948,7 +982,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
 
   function reset() {
     setDone(null); setErr(""); setMemo(""); setPartyId(""); setBankAccountId(""); setToBankAccountId(""); setAmount(""); setOpenDocs(null); setAlloc({}); setCredits(null); setCreditAlloc({}); setPaymentMethod(""); setAmountTouched(false);
-    setBillSuggestions(null); setAddingSuggestion(null); setSuggestionErr("");
+    setBillSuggestions(null); setAddedPoIds(new Set()); setStagedReceipts([]); setStagedReceiptLines([]); setSuggestionErr("");
     setLines(split ? [emptyLine("item")] : [emptyLine(), emptyLine()]); setAcctsOpen(false); setDate(todayStr()); setExpiryDate(""); setCurrency(home); setRate("1");
     setReference(""); setTermsKey("net30"); setDueDate(addDays(todayStr(), 30));
     fetch(`/api/numbering?peek=${type}`).then(r => r.json()).then(n => n?.docNumber && setDocNumber(n.docNumber)).catch(() => {});
@@ -995,11 +1029,15 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const isOrderDoc = (cfg.trade === "purchase-orders" || cfg.trade === "sales-orders") && items.length > 0;
   const showAccountCol = (isOrderDoc || isItemOnlySales) ? false : ((cfg.lineMode === "account" || cfg.lineMode === "both") || (cfg.lineMode === "item" && items.length === 0));
   const accountHeader = cfg.side === "sales" ? "Income account" : cfg.side === "purchase" ? "Category / account" : "Account";
+  // QBO's "Add to Bill" panel runs down the right side of the whole form, not
+  // just above the header — widen the sheet a little to give it room beside
+  // the header fields + Items table rather than squeezing both.
+  const showBillSuggestions = type === "Bill" && !readOnly;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
-      <div className="relative h-full w-full sm:w-[95vw] max-w-[1320px] bg-stone-950 border-l border-stone-800 shadow-2xl ring-1 ring-black/40 flex flex-col">
+      <div className={`relative h-full w-full sm:w-[95vw] ${showBillSuggestions ? "max-w-[1560px]" : "max-w-[1320px]"} bg-stone-950 border-l border-stone-800 shadow-2xl ring-1 ring-black/40 flex flex-col`}>
         {/* Header */}
         <div className="flex items-center justify-between gap-4 px-6 py-3.5 border-b border-stone-800 bg-gradient-to-b from-stone-900 to-stone-900/70 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -1026,8 +1064,13 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         ) : (
           <>
           <fieldset disabled={!!readOnly} style={{ display: "contents" }}>
-          <div className="space-y-6 max-w-[1200px]">
+          <div className={`space-y-6 ${showBillSuggestions ? "max-w-[1500px]" : "max-w-[1200px]"}`}>
             {err && <div className="text-[12px] text-rose-400 bg-rose-950/40 border border-rose-900 rounded-lg px-3 py-2 inline-flex items-center gap-2"><AlertTriangle size={13} /> {err}</div>}
+
+          {/* Everything that benefits from the "Add to Bill" panel sits beside
+              it, in a two-column row; Memo/Totals/footer below stay full width. */}
+          <div className={showBillSuggestions ? "flex gap-6 items-start" : "contents"}>
+          <div className={showBillSuggestions ? "flex-1 min-w-0 space-y-6" : "contents"}>
 
           {/* Document header — aligned grid, grouped by who / details */}
           <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 p-4 sm:p-5">
@@ -1288,48 +1331,42 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
             );
           })()}
 
-          {/* Add from Purchase Order / Goods Receipt — QBO's "Add to Bill"
-              panel. Each suggestion creates its OWN bill immediately, from
-              that source document's own supplier/currency/lines — not from
-              whatever is typed into this draft (the hint below says so). A PO
-              line for a stocked item is never offered here; it is billed from
-              its Goods Receipt instead, which is why both lists appear here
-              side by side. */}
-          {type === "Bill" && partyId && billSuggestions && (billSuggestions.purchaseOrders.length > 0 || billSuggestions.goodsReceipts.length > 0) && (
-            <div className="rounded-lg border border-stone-800 overflow-hidden">
-              <div className="px-3 py-2 border-b border-stone-800 bg-stone-950/40">
-                <span className="text-[12px] font-semibold text-stone-300">Add from purchase order or goods receipt</span>
-                <p className="text-[11px] text-stone-500 mt-0.5">Add creates its own bill right away, from that document's own supplier and lines.</p>
+          {/* A staged Goods Receipt bills through billFromReceipts on Save, not
+              the generic Items/Accounts path (see submit()'s branch) — its
+              lines are GR/IR clearing, not a normal expense/item line, so they
+              can't be mixed with manually entered ones in the same entry.
+              While any receipt is staged, show its own lines read-only here
+              instead of the editable Items/Accounts tables below. */}
+          {type === "Bill" && stagedReceipts.length > 0 && (
+            <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 overflow-hidden">
+              <div className="px-3 py-2.5 border-b border-stone-800/70 flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-300">Goods receipts on this bill</span>
+                {loadingReceiptLines && <Loader size={12} className="animate-spin text-stone-500" />}
               </div>
-              {suggestionErr && <div className="px-3 py-2 text-[12px] text-rose-400 bg-rose-950/30 border-b border-stone-800">{suggestionErr}</div>}
-              <div className="divide-y divide-stone-800/60">
-                {billSuggestions.purchaseOrders.map(po => (
-                  <div key={po.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="text-[13px] text-stone-200 font-medium">Purchase Order {po.docNumber || "—"}</div>
-                      <div className="text-[11px] text-stone-500">
-                        {po.issueDate} · {po.lineCount} line{po.lineCount === 1 ? "" : "s"} · {money(po.balance)} {po.currency || cur}
-                        {po.hasStockedRemaining ? " · some lines need receiving first" : ""}
-                      </div>
+              {stagedReceipts.map(gr => {
+                const grLines = stagedReceiptLines.filter((l: any) => l.receiptNo === gr.receiptNo);
+                return (
+                  <div key={gr.id} className="border-b border-stone-800/50 last:border-b-0">
+                    <div className="flex items-center justify-between px-3 py-2 bg-stone-950/30">
+                      <span className="text-[12px] text-stone-300 font-medium">Goods Receipt {gr.receiptNo || "—"} <span className="text-stone-500 font-normal">· {gr.receiptDate}</span></span>
+                      <button type="button" onClick={() => removeStagedReceipt(gr.id)} className="text-[11px] text-stone-500 hover:text-rose-400">Remove</button>
                     </div>
-                    <button type="button" disabled={addingSuggestion === po.id} onClick={() => addPoToBill(po)}
-                      className="shrink-0 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[12px] font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
-                      {addingSuggestion === po.id && <Loader size={12} className="animate-spin" />} Add
-                    </button>
+                    <table className="w-full text-[12px]">
+                      <tbody>
+                        {grLines.map((l: any) => (
+                          <tr key={l.id} className="border-t border-stone-800/40">
+                            <td className="px-3 py-1.5 text-stone-300">{l.itemName || "Item"}</td>
+                            <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums w-24">{fmt.qty(Number(l.open))} {l.baseUom || ""}</td>
+                            <td className="px-3 py-1.5 text-stone-300 text-right tabular-nums w-28">{money(Number(l.open) * Number(l.unitCost))} {l.currency || gr.currency || cur}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                ))}
-                {billSuggestions.goodsReceipts.map(gr => (
-                  <div key={gr.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="text-[13px] text-stone-200 font-medium">Goods Receipt {gr.receiptNo || "—"}</div>
-                      <div className="text-[11px] text-stone-500">{gr.receiptDate} · {money(gr.balance)} {gr.currency || cur} unbilled</div>
-                    </div>
-                    <button type="button" disabled={addingSuggestion === gr.id} onClick={() => addReceiptToBill(gr)}
-                      className="shrink-0 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[12px] font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
-                      {addingSuggestion === gr.id && <Loader size={12} className="animate-spin" />} Add
-                    </button>
-                  </div>
-                ))}
+                );
+              })}
+              <div className="px-3 py-2 flex justify-end text-[12px] text-stone-400">
+                Total <span className="ml-2 text-stone-200 font-semibold tabular-nums">{money(stagedReceipts.reduce((s, r) => s + r.balance, 0))} {stagedReceipts[0]?.currency || cur}</span>
               </div>
             </div>
           )}
@@ -1338,7 +1375,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               line is ordered and priced in the supplier's own packaging, as
               defined in Products & Services; an account line is a plain
               Chart-of-Accounts amount (freight, a service, a one-off). */}
-          {split && cfg.mode === "lineItems" && (() => {
+          {split && cfg.mode === "lineItems" && stagedReceipts.length === 0 && (() => {
             const itemIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "item");
             const acctIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "account");
             const sumOf = (xs: { l: Line }[]) => money(Math.round(xs.reduce((s, x) => s + num(x.l.amount), 0) * 100) / 100);
@@ -1552,6 +1589,66 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               </div>
             );
           })()}
+
+          </div>
+          {/* Add from Purchase Order / Goods Receipt — QBO's "Add to Bill"
+              panel, down the right side of the form. "Add" STAGES only — see
+              addPoToBill/addReceiptToBill's own doc comments. A PO line for a
+              stocked item is never offered; it must be billed from its Goods
+              Receipt instead, which is why both lists sit here side by side. */}
+          {showBillSuggestions && (
+            <div className="w-[320px] shrink-0 sticky top-0 rounded-lg border border-stone-800 overflow-hidden">
+              <div className="px-3 py-2.5 border-b border-stone-800 bg-stone-950/40">
+                <span className="text-[12px] font-semibold text-stone-300">Add from purchase order or goods receipt</span>
+                <p className="text-[11px] text-stone-500 mt-0.5">Lines are staged onto this bill for you to review — nothing posts until you press Save below.</p>
+              </div>
+              {suggestionErr && <div className="px-3 py-2 text-[12px] text-rose-400 bg-rose-950/30 border-b border-stone-800">{suggestionErr}</div>}
+              {!partyId ? (
+                <div className="px-3 py-4 text-[12px] text-stone-500">Pick a supplier to see their open purchase orders and goods receipts.</div>
+              ) : !billSuggestions ? (
+                <div className="px-3 py-4 text-[12px] text-stone-500 inline-flex items-center gap-1.5"><Loader size={12} className="animate-spin" /> Loading…</div>
+              ) : billSuggestions.purchaseOrders.length === 0 && billSuggestions.goodsReceipts.length === 0 ? (
+                <div className="px-3 py-4 text-[12px] text-stone-500">Nothing open for this supplier.</div>
+              ) : (
+                <div className="divide-y divide-stone-800/60 max-h-[calc(100vh-260px)] overflow-y-auto">
+                  {billSuggestions.purchaseOrders.map(po => {
+                    const added = addedPoIds.has(po.id);
+                    return (
+                      <div key={po.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="text-[13px] text-stone-200 font-medium">Purchase Order {po.docNumber || "—"}</div>
+                          <div className="text-[11px] text-stone-500">
+                            {po.issueDate} · {po.lineCount} line{po.lineCount === 1 ? "" : "s"} · {money(po.balance)} {po.currency || cur}
+                            {po.hasStockedRemaining ? " · some lines need receiving first" : ""}
+                          </div>
+                        </div>
+                        <button type="button" disabled={added} onClick={() => addPoToBill(po)}
+                          className="shrink-0 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[12px] font-medium disabled:opacity-50 disabled:hover:bg-stone-800">
+                          {added ? "Added" : "Add"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {billSuggestions.goodsReceipts.map(gr => {
+                    const added = stagedReceipts.some(r => r.id === gr.id);
+                    return (
+                      <div key={gr.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="text-[13px] text-stone-200 font-medium">Goods Receipt {gr.receiptNo || "—"}</div>
+                          <div className="text-[11px] text-stone-500">{gr.receiptDate} · {money(gr.balance)} {gr.currency || cur} unbilled</div>
+                        </div>
+                        <button type="button" disabled={added} onClick={() => addReceiptToBill(gr)}
+                          className="shrink-0 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[12px] font-medium disabled:opacity-50 disabled:hover:bg-stone-800">
+                          {added ? "Added" : "Add"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          </div>
 
           {/* Line items / deposit lines */}
           {!split && (cfg.mode === "lineItems" || cfg.mode === "deposit") && (

@@ -2,17 +2,23 @@
  * GET /api/accounting/bill-suggestions?supplierId=X
  *
  * Powers the "Add from purchase order or goods receipt" panel on the New Bill
- * screen — QBO's "Add to Bill" panel, where picking an open PO or GRN links
- * its lines onto the bill. Lists, for one supplier: open Purchase Orders with
- * a billable (non-stocked) remaining balance, and posted Goods Receipts with
- * an unbilled balance.
+ * screen — QBO's "Add to Bill" panel. Lists, for one supplier: open Purchase
+ * Orders with a billable (non-stocked) remaining balance, and posted Goods
+ * Receipts with an unbilled balance.
+ *
+ * PO lines carry full line data (item, qty, rate, tax, dimensions) so the
+ * New Bill form can drop them straight into its editable Items table as a
+ * normal line the user can still adjust before saving — "Add" stages, it
+ * never posts by itself (see components/new-document-form.tsx's addPoToBill).
  *
  * A PO line for a STOCKED item is never offered here — see
  * lib/accounting/trade-documents.ts's convertTradeDoc doc comment: billing a
  * stocked item straight from a PO (skipping the receipt) is how BILL-0004
  * double-counted stock in production. Those items must be billed from their
  * Goods Receipt instead, which is why both lists are returned side by side —
- * the two source types aren't interchangeable.
+ * the two source types aren't interchangeable, and a Goods Receipt's lines
+ * stay a read-only summary rather than editable Items (its accounting is
+ * GR/IR clearing, not a normal expense/item line — see billFromReceipts).
  */
 
 import { db } from "@/db";
@@ -49,20 +55,37 @@ export async function GET(req: Request) {
     const lines = await db.select().from(tradeDocumentLines).where(inArray(tradeDocumentLines.documentId, poIds));
     const itemIds = [...new Set(lines.map(l => l.itemId).filter(Boolean) as string[])];
     const items = itemIds.length
-      ? await db.select({ id: apItems.id, productType: apItems.productType }).from(apItems).where(and(eq(apItems.orgId, orgId!), inArray(apItems.id, itemIds)))
+      ? await db.select({ id: apItems.id, name: apItems.name, productType: apItems.productType }).from(apItems).where(and(eq(apItems.orgId, orgId!), inArray(apItems.id, itemIds)))
       : [];
     const itemById = new Map(items.map(i => [i.id, i]));
     purchaseOrders = openPos.map(po => {
       const poLines = lines.filter(l => l.documentId === po.id);
       const open = poLines
-        .map(l => ({ lineId: l.id, remaining: round2(num(l.amount) - num(l.invoicedAmount)), stocked: l.itemId ? isTracked(itemById.get(l.itemId)?.productType) : false }))
+        .map(l => ({ line: l, remaining: round2(num(l.amount) - num(l.invoicedAmount)), stocked: l.itemId ? isTracked(itemById.get(l.itemId)?.productType) : false }))
         .filter(l => l.remaining > 0.005);
       const addable = open.filter(l => !l.stocked);
       if (!addable.length) return null;
       return {
         id: po.id, docNumber: po.docNumber, issueDate: po.issueDate, currency: po.currency,
         balance: round2(addable.reduce((s, l) => s + l.remaining, 0)),
-        lines: addable.map(l => ({ lineId: l.lineId, amount: l.remaining })),
+        // Full editable-line shape — dropped straight into the New Bill
+        // form's Items table (see its addPoToBill), not posted here.
+        lines: addable.map(({ line: l, remaining }) => {
+          // Common case (nothing on this line billed yet): show the real
+          // ordered qty/rate. Rare case (a PREVIOUS bill already took part of
+          // this line, via a direct split or an earlier convertTradeDoc call):
+          // there is no "remaining quantity" to attach a rate to without
+          // double-counting qty already billed, so it degrades to one line
+          // for the remaining money at qty 1 — still exactly the right amount.
+          const fullyUnbilled = Math.abs(num(l.invoicedAmount)) < 0.005;
+          const qty = fullyUnbilled ? (num(l.qty) || 1) : 1;
+          const rate = fullyUnbilled ? (num(l.rate) || remaining) : remaining;
+          return {
+            lineId: l.id, poId: po.id, itemId: l.itemId, itemName: l.itemId ? (itemById.get(l.itemId)?.name ?? null) : null,
+            description: l.description ?? null, qty, rate, amount: remaining,
+            taxRateId: l.taxRateId ?? null, classId: l.classId ?? null, locationId: l.locationId ?? null,
+          };
+        }),
         lineCount: addable.length,
         hasStockedRemaining: open.some(l => l.stocked),
       };

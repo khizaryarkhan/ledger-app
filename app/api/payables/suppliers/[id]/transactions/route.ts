@@ -81,14 +81,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const rows: SupplierTxn[] = [];
 
-  // Bills — covers both native-bridged and QBO/Xero-synced bills.
+  // Bills — covers both native-bridged and QBO/Xero-synced bills. A native
+  // bill's real document lives in journal_entries/journal_lines (apBills is
+  // only its mirror there) and is viewed the same way Expense/VendorCredit/
+  // BillPayment rows above already are — /accounting/transactions/[entryId].
+  // /payables/bills/[id] is the QBO/Xero-sync approval-workflow screen; a
+  // native bill has no approval record there and that route can't open it.
   for (const b of bills) {
     rows.push({
       id: `bill-${b.id}`, refId: b.id, txnDate: b.billDate || "", type: "Bill",
       number: b.billNumber, amount: b.total ?? 0, balance: Math.max(0, b.balance ?? 0),
       currency: b.currency || homeCcy,
       status: b.accountingPaymentStatus ?? ((b.balance ?? 0) > 0 ? "Unpaid" : "Paid"),
-      memo: b.privateNote, viewHref: `/payables/bills/${b.id}`,
+      memo: b.privateNote,
+      viewHref: b.source === "native" ? `/accounting/transactions/${b.entryId}` : `/payables/bills/${b.id}`,
       meta: { workflowStatus: b.workflowStatus, approvalStatus: b.approvalStatus },
     });
   }

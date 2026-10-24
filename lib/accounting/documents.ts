@@ -25,7 +25,7 @@
  */
 
 import { db } from "@/db";
-import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots } from "@/db/schema";
+import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import type { DocType } from "@/lib/accounting/numbering";
@@ -68,6 +68,11 @@ export type DocLineInput = {
   // The price as the buyer entered it, per a possibly different unit, kept
   // so a reopened document shows what was typed. rate is derived from it.
   priceLevel?: string | null; priceUom?: string | null; unitsPerPriceUnit?: number | null; priceInput?: number | null;
+  // Bill only — set when this line was staged from an open Purchase Order's
+  // "Add" suggestion (components/new-document-form.tsx). Never read by the
+  // posting logic above; closePoLinesOnBill reads it afterward to advance
+  // that PO line's billed progress and status. See its own doc comment.
+  poLineId?: string | null;
 };
 
 export type PostDocInput = {
@@ -932,6 +937,12 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
     }
   }
   if (entry && type === "Bill") await bridgeNativeBill(orgId, entry.id, entry.docNumber, input, home).catch(e => console.error("[bridge bill]", e));
+  if (entry && type === "Bill") {
+    const poLines = (input.lines ?? [])
+      .filter((l): l is DocLineInput & { poLineId: string } => !!l.poLineId)
+      .map(l => ({ lineId: l.poLineId, amount: l.amount }));
+    if (poLines.length) await closePoLinesOnBill(orgId, poLines, entry.id, actorId).catch(e => console.error("[close po lines]", e));
+  }
   if (entry && type === "Payment") {
     for (const id of [...new Set(pendingLinks.filter(pl => pl.toType === "Invoice").map(pl => pl.toId))]) await syncNativeInvoicePaid(orgId, id).catch(() => {});
   }
@@ -1173,6 +1184,48 @@ async function bridgeNativeBill(orgId: string, entryId: string, docNumber: strin
       departmentId: l.locationId ?? null,
       lineSubtotal: l.net, lineTax: l.tax, lineTotal: round2(l.net + l.tax),
     })) as any);
+  }
+}
+
+/**
+ * Close out Purchase Order lines that were staged straight onto a Bill draft
+ * (the New Bill screen's "Add from purchase order" suggestion — see
+ * components/new-document-form.tsx's addPoToBill and app/api/accounting/
+ * bill-suggestions/route.ts). Mirrors exactly what lib/accounting/
+ * trade-documents.ts's convertTradeDoc does for a single-PO conversion:
+ * advance each line's invoiced (net) amount, recompute the PO's status, and
+ * link it to the Bill — except lines from SEVERAL POs may land on one Bill
+ * here, so this groups by PO first and applies the same steps per PO.
+ *
+ * Lives in this file rather than trade-documents.ts to avoid a circular
+ * import (trade-documents.ts already imports postDocument from here); the
+ * small duplication is the known, accepted trade-off. The one simplification
+ * versus convertTradeDoc: the po_bill link's amount here is net-only (no
+ * tax-rate lookup), since the net invoicedAmount figure — not the link's
+ * amount — is what actually drives whether a PO line is considered billed.
+ */
+async function closePoLinesOnBill(orgId: string, poLines: { lineId: string; amount: number }[], entryId: string, actorId: string | null) {
+  if (!poLines.length) return;
+  const billedById = new Map(poLines.map(l => [l.lineId, round2(l.amount)]));
+  const touched = await db.select({ documentId: tradeDocumentLines.documentId }).from(tradeDocumentLines)
+    .where(and(eq(tradeDocumentLines.orgId, orgId), inArray(tradeDocumentLines.id, [...billedById.keys()])));
+  const poIds = [...new Set(touched.map(t => t.documentId))];
+
+  for (const poId of poIds) {
+    const poAllLines = await db.select().from(tradeDocumentLines).where(and(eq(tradeDocumentLines.orgId, orgId), eq(tradeDocumentLines.documentId, poId)));
+    let linkedAmount = 0;
+    for (const l of poAllLines) {
+      const net = billedById.get(l.id);
+      if (net == null) continue;
+      await db.update(tradeDocumentLines).set({ invoicedAmount: round2(Number(l.invoicedAmount) + net).toFixed(2) }).where(eq(tradeDocumentLines.id, l.id));
+      linkedAmount = round2(linkedAmount + net);
+    }
+    const totalNet = round2(poAllLines.reduce((s, l) => s + Number(l.amount), 0));
+    const invoicedNet = round2(poAllLines.reduce((s, l) => s + Number(l.invoicedAmount) + (billedById.get(l.id) ?? 0), 0));
+    const status = invoicedNet >= totalNet - 0.005 ? "Closed" : invoicedNet > 0.005 ? "Partial" : "Open";
+    const [doc] = await db.select({ convertedEntryId: tradeDocuments.convertedEntryId }).from(tradeDocuments).where(eq(tradeDocuments.id, poId)).limit(1);
+    await db.update(tradeDocuments).set({ status, convertedEntryId: doc?.convertedEntryId ?? entryId, updatedAt: new Date() }).where(eq(tradeDocuments.id, poId));
+    if (linkedAmount > 0) await createLink(orgId, { fromType: "PurchaseOrder", fromId: poId, toType: "Bill", toId: entryId, relation: "po_bill", amount: linkedAmount }, actorId);
   }
 }
 
