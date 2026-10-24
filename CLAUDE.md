@@ -1764,6 +1764,80 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
+## QBO form-parity sweep — Phase 1: Print + Download everywhere (2026-10-24)
+
+Client: *"Can you match all forms with the QBO?... Every form is missing even
+basic functions: Like Print Button, Download Button."* Audited every document
+type against QBO's own action bar before building anything (Print, Save as
+PDF, Email/Send, Make Recurring, Duplicate, Attachments, Audit history) —
+confirmed via explicit scope question that "full QBO parity" is the goal,
+staged the same way every other large spec in this file is staged (Phase
+1/2/3…), starting with the piece the client named directly.
+
+**What was actually true before this pass** (corrected a wrong first
+assumption — not literally "every form" was missing these): Invoice, Sales
+Receipt, Credit Note, Refund Receipt, Bill, Expense, Supplier Credit already
+had Print + Download PDF once reopened via `/accounting/transactions/[id]`.
+Estimate/PO/SO had them too, but only as small icons in the list row
+(`components/trade-doc-list.tsx`), never on the document's own open/edit
+screen. **Payment, Bill Payment, Transfer, Bank Deposit, and Manual Journal
+Entry had neither anywhere** — confirmed by reading `DOC_META` in
+`lib/accounting/document-print.ts`, which had no entry for any of them.
+
+- **Payment / Bill Payment now print as what they actually are: a receipt /
+  remittance, not an invoice.** The old journal-line fallback
+  (`loadLedgerDocumentForPrint`'s "no stored payload" branch) excludes
+  Accounts Receivable/Payable AND Bank lines to keep item lines clean on a
+  real invoice — but a Payment's only two lines ARE exactly Bank and A/R (or
+  A/P), so that fallback would have produced a blank, $0.00 "receipt" the
+  moment anyone clicked Print. Caught and fixed before it shipped, not after:
+  a new `SETTLEMENT_TYPES` branch builds the printed lines from what the
+  payment was actually **applied to** (`linksFor`'s "payment"/"credit"
+  relations — the same data that already feeds the Collections Board's
+  Linked Transactions panel), one row per invoice/bill settled, with any
+  unapplied remainder shown as "Unapplied (on account)". The accent total box
+  reads "Amount received"/"Amount paid" (new `doc.totalLabel` field on
+  `PrintDocument`, defaulting to the existing "Balance due"/"Total due"
+  wording for every other type) rather than "Balance due" — a Payment has no
+  balance of its own. `showBank` (our own bank details panel) is suppressed
+  for a Payment receipt specifically — telling a customer who already paid
+  where to send money reads backwards.
+- **Bank Deposit works through the EXISTING payload-based path untouched** —
+  its lines are already stored in the same generic `{accountId, amount,
+  description}` shape `decorateLines` expects (confirmed by reading
+  `documents.ts`'s Deposit branch), so adding its `DOC_META` entry was the
+  entire fix; no new branch needed. Its party box reads "—" (no single
+  depositor for a multi-source deposit) rather than misattributing it to
+  whichever source line happened to post first — correct, not a gap.
+  `app/(app)/accounting/transactions/[id]/page.tsx`'s `canPrint` now covers
+  it alongside the existing line-item types and Payment/BillPayment.
+- **Transfer and Manual Journal Entry are deliberately NOT included in this
+  phase.** Both are debit/credit-shaped with no party and no "goods and
+  services" or settlement concept — forcing them through the invoice-shaped
+  template (`components/print-document-sheet.tsx`) would produce a
+  misleading or broken-looking document (no "amount due" makes sense, a
+  Transfer has no counterparty to put in the party box). They need their own
+  small "journal voucher" template (the same Account/Name/Description/
+  Debit/Credit table the on-screen generic ledger view already renders) —
+  flagged as the next piece of this phase, not silently skipped.
+- **Estimate/PO/SO's own open/edit screen** (`components/new-document-
+  form.tsx` — the only place these are ever viewed; they have no standalone
+  detail page) now carries its own Download/Print buttons, self-contained
+  (reads `cfg.trade` + the component's own `editId` state, needs nothing
+  passed in by the page wrapper) rather than requiring every opener to supply
+  an `actions` prop the way native documents do. Reuses the exact
+  `/api/print/pdf?kind=trade` + `/print/trade/[kind]/[id]` routes the list
+  row's own icons already use — no new PDF logic, just a second place to
+  reach it from.
+- **Not done yet, named rather than silently dropped**: Email/Send inline
+  from any document form (would reuse the AR email infrastructure that
+  already exists for Invoices, extended to Bills/Estimates/POs — needs a
+  sender template + party email resolution per type), Make Recurring (new
+  schedule/template data model + an Inngest job), file Attachments (new
+  table + storage), and an Audit history panel per document (new event log).
+  Each is its own scoped phase, same staging this file already uses
+  throughout for large specs.
+
 ## The GL nets same-account lines per document — one line per account+dimension, not per item (2026-10-24)
 
 Raised directly against the "Add to Bill" work above: a single Bill against one

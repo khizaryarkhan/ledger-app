@@ -43,6 +43,9 @@ export type PrintDocument = {
     termsDays?: number | null;
     /** Whether this document type is signed off before it's acted on. */
     needsSignature?: boolean;
+    /** Overrides the accent total box's label ("Balance due"/"Total due") —
+     *  e.g. "Amount received" for a Payment, which has no balance of its own. */
+    totalLabel?: string | null;
   };
   party: PrintParty;
   lines: PrintLine[];
@@ -53,7 +56,7 @@ export type PrintDocument = {
 };
 
 /** Label + party heading + due-date wording per document type. */
-const DOC_META: Record<string, { label: string; party: string; due: string; purchase?: boolean }> = {
+const DOC_META: Record<string, { label: string; party: string; due: string; purchase?: boolean; totalLabel?: string }> = {
   Invoice:       { label: "INVOICE",         party: "Bill to",  due: "Due" },
   SalesReceipt:  { label: "SALES RECEIPT",   party: "Received from", due: "Due" },
   CreditNote:    { label: "CREDIT NOTE",     party: "Credit to", due: "Due" },
@@ -64,7 +67,18 @@ const DOC_META: Record<string, { label: string; party: string; due: string; purc
   Estimate:      { label: "QUOTE",           party: "For",      due: "Valid until" },
   PurchaseOrder: { label: "PURCHASE ORDER",  party: "Supplier", due: "Deliver by", purchase: true },
   SalesOrder:    { label: "SALES ORDER",     party: "Customer", due: "Required by" },
+  Payment:       { label: "PAYMENT RECEIPT", party: "Received from", due: "Date", totalLabel: "Amount received" },
+  BillPayment:   { label: "PAYMENT",         party: "Paid to",  due: "Date", purchase: true, totalLabel: "Amount paid" },
+  Deposit:       { label: "DEPOSIT",         party: "Deposited by", due: "Date" },
 };
+
+/** Payment / BillPayment settle OTHER documents — they have no "goods and
+ *  services" lines of their own, so printing them as what they actually are
+ *  (a receipt/remittance) means one row per document they were applied to,
+ *  not the journal-line fallback below (which would show Dr Bank / Cr A-R/A-P
+ *  — both of which that fallback's own account-type exclusion filters out,
+ *  producing a blank, $0.00 "receipt"). */
+const SETTLEMENT_TYPES = new Set(["Payment", "BillPayment"]);
 
 export async function loadCompany(orgId: string) {
   const [o] = await db.select().from(organisations).where(eq(organisations.id, orgId)).limit(1);
@@ -167,8 +181,30 @@ export async function loadLedgerDocumentForPrint(orgId: string, entryId: string)
   const meta = DOC_META[entry.sourceType] ?? { label: (entry.sourceType || "DOCUMENT").toUpperCase(), party: "Party", due: "Due" };
   const payload = (entry.sourcePayload as any) ?? null;
 
+  const links = await linksFor(orgId, entry.sourceType, entry.id).catch(() => [] as any[]);
+  const isSettlement = SETTLEMENT_TYPES.has(entry.sourceType);
+
   let lines: PrintLine[];
-  if (payload?.lines?.length) {
+  let paid = 0;
+  if (isSettlement) {
+    // `links` here IS what this Payment/BillPayment was applied to — one row
+    // per invoice/bill it settled, at the amount actually applied (its own
+    // "lines"), not a count of what's been paid against the payment itself
+    // (a payment document has no balance of its own to pay down).
+    const applied: PrintLine[] = links
+      .filter((l: any) => l.relation === "payment" || l.relation === "credit")
+      .map((l: any) => ({
+        name: null, description: `${l.docNumber ? `${l.type} ${l.docNumber}` : l.type}`.trim(),
+        qty: null, uom: null, rate: null, taxLabel: null, taxPct: null, amount: round2(num(l.linkedAmount)),
+      }));
+    const gross = round2(num(payload?.amount));
+    const appliedTotal = round2(applied.reduce((s, l) => s + l.amount, 0));
+    const unapplied = round2(gross - appliedTotal);
+    if (unapplied > 0.005 || applied.length === 0) {
+      applied.push({ name: null, description: "Unapplied (on account)", qty: null, uom: null, rate: null, taxLabel: null, taxPct: null, amount: unapplied > 0 ? unapplied : gross });
+    }
+    lines = applied;
+  } else if (payload?.lines?.length) {
     lines = await decorateLines(orgId, payload.lines.filter((l: any) => num(l.amount) !== 0));
   } else {
     // Pre-payload entries: fall back to the journal lines, excluding the
@@ -197,9 +233,9 @@ export async function loadLedgerDocumentForPrint(orgId: string, entryId: string)
   const taxTotal = round2(taxes.reduce((s, t) => s + t.amount, 0));
   const total = round2(subtotal + taxTotal);
 
-  // What's been settled against this document so far (payments, credits).
-  const links = await linksFor(orgId, entry.sourceType, entry.id).catch(() => [] as any[]);
-  const paid = round2((links ?? []).reduce((s: number, l: any) => s + num(l.linkedAmount), 0));
+  // What's been settled against this document so far (payments, credits) —
+  // meaningless for a settlement document itself (paid stays 0 above).
+  if (!isSettlement) paid = round2((links ?? []).reduce((s: number, l: any) => s + num(l.linkedAmount), 0));
   const currency = payload?.currency || company?.currency || "";
 
   return {
@@ -208,7 +244,7 @@ export async function loadLedgerDocumentForPrint(orgId: string, entryId: string)
       kind: entry.sourceType, label: meta.label, docNumber: entry.docNumber, status: entry.status,
       date: entry.entryDate, dueDate: entry.dueDate ?? null, dueLabel: meta.due,
       reference: entry.reference ?? null, memo: entry.memo ?? null, currency,
-      partyHeading: meta.party, isPurchase: !!meta.purchase,
+      partyHeading: meta.party, isPurchase: !!meta.purchase, totalLabel: meta.totalLabel ?? null,
     },
     party, lines,
     totals: {

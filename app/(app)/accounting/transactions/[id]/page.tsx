@@ -84,7 +84,16 @@ export default function TransactionDetailPage() {
     (PAYMENT_EDITABLE.has(e.sourceType) && e.hasPayload)               // payments (reallocate / correct)
   );
   const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && noLinks;
-  const canPrint = e && LINE_EDITABLE.has(e.sourceType);
+  // Payment/BillPayment print as a receipt/remittance built from what they
+  // settled (lib/accounting/document-print.ts), not from their journal lines
+  // — so they're printable even without a stored payload, unlike canEdit.
+  // Deposit's payload lines are already in the generic {accountId, amount,
+  // description} shape document-print.ts's decorateLines expects, so it
+  // prints cleanly too. Manual/Transfer/Closing/Reversal/adjustments are NOT
+  // here yet — they're debit/credit-shaped with no "goods and services" or
+  // settlement concept, and need their own voucher-style template rather
+  // than being forced through this invoice-shaped one.
+  const canPrint = e && (LINE_EDITABLE.has(e.sourceType) || PAYMENT_EDITABLE.has(e.sourceType) || e.sourceType === "Deposit");
   // Opening a posted transaction shows the SAME form it was entered on
   // (QBO/QBD parity) for every type that form already knows how to edit —
   // reusing that exact, already-proven data path in a read-only rendering

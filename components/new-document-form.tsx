@@ -10,7 +10,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Check, Loader, AlertTriangle, X, FileText, ChevronRight, Download, Printer } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { PartyDrawer } from "@/components/party-drawer";
@@ -1052,6 +1052,26 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               <div className="text-[10px] uppercase tracking-wider text-stone-500">Total</div>
               <div className="text-[18px] font-semibold text-white tabular-nums leading-tight">{money(totals.total)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
             </div>
+            {/* Trade documents (Estimate/PO/SO) have no detail page of their
+                own — this open/edit screen IS the only place to view one, so
+                unlike the native-doc Download/Print (passed in via `actions`
+                by /accounting/transactions/[id]), these are self-contained
+                here rather than needing every opener to supply them. Reuses
+                the exact /api/print/pdf?kind=trade + /print/trade/[kind]/[id]
+                routes the list row's own icons already use. */}
+            {cfg.trade && editId && (
+              <>
+                <a href={`/api/print/pdf?kind=trade&id=${editId}`}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                  <Download size={14} /> Download PDF
+                </a>
+                <a href={`/print/trade/${cfg.trade}/${editId}`} target="_blank" rel="noopener noreferrer"
+                  title="Open the printable page in a new tab (uses your browser's own print dialog)"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                  <Printer size={14} /> Print
+                </a>
+              </>
+            )}
             {actions}
             <button onClick={close} className="text-stone-500 hover:text-stone-200 hover:bg-stone-800 p-1.5 rounded-lg transition" title="Close"><X size={20} /></button>
           </div>

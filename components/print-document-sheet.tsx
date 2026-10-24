@@ -139,7 +139,9 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
   const showQty = lines.some(l => l.qty != null);
   const showRate = lines.some(l => l.rate != null);
   const showTax = lines.some(l => l.taxPct != null);
-  const showBank = !doc.isPurchase && doc.kind !== "SalesOrder"
+  // A Payment receipt confirms money already received — showing our bank
+  // details on it (as if the customer still owed something) reads backwards.
+  const showBank = !doc.isPurchase && doc.kind !== "SalesOrder" && doc.kind !== "Payment"
     && !!(c.bank?.accountNumber || c.bank?.iban || c.bank?.name);
   const paidSomething = totals.paid > 0.005;
   // Orders and quotes state an order value, not money owed today.
@@ -264,7 +266,7 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
               </>
             )}
             <div className="due">
-              <span className="lab">{isOrderDoc ? "Order total" : paidSomething ? "Balance due" : "Total due"}</span>
+              <span className="lab">{doc.totalLabel ?? (isOrderDoc ? "Order total" : paidSomething ? "Balance due" : "Total due")}</span>
               <span className="val num">{money(paidSomething ? totals.balance : totals.total)} {doc.currency}</span>
             </div>
           </div>
