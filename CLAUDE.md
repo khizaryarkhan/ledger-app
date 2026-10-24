@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0102` at `when`
-  `1791000000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0110` at `when`
+  `1791800000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1763,6 +1763,60 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   path that only touches the still-unbilled portion of a receipt. This
   matches how every other correction in this app already works (void,
   don't partially patch).
+
+## QBO form-parity sweep — Phase 4: file Attachments per document (2026-10-25)
+
+Client picked this as the next phase. New data model, unlike Phases 1–2
+(Print/Download, Email/Send), which only ever reused what already existed —
+genuinely new storage and a new table, scoped tightly to stay "build once."
+
+- **`document_attachments`** (migration `0110`) is polymorphic on
+  `(docType, docId)` — the SAME "ledger" | "trade" discriminator and id space
+  Print/Download and Email/Send already use (`journal_entries.id` or
+  `trade_documents.id`), not a third one. No FK on `docId`, same tradeoff
+  `transaction_links.fromId/toId` already accepts, for the same reason (the
+  id is polymorphic across two different tables).
+- **Upload goes straight from the browser to Vercel Blob**
+  (`app/api/documents/attachments/blob-token/route.ts`, mirroring the
+  existing `/api/batch/upload/blob-token` pattern verbatim) — never through
+  one of our own serverless functions, which cap request bodies at ~4.5 MB
+  with no app-level override, and a scanned receipt or multi-page PDF can
+  easily exceed that.
+- **`blobUrl` is never returned to the client** — `GET /api/documents/
+  attachments` (the list) only ever returns id/filename/contentType/
+  sizeBytes/createdAt/uploadedBy; a download goes through `GET /api/
+  documents/attachments/[id]`, which re-checks org ownership and proxies the
+  file server-side. Vercel Blob URLs are public-by-default (the random
+  suffix is obscurity, not access control) — these can be scanned receipts
+  or signed POs, as sensitive as the ledger entry they're attached to, so
+  access control lives in our own layer, not the storage provider's.
+- **The row is created by the client's own follow-up call, not Vercel's
+  `onUploadCompleted` webhook** — that webhook is a server-to-server call
+  from Vercel's infrastructure that doesn't fire reliably on localhost (the
+  batch-upload route's own comment already states this and deliberately does
+  nothing in it); depending on it here would mean an uploaded file with no
+  record of it existing, some of the time, with no visible error. The client
+  calls `POST /api/documents/attachments` itself immediately after the blob
+  upload finishes, which is also where the one new access-control check
+  lives: `lib/document-attachments.ts`'s `docBelongsToOrg` — called before
+  issuing the upload token (refusing to let an org attach anything to a
+  document it doesn't own) and again before the row is created, the same
+  "one choke point" pattern `resolveLocationId`/`fetchQboInvoicePayInfo`
+  already use for their own single-decision rules.
+- **`components/document-attachments-panel.tsx`** is self-contained, the
+  same shape as `DocumentEmailModal` before it — given only `{kind, id}` it
+  lists/uploads/downloads/deletes everything itself. Wired into the SAME two
+  places: `new-document-form.tsx` for trade documents (Estimate/PO/SO, which
+  have no detail page of their own) and `transactions/[id]/page.tsx`'s
+  `afterContent`/generic ledger view for every native document — deliberately
+  **unconditional** there, unlike Email/Send's `EMAILABLE` scoping, because
+  QBO itself lets you attach a file to any document type including Bills and
+  Journal Entries; attaching is not a "this goes out to someone" action the
+  way sending is.
+- **Not done in this phase**: no activity-log entry records who attached or
+  removed a file (Phase 5 — Audit history territory); no virus/malware
+  scanning of uploaded content; no preview-in-browser for images/PDFs (a
+  download is always a save-to-disk today).
 
 ## QBO form-parity sweep — Phase 2: Email/Send inline from the document form (2026-10-24)
 

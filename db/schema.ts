@@ -3080,6 +3080,40 @@ export const transactionLinks = pgTable("transaction_links", {
 }));
 export type TransactionLink = typeof transactionLinks.$inferSelect;
 
+/**
+ * File attachments per document — QBO form-parity, Phase 4 (2026-10-25).
+ * `docType`/`docId` are the same polymorphic discriminator Print/Download and
+ * Email/Send already use (lib/accounting/document-print.ts's "ledger" |
+ * "trade" kind + the journal_entries.id / trade_documents.id it points at),
+ * not a new one — one table serves every document type, no FK (same
+ * tradeoff transactionLinks.fromId/toId already accepts, for the same
+ * reason: the id is polymorphic across two different tables).
+ *
+ * `blobUrl` is the real Vercel Blob storage URL and is NEVER returned to the
+ * client directly — a download always proxies through an authenticated
+ * route (app/api/documents/attachments/[id]/route.ts) that checks org
+ * ownership first. Vercel Blob URLs are public-by-default (addRandomSuffix
+ * gives obscurity, not access control), and these can be financial
+ * documents (a scanned receipt, a signed PO) as sensitive as the ledger
+ * entry they're attached to — so access control lives in OUR layer, not the
+ * storage provider's.
+ */
+export const documentAttachments = pgTable("document_attachments", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  orgId:       uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  docType:     varchar("doc_type", { length: 16 }).notNull(),   // ledger | trade
+  docId:       uuid("doc_id").notNull(),
+  filename:    varchar("filename", { length: 255 }).notNull(),
+  contentType: varchar("content_type", { length: 128 }),
+  sizeBytes:   integer("size_bytes"),
+  blobUrl:     varchar("blob_url", { length: 2048 }).notNull(),
+  uploadedBy:  uuid("uploaded_by"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  document_attachments_doc_idx: index("document_attachments_doc_idx").on(t.orgId, t.docType, t.docId),
+}));
+export type DocumentAttachment = typeof documentAttachments.$inferSelect;
+
 export const journalLines = pgTable("journal_lines", {
   id:           uuid("id").defaultRandom().primaryKey(),
   orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),

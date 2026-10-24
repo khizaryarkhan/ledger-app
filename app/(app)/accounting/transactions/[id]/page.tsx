@@ -7,6 +7,7 @@ import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Pr
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 import { NewDocumentForm, type DocType } from "@/components/new-document-form";
 import { DocumentEmailModal } from "@/components/document-email-modal";
+import { DocumentAttachmentsPanel } from "@/components/document-attachments-panel";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
 const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
@@ -212,6 +213,7 @@ export default function TransactionDetailPage() {
           <>
             {msg && <div className="max-w-[1200px] mb-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
             {related}
+            <DocumentAttachmentsPanel kind="ledger" id={e.id} />
             {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
           </>
         }
@@ -296,6 +298,8 @@ export default function TransactionDetailPage() {
               </div>
             </div>
           )}
+
+          <DocumentAttachmentsPanel kind="ledger" id={e.id} />
         </div>
 
         {/* Footer */}
