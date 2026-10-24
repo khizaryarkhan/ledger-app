@@ -168,6 +168,14 @@ type OpenPo = {
   id: string; docNumber: string | null; partyId: string | null; partyLabel: string | null;
   currency: string | null; exchangeRate: number; issueDate: string | null; expiryDate: string | null; lines: PoLine[];
 };
+// A PO line's lots are captured in their own screen (LotCapture), but must
+// still post as ONE receipt when several lines are received in the same
+// visit — a DraftLine is what that screen hands back instead of posting
+// directly: the computed payloadLines for just that line, held in the
+// ReceiveDrawer until "Post receipt" combines every staged line into one
+// POST (mirrors how AdhocReceive already builds one multi-line payload).
+type DraftLine = { itemName: string; baseUom: string | null; qty: number; lines: any[] };
+
 type LotRow = { key: string; qty: string; unitIdx: number; lotNo: string; expiryDate: string; supplierBatchNo: string; productionDate: string; bestBeforeDate: string };
 let lotKeySeq = 0;
 const newLotRow = (qty = "", unitIdx = 0): LotRow => ({ key: `lot${lotKeySeq++}`, qty, unitIdx, lotNo: "", expiryDate: "", supplierBatchNo: "", productionDate: "", bestBeforeDate: "" });
@@ -214,6 +222,15 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   useEffect(() => { if (!locationId && locations.length) setLocationId(defaultLocationId(locations)); }, [locations]);
   const [date, setDate] = useState(localToday());
 
+  // Lines captured against a PO are staged here, per PO line id, until
+  // "Post receipt" combines every staged line into ONE POST — see the
+  // DraftLine comment above. Cleared on leaving the PO (back to hub) or
+  // once the combined receipt actually posts.
+  const [drafts, setDrafts] = useState<Record<string, DraftLine>>({});
+  const [posting, setPosting] = useState(false);
+  const [postErr, setPostErr] = useState("");
+  const [pendingMsg, setPendingMsg] = useState("");
+
   async function fetchPos(): Promise<OpenPo[]> {
     const r = await fetch(`/api/inventory/po-open`).then(x => x.json()).catch(() => []);
     const list: OpenPo[] = Array.isArray(r) ? r : [];
@@ -227,8 +244,32 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   const selectedPo = (view.v === "items" || view.v === "lots") ? (openPos ?? []).find(p => p.id === view.poId) ?? null : null;
   const selectedLine = view.v === "lots" ? selectedPo?.lines.find(l => l.lineId === view.lineId) ?? null : null;
 
-  function openPo(po: OpenPo) { setNotice(""); setView({ v: "items", poId: po.id }); }
-  function backToHub() { setNotice(""); setView({ v: "hub" }); }
+  function openPo(po: OpenPo) { setNotice(""); setDrafts({}); setPostErr(""); setPendingMsg(""); setView({ v: "items", poId: po.id }); }
+  function backToHub() { setNotice(""); setDrafts({}); setPostErr(""); setPendingMsg(""); setView({ v: "hub" }); }
+
+  function stageLine(lineId: string, draft: DraftLine) { setPostErr(""); setDrafts(d => ({ ...d, [lineId]: draft })); }
+  function removeDraft(lineId: string) { setDrafts(d => { const n = { ...d }; delete n[lineId]; return n; }); }
+
+  async function postReceipt() {
+    if (!selectedPo) return;
+    const allLines = Object.values(drafts).flatMap(d => d.lines);
+    if (!allLines.length) return;
+    setPosting(true); setPostErr("");
+    const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      supplierId: selectedPo.partyId, supplierLabel: selectedPo.partyLabel, receiptDate: date,
+      currency: selectedPo.currency, exchangeRate: selectedPo.exchangeRate, locationId: locationId || null, lines: allLines,
+    }) });
+    const d = await r.json().catch(() => ({}));
+    setPosting(false);
+    if (!r.ok) { setPostErr(d?.error || "Could not post receipt."); return; }
+    if (d.pending) { setPendingMsg("This receipt exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals."); return; }
+    const itemCount = Object.keys(drafts).length;
+    setDrafts({});
+    const fresh = await fetchPos();
+    const stillOpen = fresh.find(p => p.id === selectedPo.id);
+    setNotice(`Received ${itemCount} item${itemCount > 1 ? "s" : ""}${d.receiptNo ? ` — ${d.receiptNo} posted` : ""}.`);
+    setView(stillOpen ? { v: "items", poId: stillOpen.id } : { v: "hub" });
+  }
 
   // xl, not wide (max-w-lg) — the lot row's Qty column now holds a combined
   // qty+unit control (QtyUnitField), which was being squeezed to near-zero
@@ -247,6 +288,8 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
         {view.v === "items" && selectedPo && (
           <ItemsHub po={selectedPo} notice={notice} onBack={backToHub}
             onOpenLine={(lineId) => setView({ v: "lots", poId: selectedPo.id, lineId })}
+            drafts={drafts} onRemoveDraft={removeDraft}
+            posting={posting} postErr={postErr} pendingMsg={pendingMsg} onPost={postReceipt}
             onClosed={async (msg) => {
               const fresh = await fetchPos();
               const stillOpen = fresh.find(p => p.id === selectedPo.id);
@@ -258,13 +301,8 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
           <LotCapture
             po={selectedPo} line={selectedLine} items={items}
             date={date} setDate={setDate} locationId={locationId} setLocationId={setLocationId} locations={locations}
+            draft={drafts[selectedLine.lineId]} onStage={stageLine}
             onBack={() => setView({ v: "items", poId: selectedPo.id })}
-            onPosted={async (msg) => {
-              const fresh = await fetchPos();
-              const stillOpen = fresh.find(p => p.id === selectedPo.id);
-              setNotice(msg);
-              setView(stillOpen ? { v: "items", poId: stillOpen.id } : { v: "hub" });
-            }}
           />
         )}
         {view.v === "adhoc" && (
@@ -344,7 +382,11 @@ function TabButton({ active, onClick, label, count }: { active: boolean; onClick
 
 /* --------------------------- PO drilldown: items ------------------------- */
 
-function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void }) {
+function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, posting, postErr, pendingMsg, onPost }: {
+  po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void;
+  drafts: Record<string, DraftLine>; onRemoveDraft: (lineId: string) => void;
+  posting: boolean; postErr: string; pendingMsg: string; onPost: () => void;
+}) {
   const [closing, setClosing] = useState<string | null>(null);
   async function closeLine(l: PoLine) {
     const reason = window.prompt(`Close the remaining ${fmt.qty(l.remainingQty)} ${l.baseUom || ""} of "${l.itemName}"? This stops it being offered for receiving.\n\nWhy — e.g. supplier short-shipped, order cancelled:`);
@@ -357,6 +399,7 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; no
     if (!r.ok) { alert(d?.error || "Could not close the line."); return; }
     onClosed(`Closed the remaining quantity on ${l.itemName}.`);
   }
+  const stagedCount = Object.keys(drafts).length;
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
@@ -373,11 +416,17 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; no
       </div>
       <div className="p-5">
         {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
+        {stagedCount > 0 && (
+          <div className="mb-4 text-[12.5px] text-stone-300 bg-stone-800/60 border border-stone-700 rounded-lg px-3 py-2">
+            {stagedCount} item{stagedCount > 1 ? "s" : ""} staged — click "Post receipt" below to save them as ONE receipt.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           {po.lines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
+            const staged = drafts[l.lineId];
             return (
-              <div key={l.lineId} className="rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-700 hover:bg-stone-800/50 transition-colors">
+              <div key={l.lineId} className={`rounded-lg border bg-stone-900 hover:bg-stone-800/50 transition-colors ${staged ? "border-emerald-700" : "border-stone-800 hover:border-stone-700"}`}>
                 <button onClick={() => onOpenLine(l.lineId)} className="w-full text-left p-4">
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <span className="text-[13px] font-semibold text-stone-100 truncate">{l.itemName}</span>
@@ -393,17 +442,34 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; no
                     </span>
                     {started && <span className="text-[10.5px] text-amber-400">{fmt.qty(l.receivedQty)} already in</span>}
                   </div>
+                  {staged && (
+                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+                      <Check size={11} /> Staged: {fmt.qty(staged.qty)} {staged.baseUom || ""}
+                    </div>
+                  )}
                 </button>
-                <div className="px-4 pb-2.5 -mt-1">
+                <div className="px-4 pb-2.5 -mt-1 flex items-center justify-between">
                   <button onClick={e => { e.stopPropagation(); closeLine(l); }} disabled={closing === l.lineId}
                     className="text-[11px] text-stone-500 hover:text-rose-400 disabled:opacity-50">
                     {closing === l.lineId ? "Closing…" : "Close remaining"}
                   </button>
+                  {staged && (
+                    <button onClick={e => { e.stopPropagation(); onRemoveDraft(l.lineId); }} className="text-[11px] text-stone-500 hover:text-rose-400">
+                      Remove staged
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
+      </div>
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
+        <DrawerFooter
+          saving={posting} onClose={onBack} onSave={onPost}
+          saveLabel={stagedCount > 0 ? `Post receipt (${stagedCount} item${stagedCount > 1 ? "s" : ""})` : "Post receipt"}
+          saveDisabled={stagedCount === 0} err={postErr} pendingMsg={pendingMsg}
+        />
       </div>
     </>
   );
@@ -411,18 +477,28 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed }: { po: OpenPo; no
 
 /* ----------------------------- Item: lot capture -------------------------- */
 
-function LotCapture({ po, line, items, date, setDate, locationId, setLocationId, locations, onBack, onPosted }: {
+function LotCapture({ po, line, items, date, setDate, locationId, setLocationId, locations, draft, onStage, onBack }: {
   po: OpenPo; line: PoLine; items: any[]; date: string; setDate: (d: string) => void;
   locationId: string; setLocationId: (id: string) => void; locations: any[];
-  onBack: () => void; onPosted: (msg: string) => void;
+  draft?: DraftLine; onStage: (lineId: string, draft: DraftLine) => void; onBack: () => void;
 }) {
   const item = items.find(i => i.id === line.itemId);
   const fpwip = isFPWIP(item);
-  const [rows, setRows] = useState<LotRow[]>(() => [newLotRow(String(line.remainingQty))]);
+  // Reopening a line already staged for this receipt resumes exactly what
+  // was entered — qty is kept in base units (same convention every fresh
+  // row uses), so the unit picker below re-displays it correctly once
+  // unitOpts loads.
+  const [rows, setRows] = useState<LotRow[]>(() => {
+    if (draft?.lines?.length) {
+      return draft.lines.map((l: any, i: number) => ({
+        key: `l${i}`, qty: String(l.qtyBase), unitIdx: 0, lotNo: l.lotNo || "", expiryDate: l.expiryDate || "",
+        supplierBatchNo: l.supplierBatchNo || "", productionDate: l.productionDate || "", bestBeforeDate: l.bestBeforeDate || "",
+      }));
+    }
+    return [newLotRow(String(line.remainingQty))];
+  });
   const [moreFor, setMoreFor] = useState<Record<string, boolean>>({});
-  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [pendingMsg, setPendingMsg] = useState("");
 
   // Let the receiver count each LOT in whichever pack level is actually in
   // front of them — the first few pallets might arrive by the case, the last
@@ -448,7 +524,9 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   }, [line.lineId]);
 
   useEffect(() => {
-    if (fpwip) return;
+    // A reopened staged line already has its own lot numbers — a fresh
+    // suggestion here would silently overwrite what was staged.
+    if (fpwip || draft?.lines?.length) return;
     // One suggestion for the single starting row — accept it or overwrite.
     fetch(`/api/inventory/lot-suggestion`).then(r => r.json()).then(s => {
       if (s?.code) setRows(rs => rs.map((r, i) => i === 0 ? { ...r, lotNo: s.code } : r));
@@ -472,7 +550,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   const total = lotQtyTotal(rows);
   const over = total - line.remainingQty > QTY_EPSILON;
 
-  async function submit() {
+  function stage() {
     const payloadLines = rows.filter(r => Number(r.qty) > 0).map(r => ({
       itemId: line.itemId, skuId: line.skuId, poId: po.id, poLineId: line.lineId, description: line.itemName,
       qtyBase: Number(r.qty), unitCost: line.unitCostBase,
@@ -481,17 +559,10 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
     }));
     if (!payloadLines.length) { setErr("Enter a quantity for at least one lot."); return; }
     if (over) { setErr(`That's more than the ${fmt.qty(line.remainingQty)} ${line.baseUom || ""} still expected — split it across a smaller quantity, or check the PO.`); return; }
-    setSaving(true); setErr("");
-    const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      supplierId: po.partyId, supplierLabel: po.partyLabel, receiptDate: date,
-      currency: po.currency, exchangeRate: po.exchangeRate, locationId: locationId || null, lines: payloadLines,
-    }) });
-    const d = await r.json().catch(() => ({}));
-    setSaving(false);
-    if (!r.ok) { setErr(d?.error || "Could not post receipt."); return; }
-    if (d.pending) { setPendingMsg("This receipt exceeds your org's approval threshold and has been submitted for approval — nothing has posted yet. See Approvals."); return; }
+    setErr("");
     const qty = payloadLines.reduce((s, l) => s + l.qtyBase, 0);
-    onPosted(`Received ${fmt.qty(qty)} ${line.baseUom || ""} of ${line.itemName}${d.receiptNo ? ` — ${d.receiptNo} posted` : ""}.`);
+    onStage(line.lineId, { itemName: line.itemName, baseUom: line.baseUom, qty, lines: payloadLines });
+    onBack();
   }
 
   return (
@@ -585,7 +656,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
         </div>
       </div>
       <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
-        <DrawerFooter saving={saving} onClose={pendingMsg ? onBack : onBack} onSave={submit} saveLabel="Receive item" err={err} pendingMsg={pendingMsg} />
+        <DrawerFooter saving={false} onClose={onBack} onSave={stage} saveLabel="Save lots" err={err} />
       </div>
     </>
   );

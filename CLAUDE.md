@@ -1715,6 +1715,48 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## Receiving two items in one visit was creating two GRNs (2026-10-24)
+
+Reported: "In a single receiving - I received two items: but it created two
+GRNs." Traced to the UI, not the backend — `lib/inventory/receiving.ts`'s
+`postGoodsReceipt` already fully supports a multi-item, multi-line receipt in
+one document (`lines: ReceiptLineInput[]`, one journal entry, one `GRN-`
+number), and `AdhocReceive` (the "Receive without a PO" path) already uses
+it correctly. The PO-linked path did not: `ItemsHub` (the PO's line list) →
+click ONE line → `LotCapture` (lot/batch capture for that line) → its old
+`submit()` POSTed immediately. Two lines touched in the same visit meant two
+separate POSTs, each its own GRN, PO-linked but otherwise unrelated documents.
+
+- **Fix: stage, don't post, per line.** `LotCapture`'s action is now
+  `stage()` — it validates and builds the same `payloadLines` as before, but
+  hands them to a new `onStage(lineId, draft)` callback instead of calling
+  `fetch`, then returns to `ItemsHub` via the existing `onBack`. `ReceiveDrawer`
+  holds the staged lines in `drafts: Record<lineId, DraftLine>` (`DraftLine`
+  = `{ itemName, baseUom, qty, lines }`), keyed by PO line id so re-opening an
+  already-staged line resumes exactly what was entered (qty stays in BASE
+  units — the convention every row already used — so the unit picker
+  re-displays correctly once `unitOpts` loads; the lot-suggestion `useEffect`
+  is skipped for a reopened draft so it can't silently overwrite a lot number
+  already typed).
+- **One `postReceipt()` in `ReceiveDrawer`** combines every staged line
+  (`Object.values(drafts).flatMap(d => d.lines)`) into a single POST to
+  `/api/inventory/receiving` — exactly the shape `AdhocReceive` already sends,
+  just assembled from several `LotCapture` visits instead of one flat form.
+  Approval-threshold staging (`requiresApproval`/`pending`) now applies to the
+  combined receipt total, not per line — the right scope, since it's one
+  document.
+- **`ItemsHub` is now the staging ground**: each line shows a "Staged: X qty"
+  badge (green border) with a "Remove staged" action once captured, a banner
+  summarizing how many items are staged, and a sticky `DrawerFooter` with
+  "Post receipt (N items)" — disabled until at least one line is staged.
+  Drafts are cleared on leaving the PO (`backToHub`/`openPo`) or once the
+  combined receipt actually posts; a failed post leaves drafts intact so nothing
+  typed is lost on retry.
+- **Not changed**: `AdhocReceive` (already correct), `postGoodsReceipt` itself
+  (already multi-line), PO progress/`receivedQty` advancement, the Goods
+  Receipt detail/void routes. This was purely the PO-linked capture UI's
+  immediate-post habit.
+
 ## Unified Supplier/Customer Transactions — every document lands under the party (2026-10-24)
 
 Reported by the client, after I'd proposed a narrower fix (just add Goods
