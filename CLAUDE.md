@@ -1715,6 +1715,70 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## Unified Supplier/Customer Transactions — every document lands under the party (2026-10-24)
+
+Reported by the client, after I'd proposed a narrower fix (just add Goods
+Receipts to the Supplier tab): **"Thats not correct — Every supplier related
+transaction should land under supplier, similar to QBD, same for the
+Customers."** Scope was confirmed via explicit question before building:
+every document type where a Supplier is specified (Bills, Expenses, Vendor
+Credits, Bill Payments, Purchase Orders, Goods Receipts), plus closing the
+two gaps already known to exist on the Customer side (Sales Orders,
+Shipments) in the same pass.
+
+- **The Customer feed (`app/api/customers/[id]/transactions/route.ts`)
+  already existed and was the template** — it aggregates Invoice/Credit
+  Memo/Payment/Refund Receipt/Journal Entry/Deposit/Cheque Expense/Estimate
+  into one chronological feed, QBO's own Customer → Transactions tab shape.
+  It only had two gaps: Sales Orders and Shipments (both native,
+  non-accounting document types with no prior feed at all) — both added.
+- **The Supplier side had NO equivalent** — `app/(app)/payables/suppliers/
+  [id]/page.tsx` had a Bills-only "Transactions" tab and a completely
+  separate "Purchase Orders" tab, with Expense/Vendor Credit/Bill Payment/
+  Goods Receipt appearing nowhere on the supplier at all. New
+  `app/api/payables/suppliers/[id]/transactions/route.ts` mirrors the
+  customer route's shape exactly, sourced from:
+  - **Bills** — `ap_bills.supplierId`, already the bridge/mirror table for
+    BOTH native-bridged (`bridgeNativeBill`) and QBO/Xero-synced bills, so
+    this alone covers both org types.
+  - **Expense / Vendor Credit / Bill Payment** — these have **no bridge
+    table at all** (only Bills are mirrored). They're read straight from
+    `journal_lines`/`journal_entries`, filtered on
+    `nameType="Vendor" AND nameId=<supplierId>` (the document's own control
+    line, stamped by `lib/accounting/documents.ts`'s `name()` helper) and
+    `sourceType IN (Expense, VendorCredit, BillPayment)`. **This is
+    native-only by construction** — a QBO/Xero-synced org has no local copy
+    of these transaction types, so the query correctly returns nothing for
+    them rather than guessing or faking a row.
+  - **Purchase Orders** — BOTH of the two real PO tables this app carries
+    are shown (see "known, deliberate duplication" below in this file):
+    Payables' own `purchase_orders` (has a confirmed detail page,
+    `/payables/purchase-orders/[id]`) and the native `trade_documents` kind
+    `"PurchaseOrder"` (feeds Receiving; no confirmed standalone detail page
+    yet, so its row's `viewHref` is `null` — shown read-only rather than
+    linking somewhere unverified).
+  - **Goods Receipts** — `goods_receipts.supplierId`; also `viewHref: null`
+    for the same reason (no confirmed detail page).
+  - Sign convention mirrors the Customer feed: Bill is "+" (increases what's
+    owed), Expense/Vendor Credit/Bill Payment are "-" (reduce it) — the same
+    relationship Payment/Credit Memo have to Invoice on the AR side.
+- **`components/transactions-tab.tsx` (the shared `TransactionsTab`
+  component, already used by Customer and Project detail pages) gained a
+  `scope="supplier"` mode** rather than a second component being built —
+  `CUSTOMER_FILTERS`/`SUPPLIER_FILTERS`/`typeFiltersFor(scope)` for the type
+  dropdown, a `viewHref?: string | null` field on `Txn` so a row can declare
+  its own "View" destination (or explicitly declare it has none, vs. a
+  customer row that never sets the field and falls back to the old
+  Invoice/Credit-Memo-only logic), and the summary strip's "open balance"
+  type switches to `"Bill"` for supplier scope (was hardcoded `"Invoice"`).
+- **The old Supplier page's separate "Purchase Orders" tab was removed
+  entirely** — POs now appear inline in the one unified feed, matching how
+  Estimates already sit inside the Customer feed rather than their own tab.
+  `PurchaseOrder` interface, `pos` state, `POsTab`, the old `SupplierTransactions`
+  component, and their now-dead helpers (`txnStatusBadge`, `withinDateRange`)
+  were deleted from `app/(app)/payables/suppliers/[id]/page.tsx`. The `bills`
+  state/fetch was KEPT — the Overview tab's aging buckets still depend on it.
+
 ## Key domain concepts
 
 - **Collections Board** (`app/(app)/board/`, `components/board-list.tsx`): the

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, Badge } from "@/components/ui";
 import { fmt, formatDateShort } from "@/lib/format";
-import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send, ClipboardList } from "lucide-react";
+import { Receipt, CreditCard, FileMinus, FileX, ArrowDownLeft, ArrowUpRight, BookOpen, Landmark, WalletCards, Send, ClipboardList, Truck, ShoppingCart, PackageCheck, Banknote } from "lucide-react";
 import { tableHead } from "@/components/form-kit";
 import { listTable, listRow, listCell, listNumCell, listCheckCell, listCheckbox } from "@/components/list-view";
 
@@ -12,18 +12,23 @@ type Txn = {
   id: string;
   refId: string;
   txnDate: string;
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit" | "Cheque Expense" | "Estimate";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit" | "Cheque Expense" | "Estimate"
+      | "Sales Order" | "Shipment"
+      | "Bill" | "Expense" | "Vendor Credit" | "Bill Payment" | "Purchase Order" | "Goods Receipt";
   number: string | null;
   amount: number;
   balance: number;
   currency: string;
   status: string;
   memo: string | null;
+  /** Confirmed detail-page link for this row, when one exists. Falls back to
+   *  the legacy Invoice/Credit Memo handling below when absent, so existing
+   *  customer-feed rows (which never set this) keep working unchanged. */
+  viewHref?: string | null;
   meta?: Record<string, any>;
 };
 
-const TYPE_FILTERS: Array<{ id: string; label: string }> = [
-  { id: "all", label: "All transactions" },
+const CUSTOMER_FILTERS: Array<{ id: string; label: string }> = [
   { id: "Invoice", label: "Invoices" },
   { id: "Credit Memo", label: "Credit Memos" },
   { id: "Payment", label: "Payments" },
@@ -32,7 +37,23 @@ const TYPE_FILTERS: Array<{ id: string; label: string }> = [
   { id: "Deposit", label: "Deposits" },
   { id: "Cheque Expense", label: "Cheque Expenses" },
   { id: "Estimate", label: "Estimates" },
+  { id: "Sales Order", label: "Sales Orders" },
+  { id: "Shipment", label: "Shipments" },
 ];
+
+const SUPPLIER_FILTERS: Array<{ id: string; label: string }> = [
+  { id: "Bill", label: "Bills" },
+  { id: "Expense", label: "Expenses" },
+  { id: "Vendor Credit", label: "Vendor Credits" },
+  { id: "Bill Payment", label: "Bill Payments" },
+  { id: "Purchase Order", label: "Purchase Orders" },
+  { id: "Goods Receipt", label: "Goods Receipts" },
+];
+
+function typeFiltersFor(scope: "customer" | "project" | "supplier"): Array<{ id: string; label: string }> {
+  const base = scope === "supplier" ? SUPPLIER_FILTERS : CUSTOMER_FILTERS;
+  return [{ id: "all", label: "All transactions" }, ...base];
+}
 
 const DATE_FILTERS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All time" },
@@ -52,6 +73,14 @@ function typeIcon(type: string) {
     case "Deposit":         return <Landmark size={13} className="text-sky-400" />;
     case "Cheque Expense":  return <WalletCards size={13} className="text-violet-400" />;
     case "Estimate":        return <ClipboardList size={13} className="text-sky-400" />;
+    case "Sales Order":     return <ShoppingCart size={13} className="text-sky-400" />;
+    case "Shipment":        return <Truck size={13} className="text-violet-400" />;
+    case "Bill":            return <Receipt size={13} className="text-stone-400" />;
+    case "Expense":         return <WalletCards size={13} className="text-amber-400" />;
+    case "Vendor Credit":   return <CreditCard size={13} className="text-emerald-400" />;
+    case "Bill Payment":    return <Banknote size={13} className="text-emerald-400" />;
+    case "Purchase Order":  return <ShoppingCart size={13} className="text-sky-400" />;
+    case "Goods Receipt":   return <PackageCheck size={13} className="text-cyan-400" />;
     default:                return <FileX size={13} className="text-stone-500" />;
   }
 }
@@ -94,7 +123,7 @@ export function TransactionsTab({
   onSendSelected,
 }: {
   fetchUrl: string;
-  scope: "customer" | "project";
+  scope: "customer" | "project" | "supplier";
   onSendSelected?: (refIds: string[]) => void;
 }) {
   const [rows, setRows] = useState<Txn[]>([]);
@@ -127,14 +156,15 @@ export function TransactionsTab({
   // footer disagree with the customer's actual AR position.
   const totals = useMemo(() => {
     let arIncrease = 0, arDecrease = 0, openBalance = 0;
+    const openType = scope === "supplier" ? "Bill" : "Invoice";
     for (const r of filtered) {
       const a = r.amount;
       if (a > 0) arIncrease += a;
       else       arDecrease += Math.abs(a);
-      if (r.type === "Invoice") openBalance += r.balance;
+      if (r.type === openType) openBalance += r.balance;
     }
     return { arIncrease, arDecrease, net: arIncrease - arDecrease, openBalance };
-  }, [filtered]);
+  }, [filtered, scope]);
 
   // Invoice rows that are selectable (open/unpaid invoices only)
   const selectableRefIds = useMemo(
@@ -172,7 +202,7 @@ export function TransactionsTab({
             <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Type</label>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
               className="h-8 px-2 text-[13px] rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-emerald-500 focus:outline-none">
-              {TYPE_FILTERS.map(f => {
+              {typeFiltersFor(scope).map(f => {
                 const n = f.id === "all" ? (counts.total ?? 0) : (counts[f.id] ?? 0);
                 if (scope === "project" && f.id === "Refund Receipt") return null;
                 return <option key={f.id} value={f.id}>{f.label} {n > 0 ? `(${n})` : ""}</option>;
@@ -202,15 +232,15 @@ export function TransactionsTab({
           {filtered.length > 0 && (
             <div className="ml-auto flex items-center gap-4 text-[11px]">
               <div>
-                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Billed</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">{scope === "supplier" ? "Billed" : "Billed"}</div>
                 <div className="text-stone-300 tabular-nums">{fmt.money(totals.arIncrease, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Received</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">{scope === "supplier" ? "Paid" : "Received"}</div>
                 <div className="text-stone-300 tabular-nums">{fmt.money(totals.arDecrease, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
-                <div className="text-stone-500 uppercase tracking-wider mb-0.5">Open AR</div>
+                <div className="text-stone-500 uppercase tracking-wider mb-0.5">{scope === "supplier" ? "Open AP" : "Open AR"}</div>
                 <div className="font-semibold tabular-nums text-rose-400">{fmt.money(totals.openBalance, filtered[0]?.currency || "EUR")}</div>
               </div>
               <div>
@@ -301,11 +331,16 @@ export function TransactionsTab({
                   </td>
                   <td className={listCell}>{statusBadge(r.status)}</td>
                   <td className={`${listCell} text-right`} onClick={e => e.stopPropagation()}>
-                    {(r.type === "Invoice" || r.type === "Credit Memo") && (
-                      <Link href={`/invoices/${r.refId}`} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">
-                        View
-                      </Link>
-                    )}
+                    {(() => {
+                      const href = r.viewHref !== undefined
+                        ? r.viewHref
+                        : ((r.type === "Invoice" || r.type === "Credit Memo") ? `/invoices/${r.refId}` : null);
+                      return href ? (
+                        <Link href={href} className="text-[12px] text-emerald-400 hover:text-emerald-300 font-medium">
+                          View
+                        </Link>
+                      ) : null;
+                    })()}
                   </td>
                 </tr>
               );

@@ -6,15 +6,14 @@ import Link from "next/link";
 import {
   ArrowLeft,
   AlertCircle,
-  ShoppingCart,
   MessageSquare,
   Save,
   Pencil,
-  Receipt,
   MessageCircleQuestion,
 } from "lucide-react";
 import { Card, Badge, Button, Input, Select } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
+import { TransactionsTab } from "@/components/transactions-tab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,15 +55,6 @@ interface Bill {
   workflowStatus?: string;
 }
 
-interface PurchaseOrder {
-  id: string;
-  poNumber: string;
-  poDate: string;
-  total: number;
-  currency: string;
-  status: string;
-}
-
 interface Query {
   id: string;
   subject: string;
@@ -91,15 +81,6 @@ function riskBadgeVariant(rating?: RiskRating) {
   const m: Record<RiskRating, string> = { Low: "green", Medium: "yellow", High: "red" };
   return rating ? m[rating] : "neutral";
 }
-function txnStatusBadge(status?: string) {
-  const m: Record<string, any> = {
-    Paid: "green",
-    "Partially Paid": "amber",
-    Unpaid: "neutral",
-    Voided: "neutral",
-  };
-  return <Badge variant={m[status ?? ""] ?? "neutral"} size="sm">{status ?? "—"}</Badge>;
-}
 function daysOverdue(due?: string | null) {
   if (!due) return 0;
   return Math.floor((Date.now() - new Date(due + "T00:00:00").getTime()) / 86400000);
@@ -112,169 +93,8 @@ function getBucket(due?: string | null): string {
   if (d <= 90) return "61-90";
   return "90+";
 }
-function withinDateRange(dateStr: string | null, range: string): boolean {
-  if (!dateStr) return range === "all";
-  if (range === "all") return true;
-  const d = new Date(dateStr + "T00:00:00").getTime();
-  const now = Date.now();
-  if (range === "this-year") return new Date(dateStr).getFullYear() === new Date().getFullYear();
-  const ms = range === "last-12" ? 365 * 86400000 : range === "last-90" ? 90 * 86400000 : range === "last-30" ? 30 * 86400000 : 0;
-  return d >= now - ms;
-}
-
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse bg-stone-800 rounded ${className}`} />;
-}
-
-// ── Transactions tab (mirrors AR customer Transactions) ────────────────────────
-
-function SupplierTransactions({ bills }: { bills: Bill[] }) {
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("all");
-
-  const rows = useMemo(
-    () =>
-      bills.map((b) => ({
-        id: b.id,
-        txnDate: b.billDate,
-        type: "Bill",
-        number: b.billNumber,
-        amount: b.total ?? 0,
-        balance: b.balance ?? 0,
-        currency: b.currency,
-        status: b.accountingPaymentStatus ?? (b.balance > 0 ? "Unpaid" : "Paid"),
-      })),
-    [bills]
-  );
-
-  const filtered = useMemo(
-    () => rows.filter((r) => (typeFilter === "all" || r.type === typeFilter) && withinDateRange(r.txnDate, dateFilter)),
-    [rows, typeFilter, dateFilter]
-  );
-
-  const totals = useMemo(() => {
-    let billed = 0, open = 0;
-    for (const r of filtered) { billed += r.amount; open += Math.max(0, r.balance); }
-    return { billed, paid: billed - open, open };
-  }, [filtered]);
-
-  const ccy = filtered[0]?.currency || "EUR";
-
-  return (
-    <div className="space-y-3">
-      <Card padding="sm">
-        <div className="flex items-end gap-3 flex-wrap">
-          <div>
-            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Type</label>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-violet-500 focus:outline-none">
-              <option value="all">All transactions {rows.length ? `(${rows.length})` : ""}</option>
-              <option value="Bill">Bills {rows.length ? `(${rows.length})` : ""}</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider block mb-1">Date</label>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
-              className="h-8 px-2 text-sm rounded-md border border-stone-700 bg-stone-800/60 text-stone-200 focus:border-violet-500 focus:outline-none">
-              <option value="all">All time</option>
-              <option value="this-year">This year</option>
-              <option value="last-12">Last 12 months</option>
-              <option value="last-90">Last 90 days</option>
-              <option value="last-30">Last 30 days</option>
-            </select>
-          </div>
-          {filtered.length > 0 && (
-            <div className="ml-auto flex items-center gap-4 text-[11px]">
-              <div><div className="text-stone-500 uppercase tracking-wider mb-0.5">Billed</div><div className="text-stone-300 tabular-nums">{fmt.money(totals.billed, ccy)}</div></div>
-              <div><div className="text-stone-500 uppercase tracking-wider mb-0.5">Paid</div><div className="text-stone-300 tabular-nums">{fmt.money(totals.paid, ccy)}</div></div>
-              <div><div className="text-stone-500 uppercase tracking-wider mb-0.5">Open AP</div><div className="font-semibold tabular-nums text-rose-400">{fmt.money(totals.open, ccy)}</div></div>
-              <div><div className="text-stone-500 uppercase tracking-wider mb-0.5">Net</div><div className="font-semibold tabular-nums text-stone-100">{fmt.money(totals.open, ccy)}</div></div>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Card padding="none">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-              <th className="text-left font-semibold px-4 py-3 w-28">Date</th>
-              <th className="text-left font-semibold px-4 py-3 w-40">Type</th>
-              <th className="text-left font-semibold px-4 py-3 w-28">Number</th>
-              <th className="text-left font-semibold px-4 py-3">Memo</th>
-              <th className="text-right font-semibold px-4 py-3 w-28">Total</th>
-              <th className="text-right font-semibold px-4 py-3 w-28">Balance</th>
-              <th className="text-left font-semibold px-4 py-3 w-28">Status</th>
-              <th className="text-right font-semibold px-4 py-3 w-16"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-500 text-sm">No transactions found for this filter.</td></tr>
-            )}
-            {filtered.map((r) => {
-              const showBalance = r.balance > 0.005;
-              return (
-                <tr key={r.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
-                  <td className="px-4 py-3 text-stone-300 tabular-nums text-[12px] whitespace-nowrap">{r.txnDate ? formatDate(r.txnDate) : "—"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2"><Receipt size={13} className="text-stone-400" /><span className="text-stone-200">{r.type}</span></div>
-                  </td>
-                  <td className="px-4 py-3 text-stone-400 tabular-nums text-[12px]">{r.number || "—"}</td>
-                  <td className="px-4 py-3 text-stone-500 text-[12px]"></td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium text-stone-100">{fmt.money(r.amount, r.currency)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${showBalance ? "text-rose-400" : "text-stone-600"}`}>{showBalance ? fmt.money(r.balance, r.currency) : "—"}</td>
-                  <td className="px-4 py-3">{txnStatusBadge(r.status)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Link href={`/payables/bills/${r.id}`} className="text-[12px] text-violet-400 hover:text-violet-300 font-medium">View</Link>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {filtered.length > 0 && (
-          <div className="px-4 py-2 border-t border-stone-800 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>Showing {filtered.length} of {rows.length} transactions</span>
-            <span className="text-stone-600">Balance shown for unpaid bills only</span>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-// ── Purchase Orders tab ─────────────────────────────────────────────────────────
-
-function POsTab({ pos, currency }: { pos: PurchaseOrder[]; currency: string }) {
-  if (pos.length === 0)
-    return <Card padding="none"><div className="flex flex-col items-center justify-center py-14 text-center"><ShoppingCart size={20} className="text-stone-600 mb-2" /><p className="text-sm font-semibold text-white mb-1">No purchase orders</p><p className="text-xs text-stone-500">No POs found for this supplier.</p></div></Card>;
-  return (
-    <Card padding="none">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-[11px] uppercase tracking-wider text-stone-500 border-b border-stone-800">
-            <th className="text-left font-semibold px-4 py-3">PO #</th>
-            <th className="text-left font-semibold px-4 py-3">PO Date</th>
-            <th className="text-right font-semibold px-4 py-3">Total</th>
-            <th className="text-left font-semibold px-4 py-3">Status</th>
-            <th className="text-right font-semibold px-4 py-3 w-16"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {pos.map((po) => (
-            <tr key={po.id} className="border-b border-stone-800/60 hover:bg-stone-800/40 transition-colors">
-              <td className="px-4 py-3 font-mono text-xs text-stone-300">{po.poNumber}</td>
-              <td className="px-4 py-3 text-stone-400 text-xs whitespace-nowrap">{formatDate(po.poDate)}</td>
-              <td className="px-4 py-3 text-right font-semibold text-white tabular-nums text-xs">{fmt.money(po.total, po.currency || currency)}</td>
-              <td className="px-4 py-3"><Badge variant={po.status === "Approved" ? "green" : po.status === "Cancelled" ? "neutral" : "blue"} size="sm">{po.status}</Badge></td>
-              <td className="px-4 py-3 text-right"><Link href={`/payables/purchase-orders/${po.id}`} className="text-[12px] text-violet-400 hover:text-violet-300 font-medium">View</Link></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  );
 }
 
 // ── Queries tab ───────────────────────────────────────────────────────────────
@@ -382,11 +202,10 @@ export default function SupplierDetailPage() {
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [bills, setBills] = useState<Bill[]>([]);
-  const [pos, setPos] = useState<PurchaseOrder[]>([]);
   const [queries, setQueries] = useState<Query[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"overview" | "transactions" | "pos" | "queries">("overview");
+  const [tab, setTab] = useState<"overview" | "transactions" | "queries">("overview");
   const [editing, setEditing] = useState(false);
   const [raisingQuery, setRaisingQuery] = useState(false);
 
@@ -398,7 +217,6 @@ export default function SupplierDetailPage() {
       const json = await res.json();
       setSupplier(json.supplier ?? json);
       setBills(json.bills ?? []);
-      setPos(json.purchaseOrders ?? []);
       setQueries(json.queries ?? []);
     } catch (e: any) { setError(e.message || "Failed to load supplier"); } finally { setLoading(false); }
   }
@@ -506,7 +324,6 @@ export default function SupplierDetailPage() {
           {[
             { id: "overview", label: "Overview" },
             { id: "transactions", label: "Transactions" },
-            { id: "pos", label: `Purchase Orders (${pos.length})` },
             { id: "queries", label: `Queries (${queries.length})` },
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -555,8 +372,7 @@ export default function SupplierDetailPage() {
         )
       )}
 
-      {tab === "transactions" && <SupplierTransactions bills={bills} />}
-      {tab === "pos" && <POsTab pos={pos} currency={invCcy} />}
+      {tab === "transactions" && <TransactionsTab scope="supplier" fetchUrl={`/api/payables/suppliers/${id}/transactions`} />}
       {tab === "queries" && <QueriesTab queries={queries} />}
     </div>
   );

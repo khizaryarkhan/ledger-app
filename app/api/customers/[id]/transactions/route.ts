@@ -8,7 +8,7 @@
  */
 
 import { db } from "@/db";
-import { customers, invoices, payments, refundReceipts, journalEntryArLines, deposits, estimates } from "@/db/schema";
+import { customers, invoices, payments, refundReceipts, journalEntryArLines, deposits, estimates, tradeDocuments, salesShipments } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, desc } from "drizzle-orm";
 
@@ -16,7 +16,7 @@ export type CustomerTxn = {
   id: string;
   refId: string;          // route param for opening detail (invoice id, etc.)
   txnDate: string;        // YYYY-MM-DD
-  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit" | "Cheque Expense" | "Estimate";
+  type: "Invoice" | "Credit Memo" | "Payment" | "Refund Receipt" | "Journal Entry" | "Deposit" | "Cheque Expense" | "Estimate" | "Sales Order" | "Shipment";
   number: string | null;  // invoice number, payment ref, etc.
   amount: number;         // signed: positive = increases AR, negative = decreases AR
   balance: number;        // open balance (invoice unpaid, CM/payment unapplied) — always >= 0
@@ -38,13 +38,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!cust) return bad("Customer not found", 404);
 
   // Fetch all entity types in parallel
-  const [invs, pmts, refs, jes, deps, ests] = await Promise.all([
+  const [invs, pmts, refs, jes, deps, ests, sos, ships] = await Promise.all([
     db.select().from(invoices).where(and(eq(invoices.orgId, orgId!), eq(invoices.customerId, cust.id))),
     db.select().from(payments).where(and(eq(payments.orgId, orgId!), eq(payments.customerId, cust.id))),
     db.select().from(refundReceipts).where(and(eq(refundReceipts.orgId, orgId!), eq(refundReceipts.customerId, cust.id))),
     db.select().from(journalEntryArLines).where(and(eq(journalEntryArLines.orgId, orgId!), eq(journalEntryArLines.customerId, cust.id))),
     db.select().from(deposits).where(and(eq(deposits.orgId, orgId!), eq(deposits.customerId, cust.id))),
     db.select().from(estimates).where(and(eq(estimates.orgId, orgId!), eq(estimates.customerId, cust.id))),
+    // Native Sales Orders (trade_documents, non-accounting) — were entirely
+    // missing from this feed before; the only customer-side document type
+    // with no bridge table and no QBO/Xero mirror at all.
+    db.select().from(tradeDocuments).where(and(eq(tradeDocuments.orgId, orgId!), eq(tradeDocuments.kind, "SalesOrder"), eq(tradeDocuments.partyId, cust.id))),
+    db.select().from(salesShipments).where(and(eq(salesShipments.orgId, orgId!), eq(salesShipments.customerId, cust.id))),
   ]);
 
   const rows: CustomerTxn[] = [];
@@ -184,6 +189,39 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
   }
 
+  // Sales Orders (native, non-accounting — quotes already committed to goods)
+  for (const so of sos) {
+    rows.push({
+      id: `so-${so.id}`,
+      refId: so.id,
+      txnDate: so.issueDate,
+      type: "Sales Order",
+      number: so.docNumber,
+      amount: Number(so.total) || 0,
+      balance: 0,
+      currency: so.currency || cust.currency,
+      status: so.status,
+      memo: so.memo,
+      meta: { expiryDate: so.expiryDate },
+    });
+  }
+
+  // Shipments — COGS-at-shipment events, independent of whether they've been invoiced yet.
+  for (const sh of ships) {
+    rows.push({
+      id: `ship-${sh.id}`,
+      refId: sh.id,
+      txnDate: String(sh.shipmentDate),
+      type: "Shipment",
+      number: sh.shipmentNo,
+      amount: Number(sh.saleTotal) || 0,
+      balance: Math.max(0, Number(sh.saleTotal) - Number(sh.invoicedAmount)),
+      currency: sh.currency || cust.currency,
+      status: sh.status,
+      memo: sh.notes,
+    });
+  }
+
   // Chronological — newest first
   rows.sort((a, b) => (a.txnDate < b.txnDate ? 1 : a.txnDate > b.txnDate ? -1 : 0));
 
@@ -199,6 +237,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       "Deposit": rows.filter(r => r.type === "Deposit").length,
       "Cheque Expense": rows.filter(r => r.type === "Cheque Expense").length,
       "Estimate": rows.filter(r => r.type === "Estimate").length,
+      "Sales Order": rows.filter(r => r.type === "Sales Order").length,
+      "Shipment": rows.filter(r => r.type === "Shipment").length,
     },
   });
 }
