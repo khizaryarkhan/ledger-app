@@ -1443,12 +1443,26 @@ export const auditEvents = pgTable("audit_events", {
   customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
   projectId:  uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   invoiceId:  uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  // QBO form-parity, Phase 5 (2026-10-25) — Audit history per document. The
+  // SAME polymorphic discriminator Print/Download, Email/Send and
+  // Attachments already use ("ledger" | "trade" + journal_entries.id or
+  // trade_documents.id), reused here rather than a fourth parallel one, so
+  // one table serves Receivables/Payables workflow events (its original
+  // purpose, customerId/projectId/invoiceId above) AND per-document history
+  // for every native/trade document type, including ones with no invoiceId
+  // at all (a Bill, a Payment, a Journal Entry). No FK on docId — same
+  // tradeoff transaction_links.fromId/toId and document_attachments.docId
+  // already accept, for the same reason (polymorphic across two tables).
+  docType:    varchar("doc_type", { length: 16 }),
+  docId:      uuid("doc_id"),
   eventType:  varchar("event_type", { length: 32 }).notNull(),
   actorId:    uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
   actorName:  varchar("actor_name", { length: 255 }),
   meta:       jsonb("meta").notNull().default({}),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  audit_events_doc_idx: index("audit_events_doc_idx").on(t.orgId, t.docType, t.docId),
+}));
 export type AuditEvent = typeof auditEvents.$inferSelect;
 
 // =========================================================================

@@ -18,6 +18,7 @@ import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
 import { postDocument } from "@/lib/accounting/documents";
 import { createLink } from "@/lib/accounting/links";
+import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
@@ -157,11 +158,13 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
       console.error(`[trade-documents] ORPHAN header ${doc.id} could not be removed:`, delErr));
     throw e;
   }
+  logEvent({ orgId, eventType: "document_created", docType: "trade", docId: doc.id, actorId, meta: { sourceType: kind, docNumber } })
+    .catch(e => console.error("[audit] document_created (trade) failed:", e));
   return { id: doc.id, docNumber, total };
 }
 
 /** Delete a trade doc — allowed until it has been fulfilled/converted. */
-export async function deleteTradeDoc(orgId: string, id: string) {
+export async function deleteTradeDoc(orgId: string, id: string, actorId: string | null) {
   const [doc] = await db.select().from(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId))).limit(1);
   if (!doc) err("Document not found.");
   if (doc.convertedEntryId || doc.status === "Closed" || doc.status === "Partial") err("This document has already been billed/invoiced — reverse those first.");
@@ -169,6 +172,8 @@ export async function deleteTradeDoc(orgId: string, id: string) {
   const progressed = lines.some(l => Number(l.receivedQty) > 0 || Number(l.billedQty) > 0 || Number(l.invoicedAmount) > 0);
   if (progressed) err("This document has receipts/shipments or bills against it — void those first.");
   await db.delete(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId))); // lines cascade
+  logEvent({ orgId, eventType: "document_deleted", docType: "trade", docId: id, actorId, meta: { sourceType: doc.kind, docNumber: doc.docNumber } })
+    .catch(e => console.error("[audit] document_deleted (trade) failed:", e));
   return { id, deleted: true };
 }
 

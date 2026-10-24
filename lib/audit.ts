@@ -49,7 +49,20 @@ export type EventType =
   | "payment_run_submitted"
   | "payment_run_approved"
   | "payment_run_scheduled"
-  | "payables_master_data_synced";
+  | "payables_master_data_synced"
+  // ── Document history (QBO form-parity, Phase 5) ─────────────────────────
+  // Distinct from email_sent/email_manual above — those are the Receivables
+  // chase-email timeline, keyed on invoiceId; document_emailed covers any
+  // document type via DocumentEmailModal (Bill, Estimate, PO, Payment, …),
+  // keyed on docType/docId instead, so the two never get conflated in either
+  // timeline.
+  | "document_created"
+  | "document_edited"
+  | "document_reversed"
+  | "document_deleted"
+  | "document_emailed"
+  | "attachment_added"
+  | "attachment_removed";
 
 export interface LogEventArgs {
   orgId: string;
@@ -57,6 +70,12 @@ export interface LogEventArgs {
   customerId?: string | null;
   projectId?: string | null;
   invoiceId?: string | null;
+  // Document history (Phase 5) — the same "ledger" | "trade" + journal_
+  // entries.id/trade_documents.id discriminator Print/Download, Email/Send
+  // and Attachments already use. Independent of customerId/projectId/
+  // invoiceId above: a Bill or Payment has a docId but no invoiceId at all.
+  docType?: "ledger" | "trade" | null;
+  docId?: string | null;
   actorId?: string | null;
   actorName?: string | null;
   meta?: Record<string, unknown>;
@@ -70,6 +89,8 @@ export async function logEvent(args: LogEventArgs): Promise<void> {
       customerId: args.customerId  ?? null,
       projectId:  args.projectId  ?? null,
       invoiceId:  args.invoiceId  ?? null,
+      docType:    args.docType    ?? null,
+      docId:      args.docId      ?? null,
       actorId:    args.actorId    ?? null,
       actorName:  args.actorName  ?? null,
       meta:       (args.meta      ?? {}) as any,

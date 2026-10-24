@@ -9,6 +9,7 @@ import { documentAttachments } from "@/db/schema";
 import { requireOrg, bad, ok } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { del } from "@vercel/blob";
+import { logEvent } from "@/lib/audit";
 
 async function loadOwned(orgId: string, id: string) {
   const [row] = await db.select().from(documentAttachments)
@@ -37,7 +38,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
+  const { error, orgId, session } = await requireOrg();
   if (error) return error;
 
   const row = await loadOwned(orgId!, params.id);
@@ -45,6 +46,13 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
 
   await del(row.blobUrl).catch(e => console.error("[document-attachments] blob delete failed:", e));
   await db.delete(documentAttachments).where(eq(documentAttachments.id, row.id));
+
+  logEvent({
+    orgId: orgId!, eventType: "attachment_removed",
+    docType: row.docType as "ledger" | "trade", docId: row.docId,
+    actorId: (session?.user as any)?.id ?? null, actorName: (session?.user as any)?.name ?? null,
+    meta: { filename: row.filename },
+  }).catch(e => console.error("[audit] attachment_removed failed:", e));
 
   return ok({ deleted: true });
 }

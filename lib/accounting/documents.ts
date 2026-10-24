@@ -28,6 +28,7 @@ import { db } from "@/db";
 import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
+import { logEvent } from "@/lib/audit";
 import type { DocType } from "@/lib/accounting/numbering";
 import { ensureSystemAccounts } from "@/lib/accounting/system-accounts";
 import { createLink, deleteLinksByContext } from "@/lib/accounting/links";
@@ -946,6 +947,10 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
   if (entry && type === "Payment") {
     for (const id of [...new Set(pendingLinks.filter(pl => pl.toType === "Invoice").map(pl => pl.toId))]) await syncNativeInvoicePaid(orgId, id).catch(() => {});
   }
+  if (entry) {
+    logEvent({ orgId, eventType: "document_created", docType: "ledger", docId: entry.id, actorId, meta: { sourceType: type, docNumber: entry.docNumber } })
+      .catch(e => console.error("[audit] document_created failed:", e));
+  }
   return entry ?? ({ id: null, docNumber: null, txnNo: null } as any);
 }
 
@@ -1073,6 +1078,9 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
 
   // Re-apply the inventory lot movements for the edited document.
   if (invPlan) await commitDocumentInventory(orgId, type, invPlan, entryId, entryId, date, input, actorId);
+
+  logEvent({ orgId, eventType: "document_edited", docType: "ledger", docId: entryId, actorId, meta: { sourceType: type, docNumber: input.docNumber?.trim() || entry.docNumber } })
+    .catch(e => console.error("[audit] document_edited failed:", e));
 
   return { id: entryId, docNumber: input.docNumber?.trim() || entry.docNumber, txnNo: entry.txnNo, edited: true };
 }
@@ -1274,7 +1282,7 @@ export async function syncNativeInvoicePaid(orgId: string, invoiceEntryId: strin
  * Guarded: system entries (Reversal/Closing), reversed entries, closed periods,
  * and anything with payments/credits applied to it can't be deleted.
  */
-export async function deleteDocument(orgId: string, entryId: string, _actorId: string | null) {
+export async function deleteDocument(orgId: string, entryId: string, actorId: string | null) {
   const [entry] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!entry) err("Transaction not found.");
@@ -1308,6 +1316,10 @@ export async function deleteDocument(orgId: string, entryId: string, _actorId: s
   await db.delete(journalEntries).where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId)));
 
   for (const t of settled) if (t.toType === "Invoice") await syncNativeInvoicePaid(orgId, t.toId).catch(() => {});
+  // Logged with the entry's own data, captured above BEFORE the delete — the
+  // row itself is already gone by this point.
+  logEvent({ orgId, eventType: "document_deleted", docType: "ledger", docId: entryId, actorId, meta: { sourceType: entry.sourceType, docNumber: entry.docNumber } })
+    .catch(e => console.error("[audit] document_deleted failed:", e));
   return { id: entryId, deleted: true };
 }
 

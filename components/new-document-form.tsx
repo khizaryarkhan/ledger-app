@@ -16,6 +16,7 @@ import { QuickAdd, type QuickAddKind } from "@/components/quick-add";
 import { PartyDrawer } from "@/components/party-drawer";
 import { DocumentEmailModal } from "@/components/document-email-modal";
 import { DocumentAttachmentsPanel } from "@/components/document-attachments-panel";
+import { DocumentAuditPanel } from "@/components/document-audit-panel";
 import { NewItemDrawer } from "@/components/products-register";
 import { isTracked, kindOf } from "@/lib/inventory/item-kinds";
 import { orderOptions, salesOrderOptions, perSupplierUnit, ratePerOrderUnit, type OrderOption } from "@/lib/inventory/order-options";
@@ -1968,6 +1969,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
           </div>
 
           {cfg.trade && editId && <DocumentAttachmentsPanel kind="trade" id={editId} />}
+          {cfg.trade && editId && <DocumentAuditPanel kind="trade" id={editId} />}
 
           </div>
           </fieldset>

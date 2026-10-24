@@ -18,6 +18,7 @@ import { getOrgXeroToken } from "@/lib/xero-token";
 import { getOrgQboToken, stampQboPayButton, fetchQboInvoiceLink } from "@/lib/qbo-token";
 import { appendPayButton } from "@/lib/ar-email";
 import { fetchInvoicePdfAttachments, MAX_ATTACHMENT_BYTES } from "@/lib/invoice-attachments";
+import { logEvent } from "@/lib/audit";
 
 const XERO_API = "https://api.xero.com/api.xro/2.0";
 
@@ -60,7 +61,7 @@ const QBO_API = "https://quickbooks.api.intuit.com/v3/company";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const { error, orgId: actingOrg, orgIds } = await requireReadScope();
+  const { error, orgId: actingOrg, orgIds, session } = await requireReadScope();
   if (error) return error;
 
   try {
@@ -158,6 +159,15 @@ export async function POST(req: Request) {
       inReplyTo,
       attachments: attachments.length > 0 ? attachments : undefined,
     });
+
+    if (data.attachDocument) {
+      logEvent({
+        orgId: targetOrg, eventType: "document_emailed",
+        docType: data.attachDocument.kind, docId: data.attachDocument.id,
+        actorId: (session?.user as any)?.id ?? null, actorName: (session?.user as any)?.name ?? null,
+        meta: { to: data.to },
+      }).catch(e => console.error("[audit] document_emailed failed:", e));
+    }
 
     return ok({
       sent:             true,

@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0110` at `when`
-  `1791800000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0111` at `when`
+  `1791900000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1763,6 +1763,69 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   path that only touches the still-unbilled portion of a receipt. This
   matches how every other correction in this app already works (void,
   don't partially patch).
+
+## QBO form-parity sweep — Phase 5: Audit history per document (2026-10-25)
+
+Client picked this as the next phase. Reused existing infrastructure rather
+than inventing a fourth logging mechanism: the app already had `audit_events`
+— a generic "track & trace" log covering Receivables (`email_sent`,
+`stage_changed`, `promise_to_pay`, …) and Payables (`bill_approved`,
+`purchase_order_submitted`, …) workflow events, keyed on `customerId`/
+`projectId`/`invoiceId`, written by `lib/audit.ts`'s `logEvent()`.
+
+- **`audit_events` gained the same `(docType, docId)` discriminator** Print/
+  Download, Email/Send and Attachments already use (migration `0111`,
+  nullable columns + an index) — NOT a new table. One log now serves both
+  its original purpose (Receivables/Payables workflow, via customerId/
+  projectId/invoiceId) and per-document history for every type, including
+  ones with no invoiceId at all (a Bill, a Payment, a Journal Entry).
+  `document_emailed` is deliberately its own event type, separate from the
+  existing `email_sent`/`email_manual` (the Receivables chase-email
+  timeline, keyed on invoiceId) — conflating the two would have mixed an
+  AR-specific timeline with a generic one keyed completely differently.
+- **Seven new event types**: `document_created`/`edited`/`reversed`/
+  `deleted`, `document_emailed`, `attachment_added`/`removed`. Logged at the
+  SAME single choke points this whole sweep has built on: `lib/accounting/
+  documents.ts`'s `postDocument`/`updateDocument`/`deleteDocument` (native),
+  `lib/accounting/trade-documents.ts`'s `createTradeDoc`/`deleteTradeDoc`
+  (trade — `deleteTradeDoc` gained an `actorId` param it didn't have before,
+  its one caller updated in the same change), the reverse route (`/api/
+  ledger/journal/[id]/reverse`), `/api/email/send`'s new `attachDocument`
+  branch, and both Attachment routes. Every `logEvent()` call is fire-and-
+  forget with its own `.catch` — this history must never be able to break
+  the action it's describing, the same rule `lib/audit.ts`'s own doc comment
+  already states.
+- **Actor name is resolved fresh at READ time, not trusted from the write.**
+  `documents.ts`'s create/edit/delete/reverse calls only ever have an
+  `actorId` (a bare user id), not a full session with a name — rather than
+  plumb a name lookup into every one of those call sites, `GET /api/
+  documents/audit` joins `users` once and resolves it there, so every row
+  shows a correct, current name regardless of which write path logged it.
+  Attachment/Email events, which DO have a session in scope at the route
+  level, still pass `actorName` too — redundant with the join, but harmless,
+  and consistent with how the pre-existing Receivables/Payables event types
+  already populate it.
+- **A deleted document's own history is intentionally still readable.**
+  `deleteDocument` logs `document_deleted` using the entry's data captured
+  BEFORE the row is removed — but the row is genuinely gone afterward, so
+  `docBelongsToOrg` (the same ownership check Attachments introduced) would
+  otherwise 404 the whole audit list. `GET /api/documents/audit` falls back
+  to "does at least one event exist for this org+doc?" when ownership fails,
+  so the one event that explains why the document can no longer be opened is
+  never the one thing you can't see. In practice this matters less for the
+  per-document panel (nothing is left to open once deleted) than for the
+  existing `/admin` audit-event export, which this change feeds unchanged.
+- **`components/document-audit-panel.tsx`** is self-contained, the same
+  `{kind, id}` shape as every other panel in this sweep — wired into the
+  same two places, unconditionally like Attachments (not scoped like
+  Email/Send's `EMAILABLE` set — history matters for every document type).
+- **Not done in this phase**: no field-level diff ("Amount changed from X to
+  Y") on `document_edited` — it records only that an edit happened, not
+  what changed; QBO's own audit log does show field diffs, and building
+  that would mean capturing a before/after snapshot per edit, a materially
+  bigger change than reusing the existing log. No read-access logging
+  (opening/viewing a document is not an event here, matching QBO itself,
+  which also doesn't log views).
 
 ## QBO form-parity sweep — Phase 4: file Attachments per document (2026-10-25)
 

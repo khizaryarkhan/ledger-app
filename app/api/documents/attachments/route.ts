@@ -18,6 +18,7 @@ import { requireOrg, ok, bad } from "@/lib/api";
 import { docBelongsToOrg, type AttachmentDocKind } from "@/lib/document-attachments";
 import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
+import { logEvent } from "@/lib/audit";
 
 export async function GET(req: Request) {
   const { error, orgId } = await requireOrg();
@@ -77,6 +78,12 @@ export async function POST(req: Request) {
     contentType: documentAttachments.contentType, sizeBytes: documentAttachments.sizeBytes,
     uploadedBy: documentAttachments.uploadedBy, createdAt: documentAttachments.createdAt,
   });
+
+  logEvent({
+    orgId: orgId!, eventType: "attachment_added", docType: data.docType, docId: data.docId,
+    actorId: (session?.user as any)?.id ?? null, actorName: (session?.user as any)?.name ?? null,
+    meta: { filename: data.filename },
+  }).catch(e => console.error("[audit] attachment_added failed:", e));
 
   return ok(row);
 }
