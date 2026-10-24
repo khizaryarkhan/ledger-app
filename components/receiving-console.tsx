@@ -49,10 +49,10 @@ export function ReceivingConsole() {
   useEffect(() => { if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") setShowNew(true); }, []);
 
   async function voidRow(id: string, no: string) {
-    if (!confirm(`Void receipt ${no}? This reverses the stock and its GL entry.`)) return;
+    if (!confirm(`Delete receipt ${no}? This reverses its stock and GL entry and removes the receipt entirely.`)) return;
     setVoidErr("");
     const r = await fetch(`/api/inventory/receiving/${id}`, { method: "DELETE" });
-    if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not void receipt."); return; }
+    if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not delete receipt."); return; }
     load();
   }
 
@@ -143,7 +143,7 @@ export function ReceivingConsole() {
                         ) : (
                           <span className="p-1 text-stone-500 opacity-40" title="Already billed — reverse the bill first to edit"><Pencil size={13} /></span>
                         )}
-                        <button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Void receipt"><Trash2 size={13} /></button>
+                        <button onClick={() => voidRow(r.id, r.receiptNo || r.id.slice(0, 8))} className="p-1 rounded hover:bg-stone-700 text-stone-600 hover:text-rose-400" title="Delete receipt"><Trash2 size={13} /></button>
                       </td>
                     </tr>
                   );
