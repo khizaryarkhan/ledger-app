@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2, Mail } from "lucide-react";
+import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2, Mail, Repeat } from "lucide-react";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 import { NewDocumentForm, type DocType } from "@/components/new-document-form";
 import { DocumentEmailModal } from "@/components/document-email-modal";
 import { DocumentAttachmentsPanel } from "@/components/document-attachments-panel";
 import { DocumentAuditPanel } from "@/components/document-audit-panel";
+import { MakeRecurringModal } from "@/components/make-recurring-modal";
+import { RECURRABLE_TYPES } from "@/lib/accounting/recurring";
 
 const LINE_EDITABLE = new Set(["Invoice", "SalesReceipt", "CreditNote", "RefundReceipt", "Bill", "Expense", "VendorCredit"]);
 const PAYMENT_EDITABLE = new Set(["Payment", "BillPayment"]);
@@ -65,6 +67,7 @@ export default function TransactionDetailPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [emailOpen, setEmailOpen] = useState(false);
+  const [recurringOpen, setRecurringOpen] = useState(false);
 
   async function load() {
     const r = await fetch(`/api/ledger/journal/${id}`).then(x => x.json()).catch(() => null);
@@ -105,6 +108,7 @@ export default function TransactionDetailPage() {
   // than being forced through this invoice-shaped one.
   const canPrint = e && (LINE_EDITABLE.has(e.sourceType) || PAYMENT_EDITABLE.has(e.sourceType) || e.sourceType === "Deposit");
   const canEmail = e && EMAILABLE.has(e.sourceType);
+  const canRecur = e && RECURRABLE_TYPES.has(e.sourceType) && !reversed && !isReversal;
   // Opening a posted transaction shows the SAME form it was entered on
   // (QBO/QBD parity) for every type that form already knows how to edit —
   // reusing that exact, already-proven data path in a read-only rendering
@@ -176,6 +180,12 @@ export default function TransactionDetailPage() {
           <Mail size={14} /> Email
         </button>
       )}
+      {canRecur && (
+        <button onClick={() => setRecurringOpen(true)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-sm font-medium">
+          <Repeat size={14} /> Make recurring
+        </button>
+      )}
       {canEdit && (
         <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
@@ -217,6 +227,7 @@ export default function TransactionDetailPage() {
             <DocumentAttachmentsPanel kind="ledger" id={e.id} />
             <DocumentAuditPanel kind="ledger" id={e.id} />
             {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}
+            {recurringOpen && <MakeRecurringModal sourceEntryId={e.id} sourceType={e.sourceType} docNumber={e.docNumber} onClose={() => setRecurringOpen(false)} />}
           </>
         }
       />

@@ -28,7 +28,7 @@ export function addMonthsToDate(dateStr: string, n: number): string {
   const ny = Math.floor(total / 12), nm = (total % 12) + 1;
   return ymd(ny, nm, Math.min(d, daysInMonth(ny, nm)));
 }
-function addDays(dateStr: string, n: number): string {
+export function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }

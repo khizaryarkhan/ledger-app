@@ -7,6 +7,7 @@ import {
   xeroSyncScheduler, runOrgXeroSync,
   runBatchCommit, runBatchUndo, scheduledImportScan, runScheduledImportFn,
   runBatchChunkLoop, batchJobWatchdog,
+  recurringDocScheduler, processOrgRecurring,
 } from "@/inngest";
 
 export const { GET, POST, PUT } = serve({
@@ -27,5 +28,7 @@ export const { GET, POST, PUT } = serve({
     runScheduledImportFn,
     runBatchChunkLoop,
     batchJobWatchdog,
+    recurringDocScheduler,
+    processOrgRecurring,
   ],
 });

@@ -6,3 +6,4 @@ export {
   runBatchCommit, runBatchUndo, scheduledImportScan, runScheduledImportFn,
   runBatchChunkLoop, batchJobWatchdog,
 } from "./functions/batch";
+export { recurringDocScheduler, processOrgRecurring } from "./functions/recurring";

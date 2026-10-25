@@ -11,7 +11,7 @@ import {
   ChevronDown, ArrowLeftRight, Bell, Workflow, Package, BookOpen,
   Layers, History, Clock, GitBranch, ListTree, Check, Database, ChevronRight, Contact,
   Scale, ClipboardList, PackageCheck, Truck, Landmark, Factory, ShieldCheck, Gauge, ScrollText,
-  CalendarClock, Wrench, MapPin, Percent
+  CalendarClock, Wrench, MapPin, Percent, Repeat
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useData } from "./data-provider";
@@ -306,6 +306,9 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // etc. post tax through. Hides itself (shows a notice) for a synced
         // (QuickBooks/Xero) org, same as Posting Groups below.
         { href: "/accounting/tax-codes",         label: "Tax Codes",           icon: Percent },
+        // QBO form-parity, Phase 6 "Make Recurring" — templates are created
+        // from an existing document's own screen; this just lists/manages them.
+        { href: "/accounting/recurring",         label: "Recurring Templates", icon: Repeat },
         // The inventory Chart-of-Accounts mapping: which account each stock
         // posting goes to. Setup, not Ledger — it is configuration, like tax rates.
         { href: "/accounting/posting-groups",    label: "Posting Groups",      icon: Layers },

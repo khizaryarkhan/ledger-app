@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0111` at `when`
-  `1791900000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0112` at `when`
+  `1792000000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1763,6 +1763,70 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   path that only touches the still-unbilled portion of a receipt. This
   matches how every other correction in this app already works (void,
   don't partially patch).
+
+## QBO form-parity sweep — Phase 6: Make Recurring (2026-10-25)
+
+The last of the six phases the client asked for, in order. A saved document
+can now be turned into a template that auto-posts a fresh copy on a
+schedule, the way QBO's own "Make recurring" works.
+
+- **`recurring_templates`** (migration `0112`) stores a `payload` that is the
+  SAME `PostDocInput` shape already stored in `journal_entries.sourcePayload`
+  — built via `lib/accounting/documents.ts`'s existing `documentPayload()`
+  (the same reconstruction logic the edit/reopen path already uses), minus
+  `date`/`docNumber`/`dueDate`: a fresh run always sets its own date, gets a
+  freshly allocated number, and (if the original had `termsDays` rather than
+  a fixed `dueDate`) computes its own due date relative to the NEW date
+  rather than repeating one fixed date forever. Generating an occurrence is
+  therefore just `postDocument(orgId, {...payload, date}, createdBy)` —
+  the one posting engine, not a second one.
+- **Scoped to `RECURRABLE_TYPES`** (`lib/accounting/recurring.ts`, shared by
+  both the client button and the API route so the two can never drift apart)
+  — Invoice/SalesReceipt/CreditNote/RefundReceipt/Bill/Expense/VendorCredit,
+  the same set `transactions/[id]/page.tsx` already calls `LINE_EDITABLE`.
+  Payment/BillPayment/Deposit/Transfer/Manual Journal Entry are deliberately
+  excluded — their "amount" varies occurrence to occurrence in a way that
+  makes a templated copy misleading rather than useful. Trade documents
+  (Estimate/PO/SO) aren't recurring in this phase either.
+- **`inngest/functions/recurring.ts`'s two functions mirror `chase.ts`'s own
+  shape exactly** — a cron scheduler (`06:00 UTC`, before the `08:00` chase
+  run) fans out one event per org, a per-org handler processes it in
+  isolation with each template wrapped in its own `step.run` (so a failed
+  template doesn't block the rest of the org, and a retry doesn't
+  regenerate an already-created occurrence). Gated on
+  `requireActiveSubscription`, same as chase. Uses `today()` (UTC), not
+  `localToday()` — this runs with no viewer, so there is no "local" to be
+  relative to; matches `chase.ts`'s own precedent exactly.
+- **Scheduling math is pure and tested** (`lib/accounting/recurring.ts`'s
+  `nextOccurrence`/`isTemplateFinished`, `tests/recurring.test.ts`) — reuses
+  `report-periods.ts`'s existing `addMonthsToDate`/`addDays` (the latter
+  widened from file-private to exported) rather than a second date-math
+  implementation. Covers the month-end clamp (Jan 31 + 1 month → Feb 28),
+  a leap-day source date, and all three end conditions.
+- **Auto-send reuses the Phase 2 Email/Send defaults, duplicated
+  deliberately rather than an HTTP round-trip**: `sendRecurringEmail()`
+  builds the same subject/body `components/document-email-modal.tsx` would,
+  from the same `loadLedgerDocumentForPrint` data, then renders the PDF via
+  the same `renderLedgerDocumentPdf` Download/Email already use — because
+  this runs server-side already, inside a background job with no browser,
+  so calling the HTTP API route would just be routing through itself.
+- **`components/make-recurring-modal.tsx`** turns an EXISTING saved document
+  into a template (there is no "make recurring" option on a brand-new,
+  unsaved document in this phase — QBO offers that too, but it's a
+  materially different integration point into the create flow, deliberately
+  deferred). **`/accounting/recurring`** (new sidebar entry, Accounting →
+  Setup) lists/pauses/resumes/deletes templates — it does not create one;
+  that always starts from a document's own screen.
+- **Not done in this phase**: no "Reminder" or "Unscheduled" template modes
+  (QBO's other two besides "Scheduled", which is what this builds) — an
+  always-active automatic schedule is the only kind; no custom email body
+  per template (auto-send always uses the same default wording Email/Send
+  does); editing a template's own future dates/amounts mid-schedule is
+  pause-then-delete-then-recreate, not an in-place content edit (only name/
+  frequency/interval/end-condition/auto-send/active are PATCH-able).
+
+Migration applied and verified clean on the dev branch (110/112 applied, 153
+tables, 2131 columns checked, no new warnings). tsc clean, 694/694 tests pass.
 
 ## QBO form-parity sweep — Phase 5: Audit history per document (2026-10-25)
 

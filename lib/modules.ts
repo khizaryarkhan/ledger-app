@@ -108,6 +108,7 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   { path: "/accounting/new", owner: "accounting" },       // native GL documents (PO/SO carved out above)
   { path: "/accounting/trade/estimates", owner: "accounting" }, // estimates commit nothing — Accounting's (CLAUDE.md IA rule)
   { path: "/accounting/tax-codes", owner: "accounting" },       // native tax engine admin (sales-document refactor, Phase 3c)
+  { path: "/accounting/recurring", owner: "accounting" },       // recurring document templates (QBO form-parity, Phase 6)
   ...ACCOUNTING_REPORTS.map((r) => ({ path: `/accounting/reports/${r}`, owner: "accounting" as const })),
 
   // Receivables
@@ -164,6 +165,10 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/tax-components", owner: "accounting" },
   { path: "/api/accounting/tax-codes", owner: "accounting" },
   { path: "/api/accounting/bill-suggestions", owner: "accounting" },
+  // QBO form-parity, Phase 6 "Make Recurring" — scoped to native ledger
+  // document types only (Invoice/Bill/Expense/SalesReceipt/CreditNote/
+  // RefundReceipt/VendorCredit), so Accounting, not shared.
+  { path: "/api/recurring-templates", owner: "accounting" },
 
   // Supply Chain / Resources — every route here already called
   // requireModule() independently before it was registered; see the header

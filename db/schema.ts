@@ -1466,6 +1466,45 @@ export const auditEvents = pgTable("audit_events", {
 export type AuditEvent = typeof auditEvents.$inferSelect;
 
 // =========================================================================
+// RECURRING TEMPLATES — QBO form-parity, Phase 6 "Make Recurring" (2026-10-25)
+// =========================================================================
+/**
+ * A saved document (Invoice/Bill/Expense/SalesReceipt/CreditNote/
+ * RefundReceipt/VendorCredit) turned into a template that auto-posts a new
+ * copy on a schedule. `payload` is the SAME `PostDocInput` shape stored in
+ * `journal_entries.sourcePayload` — minus `date`/`docNumber`, which a fresh
+ * run always sets itself (a new date, a freshly allocated number) — so
+ * generating an occurrence is just `postDocument(orgId, {...payload, date},
+ * createdBy)`, reusing the one posting engine rather than a second one.
+ * `sourceType` is scoped to the "ledger" document family only — trade
+ * documents (Estimate/PO/SO) aren't made recurring in this phase.
+ */
+export const recurringTemplates = pgTable("recurring_templates", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  orgId:           uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  sourceType:      varchar("source_type", { length: 24 }).notNull(),
+  templateName:    varchar("template_name", { length: 255 }).notNull(),
+  payload:         jsonb("payload").notNull(),
+  frequency:       varchar("frequency", { length: 16 }).notNull(),      // daily | weekly | monthly | yearly
+  interval:        integer("interval").notNull().default(1),            // every N <frequency> units
+  startDate:       varchar("start_date", { length: 16 }).notNull(),
+  endType:         varchar("end_type", { length: 16 }).notNull().default("never"), // never | after | on
+  endAfterCount:   integer("end_after_count"),
+  endOnDate:       varchar("end_on_date", { length: 16 }),
+  occurrencesCreated: integer("occurrences_created").notNull().default(0),
+  nextRunDate:     varchar("next_run_date", { length: 16 }).notNull(),
+  active:          boolean("active").notNull().default(true),
+  autoSend:        boolean("auto_send").notNull().default(false),
+  lastRunAt:       timestamp("last_run_at"),
+  lastRunEntryId:  uuid("last_run_entry_id"),
+  createdBy:       uuid("created_by"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  recurring_templates_due_idx: index("recurring_templates_due_idx").on(t.orgId, t.active, t.nextRunDate),
+}));
+export type RecurringTemplate = typeof recurringTemplates.$inferSelect;
+
+// =========================================================================
 // QBO SYNC LOG
 // =========================================================================
 export const qboSyncLog = pgTable("qbo_sync_log", {
