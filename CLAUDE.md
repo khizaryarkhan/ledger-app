@@ -1715,6 +1715,103 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## Reverse removed everywhere — Edit/Delete only, gated on real settlement (2026-10-25)
+
+Prompted directly, with screenshots of a "View bill" header and a blank "New
+bill" form: "Remove the reverse function fully... When someone opens the
+saved forms in QBO they open up in the editable window. Right now it is
+not... The right-hand suggestions window should be collapsable... Amount
+fields are not aligned... for the buttons we should only use the bottom
+line... this needs to be done across all the forms." Clarified before
+building: "Remove Reverse Everywhere. Allow delete instead only if nothing is
+linked [to] a prior doc. Bill should not be deleted if the payment is linked
+with the bill. But it can be deleted if only linked with prior docs in the
+chain, like GRN."
+
+- **The user-facing Reverse feature is gone, not just hidden.**
+  `app/api/ledger/journal/[id]/reverse/route.ts` (the HTTP endpoint) is
+  deleted outright. `lib/ledger.ts`'s `reverseJournalEntry` and
+  `lib/accounting/documents.ts`'s `onEntryReversed` are **kept** — they're
+  the internal mechanism `lib/accounting/period-close.ts` still uses to
+  reopen a closed period (its own system-generated Closing entry is reversed,
+  never user-facing). Removing those would have broken period reopening for
+  an unrelated reason.
+- **Edit/Delete are now gated on SETTLEMENT, not on any link at all.**
+  `updateDocument`'s line-item branch used to refuse editing if the document
+  had *any* row in `transactionLinks` — which blocked editing a Bill that
+  merely came from a Goods Receipt, with no payment anywhere near it. The new
+  `hasSettlementLink(orgId, entryId)` (in `lib/accounting/documents.ts`,
+  immediately above `updateDocument`) checks only for a `payment`/`credit`
+  relation — exactly the two `deleteDocument` already distinguished in its
+  own inbound/outUsed checks. `updateDocument` and `deleteDocument` now share
+  this one rule instead of `updateDocument` using a stricter one than
+  `deleteDocument`; `app/(app)/accounting/transactions/[id]/page.tsx` mirrors
+  the identical check client-side (`hasSettlementLink` there, computed from
+  `data.links`) so the button the user sees and the server's own refusal
+  never disagree. A provenance link (`po_bill`, `receipt_bill`, `conversion`,
+  …) is explicitly **not** a reason to block a correction — per the user's
+  own rule, a Bill linked only to its GRN can still be deleted or edited; one
+  with a Payment or Credit applied cannot, until that's removed first.
+- **View and Edit are merged — QBO parity.** Opening a saved document used to
+  always render read-only (`readOnly` was hardcoded true) with a separate
+  "Edit" button that navigated to `/accounting/new/[type]?edit=...`. Now
+  `transactions/[id]/page.tsx` passes `readOnly={!canEdit}` straight into the
+  same `NewDocumentForm` instance — a document free to correct opens directly
+  editable, no extra click; one that's been settled opens inert, same as
+  before. The "Edit" button and its `Pencil` icon are gone entirely; there is
+  no second entry point to reach an edit.
+- **Every action lives in the bottom bar now — nothing but a status badge and
+  Close in the header.** `NewDocumentForm` gained a `headerBadge?: ReactNode`
+  prop (the status pill only) alongside the existing `actions?: ReactNode`
+  prop (Download/Print/Email/Make-recurring/Delete), and the footer changed
+  from `justify-end` to `justify-between`: a left-aligned group (the
+  trade-document Download/Print/Email buttons, formerly self-rendered in the
+  header, plus whatever `actions` the caller passed) and a right-aligned
+  group (Cancel/Save, or Close when read-only) — exactly the user's "only use
+  the bottom line" ask, applied once in the shared component so it covers
+  every document type without a second place to miss.
+- **The Add-to-Bill suggestions panel is collapsible, which also fixed the
+  Amount-column misalignment** the user attributed to it. New
+  `suggestionsCollapsed` state renders either the full `w-[320px]` panel
+  (with a `ChevronRight` collapse toggle in its own header row) or a slim
+  `w-10` strip with a vertical label to re-expand — the Items/Accounts table
+  gets its full width back once collapsed, which was indeed squeezing the
+  Amount column.
+- **A second, independent Reverse surface was found and fixed in the same
+  pass**: `app/(app)/settings/accounting/journal/page.tsx` (Settings →
+  Accounting → General Ledger, the raw manual-journal-entry screen — a
+  completely different page from the document forms above, with no Edit
+  concept of its own) had its own `reverse()` function calling the same now-
+  deleted route. A grep for the route path after deleting it is what caught
+  this — it would otherwise have 404'd silently on click. Manual JEs have no
+  delete button there either until now; fixed by wiring a `del()` function
+  to the already-existing `DELETE /api/ledger/journal/[id]` route (which
+  already calls `deleteDocument` and already enforces the same settlement
+  rule) — one more caller of an endpoint that already existed, not new
+  server logic. The page's copy ("Entries are immutable — corrections are
+  posted as reversals") and its file-header comment were updated to match.
+- **Every other stray "reverse it instead" error message in
+  `lib/accounting/documents.ts` was reworded**, not just the two load-bearing
+  checks — the doc comment above `updateDocument`, the payment-edit path's
+  own two guards (unapplied credit used elsewhere; settlement amount ≤ 0),
+  the inventory-already-consumed guard on both the edit and delete paths, and
+  the "this transaction type can't be edited in place" guard for non-editable
+  source types. None of these changed behavior — they were already correctly
+  refusing the action — only the guidance text, which used to tell the user
+  to do something (Reverse) that no longer exists.
+- `tests/module-gating.test.ts`'s `API_OWNERS`/`UNOWNED_API` allowlist had
+  `"/api/ledger/journal/abc/reverse"` as a "never gated" example path — now
+  removed since the route is gone; the reverse-completeness check (which
+  derives real routes from files on disk) needed no other change, since
+  deleting the route file is what it actually watches for.
+- 56 test files / 694 tests pass; `tsc --noEmit` is clean. Live browser
+  verification of the UI changes was attempted but blocked by an unrelated
+  dev-environment issue: the Next.js dev server process couldn't reach Neon
+  (`neon fetch failed`, 100% of attempts) while a standalone `tsx` script in
+  the same shell connected successfully every time — a sandboxed dev-server
+  networking quirk, not a regression from this change. Verified instead by
+  full reading of the diffs plus the automated test suite above.
+
 ## Correcting an already-posted GRN (2026-10-24)
 
 Follow-up to the receiving two-GRN fix above: the user asked for a GRN to be

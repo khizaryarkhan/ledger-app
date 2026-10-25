@@ -151,21 +151,28 @@ const todayStr = () => localToday();
 const num = (s: string) => Number(s) || 0;
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, afterContent }: {
+export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadge, actions, afterContent }: {
   type: DocType;
   /** Open directly into edit-loading for this entry, bypassing the ?edit= URL
    *  param — used when this form is embedded (not navigated to) by another
-   *  page, e.g. the transaction detail view's read-only rendering. */
+   *  page, e.g. the transaction detail view. */
   editId?: string;
-  /** Render the SAME form every field was entered on, but inert — the exact
-   *  QBO/QBD pattern of "opening a transaction shows its original form."
-   *  Disables every control via one wrapping <fieldset disabled> rather than
-   *  threading a flag through each input, and swaps the footer to a single
-   *  Close button. */
+  /** Render the form inert (view-only) — used only when the document genuinely
+   *  can't be corrected here (a payment/credit is applied against it). A
+   *  document free to edit opens directly editable instead, QBO-style — no
+   *  separate "Edit" click. Disables every control via one wrapping
+   *  <fieldset disabled> rather than threading a flag through each input,
+   *  and swaps the footer's Save to a single Close button. */
   readOnly?: boolean;
-  /** Extra buttons shown in the header next to Close (Download PDF / Print /
-   *  Edit / Reverse / Delete) — kept out of this component so it stays
-   *  unaware of ledger-specific actions; the caller owns those handlers. */
+  /** A small status indicator (e.g. "Posted"/"Reversed") shown in the header
+   *  next to Close — the one thing that stays up there, since it's a status,
+   *  not an action. */
+  headerBadge?: ReactNode;
+  /** Secondary actions (Download PDF / Print / Email / Make recurring /
+   *  Delete) — rendered in the BOTTOM bar, left of Cancel/Save, so every
+   *  action on the form lives in one place. Kept out of this component so it
+   *  stays unaware of ledger-specific actions; the caller owns those
+   *  handlers. */
   actions?: ReactNode;
   /** Extra content shown below the form fields, inside the same scrollable
    *  body — e.g. a "Related transactions" panel. Rendered outside the
@@ -255,6 +262,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
   const [stagedReceiptLines, setStagedReceiptLines] = useState<any[]>([]);
   const [loadingReceiptLines, setLoadingReceiptLines] = useState(false);
   const [suggestionErr, setSuggestionErr] = useState("");
+  // Collapsible so it never has to fight the Items/Accounts table for width —
+  // reported as the cause of the Amount column reading misaligned.
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
   // PurchaseOrder only — optional link to the Sales Order this purchase is
   // for, so it shows up on that order's Production Tracker.
   const [salesOrderId, setSalesOrderId] = useState("");
@@ -1059,31 +1069,7 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               <div className="text-[10px] uppercase tracking-wider text-stone-500">Total</div>
               <div className="text-[18px] font-semibold text-white tabular-nums leading-tight">{money(totals.total)} <span className="text-[12px] text-stone-500 font-normal">{cur}</span></div>
             </div>
-            {/* Trade documents (Estimate/PO/SO) have no detail page of their
-                own — this open/edit screen IS the only place to view one, so
-                unlike the native-doc Download/Print (passed in via `actions`
-                by /accounting/transactions/[id]), these are self-contained
-                here rather than needing every opener to supply them. Reuses
-                the exact /api/print/pdf?kind=trade + /print/trade/[kind]/[id]
-                routes the list row's own icons already use. */}
-            {cfg.trade && editId && (
-              <>
-                <a href={`/api/print/pdf?kind=trade&id=${editId}`}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
-                  <Download size={14} /> Download PDF
-                </a>
-                <a href={`/print/trade/${cfg.trade}/${editId}`} target="_blank" rel="noopener noreferrer"
-                  title="Open the printable page in a new tab (uses your browser's own print dialog)"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
-                  <Printer size={14} /> Print
-                </a>
-                <button onClick={() => setEmailOpen(true)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
-                  <Mail size={14} /> Email
-                </button>
-              </>
-            )}
-            {actions}
+            {headerBadge}
             <button onClick={close} className="text-stone-500 hover:text-stone-200 hover:bg-stone-800 p-1.5 rounded-lg transition" title="Close"><X size={20} /></button>
           </div>
         </div>
@@ -1627,11 +1613,25 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
               addPoToBill/addReceiptToBill's own doc comments. A PO line for a
               stocked item is never offered; it must be billed from its Goods
               Receipt instead, which is why both lists sit here side by side. */}
-          {showBillSuggestions && (
+          {showBillSuggestions && suggestionsCollapsed && (
+            <button type="button" onClick={() => setSuggestionsCollapsed(false)}
+              title="Show purchase order / goods receipt suggestions"
+              className="w-10 shrink-0 sticky top-0 rounded-lg border border-stone-800 bg-stone-900/40 hover:bg-stone-900 flex flex-col items-center gap-2 py-3 text-stone-400 hover:text-stone-200">
+              <ChevronRight size={14} className="rotate-180" />
+              <span className="text-[10px] font-medium tracking-wider" style={{ writingMode: "vertical-rl" }}>Add from PO/GRN</span>
+            </button>
+          )}
+          {showBillSuggestions && !suggestionsCollapsed && (
             <div className="w-[320px] shrink-0 sticky top-0 rounded-lg border border-stone-800 overflow-hidden">
-              <div className="px-3 py-2.5 border-b border-stone-800 bg-stone-950/40">
-                <span className="text-[12px] font-semibold text-stone-300">Add from purchase order or goods receipt</span>
-                <p className="text-[11px] text-stone-500 mt-0.5">Lines are staged onto this bill for you to review — nothing posts until you press Save below.</p>
+              <div className="px-3 py-2.5 border-b border-stone-800 bg-stone-950/40 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[12px] font-semibold text-stone-300">Add from purchase order or goods receipt</span>
+                  <p className="text-[11px] text-stone-500 mt-0.5">Lines are staged onto this bill for you to review — nothing posts until you press Save below.</p>
+                </div>
+                <button type="button" onClick={() => setSuggestionsCollapsed(true)} title="Collapse"
+                  className="shrink-0 p-1 rounded-md text-stone-500 hover:text-stone-200 hover:bg-stone-800">
+                  <ChevronRight size={14} />
+                </button>
               </div>
               {suggestionErr && <div className="px-3 py-2 text-[12px] text-rose-400 bg-rose-950/30 border-b border-stone-800">{suggestionErr}</div>}
               {!partyId ? (
@@ -1978,19 +1978,51 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, actions, a
         )}
         </div>
 
-        {/* Footer */}
+        {/* Footer — EVERY action lives here, next to Save/Cancel: Download/
+            Print/Email/Make recurring/Delete on the left, Cancel+Save (or
+            Close, read-only) on the right. Nothing lives in the header
+            except the Close (X) button and a status badge. */}
         {!loading && (
-          <div className="flex items-center justify-end gap-3 px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
-            {readOnly ? (
-              <button onClick={close} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">Close</button>
-            ) : (
-              <>
-                <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
-                <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
-                  {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
-                </button>
-              </>
-            )}
+          <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
+            <div className="flex items-center gap-2">
+              {/* Trade documents (Estimate/PO/SO) have no detail page of their
+                  own — this open/edit screen IS the only place to view one, so
+                  unlike the native-doc actions (passed in by /accounting/
+                  transactions/[id]), these are self-contained here rather
+                  than needing every opener to supply them. Reuses the exact
+                  /api/print/pdf?kind=trade + /print/trade/[kind]/[id] routes
+                  the list row's own icons already use. */}
+              {cfg.trade && editId && (
+                <>
+                  <a href={`/api/print/pdf?kind=trade&id=${editId}`}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                    <Download size={14} /> Download PDF
+                  </a>
+                  <a href={`/print/trade/${cfg.trade}/${editId}`} target="_blank" rel="noopener noreferrer"
+                    title="Open the printable page in a new tab (uses your browser's own print dialog)"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                    <Printer size={14} /> Print
+                  </a>
+                  <button onClick={() => setEmailOpen(true)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">
+                    <Mail size={14} /> Email
+                  </button>
+                </>
+              )}
+              {actions}
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              {readOnly ? (
+                <button onClick={close} className="px-4 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[13px] font-medium">Close</button>
+              ) : (
+                <>
+                  <button onClick={close} className="text-[13px] text-stone-400 hover:text-stone-200 px-3 py-2">Cancel</button>
+                  <button onClick={submit} disabled={posting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+                    {posting ? <Loader size={14} className="animate-spin" /> : <Check size={15} />} {editId ? "Save changes" : cfg.submit}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

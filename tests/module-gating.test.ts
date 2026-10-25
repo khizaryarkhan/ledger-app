@@ -77,7 +77,7 @@ describe("moduleForApi", () => {
     for (const p of [
       "/api/batch/jobs", "/api/batch/jobs/1/run-chunk-now",   // Receivables' bulk invoice send
       "/api/payables/suppliers", "/api/payables/suppliers/3", // Accounting's purchases + GL reports
-      "/api/ledger/journal/abc", "/api/ledger/journal/abc/reverse", // the shared document page
+      "/api/ledger/journal/abc", // the shared document page
       "/api/accounting/items", "/api/accounting/tax-rates", "/api/accounting/currencies",
       "/api/accounting/posting-groups", "/api/documents/Bill", "/api/transactions/links",
       "/api/period-close", "/api/org/settings",

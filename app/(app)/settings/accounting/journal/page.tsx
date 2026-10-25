@@ -2,13 +2,14 @@
 
 /**
  * General Ledger — manual journal entries + trial balance.
- * The first UI on the posting engine (lib/ledger). Entries are immutable:
- * mistakes are reversed, never edited.
+ * The first UI on the posting engine (lib/ledger). A posted entry can't be
+ * edited in place; a mistake is deleted (deleteDocument refuses if money has
+ * actually settled against it) rather than reversed.
  */
 
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
-import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Undo2, Scale, BookOpen } from "lucide-react";
+import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Trash2, Scale, BookOpen } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
@@ -226,10 +227,10 @@ export default function JournalPage() {
     } finally { setPosting(false); }
   }
 
-  async function reverse(entry: Entry) {
-    if (!confirm(`Reverse JE-${entry.entryNumber}? A mirrored entry will be posted; the original stays on record.`)) return;
-    const res = await fetch(`/api/ledger/journal/${entry.id}/reverse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || "Failed to reverse"); return; }
+  async function del(entry: Entry) {
+    if (!confirm(`Delete JE-${entry.entryNumber}? This can't be undone.`)) return;
+    const res = await fetch(`/api/ledger/journal/${entry.id}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || "Failed to delete"); return; }
     await load();
   }
 
@@ -248,7 +249,7 @@ export default function JournalPage() {
         <div className="flex items-end justify-between flex-wrap gap-3 mb-5">
           <div>
             <h1 className="text-xl font-bold text-white">General Ledger</h1>
-            <p className="text-[13px] text-stone-500 mt-0.5">Manual journal entries and the trial balance. Entries are immutable — corrections are posted as reversals.</p>
+            <p className="text-[13px] text-stone-500 mt-0.5">Manual journal entries and the trial balance. A mistake is deleted, not edited in place.</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
@@ -313,9 +314,9 @@ export default function JournalPage() {
                               </td>
                               <td className={`${listCell} text-right whitespace-nowrap`} onClick={ev => ev.stopPropagation()}>
                                 {e.status === "Posted" && e.sourceType !== "Reversal" && (
-                                  <button onClick={() => reverse(e)} title="Reverse this entry"
-                                    className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-amber-400">
-                                    <Undo2 size={12} /> Reverse
+                                  <button onClick={() => del(e)} title="Delete this entry"
+                                    className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-red-400">
+                                    <Trash2 size={12} /> Delete
                                   </button>
                                 )}
                                 <button onClick={() => setOpenId(expanded ? null : e.id)} className="ml-2 text-stone-600 hover:text-stone-300">

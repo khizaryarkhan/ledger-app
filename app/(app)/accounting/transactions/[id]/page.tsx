@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { X, Loader, Undo2, Receipt, ArrowRight, AlertTriangle, Check, Pencil, Printer, Download, Trash2, Mail, Repeat } from "lucide-react";
+import { X, Loader, Receipt, ArrowRight, AlertTriangle, Check, Printer, Download, Trash2, Mail, Repeat } from "lucide-react";
 import { txnTypeLabel, formatTxnId } from "@/lib/accounting/doc-format";
 import { NewDocumentForm, type DocType } from "@/components/new-document-form";
 import { DocumentEmailModal } from "@/components/document-email-modal";
@@ -75,28 +75,21 @@ export default function TransactionDetailPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
-  async function reverse() {
-    if (!confirm("Reverse this transaction? A mirrored entry is posted; the original stays on record for the audit trail.")) return;
-    setBusy(true); setMsg("");
-    try {
-      const res = await fetch(`/api/ledger/journal/${id}/reverse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(d.error || "Failed to reverse"); return; }
-      await load();
-      setMsg("Reversed. The original is marked Reversed and a mirror entry has been posted.");
-    } finally { setBusy(false); }
-  }
-
   const close = () => router.back();
   const e = data?.entry;
   const reversed = e?.status === "Reversed";
   const isReversal = e?.sourceType === "Reversal";
-  const noLinks = (data?.links?.length ?? 0) === 0;
+  // A correction is only blocked when money has actually been SETTLED
+  // against this document (a payment or credit applied) — a provenance link
+  // (the PO/GRN this document came from) is history, not a reason to lock
+  // it. Mirrors lib/accounting/documents.ts's hasSettlementLink exactly, so
+  // the button the user sees and the server's own check never disagree.
+  const hasSettlementLink = (data?.links ?? []).some((l: any) => l.relation === "payment" || l.relation === "credit");
   const canEdit = e && !reversed && !isReversal && (
-    (LINE_EDITABLE.has(e.sourceType) && noLinks) ||                     // line-item doc (payload stored or reconstructed)
+    (LINE_EDITABLE.has(e.sourceType) && !hasSettlementLink) ||          // line-item doc (payload stored or reconstructed)
     (PAYMENT_EDITABLE.has(e.sourceType) && e.hasPayload)               // payments (reallocate / correct)
   );
-  const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && noLinks;
+  const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && !hasSettlementLink;
   // Payment/BillPayment print as a receipt/remittance built from what they
   // settled (lib/accounting/document-print.ts), not from their journal lines
   // — so they're printable even without a stored payload, unlike canEdit.
@@ -112,10 +105,11 @@ export default function TransactionDetailPage() {
   const canRecur = e && RECURRABLE_TYPES.has(e.sourceType) && !reversed && !isReversal;
   // Opening a posted transaction shows the SAME form it was entered on
   // (QBO/QBD parity) for every type that form already knows how to edit —
-  // reusing that exact, already-proven data path in a read-only rendering
-  // instead of inventing a second one. Types with no original form (manual
-  // Journal Entry, Closing, Reversal, stock-count/write-down adjustments, …)
-  // keep the generic debit/credit ledger view below.
+  // reusing that exact, already-proven data path, open DIRECTLY editable
+  // (readOnly={!canEdit} below) when nothing blocks it — no separate "Edit"
+  // click, matching QBO. Types with no original form (manual Journal Entry,
+  // Closing, Reversal, stock-count/write-down adjustments, …) keep the
+  // generic debit/credit ledger view below, which is always read-only.
   //
   // A line-item doc's payload is reconstructed from its journal lines when
   // missing (documentPayload → reconstructLineItemPayload), so it's always
@@ -129,7 +123,7 @@ export default function TransactionDetailPage() {
   );
 
   async function del() {
-    if (!confirm("Delete this transaction permanently? This removes it from the ledger. (Prefer Reverse to keep an audit trail.)")) return;
+    if (!confirm("Delete this transaction permanently? This removes it from the ledger.")) return;
     setBusy(true); setMsg("");
     try {
       const res = await fetch(`/api/ledger/journal/${id}`, { method: "DELETE" });
@@ -157,11 +151,22 @@ export default function TransactionDetailPage() {
     );
   }
 
-  // Status pill + Download/Print/Edit/Reverse/Delete — shared between the
-  // form view's header slot and the generic ledger view's footer below.
-  const actionsBar = (
+  // Status pill — stays in the header (it's a status indicator, not an
+  // action). Shown separately from `actions` below, which NewDocumentForm
+  // now renders in the bottom bar alongside Save/Cancel, not up here — one
+  // action bar per form, not two (the user's own "only use the bottom line"
+  // request).
+  const statusBadge = (
+    <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>
+  );
+  // Download/Print/Email/Make recurring/Delete — Edit is gone (the form
+  // opens directly editable via readOnly={!canEdit} below, no separate
+  // click) and Reverse is gone entirely (removed per explicit request —
+  // correcting a document now means Edit or Delete; a document with a
+  // payment/credit actually applied simply can't be corrected here until
+  // that's removed first, which is deliberate, not a gap).
+  const actions = (
     <div className="flex items-center gap-2">
-      <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 mr-1 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>
       {canPrint && (
         <>
           <a href={`/api/print/pdf?kind=ledger&id=${e.id}`}
@@ -187,16 +192,6 @@ export default function TransactionDetailPage() {
           <Repeat size={14} /> Make recurring
         </button>
       )}
-      {canEdit && (
-        <Link href={`/accounting/new/${e.sourceType}?edit=${e.id}`}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
-          <Pencil size={14} /> Edit
-        </Link>
-      )}
-      <button onClick={reverse} disabled={busy || reversed || isReversal}
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
-        {busy ? <Loader size={14} className="animate-spin" /> : <Undo2 size={14} />} {reversed ? "Reversed" : "Reverse"}
-      </button>
       {canDelete && (
         <button onClick={del} disabled={busy} title="Delete permanently"
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-800/60 text-rose-400 hover:bg-rose-500/10 text-sm font-medium disabled:opacity-40">
@@ -219,8 +214,9 @@ export default function TransactionDetailPage() {
       <NewDocumentForm
         type={e.sourceType as DocType}
         editId={e.id}
-        readOnly
-        actions={actionsBar}
+        readOnly={!canEdit}
+        headerBadge={statusBadge}
+        actions={actions}
         afterContent={
           <>
             {msg && <div className="max-w-[1200px] mb-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2"><Check size={13} /> {msg}</div>}
@@ -253,7 +249,7 @@ export default function TransactionDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <span className={`text-[11px] font-medium border rounded-full px-2 py-0.5 ${reversed ? "bg-amber-500/10 text-amber-400 border-amber-800" : "bg-emerald-500/12 text-emerald-400 border-emerald-800/50"}`}>{e.status}</span>
+            {statusBadge}
             <button onClick={close} className="text-stone-500 hover:text-stone-200 p-1"><X size={20} /></button>
           </div>
         </div>
@@ -319,8 +315,8 @@ export default function TransactionDetailPage() {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-stone-800 bg-stone-900 shrink-0">
-          <p className="text-[11px] text-stone-500 max-w-xs">Reverse keeps an audit trail; Delete removes it entirely.</p>
-          {actionsBar}
+          <p className="text-[11px] text-stone-500 max-w-xs">Delete removes this entry from the ledger permanently.</p>
+          {actions}
         </div>
       </div>
       {emailOpen && <DocumentEmailModal kind="ledger" id={e.id} onClose={() => setEmailOpen(false)} />}

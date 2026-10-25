@@ -958,16 +958,34 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
  * Edit a posted line-item document IN PLACE (Invoice/Bill/Credit note/…). The
  * ledger stays consistent: we rebuild the double-entry from the new form input
  * and replace the entry's lines, keeping its identity (id, TXN no, entry no,
- * type). Guarded — a document that is reversed, in a closed period, or already
- * linked to payments/credits can't be silently edited (reverse it instead).
+ * type). Guarded — a document that is reversed, in a closed period, or has
+ * actually been settled (a payment or credit applied) can't be silently
+ * edited; delete and recreate it instead.
  */
+/**
+ * Whether money has actually been SETTLED against this document — a payment
+ * or credit applied to it, or (if this document itself is a credit) its own
+ * unapplied balance drawn down elsewhere. A provenance link (a PO/GRN this
+ * document was created from or converted into) is deliberately NOT this —
+ * see deleteDocument's own inbound/outUsed checks, which this mirrors so
+ * editing and deleting agree on exactly the same rule.
+ */
+async function hasSettlementLink(orgId: string, entryId: string): Promise<boolean> {
+  const [inbound] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
+    .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), inArray(transactionLinks.relation, ["payment", "credit"]))).limit(1);
+  if (inbound) return true;
+  const [outUsed] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
+    .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, entryId), sql`${transactionLinks.contextEntryId} is distinct from ${entryId}`)).limit(1);
+  return !!outUsed;
+}
+
 export async function updateDocument(orgId: string, entryId: string, input: PostDocInput, actorId: string | null) {
   const [entry] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!entry) err("Transaction not found.");
   const type = entry.sourceType as DocType;
   const isPayment = PAYMENT_TYPES.has(type);
-  if (!EDITABLE_TYPES.has(type) && !isPayment) err("This transaction type can't be edited in place — reverse it and re-enter instead.");
+  if (!EDITABLE_TYPES.has(type) && !isPayment) err("This transaction type can't be edited in place — delete it and re-enter instead.");
   if (entry.status === "Reversed") err("This transaction has been reversed and can't be edited.");
 
   const date = input.date;
@@ -998,19 +1016,23 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     // The payment's unapplied credit must not have been used elsewhere.
     const foreign = await db.select({ id: transactionLinks.id }).from(transactionLinks)
       .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, entryId), sql`${transactionLinks.contextEntryId} is distinct from ${entryId}`)).limit(1);
-    if (foreign.length) err("This payment's credit has been applied to another transaction — undo that first, or reverse this payment.");
+    if (foreign.length) err("This payment's credit has been applied to another transaction — undo that first before editing this payment.");
     // Plan the new settlement, ignoring this payment's own current links.
     const s = await settlePayment(orgId, type, input, currency, rate, arId, apId, fxId, entryId);
-    if (s.amt <= 0) err("A payment needs an amount received — to remove it entirely, reverse it instead.");
+    if (s.amt <= 0) err("A payment needs an amount received — to remove it entirely, delete it instead.");
     built = toHome(s.cashLines, currency, rate, home);
     built.push(...s.extraHomeLines);
     pendingLinks = s.pendingLinks;
     await validateEntry(orgId, built); // payment: balance + account checks before we touch stored data
   } else {
-    // Line-item document: block if anything downstream references it.
-    const [link] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
-      .where(and(eq(transactionLinks.orgId, orgId), or(eq(transactionLinks.fromId, entryId), eq(transactionLinks.toId, entryId)))).limit(1);
-    if (link) err("This document has payments or credits applied to it — remove those first, or reverse it.");
+    // Line-item document: block editing only when something has actually been
+    // SETTLED against it (a payment or credit applied) — a provenance link
+    // (a PO/GRN this document was created from, or that it later became a
+    // Bill from) records history, not money moved, and is never a reason to
+    // block a correction. Same rule deleteDocument below already enforces.
+    if (await hasSettlementLink(orgId, entryId)) {
+      err("This document has payments or credits applied to it — remove those first before editing.");
+    }
     const itemMap = await itemMapForInput(orgId, input);
     built = toHome(await buildSalesPurchaseLines(orgId, type, input, arId, apId, taxId, itemMap), currency, rate, home);
     // Validate the base entry (balance + accounts) BEFORE mutating inventory —
@@ -1019,7 +1041,7 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     // Now safe to unwind this document's prior inventory (blocked if the stock
     // has since been consumed) and re-plan against the restored FIFO lots.
     try { await reverseInventoryByEntry(orgId, entryId); }
-    catch (e: any) { err(e?.message || "Inventory from this document has already been used — reverse it instead of editing."); }
+    catch (e: any) { err(e?.message || "Inventory from this document has already been used downstream — undo that first before editing."); }
     invPlan = await planDocumentInventory(orgId, type, input, itemMap, rate);
     if (invPlan) built.push(...invPlan.extraHomeLines); // balanced Dr/Cr pairs — entry stays balanced
   }
@@ -1293,13 +1315,16 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
   if (org?.lock && entry.entryDate <= org.lock) err(`The books are closed through ${org.lock}. Reopen the period to delete here.`);
 
   // Something applied TO this entry (a payment/credit) — don't orphan it.
+  // A provenance link (this document's own PO/GRN) is NOT this — deleting a
+  // Bill that a Goods Receipt fed into is fine; deleting one a payment has
+  // settled is not.
   const [inbound] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), inArray(transactionLinks.relation, ["payment", "credit"]))).limit(1);
-  if (inbound) err("This document has payments or credits applied to it — remove those or reverse it instead.");
+  if (inbound) err("This document has payments or credits applied to it — remove those first before deleting.");
   // This entry's unapplied credit is in use elsewhere.
   const [outUsed] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, entryId), sql`${transactionLinks.contextEntryId} is distinct from ${entryId}`)).limit(1);
-  if (outUsed) err("This transaction's credit has been applied elsewhere — undo that first, or reverse it.");
+  if (outUsed) err("This transaction's credit has been applied elsewhere — undo that first before deleting.");
 
   // Which invoices this (payment) settled, to re-open after deletion.
   const settled = await db.select({ toId: transactionLinks.toId, toType: transactionLinks.toType }).from(transactionLinks)
@@ -1307,7 +1332,7 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
 
   // Unwind inventory lots/movements first — blocks if stock has been used on.
   try { await reverseInventoryByEntry(orgId, entryId); }
-  catch (e: any) { err(e?.message || "Inventory from this document has already been used — reverse the later transactions first."); }
+  catch (e: any) { err(e?.message || "Inventory from this document has already been used — undo the later transactions first."); }
 
   await db.delete(transactionLinks).where(and(eq(transactionLinks.orgId, orgId), or(eq(transactionLinks.contextEntryId, entryId), eq(transactionLinks.fromId, entryId), eq(transactionLinks.toId, entryId))));
   await db.delete(invoices).where(and(eq(invoices.orgId, orgId), eq(invoices.journalEntryId, entryId)));
