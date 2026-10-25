@@ -102,11 +102,12 @@ export default function TransactionDetailPage() {
   // — so they're printable even without a stored payload, unlike canEdit.
   // Deposit's payload lines are already in the generic {accountId, amount,
   // description} shape document-print.ts's decorateLines expects, so it
-  // prints cleanly too. Manual/Transfer/Closing/Reversal/adjustments are NOT
-  // here yet — they're debit/credit-shaped with no "goods and services" or
-  // settlement concept, and need their own voucher-style template rather
-  // than being forced through this invoice-shaped one.
-  const canPrint = e && (LINE_EDITABLE.has(e.sourceType) || PAYMENT_EDITABLE.has(e.sourceType) || e.sourceType === "Deposit");
+  // prints cleanly too. Manual (Journal Entry) and Transfer print as a
+  // voucher (Account/Name/Description/Debit/Credit table) instead of the
+  // invoice-shaped template — see document-print.ts's VOUCHER_TYPES.
+  // Closing/Reversal/adjustments are still not here — they're system-
+  // generated entries nobody needs a printable copy of.
+  const canPrint = e && (LINE_EDITABLE.has(e.sourceType) || PAYMENT_EDITABLE.has(e.sourceType) || e.sourceType === "Deposit" || e.sourceType === "Manual" || e.sourceType === "Transfer");
   const canEmail = e && EMAILABLE.has(e.sourceType);
   const canRecur = e && RECURRABLE_TYPES.has(e.sourceType) && !reversed && !isReversal;
   // Opening a posted transaction shows the SAME form it was entered on

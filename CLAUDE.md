@@ -1764,6 +1764,44 @@ in-place edit anywhere (reversal-only, see "Accounting foundation" below).
   matches how every other correction in this app already works (void,
   don't partially patch).
 
+## QBO form-parity sweep — Phase 3: voucher print template for Transfer/Journal Entry (2026-10-25)
+
+Closes the one gap Phase 1 deliberately deferred: Manual (Journal Entry) and
+Transfer had Print/Download nowhere, because forcing them through the
+invoice-shaped template (`components/print-document-sheet.tsx`) would have
+produced a nonsensical document — no party to put in the party box, no
+"goods and services" line items, no balance-due concept.
+
+- **`lib/accounting/document-print.ts` gained a `VOUCHER_TYPES` branch**
+  (`Manual`, `Transfer`) inside `loadLedgerDocumentForPrint`, returning early
+  with a new `voucherLines: PrintVoucherLine[]` field (`account`, `name`,
+  `description`, `debit`, `credit`) built straight from `journal_lines` —
+  the EXACT same Account/Name/Description/Debit/Credit shape the on-screen
+  generic ledger view (`transactions/[id]/page.tsx`'s non-form-view branch)
+  already renders, so the printed copy and the on-screen view can never
+  show different data for the same entry.
+- **`PrintSheetBody` branches on the new `doc.isVoucher` flag**: the masthead
+  and footer are shared with every other document type (same company
+  header, same styling), but the middle of the page swaps the party-box +
+  item-lines + balance-due block for a plain debit/credit table with a
+  totals row — reusing the existing `.lines`/`.totwrap` CSS rather than a
+  parallel stylesheet. `showBank` (our own bank details panel) is suppressed
+  for a voucher too — a Transfer or Journal Entry has no counterparty to
+  send money to.
+- **`transactions/[id]/page.tsx`'s `canPrint`** now includes `Manual` and
+  `Transfer` alongside the existing line-item/settlement/Deposit types —
+  this is the last document type gap from the original Phase 1 audit.
+- **Not extended to Email/Send** — these have no party, so "email this
+  document" has nothing to send it to; `EMAILABLE` stays as scoped.
+  Attachments and Audit history already worked for Manual/Transfer
+  unconditionally (both were wired into the generic ledger view with no
+  type restriction back in Phases 4/5), so nothing needed to change there.
+
+This closes the full six-phase QBO form-parity sweep: Print/Download, Email/
+Send, Attachments, Audit history, Make Recurring, and this voucher template —
+every gap identified in the original audit is now built. tsc clean, 694/694
+tests pass.
+
 ## QBO form-parity sweep — Phase 6: Make Recurring (2026-10-25)
 
 The last of the six phases the client asked for, in order. A saved document

@@ -141,7 +141,9 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
   const showTax = lines.some(l => l.taxPct != null);
   // A Payment receipt confirms money already received — showing our bank
   // details on it (as if the customer still owed something) reads backwards.
-  const showBank = !doc.isPurchase && doc.kind !== "SalesOrder" && doc.kind !== "Payment"
+  // A voucher (Transfer/Journal Entry) has no counterparty to send money to
+  // in the first place.
+  const showBank = !doc.isPurchase && !doc.isVoucher && doc.kind !== "SalesOrder" && doc.kind !== "Payment"
     && !!(c.bank?.accountNumber || c.bank?.iban || c.bank?.name);
   const paidSomething = totals.paid > 0.005;
   // Orders and quotes state an order value, not money owed today.
@@ -199,6 +201,44 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
           </div>
         </div>
 
+        {doc.isVoucher ? (
+          <table className="lines">
+            <thead>
+              <tr>
+                <th style={{ width: 24 }}>#</th>
+                <th>Account</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th className="r" style={{ width: 92 }}>Debit</th>
+                <th className="r" style={{ width: 92 }}>Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.voucherLines ?? []).map((l, i) => (
+                <tr key={i}>
+                  <td className="idx num">{i + 1}</td>
+                  <td>{l.account}</td>
+                  <td>{l.name || "—"}</td>
+                  <td>{l.description || "—"}</td>
+                  <td className="r num">{l.debit ? money(l.debit) : ""}</td>
+                  <td className="r num">{l.credit ? money(l.credit) : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={4} style={{ fontWeight: 700, borderTop: "1.5px solid #1b1f24" }}>Total</td>
+                <td className="r num" style={{ fontWeight: 700, borderTop: "1.5px solid #1b1f24" }}>
+                  {money((data.voucherLines ?? []).reduce((s, l) => s + l.debit, 0))}
+                </td>
+                <td className="r num" style={{ fontWeight: 700, borderTop: "1.5px solid #1b1f24" }}>
+                  {money((data.voucherLines ?? []).reduce((s, l) => s + l.credit, 0))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        ) : (
+          <>
         {/* Parties */}
         <div className="parties">
           <div className="pbox">
@@ -271,6 +311,8 @@ export function PrintSheetBody({ data }: { data: PrintDocument }) {
             </div>
           </div>
         </div>
+          </>
+        )}
 
         {/* Payment details / terms / notes */}
         {(showBank || c.terms || doc.memo) && (

@@ -32,6 +32,7 @@ export type PrintLine = {
   qty: number | null; uom: string | null; rate: number | null;
   taxLabel: string | null; taxPct: number | null; amount: number;
 };
+export type PrintVoucherLine = { account: string; name: string | null; description: string | null; debit: number; credit: number };
 export type PrintDocument = {
   company: any;
   doc: {
@@ -46,9 +47,15 @@ export type PrintDocument = {
     /** Overrides the accent total box's label ("Balance due"/"Total due") —
      *  e.g. "Amount received" for a Payment, which has no balance of its own. */
     totalLabel?: string | null;
+    /** Transfer / Manual Journal Entry — no party, no "goods and services"
+     *  concept, just a debit/credit table. When set, PrintSheetBody renders
+     *  `voucherLines` instead of the item-lines + party-box + balance-due
+     *  layout every other document type uses. */
+    isVoucher?: boolean;
   };
   party: PrintParty;
   lines: PrintLine[];
+  voucherLines?: PrintVoucherLine[];
   totals: {
     subtotal: number; taxes: { label: string; amount: number }[]; taxTotal: number;
     total: number; paid: number; balance: number; inWords: string;
@@ -70,7 +77,15 @@ const DOC_META: Record<string, { label: string; party: string; due: string; purc
   Payment:       { label: "PAYMENT RECEIPT", party: "Received from", due: "Date", totalLabel: "Amount received" },
   BillPayment:   { label: "PAYMENT",         party: "Paid to",  due: "Date", purchase: true, totalLabel: "Amount paid" },
   Deposit:       { label: "DEPOSIT",         party: "Deposited by", due: "Date" },
+  Manual:        { label: "JOURNAL ENTRY",   party: "",         due: "Date" },
+  Transfer:      { label: "TRANSFER",        party: "",         due: "Date" },
 };
+
+/** Transfer / Manual Journal Entry — debit/credit-shaped, no party and no
+ *  "goods and services" concept. Printed as a voucher (Account/Name/
+ *  Description/Debit/Credit table) instead of being forced through the
+ *  invoice-shaped item-lines template. */
+const VOUCHER_TYPES = new Set(["Manual", "Transfer"]);
 
 /** Payment / BillPayment settle OTHER documents — they have no "goods and
  *  services" lines of their own, so printing them as what they actually are
@@ -180,6 +195,35 @@ export async function loadLedgerDocumentForPrint(orgId: string, entryId: string)
   const company = await loadCompany(orgId);
   const meta = DOC_META[entry.sourceType] ?? { label: (entry.sourceType || "DOCUMENT").toUpperCase(), party: "Party", due: "Due" };
   const payload = (entry.sourcePayload as any) ?? null;
+
+  if (VOUCHER_TYPES.has(entry.sourceType)) {
+    const rows = await db.select({
+      accountName: accounts.name, accountCode: accounts.code,
+      nameLabel: journalLines.nameLabel, description: journalLines.description,
+      debit: journalLines.debit, credit: journalLines.credit,
+    }).from(journalLines).innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+      .where(and(eq(journalLines.orgId, orgId), eq(journalLines.entryId, entryId)))
+      .orderBy(journalLines.lineNo);
+    const voucherLines: PrintVoucherLine[] = rows.map(r => ({
+      account: r.accountCode ? `${r.accountCode} · ${r.accountName}` : r.accountName,
+      name: r.nameLabel ?? null, description: r.description ?? null,
+      debit: round2(num(r.debit)), credit: round2(num(r.credit)),
+    }));
+    const total = round2(voucherLines.reduce((s, l) => s + l.debit, 0));
+    const currency = company?.currency || "";
+    return {
+      company,
+      doc: {
+        kind: entry.sourceType, label: meta.label, docNumber: entry.docNumber, status: entry.status,
+        date: entry.entryDate, dueDate: null, dueLabel: meta.due,
+        reference: entry.reference ?? null, memo: entry.memo ?? null, currency,
+        partyHeading: "", isPurchase: false, isVoucher: true,
+      },
+      party: { name: null, addressLines: [], taxNumber: null, email: null, phone: null },
+      lines: [], voucherLines,
+      totals: { subtotal: total, taxes: [], taxTotal: 0, total, paid: 0, balance: 0, inWords: amountInWords(total, currency) },
+    };
+  }
 
   const links = await linksFor(orgId, entry.sourceType, entry.id).catch(() => [] as any[]);
   const isSettlement = SETTLEMENT_TYPES.has(entry.sourceType);
