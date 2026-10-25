@@ -3122,8 +3122,14 @@ export const transactionLinks = pgTable("transaction_links", {
   toType:    varchar("to_type", { length: 24 }).notNull(),
   toId:      uuid("to_id").notNull(),
   toLineId:  uuid("to_line_id"),
-  relation:  varchar("relation", { length: 24 }).notNull(),   // progress_invoice | conversion | po_bill | payment | credit | deposit_sweep
+  relation:  varchar("relation", { length: 24 }).notNull(),   // progress_invoice | conversion | po_bill | receipt_bill | payment | credit | deposit_sweep
   amount:    numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  // Quantity this link represents, in the FROM line's base UoM — null for
+  // every relation except receipt_bill, where it's the exact qty a specific
+  // Bill billed of a specific goods-receipt line (fromLineId). The GL never
+  // stores quantity (journal_lines has none), so this is the one place a
+  // Bill-from-receipt's per-line qty survives for editing/matching-table use.
+  qty:       numeric("qty", { precision: 18, scale: 6 }),
   contextEntryId: uuid("context_entry_id"),                   // the transaction that created this link
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -265,6 +265,16 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   // Collapsible so it never has to fight the Items/Accounts table for width —
   // reported as the cause of the Amount column reading misaligned.
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
+  // A Bill already posted from one or more Goods Receipts shows the SAME
+  // matching table the staging view uses (Item/PO Qty/Received/Billed/This
+  // bill's Qty/Rate/Amount) instead of the generic Items/Accounts editor,
+  // whose raw GR/IR-clearing lines have no picker that can show them
+  // correctly (see editBillFromReceipts's own doc comment for why). Editable
+  // when the form itself is editable; Save routes to PATCH .../bill instead
+  // of the generic submit path below.
+  const [postedReceiptMatch, setPostedReceiptMatch] = useState<any[]>([]);
+  const [matchEdits, setMatchEdits] = useState<Record<string, { qty: string; rate: string }>>({});
+  const [showRawGl, setShowRawGl] = useState(false);
   // PurchaseOrder only — optional link to the Sales Order this purchase is
   // for, so it shows up on that order's Production Tracker.
   const [salesOrderId, setSalesOrderId] = useState("");
@@ -552,6 +562,15 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
       .catch(() => setStagedReceiptLines([]))
       .finally(() => setLoadingReceiptLines(false));
   }, [stagedReceiptIdsKey]);
+  // Reopening an already-posted Bill: is it receipt-matched? Empty for every
+  // Bill NOT created from a Goods Receipt (the common case) and for a brand
+  // new, unsaved Bill (editId unset).
+  useEffect(() => {
+    if (!editId || type !== "Bill") { setPostedReceiptMatch([]); return; }
+    fetch(`/api/inventory/receiving/bill?billEntryId=${editId}`).then(r => r.json())
+      .then(rows => setPostedReceiptMatch(Array.isArray(rows) ? rows : []))
+      .catch(() => setPostedReceiptMatch([]));
+  }, [editId, type]);
   // The combined Customer:Project dropdown's onChange — a `project:<id>`
   // value resolves to its OWN customer before calling onParty, so a project
   // can be picked in one action without first hand-picking its parent
@@ -906,6 +925,23 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
         const d = await res.json();
         if (!res.ok) { setErr(d.error || "Failed to save"); return; }
         setDone({ docNumber: d.docNumber, txnNo: d.txnNo });
+        return;
+      }
+      // Correcting an already-posted receipt-matched Bill: PATCH the lines
+      // the matching table actually edited, same reasoning as the staging
+      // branch above — these lines don't fit the generic Items/Accounts path.
+      if (type === "Bill" && editId && postedReceiptMatch.length > 0) {
+        const edited = postedReceiptMatch
+          .filter(row => matchEdits[row.linkId])
+          .map(row => ({ linkId: row.linkId, qty: num(matchEdits[row.linkId].qty), unitCost: matchEdits[row.linkId].rate.trim() !== "" ? num(matchEdits[row.linkId].rate) : undefined }));
+        if (!edited.length) { setErr("Change a quantity or rate before saving, or press Cancel."); return; }
+        const res = await fetch(`/api/inventory/receiving/bill`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ billEntryId: editId, billDate: date, dueDate: dueDate || undefined, reference: reference.trim() || undefined, memo: memo.trim() || undefined, lines: edited }),
+        });
+        const d = await res.json();
+        if (!res.ok) { setErr(d.error || "Failed to save"); return; }
+        setDone({ docNumber: docNumber || undefined });
         return;
       }
       const party = parties.find(p => p.id === partyId);
@@ -1369,12 +1405,23 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
                       <button type="button" onClick={() => removeStagedReceipt(gr.id)} className="text-[11px] text-stone-500 hover:text-rose-400">Remove</button>
                     </div>
                     <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className={tableHead}>
+                          <th className="text-left px-3 py-1 font-medium">Item</th>
+                          <th className="text-right px-3 py-1 font-medium w-20">PO qty</th>
+                          <th className="text-right px-3 py-1 font-medium w-24">Billed so far</th>
+                          <th className="text-right px-3 py-1 font-medium w-24">This bill</th>
+                          <th className="text-right px-3 py-1 font-medium w-28">Amount</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {grLines.map((l: any) => (
                           <tr key={l.id} className="border-t border-stone-800/40">
                             <td className="px-3 py-1.5 text-stone-300">{l.itemName || "Item"}</td>
-                            <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums w-24">{fmt.qty(Number(l.open))} {l.baseUom || ""}</td>
-                            <td className="px-3 py-1.5 text-stone-300 text-right tabular-nums w-28">{money(Number(l.open) * Number(l.unitCost))} {l.currency || gr.currency || cur}</td>
+                            <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{l.poQty != null ? fmt.qty(l.poQty) : "—"}</td>
+                            <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{fmt.qty(Number(l.billedQty))}</td>
+                            <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{fmt.qty(Number(l.open))} {l.baseUom || ""}</td>
+                            <td className="px-3 py-1.5 text-stone-300 text-right tabular-nums">{money(Number(l.open) * Number(l.unitCost))} {l.currency || gr.currency || cur}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1388,11 +1435,108 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
             </div>
           )}
 
+          {/* A Bill already posted from one or more Goods Receipts — the
+              matching table (see postedReceiptMatch's own comment above). Qty
+              and Rate are editable when the document itself is (readOnly is
+              already computed by the caller from the same settlement/period
+              rule editBillFromReceipts enforces server-side); Save routes to
+              PATCH .../bill, not the generic path. A "View journal entry"
+              toggle reveals the underlying Dr/Cr rows read-only for anyone
+              auditing — the GL entry itself never changes shape. */}
+          {type === "Bill" && postedReceiptMatch.length > 0 && (() => {
+            const groups = new Map<string, any[]>();
+            for (const row of postedReceiptMatch) {
+              const key = row.receiptNo || row.receiptId || "—";
+              if (!groups.has(key)) groups.set(key, []);
+              groups.get(key)!.push(row);
+            }
+            let runningTotal = 0;
+            return (
+              <div className="rounded-lg border border-stone-800/80 bg-stone-900/40 overflow-hidden">
+                <div className="px-3 py-2.5 border-b border-stone-800/70 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-300">Goods receipts on this bill</span>
+                  <button type="button" onClick={() => setShowRawGl(v => !v)} className="text-[11px] text-stone-500 hover:text-stone-300 underline decoration-dotted">
+                    {showRawGl ? "Hide journal entry" : "View journal entry"}
+                  </button>
+                </div>
+                {[...groups.entries()].map(([receiptNo, rows]) => (
+                  <div key={receiptNo} className="border-b border-stone-800/50 last:border-b-0">
+                    <div className="px-3 py-2 bg-stone-950/30">
+                      <span className="text-[12px] text-stone-300 font-medium">Goods Receipt {receiptNo}</span>
+                    </div>
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className={tableHead}>
+                          <th className="text-left px-3 py-1 font-medium">Item</th>
+                          <th className="text-right px-3 py-1 font-medium w-20">PO qty</th>
+                          <th className="text-right px-3 py-1 font-medium w-20">Received</th>
+                          <th className="text-right px-3 py-1 font-medium w-24">Billed (all bills)</th>
+                          <th className="text-right px-3 py-1 font-medium w-24">This bill — qty</th>
+                          <th className="text-right px-3 py-1 font-medium w-24">Rate</th>
+                          <th className="text-right px-3 py-1 font-medium w-28">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row: any) => {
+                          const edit = matchEdits[row.linkId];
+                          const qty = edit?.qty ?? String(row.qty);
+                          const rate = edit?.rate ?? String(row.rate);
+                          const amount = Math.round(num(qty) * num(rate) * 100) / 100;
+                          runningTotal += amount;
+                          return (
+                            <tr key={row.linkId} className="border-t border-stone-800/40">
+                              <td className="px-3 py-1.5 text-stone-300">{row.itemName}</td>
+                              <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{row.poQty != null ? fmt.qty(row.poQty) : "—"}</td>
+                              <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{row.receivedQty != null ? fmt.qty(row.receivedQty) : "—"} {row.baseUom || ""}</td>
+                              <td className="px-3 py-1.5 text-stone-500 text-right tabular-nums">{row.billedQty != null ? fmt.qty(row.billedQty) : "—"}</td>
+                              <td className="px-1.5 py-1 text-right">
+                                {readOnly ? <span className="px-2 tabular-nums text-stone-300">{fmt.qty(num(qty))}</span> : (
+                                  <input value={qty} onChange={e => setMatchEdits(m => ({ ...m, [row.linkId]: { qty: e.target.value, rate: m[row.linkId]?.rate ?? String(row.rate) } }))}
+                                    className={`${cell} !h-7 text-right tabular-nums`} inputMode="decimal" />
+                                )}
+                              </td>
+                              <td className="px-1.5 py-1 text-right">
+                                {readOnly ? <span className="px-2 tabular-nums text-stone-300">{fmt.qty(num(rate))}</span> : (
+                                  <input value={rate} onChange={e => setMatchEdits(m => ({ ...m, [row.linkId]: { qty: m[row.linkId]?.qty ?? String(row.qty), rate: e.target.value } }))}
+                                    className={`${cell} !h-7 text-right tabular-nums`} inputMode="decimal" />
+                                )}
+                              </td>
+                              <td className="px-3 py-1.5 text-stone-300 text-right tabular-nums font-medium">{money(amount)} {row.currency || cur}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                <div className="px-3 py-2 flex justify-end text-[12px] text-stone-400">
+                  Total <span className="ml-2 text-stone-200 font-semibold tabular-nums">{money(runningTotal)} {cur}</span>
+                </div>
+                {showRawGl && (
+                  <div className="border-t border-stone-800/70 bg-stone-950/40 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wider text-stone-500 mb-1.5">Journal entry (read-only)</div>
+                    <table className="w-full text-[12px]">
+                      <tbody>
+                        {lines.filter(l => !l.itemId && num(l.amount) !== 0).map((l, i) => (
+                          <tr key={i} className="border-t border-stone-800/40">
+                            <td className="px-2 py-1 text-stone-400">{accounts.find(a => a.id === l.accountId)?.name || "—"}</td>
+                            <td className="px-2 py-1 text-stone-500">{l.description}</td>
+                            <td className="px-2 py-1 text-right tabular-nums text-stone-300">{money(num(l.amount))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Purchase Order / Bill: ITEMS and ACCOUNTS as two sections. An item
               line is ordered and priced in the supplier's own packaging, as
               defined in Products & Services; an account line is a plain
               Chart-of-Accounts amount (freight, a service, a one-off). */}
-          {split && cfg.mode === "lineItems" && stagedReceipts.length === 0 && (() => {
+          {split && cfg.mode === "lineItems" && stagedReceipts.length === 0 && postedReceiptMatch.length === 0 && (() => {
             const itemIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "item");
             const acctIdx = lines.map((l, i) => ({ l, i })).filter(x => lineKind(x.l) === "account");
             const sumOf = (xs: { l: Line }[]) => money(Math.round(xs.reduce((s, x) => s + num(x.l.amount), 0) * 100) / 100);

@@ -17,13 +17,17 @@ export type LinkInput = {
   fromType: string; fromId: string; fromLineId?: string | null;
   toType: string; toId: string; toLineId?: string | null;
   relation: string; amount: number; contextEntryId?: string | null;
+  /** Quantity this link represents (receipt_bill only — see transactionLinks.qty). */
+  qty?: number | null;
 };
 
 export async function createLink(orgId: string, l: LinkInput, actorId: string | null) {
   const [row] = await db.insert(transactionLinks).values({
     orgId, fromType: l.fromType, fromId: l.fromId, fromLineId: l.fromLineId ?? null,
     toType: l.toType, toId: l.toId, toLineId: l.toLineId ?? null,
-    relation: l.relation, amount: l.amount.toFixed(2), contextEntryId: l.contextEntryId ?? l.fromId, createdBy: actorId,
+    relation: l.relation, amount: l.amount.toFixed(2),
+    qty: l.qty != null ? l.qty.toFixed(6) : null,
+    contextEntryId: l.contextEntryId ?? l.fromId, createdBy: actorId,
   }).returning();
   return row;
 }
@@ -68,7 +72,16 @@ async function resolveDocs(orgId: string, refs: DocRef[]): Promise<Map<string, R
 
 export type RelatedDoc = ResolvedDoc & { direction: "from" | "to"; relation: string; linkedAmount: number; lineId: string | null };
 
-/** All documents linked to (type,id), both directions, enriched for display. */
+/**
+ * All documents linked to (type,id), both directions, enriched for display.
+ * Rows sharing the same (direction, other document, relation) are collapsed
+ * into one, with amounts summed — every relation except receipt_bill only
+ * ever produces one row per document pair anyway, so this is a no-op for
+ * them; receipt_bill now creates one row PER RECEIPT LINE (see
+ * billFromReceipts), and a multi-line receipt billed on one Bill should read
+ * as one "Related transactions" row with the real total, not N near-duplicate
+ * rows each showing a fragment.
+ */
 export async function linksFor(orgId: string, type: string, id: string): Promise<RelatedDoc[]> {
   const rows = await db.select().from(transactionLinks)
     .where(and(
@@ -82,18 +95,23 @@ export async function linksFor(orgId: string, type: string, id: string): Promise
     else refs.push({ type: r.fromType, id: r.fromId });
   }
   const resolved = await resolveDocs(orgId, refs);
-  return rows.map(r => {
+  const grouped = new Map<string, RelatedDoc>();
+  for (const r of rows) {
     const isFrom = r.fromType === type && r.fromId === id;
     const other = isFrom ? { type: r.toType, id: r.toId } : { type: r.fromType, id: r.fromId };
     const otherLineId = isFrom ? r.toLineId : r.fromLineId;
     const doc = resolved.get(`${other.type}:${other.id}`);
-    return {
+    const key = `${isFrom ? "to" : "from"}:${other.type}:${other.id}:${r.relation}`;
+    const existing = grouped.get(key);
+    if (existing) { existing.linkedAmount = Math.round((existing.linkedAmount + Number(r.amount)) * 100) / 100; existing.lineId = null; continue; }
+    grouped.set(key, {
       direction: isFrom ? "to" : "from",
       relation: r.relation, linkedAmount: Number(r.amount), lineId: otherLineId ?? null,
       type: other.type, id: other.id,
       docNumber: doc?.docNumber ?? null, date: doc?.date ?? null, total: doc?.total ?? 0, status: doc?.status ?? null,
-    } as RelatedDoc;
-  });
+    });
+  }
+  return [...grouped.values()];
 }
 
 /**

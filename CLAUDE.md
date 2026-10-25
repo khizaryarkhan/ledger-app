@@ -1715,6 +1715,103 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## A Bill-from-receipt gets a real matching table, and can be edited in place (2026-10-25)
+
+Direct feedback on a "View bill" screenshot of a Bill created via `billFromReceipts`
+(see "'Add to Bill' reworked" above): "I am not comfortable with the Bill
+created against GRNs... On the Bill user would only see - Items in the Memo -
+which is weird... The interesting part is Entry behind this form is correct.
+But the way this form has been visualized is not acceptable... At the end of
+the day user would be interested to see What was the PO QTY, What was
+received & What was billed... this is a very classic case in the accounting
+world." Scoped carefully before building (three rounds of confirmation) given
+the GRN/Bill period-independence question this raised.
+
+- **Root cause, confirmed by reading the code, not guessed**: `billFromReceipts`
+  has always posted each receipt line as a plain Account line (`itemId: null`,
+  `accountId` = the item's GRNI/GR-IR clearing role) — correct for the ledger,
+  but on reopening, the Accounts-tab account picker (`lineAccounts` in
+  `new-document-form.tsx`) only lists Expense-classified accounts for a
+  purchase document, so GR/IR (a liability) was never in the list and the
+  select rendered blank. The Accounts table also has no Qty/Rate columns at
+  all. The only place a decent matching table DID exist —
+  `new-document-form.tsx`'s "Goods receipts on this bill" block — was pure
+  client state shown only while staging, before Save; it was discarded the
+  moment the document was saved and reopened. A second, smaller gap bundled
+  into the same fix: `billFromReceipts` hardcoded the `receipt_bill` link's
+  `amount` to `0`, so the Related Transactions panel always showed 0.00.
+- **The GRN/Bill period-safety question, resolved by the architecture itself,
+  not by adding new checks**: a Goods Receipt and the Bill billing it are
+  TWO SEPARATE journal entries, each dated and period-locked independently —
+  that is the entire reason a GR/IR clearing account exists (to bridge
+  receipt and invoice landing in different periods without either restating
+  the other). Editing a Bill's qty/price only ever touches the Bill's OWN
+  entry (gated on the Bill's own `bookCloseDate` check, exactly like every
+  other edit) and the receipt line's running "billed so far" counters, which
+  are bookkeeping metadata, not a dated posting — so a closed GRN period has
+  no bearing on editing a later Bill against it.
+- **`transaction_links` gained a `qty` column** (migration `0113`, nullable,
+  used only by `receipt_bill`) — `journal_lines` has no quantity column at
+  all (the GL is pure debit/credit), so this is the one place a Bill-from-
+  receipt's per-line billed qty survives for display and for editing.
+  `billFromReceipts` now creates ONE link PER RECEIPT LINE (not per receipt),
+  each carrying `fromLineId` (the `goods_receipt_lines.id`), `toLineId` (the
+  exact `journal_lines.id` that line produced — recovered via `postedGrniRows`,
+  which relies on the proven invariant that `buildSalesPurchaseLines`' Bill
+  branch preserves `input.lines` order for every debit line and appends tax/
+  control lines strictly afterward), `qty`, and the REAL `amount` (fixing the
+  0.00 bug as a side effect). `lib/accounting/links.ts`'s `linksFor()` now
+  collapses rows sharing `(direction, other document, relation)` into one,
+  summing amounts — every other relation only ever produced one row per pair
+  anyway, so this is a no-op for them; it's what turns N per-line
+  `receipt_bill` rows back into one sane "Related transactions" row.
+- **The matching table** (Item · PO Qty · Received · Billed so far (every
+  bill) · This bill's Qty · Rate · Amount) is now the SAME component used
+  both while staging (enhanced with the PO Qty/Billed-so-far columns it
+  didn't have before) and when reopening an already-posted receipt-matched
+  Bill — `GET /api/inventory/receiving/bill?billEntryId=X` (new mode on the
+  existing route) joins the per-line links back to `goods_receipt_lines`/
+  `trade_document_lines`/`goods_receipts`. It replaces the generic Items/
+  Accounts editor entirely for such a Bill (gated in `new-document-form.tsx`
+  on `postedReceiptMatch.length > 0`, the same pattern `stagedReceipts.length`
+  already uses for the pre-save case) — a "View journal entry" toggle reveals
+  the underlying Dr/Cr rows read-only for anyone auditing, built from the
+  already-loaded `lines` state, so the actual GL entry is never hidden, only
+  not the default view.
+- **Editing is true in-place — same Bill id, same `BILL-` number** (QBO
+  parity, deliberately unlike a Goods Receipt's own void-and-repost
+  correction — a Bill already edits in place everywhere else in this app).
+  New `editBillFromReceipts()` (`lib/inventory/receiving.ts`, parallel to
+  `billFromReceipts`, not routed through the generic `updateDocument` line-
+  item path directly — though it CALLS `updateDocument` as its "replace lines
+  in place" engine, since inventory never moves again at bill-edit time, only
+  at receipt time, so `updateDocument`'s unconditional
+  `reverseInventoryByEntry`/`planDocumentInventory` calls are safely no-ops
+  here). A line NOT named in the edit request is reproduced BYTE-IDENTICAL
+  from the Bill's own stored `sourcePayload.lines` (which IS the exact
+  `billLines` array from creation, pre-tax/pre-control-line) — this is also
+  how an unedited line's own already-applied price-variance (P-03) survives
+  an edit to a DIFFERENT line on the same Bill, with no separate record of
+  "what price was used" needed: the original posted line already is that
+  record. `updateDocument` gained an optional `opts?: {revaluations}` param
+  (mirroring `postDocument`'s own, previously edit-only-missing) so a price
+  correction on edit gets the exact same lot-revaluation treatment as on
+  create. Every existing `receipt_bill` link for the Bill is deleted and
+  recreated after each edit (not just the edited lines') because
+  `updateDocument`'s delete+reinsert of `journal_lines` invalidates every
+  `toLineId`, not only the changed ones'.
+- **Scope held deliberately narrow, per explicit confirmation**: only
+  quantity and invoice price are editable per line; which receipts/lines are
+  ON a Bill can't change via this path (add/remove is a delete-and-recreate
+  case, consistent with every other structural document change in this app).
+  `hasSettlementLink` (now exported from `documents.ts`) gates this exactly
+  like every other Bill edit — a receipt-matched Bill with a payment or
+  credit applied can't be corrected here until that's removed first.
+- Migration verified clean against the dev branch (`npm run db:verify`) —
+  the new column introduces zero drift; the 2 pre-existing failures and 32
+  warnings are the same unrelated, already-documented legacy drift this file
+  describes elsewhere. tsc clean, 694/694 tests pass.
+
 ## Reverse removed everywhere — Edit/Delete only, gated on real settlement (2026-10-25)
 
 Prompted directly, with screenshots of a "View bill" header and a blank "New

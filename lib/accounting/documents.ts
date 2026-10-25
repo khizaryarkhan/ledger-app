@@ -970,7 +970,7 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
  * see deleteDocument's own inbound/outUsed checks, which this mirrors so
  * editing and deleting agree on exactly the same rule.
  */
-async function hasSettlementLink(orgId: string, entryId: string): Promise<boolean> {
+export async function hasSettlementLink(orgId: string, entryId: string): Promise<boolean> {
   const [inbound] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), inArray(transactionLinks.relation, ["payment", "credit"]))).limit(1);
   if (inbound) return true;
@@ -979,7 +979,7 @@ async function hasSettlementLink(orgId: string, entryId: string): Promise<boolea
   return !!outUsed;
 }
 
-export async function updateDocument(orgId: string, entryId: string, input: PostDocInput, actorId: string | null) {
+export async function updateDocument(orgId: string, entryId: string, input: PostDocInput, actorId: string | null, opts?: { revaluations?: DocRevaluation[] }) {
   const [entry] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!entry) err("Transaction not found.");
@@ -1044,6 +1044,13 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     catch (e: any) { err(e?.message || "Inventory from this document has already been used downstream — undo that first before editing."); }
     invPlan = await planDocumentInventory(orgId, type, input, itemMap, rate);
     if (invPlan) built.push(...invPlan.extraHomeLines); // balanced Dr/Cr pairs — entry stays balanced
+    // Same price-difference-into-stock mechanic postDocument applies on create
+    // (see its own comment) — editBillFromReceipts is the one caller today.
+    for (const r of opts?.revaluations ?? []) {
+      const a = round2(r.amount);
+      if (a > 0) { built.push({ accountId: r.assetAccountId, debit: a, description: `Price difference into stock — ${r.itemName}` }); built.push({ accountId: r.ppvAccountId, credit: a, description: `Price difference into stock — ${r.itemName}` }); }
+      else if (a < 0) { built.push({ accountId: r.ppvAccountId, debit: -a, description: `Price difference out of stock — ${r.itemName}` }); built.push({ accountId: r.assetAccountId, credit: -a, description: `Price difference out of stock — ${r.itemName}` }); }
+    }
   }
 
   await db.update(journalEntries).set({
@@ -1100,6 +1107,10 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
 
   // Re-apply the inventory lot movements for the edited document.
   if (invPlan) await commitDocumentInventory(orgId, type, invPlan, entryId, entryId, date, input, actorId);
+  for (const r of opts?.revaluations ?? []) {
+    if (Math.abs(round2(r.amount)) < 0.005) continue;
+    await revalueLot(orgId, { lotId: r.lotId, deltaTotal: round2(r.amount), refType: type, refId: entryId, entryId, date, createdBy: actorId, note: `Invoice price difference — ${r.itemName}` });
+  }
 
   logEvent({ orgId, eventType: "document_edited", docType: "ledger", docId: entryId, actorId, meta: { sourceType: type, docNumber: input.docNumber?.trim() || entry.docNumber } })
     .catch(e => console.error("[audit] document_edited failed:", e));
