@@ -5,17 +5,38 @@
 // Dry run by default; --commit to apply. Scoped to receipts with NO surviving
 // receipt_bill link at all (a receipt still correctly linked to a live Bill
 // is left untouched).
+//
+// Usage:
+//   npx tsx scripts/_fix_orphaned_grn_billed_amounts.ts                                   # dry run, .env.local
+//   npx tsx scripts/_fix_orphaned_grn_billed_amounts.ts --env .env.production.vercel       # dry run, production
+//   npx tsx scripts/_fix_orphaned_grn_billed_amounts.ts --env .env.production.vercel --receipt GRN-0003 --commit
 import { config as loadEnv } from "dotenv";
-loadEnv({ path: ".env.local", quiet: true });
+const argv = process.argv.slice(2);
+const envArg = argv.indexOf("--env");
+loadEnv({ path: envArg >= 0 ? argv[envArg + 1] : ".env.local", quiet: true });
+// Vercel stores DATABASE_URL as a Secret, which pulls down empty/[SENSITIVE]
+// in a plain .env file — DATABASE_URL_UNPOOLED is the usable string for a
+// Vercel-pulled env file (see CLAUDE.md's "There is ONE Neon project" note).
+if (!process.env.DATABASE_URL && process.env.DATABASE_URL_UNPOOLED) process.env.DATABASE_URL = process.env.DATABASE_URL_UNPOOLED;
 
 async function main() {
-  const commit = process.argv.includes("--commit");
+  const commit = argv.includes("--commit");
+  const receiptArgIdx = argv.indexOf("--receipt");
+  const onlyReceiptNo = receiptArgIdx >= 0 ? argv[receiptArgIdx + 1] : null;
   const { db } = await import("../db");
+  const { dbIdentity } = await import("./db-identity");
   const S = await import("../db/schema");
   const { eq, and, sql } = await import("drizzle-orm");
 
-  const receipts = await db.select().from(S.goodsReceipts).where(sql`${S.goodsReceipts.billedAmount}::numeric > 0.005`);
-  console.log(`Found ${receipts.length} receipt(s) with billedAmount > 0.`);
+  const id = await dbIdentity(process.env.DATABASE_URL!);
+  console.log(`Connected to: endpoint=${id.endpointId} branch=${id.branchId} orgs=${id.orgNames.join(", ")}`);
+
+  const receipts = onlyReceiptNo
+    ? await db.select().from(S.goodsReceipts).where(eq(S.goodsReceipts.receiptNo, onlyReceiptNo))
+    : await db.select().from(S.goodsReceipts).where(sql`${S.goodsReceipts.billedAmount}::numeric > 0.005`);
+  console.log(onlyReceiptNo
+    ? `Found ${receipts.length} receipt(s) matching "${onlyReceiptNo}".`
+    : `Found ${receipts.length} receipt(s) with billedAmount > 0.`);
 
   let fixed = 0;
   for (const r of receipts) {
