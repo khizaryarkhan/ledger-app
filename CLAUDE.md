@@ -1715,6 +1715,71 @@ network at all — that is what makes it ours rather than a proxy.
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
 
+## Deleting a receipt-matched Bill never un-billed the GRN — permanently stuck (2026-10-26)
+
+Reported directly: "I am not able to delete the receipt of the item... 'this
+receipt has been billed - reverse the bill first' However, I have already
+deleted the bill." The stale wording ("reverse") was the smaller problem —
+the real one is that `deleteDocument` never reverted `goods_receipts
+.billedAmount`/`goods_receipt_lines.billedQty` for a Bill created via
+`billFromReceipts`/`editBillFromReceipts`, so deleting the ONLY bill against a
+receipt left it reading "billed" forever, with `voidGoodsReceipt`'s own guard
+(`billedAmount > 0.005`) now permanently un-passable since the bill that
+would need deleting is already gone.
+
+- **Root cause**: `deleteDocument` deletes every `transactionLinks` row tied
+  to the entry (line ~1348, `or(contextEntryId=entryId, fromId=entryId,
+  toId=entryId)`) WITHOUT first reading the `receipt_bill`/`po_bill` links to
+  revert what they represent — unlike `editBillFromReceipts` (built the day
+  before), which carefully reverts-then-reapplies per line. Full deletion
+  was the one path that never got this treatment at all; this bug predates
+  yesterday's matching-table work (it's existed since `billFromReceipts`
+  itself) but was only now hit in practice.
+- **Fixed in `deleteDocument`**: for a Bill entry, BEFORE the links are
+  deleted, every `receipt_bill` link is read and reverted — `goods_receipt
+  _lines.billedQty` (and `trade_document_lines.billedQty` if PO-linked) by
+  the link's own `qty`, `goods_receipts.billedAmount` by its `amount` —
+  using `greatest(0, … - delta)` so a concurrent edit can never drive a
+  counter negative. `po_bill` links are reverted too (same function, same
+  bug applies to a Bill staged from a Purchase Order's lines): since that
+  link carries only one aggregate total per PO (no per-line breakdown), the
+  per-line amounts are re-read from the Bill's own `sourcePayload.lines`
+  (`poLineId`+`amount`) — the exact source `closePoLinesOnBill` read when it
+  first advanced them, so this is reverting from the same record, not
+  reconstructing a guess — and each affected PO's status is recomputed
+  (`Closed`/`Partial`/`Open`) from the refreshed totals.
+- **Every other stale "reverse the ___ first" message yesterday's Reverse-
+  removal sweep missed** — it only touched `lib/accounting/documents.ts`;
+  `lib/inventory/void.ts` (voidGoodsReceipt/voidShipment/voidProductionRun/
+  voidJobWorkOrder/voidStockAdjustment) and `lib/inventory/valuation.ts`'s
+  `reverseInventoryByEntry` — the function whose own thrown message is what
+  actually surfaces through `err(e?.message || fallback)` in every caller,
+  making the void.ts fallback text dead code in practice — had eight more,
+  all reworded to "delete"/"undo" to match reality.
+- **A SYMMETRIC gap confirmed, NOT fixed in this pass**: `invoiceFromShipments`
+  (the sales-side mirror of `billFromReceipts`) has the identical shape —
+  one `shipment_invoice` link per shipment with `amount` hardcoded to `0`
+  and no `fromLineId`/`qty` at all — so deleting an Invoice created from a
+  Shipment will leave `sales_shipments.invoicedAmount`/`shipment_lines
+  .invoicedQty` stuck exactly the same way, with `voidShipment`'s own guard
+  then permanently un-passable. Fixing it properly needs the same per-line
+  `transactionLinks` rework `billFromReceipts` got yesterday (fromLineId +
+  qty), which wasn't done for shipments. Flagged here rather than guessed
+  at with an incomplete partial fix — the next person to hit "this shipment
+  has been invoiced" after deleting the invoice should start here, not
+  rediscover this from scratch.
+- **`scripts/_fix_orphaned_grn_billed_amounts.ts`** (dry-run by default,
+  `--commit` to apply) finds every `goods_receipts` row with `billedAmount >
+  0` and NO surviving `receipt_bill` link, and clears its billed counters —
+  a one-time repair for any receipt already stuck by this bug before the
+  fix shipped. Confirmed it correctly leaves a receipt alone when its link
+  is still live (found one genuinely still-billed receipt plus one
+  genuinely orphaned one on a test run) — not run against production, since
+  the specific stuck receipt reported here lives in whichever database the
+  reporter's own session points at, not the `vercel-dev` branch this
+  session has credentials for.
+- tsc clean, 694/694 tests pass.
+
 ## A Bill-from-receipt gets a real matching table, and can be edited in place (2026-10-25)
 
 Direct feedback on a "View bill" screenshot of a Bill created via `billFromReceipts`

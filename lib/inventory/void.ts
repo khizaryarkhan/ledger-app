@@ -40,14 +40,14 @@ export async function deleteEntry(orgId: string, entryId: string | null) {
 export async function voidGoodsReceipt(orgId: string, receiptId: string) {
   const [r] = await db.select().from(goodsReceipts).where(and(eq(goodsReceipts.id, receiptId), eq(goodsReceipts.orgId, orgId))).limit(1);
   if (!r) err("Goods receipt not found.");
-  if (Number(r!.billedAmount) > 0.005) err("This receipt has been billed — reverse the bill first, then void the receipt.");
+  if (Number(r!.billedAmount) > 0.005) err("This receipt has been billed — delete the bill first, then void the receipt.");
   const [billed] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, receiptId), eq(transactionLinks.relation, "receipt_bill"))).limit(1);
-  if (billed) err("This receipt has a bill against it — reverse the bill first.");
+  if (billed) err("This receipt has a bill against it — delete the bill first.");
 
   // Unwind lots (throws if the received stock was already consumed/sold on).
   try { await reverseInventoryByEntry(orgId, r!.entryId ?? receiptId); }
-  catch (e: any) { err(e?.message || "The received stock has already been used — reverse those transactions first."); }
+  catch (e: any) { err(e?.message || "The received stock has already been used — undo those transactions first."); }
 
   // Restore PO received-qty for any linked lines.
   const lines = await db.select().from(goodsReceiptLines).where(eq(goodsReceiptLines.receiptId, receiptId));
@@ -63,10 +63,10 @@ export async function voidGoodsReceipt(orgId: string, receiptId: string) {
 export async function voidShipment(orgId: string, shipmentId: string) {
   const [s] = await db.select().from(salesShipments).where(and(eq(salesShipments.id, shipmentId), eq(salesShipments.orgId, orgId))).limit(1);
   if (!s) err("Shipment not found.");
-  if (Number(s!.invoicedAmount) > 0.005) err("This shipment has been invoiced — reverse the invoice first, then void the shipment.");
+  if (Number(s!.invoicedAmount) > 0.005) err("This shipment has been invoiced — delete the invoice first, then void the shipment.");
   const [inv] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, shipmentId), eq(transactionLinks.relation, "shipment_invoice"))).limit(1);
-  if (inv) err("This shipment has an invoice against it — reverse the invoice first.");
+  if (inv) err("This shipment has an invoice against it — delete the invoice first.");
 
   // Restores the relieved lots.
   try { await reverseInventoryByEntry(orgId, s!.entryId ?? shipmentId); }
@@ -94,7 +94,7 @@ export async function voidProductionRun(orgId: string, runId: string) {
   // Restores consumed input lots and removes the produced output lot — throws
   // if the produced stock has since been sold or consumed in another build.
   try { await reverseInventoryByEntry(orgId, run!.entryId ?? runId); }
-  catch (e: any) { err(e?.message || "The produced stock has already been used — reverse those transactions first."); }
+  catch (e: any) { err(e?.message || "The produced stock has already been used — undo those transactions first."); }
 
   await deleteEntry(orgId, run!.entryId ?? null);
   await db.delete(productionRuns).where(and(eq(productionRuns.id, runId), eq(productionRuns.orgId, orgId))); // consumptions cascade
@@ -140,17 +140,17 @@ export async function voidJobWorkOrder(orgId: string, jwoId: string) {
   for (const r of receipts) {
     if (!r.receiptId) continue;
     const [receipt] = await db.select().from(goodsReceipts).where(and(eq(goodsReceipts.id, r.receiptId), eq(goodsReceipts.orgId, orgId))).limit(1);
-    if (receipt && Number(receipt.billedAmount) > 0.005) err("A processing-fee bill has been created for one of this order's receipts — reverse the bill first, then void.");
+    if (receipt && Number(receipt.billedAmount) > 0.005) err("A processing-fee bill has been created for one of this order's receipts — delete the bill first, then void.");
     const [billed] = await db.select({ id: transactionLinks.id }).from(transactionLinks)
       .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.fromId, r.receiptId), eq(transactionLinks.relation, "receipt_bill"))).limit(1);
-    if (billed) err("One of this order's receipts has a bill against it — reverse the bill first.");
+    if (billed) err("One of this order's receipts has a bill against it — delete the bill first.");
   }
 
   if (jwo!.wastageEntryId) await deleteEntry(orgId, jwo!.wastageEntryId); // GL-only, no inventory to unwind
 
   for (const r of receipts) {
     try { await reverseInventoryByEntry(orgId, r.receiveEntryId ?? r.id); }
-    catch (e: any) { err(e?.message || "The received stock has already been used — reverse those transactions first."); }
+    catch (e: any) { err(e?.message || "The received stock has already been used — undo those transactions first."); }
     await deleteEntry(orgId, r.receiveEntryId ?? null);
     if (r.receiptId) await db.delete(goodsReceipts).where(and(eq(goodsReceipts.id, r.receiptId), eq(goodsReceipts.orgId, orgId))); // lines cascade
   }
@@ -173,7 +173,7 @@ export async function voidStockAdjustment(orgId: string, entryId: string) {
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!e || !["StockCount", "WriteDown"].includes(e.type ?? "")) err("Stock adjustment not found.");
   try { await reverseInventoryByEntry(orgId, entryId); }
-  catch (x: any) { err(x?.message || "Stock this adjustment added has since been used — reverse that first."); }
+  catch (x: any) { err(x?.message || "Stock this adjustment added has since been used — undo that first."); }
   await deleteEntry(orgId, entryId);
   return { id: entryId, voided: true };
 }

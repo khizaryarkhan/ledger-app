@@ -25,7 +25,7 @@
  */
 
 import { db } from "@/db";
-import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines } from "@/db/schema";
+import { accounts, apTaxRates, organisations, journalEntries, journalLines, transactionLinks, invoices, customers, apSuppliers, apBills, apBillLines, inventoryLots, tradeDocuments, tradeDocumentLines, goodsReceipts, goodsReceiptLines } from "@/db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { postJournalEntry, validateEntry, assertNoControlAccounts, LedgerValidationError, type PostLine } from "@/lib/ledger";
 import { logEvent } from "@/lib/audit";
@@ -38,6 +38,7 @@ import { resolveLocationId } from "@/lib/inventory/locations";
 import { resolveTaxCodes } from "@/lib/accounting/tax-engine-server";
 import { calcLineTax, aggregateDocumentTax, type TaxComponentAmount } from "@/lib/accounting/tax-engine";
 import { baseQtyOfLine } from "@/lib/inventory/order-options";
+import { roundQty } from "@/lib/inventory/round";
 
 export type DocLineInput = {
   accountId?: string;
@@ -1340,6 +1341,65 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
   // Which invoices this (payment) settled, to re-open after deletion.
   const settled = await db.select({ toId: transactionLinks.toId, toType: transactionLinks.toType }).from(transactionLinks)
     .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.contextEntryId, entryId)));
+
+  // A Bill created from one or more Goods Receipts (billFromReceipts/
+  // editBillFromReceipts) or staged from a Purchase Order's lines
+  // (closePoLinesOnBill, via new-document-form.tsx's "Add from PO/GRN")
+  // advanced running "billed so far" counters on those documents when it
+  // posted. Deleting the Bill must undo exactly what IT advanced — read the
+  // links BEFORE they're deleted below (the only record of how much each
+  // one contributed), or the GRN/PO is left permanently stuck as "billed"
+  // with no bill left to show for it (reported: voidGoodsReceipt refusing
+  // "this receipt has been billed" after the only bill against it was
+  // already deleted).
+  if (entry.sourceType === "Bill") {
+    const receiptLinks = await db.select().from(transactionLinks)
+      .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), eq(transactionLinks.toType, "Bill"), eq(transactionLinks.relation, "receipt_bill")));
+    for (const lk of receiptLinks) {
+      if (!lk.fromLineId) continue;
+      const qty = roundQty(Number(lk.qty ?? 0));
+      const amount = round2(Number(lk.amount ?? 0));
+      const [gl] = await db.select().from(goodsReceiptLines).where(and(eq(goodsReceiptLines.id, lk.fromLineId), eq(goodsReceiptLines.orgId, orgId))).limit(1);
+      if (!gl) continue;
+      if (qty !== 0) {
+        await db.update(goodsReceiptLines).set({ billedQty: sql`greatest(0, ${goodsReceiptLines.billedQty} - ${qty.toString()})` })
+          .where(and(eq(goodsReceiptLines.id, gl.id), eq(goodsReceiptLines.orgId, orgId)));
+        if (gl.poLineId) await db.update(tradeDocumentLines).set({ billedQty: sql`greatest(0, ${tradeDocumentLines.billedQty} - ${qty.toString()})` })
+          .where(and(eq(tradeDocumentLines.id, gl.poLineId), eq(tradeDocumentLines.orgId, orgId)));
+      }
+      if (amount !== 0) await db.update(goodsReceipts).set({ billedAmount: sql`greatest(0, ${goodsReceipts.billedAmount} - ${amount.toString()})`, updatedAt: new Date() })
+        .where(and(eq(goodsReceipts.id, gl.receiptId), eq(goodsReceipts.orgId, orgId)));
+    }
+
+    // po_bill carries one link per PO with an aggregate amount — the only
+    // place a per-LINE breakdown survives is the Bill's own stored
+    // sourcePayload (poLineId + amount per line), the same source
+    // closePoLinesOnBill read when it first advanced these, so re-reading
+    // it here is reverting from the same record, not reconstructing a guess.
+    const poLinks = await db.select({ fromId: transactionLinks.fromId }).from(transactionLinks)
+      .where(and(eq(transactionLinks.orgId, orgId), eq(transactionLinks.toId, entryId), eq(transactionLinks.toType, "Bill"), eq(transactionLinks.relation, "po_bill")));
+    if (poLinks.length) {
+      const payload: any = entry.sourcePayload ?? {};
+      const billedById = new Map<string, number>(
+        (Array.isArray(payload.lines) ? payload.lines : [])
+          .filter((l: any) => l?.poLineId)
+          .map((l: any) => [l.poLineId as string, round2(Number(l.amount) || 0)]),
+      );
+      for (const poId of [...new Set(poLinks.map(l => l.fromId))]) {
+        const poAllLines = await db.select().from(tradeDocumentLines).where(and(eq(tradeDocumentLines.orgId, orgId), eq(tradeDocumentLines.documentId, poId)));
+        for (const l of poAllLines) {
+          const net = billedById.get(l.id);
+          if (net == null) continue;
+          await db.update(tradeDocumentLines).set({ invoicedAmount: round2(Math.max(0, Number(l.invoicedAmount) - net)).toFixed(2) }).where(eq(tradeDocumentLines.id, l.id));
+        }
+        const refreshed = await db.select().from(tradeDocumentLines).where(and(eq(tradeDocumentLines.orgId, orgId), eq(tradeDocumentLines.documentId, poId)));
+        const totalNet = round2(refreshed.reduce((s, l) => s + Number(l.amount), 0));
+        const invoicedNet = round2(refreshed.reduce((s, l) => s + Number(l.invoicedAmount), 0));
+        const status = invoicedNet >= totalNet - 0.005 ? "Closed" : invoicedNet > 0.005 ? "Partial" : "Open";
+        await db.update(tradeDocuments).set({ status, updatedAt: new Date() }).where(eq(tradeDocuments.id, poId));
+      }
+    }
+  }
 
   // Unwind inventory lots/movements first — blocks if stock has been used on.
   try { await reverseInventoryByEntry(orgId, entryId); }

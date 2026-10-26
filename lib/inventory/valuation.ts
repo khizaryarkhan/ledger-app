@@ -497,10 +497,10 @@ async function spillTake(orgId: string, lotId: string, qty: number, exceptLocati
 }
 
 /**
- * Reverse all inventory movements a document created (by entry id) — for
- * delete / reverse / edit-then-reapply. Restores issued lots and removes receipt
+ * Undo all inventory movements a document created (by entry id) — for
+ * delete / edit-then-reapply. Restores issued lots and removes receipt
  * lots. Refuses when a receipt lot has already been partly sold/consumed
- * downstream (its cost can't be cleanly unwound — reverse the later doc first).
+ * downstream (its cost can't be cleanly unwound — delete the later doc first).
  */
 export async function reverseInventoryByEntry(orgId: string, entryId: string): Promise<void> {
   // Match by entryId OR refId: a zero-cost receipt/shipment/build posts no GL
@@ -518,7 +518,7 @@ export async function reverseInventoryByEntry(orgId: string, entryId: string): P
       .where(and(eq(inventoryLots.orgId, orgId), inArray(inventoryLots.id, receiptLotIds)));
     for (const lot of lots) {
       if (num(lot.remainingQty) < num(lot.origQty)) {
-        throw new Error("Inventory received/produced by this document has already been sold or consumed. Reverse the later transaction(s) first.");
+        throw new Error("Inventory received/produced by this document has already been sold or consumed. Delete the later transaction(s) first.");
       }
     }
   }
@@ -549,7 +549,7 @@ export async function reverseInventoryByEntry(orgId: string, entryId: string): P
       const q = num(m.qty);
       const [lot] = await db.select().from(inventoryLots).where(and(eq(inventoryLots.id, m.lotId), eq(inventoryLots.orgId, orgId))).limit(1);
       if (!lot || num(lot.remainingQty) + QTY_EPSILON < q) {
-        throw new Error("Stock returned or counted into a lot by this document has since been issued. Reverse the later transaction(s) first.");
+        throw new Error("Stock returned or counted into a lot by this document has since been issued. Delete the later transaction(s) first.");
       }
       const left = roundQty(num(lot.remainingQty) - q);
       await db.update(inventoryLots).set({ remainingQty: nQty(left), status: left > QTY_EPSILON ? "Open" : "Depleted" })
