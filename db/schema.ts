@@ -2403,6 +2403,11 @@ export const productionRuns = pgTable("production_runs", {
   labourCost:      numeric("labour_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   overheadCost:    numeric("overhead_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   scrapCost:       numeric("scrap_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+  // 0115: why the rejects were rejected, and the hours actually booked per
+  // operation ([{ operationId, name, hours }]) — cost alone can't be re-read as time.
+  rejectReason:    varchar("reject_reason", { length: 32 }),
+  rejectNote:      text("reject_note"),
+  operationHours:  jsonb("operation_hours"),
   notes:           text("notes"),
   createdBy:       uuid("created_by"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
@@ -2456,6 +2461,12 @@ export const manufacturingOrders = pgTable("manufacturing_orders", {
   // a partial run leaves it null since the order isn't done yet.
   startedAt:       timestamp("started_at"),
   completedAt:     timestamp("completed_at"),
+  // 0115: the first due date is kept so a slipping order can't read on time;
+  // why it is late is a fixed code (lib/inventory/production-performance.ts).
+  originalDueDate: date("original_due_date"),
+  rescheduleCount: integer("reschedule_count").notNull().default(0),
+  delayReason:     varchar("delay_reason", { length: 32 }),
+  delayNote:       text("delay_note"),
   createdBy:       uuid("created_by"),
   createdAt:       timestamp("created_at").notNull().defaultNow(),
   updatedAt:       timestamp("updated_at").notNull().defaultNow(),
@@ -2516,6 +2527,25 @@ export const moOperations = pgTable("mo_operations", {
 }, (t) => ({
   mo_operations_mo_idx: index("mo_operations_mo_idx").on(t.moId),
 }));
+
+// A stoppage (0115): a work centre (and/or order) not producing between two
+// instants, with a fixed reason code. ended_at null = still down.
+export const productionDowntime = pgTable("production_downtime", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  moId:         uuid("mo_id").references(() => manufacturingOrders.id, { onDelete: "set null" }),
+  workCentreId: uuid("work_centre_id").references(() => workCentres.id, { onDelete: "set null" }),
+  startedAt:    timestamp("started_at").notNull(),
+  endedAt:      timestamp("ended_at"),
+  reason:       varchar("reason", { length: 32 }).notNull(),
+  notes:        text("notes"),
+  createdBy:    uuid("created_by"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  production_downtime_org_idx: index("production_downtime_org_idx").on(t.orgId, t.startedAt),
+  production_downtime_mo_idx: index("production_downtime_mo_idx").on(t.moId),
+}));
+export type ProductionDowntime = typeof productionDowntime.$inferSelect;
 
 // A lot quantity RESERVED for an MO in progress (0098). No accounting entry:
 // the stock stays on hand, in its lot and its stock account, until the MO is
@@ -2968,6 +2998,13 @@ export const jobWorkOrders = pgTable("job_work_orders", {
   wastageAmount:       numeric("wastage_amount", { precision: 14, scale: 2 }),
   wastageEntryId:      uuid("wastage_entry_id"),
   expectedYieldPct:    numeric("expected_yield_pct", { precision: 9, scale: 4 }), // optional benchmark, informational only
+  // 0115: same promise history as a PO line, plus why it is late and why
+  // material was lost at close.
+  originalExpectedReturnDate: date("original_expected_return_date"),
+  returnRevisions:     integer("return_revisions").notNull().default(0),
+  delayReason:         varchar("delay_reason", { length: 32 }),
+  delayNote:           text("delay_note"),
+  wastageReason:       varchar("wastage_reason", { length: 32 }),
   notes:               text("notes"),
   createdBy:           uuid("created_by"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),

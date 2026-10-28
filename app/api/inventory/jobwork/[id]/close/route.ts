@@ -14,9 +14,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { error: modErr } = await requireModule(orgId!, "manufacturing");
   if (modErr) return modErr;
   if (!canPostInventoryTxn(role)) return bad("You don't have permission to close job work orders", 403);
-  const body = (await req.json().catch(() => ({}))) as { confirmGain?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { confirmGain?: boolean; wastageReason?: string | null };
   try {
-    const res = await closeJobWorkOrder(orgId!, params.id, (session?.user as any)?.id ?? null, { confirmGain: body.confirmGain });
+    const res = await closeJobWorkOrder(orgId!, params.id, (session?.user as any)?.id ?? null, { confirmGain: body.confirmGain, wastageReason: body.wastageReason ?? null });
     return ok(res);
   } catch (e: any) {
     if (e instanceof LedgerValidationError) return bad(e.message);

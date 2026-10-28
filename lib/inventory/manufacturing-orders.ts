@@ -25,6 +25,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 import { coverage } from "@/lib/inventory/allocation";
 import { LedgerValidationError } from "@/lib/ledger";
 import { nextDocNumber } from "@/lib/accounting/numbering";
+import { applyReschedule, readReason, DELAY_REASONS } from "@/lib/inventory/production-performance";
 
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 const num = (v: any) => Number(v ?? 0);
@@ -267,7 +268,7 @@ export async function createMO(orgId: string, b: any, actorId: string | null) {
   const [row] = await db.insert(manufacturingOrders).values({
     orgId, moNo, bomId: s(b?.bomId, 64) as any, outputItemId: s(b?.outputItemId, 64)!, outputSkuId: outs[0].skuId,
     qty: String(mat.baseTotal || outs.reduce((sm, o) => sm + o.qty, 0)),
-    scheduledDate: s(b?.scheduledDate, 16), dueDate: s(b?.dueDate, 16),
+    scheduledDate: s(b?.scheduledDate, 16), dueDate: s(b?.dueDate, 16), originalDueDate: s(b?.dueDate, 16),
     priority: ["Low", "Normal", "High"].includes(b?.priority) ? b.priority : "Normal",
     status: b?.status === "Scheduled" ? "Scheduled" : "Draft", notes: s(b?.notes, 2000), createdBy: actorId,
     salesOrderId: s(b?.salesOrderId, 64),
@@ -289,7 +290,18 @@ export async function updateMO(orgId: string, id: string, b: any) {
   if (b.bomId !== undefined) set.bomId = s(b.bomId, 64);
   if (b.outputItemId !== undefined) set.outputItemId = s(b.outputItemId, 64);
   if (b.scheduledDate !== undefined) set.scheduledDate = s(b.scheduledDate, 16);
-  if (b.dueDate !== undefined) set.dueDate = s(b.dueDate, 16);
+  if (b.dueDate !== undefined) {
+    // A moved due date is a reschedule: the first one is kept and the move counted.
+    let r;
+    try { r = applyReschedule({ dueDate: mo!.dueDate, originalDueDate: mo!.originalDueDate, revisions: mo!.rescheduleCount }, s(b.dueDate, 16)); }
+    catch (e: any) { err(e.message); }
+    set.dueDate = r!.dueDate; set.originalDueDate = r!.originalDueDate; set.rescheduleCount = r!.revisions;
+  }
+  try {
+    const dr = readReason(DELAY_REASONS, b.delayReason, "delay reason");
+    if (dr !== undefined) set.delayReason = dr;
+  } catch (e: any) { err(e.message); }
+  if (b.delayNote !== undefined) set.delayNote = s(b.delayNote, 2000);
   if (b.priority !== undefined && ["Low", "Normal", "High"].includes(b.priority)) set.priority = b.priority;
   if (b.notes !== undefined) set.notes = s(b.notes, 2000);
   if (b.salesOrderId !== undefined) set.salesOrderId = s(b.salesOrderId, 64);

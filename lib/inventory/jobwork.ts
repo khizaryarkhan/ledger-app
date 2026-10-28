@@ -57,6 +57,7 @@ import { round2, round6, QTY_EPSILON} from "@/lib/inventory/round";
 import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approvals";
 import { deleteEntry } from "@/lib/inventory/void";
 
+import { applyReschedule, readReason, isReason, DELAY_REASONS, SCRAP_REASONS } from "@/lib/inventory/production-performance";
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 
 export type DispatchInput = {
@@ -156,6 +157,7 @@ export async function dispatchToJobWorker(orgId: string, input: DispatchInput, a
     expectedYieldPct: input.expectedYieldPct != null ? String(input.expectedYieldPct) : null,
     salesOrderId: input.salesOrderId || null,
     expectedReturnDate: input.expectedReturnDate || null,
+    originalExpectedReturnDate: input.expectedReturnDate || null,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning();
 
@@ -303,7 +305,7 @@ export async function receiveFromJobWork(orgId: string, input: ReceiveInput, act
  * gate a client-side confirmation) posts the mirror entry. Zero gap still
  * stamps closedAt/closedBy so there's always an audit record of who closed it.
  */
-export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: string | null, opts?: { confirmGain?: boolean }) {
+export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: string | null, opts?: { confirmGain?: boolean; wastageReason?: string | null }) {
   const [jwo] = await db.select().from(jobWorkOrders).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId))).limit(1);
   if (!jwo) err("Job work order not found.");
   if (jwo!.status === "Closed") err("This job work order is already closed.");
@@ -323,6 +325,8 @@ export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: s
     err(`This order received ${Math.abs(wastageQty)} more than was sent — confirm this is correct before closing.`);
   }
 
+  // Lost material needs a reason to be analysable; a gain or a clean close doesn't.
+  if (wastageQty > QTY_EPSILON && !isReason(SCRAP_REASONS, opts?.wastageReason)) err("Choose why material was lost before closing.");
   let wastageEntryId: string | null = null;
   if (Math.abs(wastageAmount) > 0.005) {
     const ids = [jwo!.sentItemId, (jwo as any).receivedItemId].filter(Boolean) as string[];
@@ -360,7 +364,7 @@ export async function closeJobWorkOrder(orgId: string, jwoId: string, actorId: s
   await db.update(jobWorkOrders).set({
     status: "Closed", closedAt: new Date(), closedBy: actorId,
     wastageQty: wastageQty.toString(), wastageAmount: wastageAmount.toString(),
-    wastageEntryId, updatedAt: new Date(),
+    wastageEntryId, wastageReason: wastageQty > QTY_EPSILON ? opts!.wastageReason! : null, updatedAt: new Date(),
   }).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId)));
 
   return { id: jwoId, wastageQty, wastageAmount, wastageEntryId };
@@ -378,8 +382,31 @@ export async function reopenJobWorkOrder(orgId: string, jwoId: string) {
   const receivedQty = Number(jwo!.receivedQty ?? 0);
   await db.update(jobWorkOrders).set({
     status: receivedQty > 0 ? "PartiallyReceived" : "Dispatched",
-    closedAt: null, closedBy: null, wastageQty: null, wastageAmount: null, wastageEntryId: null, updatedAt: new Date(),
+    closedAt: null, closedBy: null, wastageReason: null, wastageQty: null, wastageAmount: null, wastageEntryId: null, updatedAt: new Date(),
   }).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId)));
 
   return { id: jwoId, reopened: true };
+}
+
+/**
+ * Plan facts on an open order (0115): move the expected return date (kept as
+ * a counted revision, the first date remembered) and say why it is late.
+ * Touches no quantity, cost or ledger line.
+ */
+export async function updateJobWorkPlan(orgId: string, jwoId: string, b: { expectedReturnDate?: string | null; delayReason?: string | null; delayNote?: string | null }) {
+  const [jwo] = await db.select().from(jobWorkOrders).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId))).limit(1);
+  if (!jwo) err("Job work order not found.");
+  const set: Record<string, any> = { updatedAt: new Date() };
+  try {
+    if (b.expectedReturnDate !== undefined) {
+      const r = applyReschedule({ dueDate: jwo!.expectedReturnDate, originalDueDate: jwo!.originalExpectedReturnDate, revisions: jwo!.returnRevisions }, b.expectedReturnDate || null);
+      if (r.dueDate && r.dueDate < String(jwo!.dispatchDate)) err("The expected return can't be before the dispatch date.");
+      set.expectedReturnDate = r.dueDate; set.originalExpectedReturnDate = r.originalDueDate; set.returnRevisions = r.revisions;
+    }
+    const dr = readReason(DELAY_REASONS, b.delayReason, "delay reason");
+    if (dr !== undefined) set.delayReason = dr;
+  } catch (e: any) { if (e instanceof LedgerValidationError) throw e; err(e.message); }
+  if (b.delayNote !== undefined) set.delayNote = b.delayNote ? String(b.delayNote).trim().slice(0, 2000) || null : null;
+  await db.update(jobWorkOrders).set(set).where(and(eq(jobWorkOrders.id, jwoId), eq(jobWorkOrders.orgId, orgId)));
+  return { id: jwoId, updated: true };
 }

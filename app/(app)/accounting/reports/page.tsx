@@ -55,6 +55,7 @@ const MANUFACTURING_GROUPS: Group[] = [
       { href: "/accounting/reports/jobwork-yield", title: "Subcontractor Yield & Wastage", sub: "Actual material yield vs. sent, ranked per job-work vendor.", icon: Gauge },
       { href: "/accounting/reports/delivery-performance", title: "Supplier Delivery Performance", sub: "On time / in full per supplier against requested and promised dates.", icon: Timer },
       { href: "/accounting/reports/delivery-performance?side=customer", title: "Customer Delivery Performance", sub: "Did we ship what customers ordered, when we promised? OTIF per customer.", icon: Timer },
+      { href: "/accounting/reports/production-performance", title: "Production Performance", sub: "Planned vs actual for MOs and job work: on time, yield, downtime, delay and scrap reasons.", icon: Gauge },
       { href: "/accounting/reports/delivery-risk", title: "Delivery Risk", sub: "Job Work, POs and MOs running past their expected date, grouped by Sales Order.", icon: AlertTriangle },
     ],
   },

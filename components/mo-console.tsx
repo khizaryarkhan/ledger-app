@@ -17,6 +17,7 @@ import { Plus, RefreshCw, Workflow, Loader, Check, Trash2, AlertTriangle, Circle
 import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
 import { localToday, ymd, fmt, formatDateShort } from "@/lib/format";
 import { outputCaptureUnits } from "@/lib/inventory/order-options";
+import { SCRAP_REASONS, DELAY_REASONS } from "@/lib/inventory/production-performance";
 
 const qtyFmt = (n: any) => fmt.qty(n ?? 0);
 
@@ -681,6 +682,8 @@ function MoDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void;
 
           <StageNote status={mo.status} />
 
+          <SchedulePanel mo={mo} onSaved={() => { load(); onChanged(); }} />
+
           <MoTabs d={d} tab={tab} setTab={setTab} />
 
           {tab === "input" && (openItem && lines.some((l: any) => l.itemId === openItem) && alloc?.materials?.some((x: any) => x.itemId === openItem)
@@ -718,6 +721,8 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
   const [date, setDate] = useState(localToday());
   const [good, setGood] = useState<Record<string, string>>(() => Object.fromEntries((d.outputs ?? []).map((o: any) => [o.skuId, String(produced[o.id] ?? o.remainingQty ?? o.qty)])));
   const [rejected, setRejected] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectNote, setRejectNote] = useState("");
   // Final unless this run leaves packs unmade — or the user says otherwise.
   const [finalSet, setFinalSet] = useState<boolean | null>(null);
   const autoFinal = (d.outputs ?? []).every((o: any) => (Number(good[o.skuId]) || 0) + 1e-6 >= Number(o.remainingQty ?? o.qty));
@@ -741,6 +746,7 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
     date,
     outputs: (d.outputs ?? []).map((o: any) => ({ skuId: o.skuId, goodPacks: Number(good[o.skuId]) || 0 })),
     rejectedBase: Number(rejected) || 0,
+    ...(Number(rejected) > 0 ? { rejectReason: rejectReason || null, rejectNote: rejectNote || null } : {}),
     final,
     ...(Object.keys(hours).length ? { hours: Object.entries(hours).map(([operationId, h]) => ({ operationId, hours: Number(h) || 0 })) } : {}),
     // Untouched: the server's default — everything on a final run, this run's share on a partial one.
@@ -780,6 +786,17 @@ function CompletionDrawer({ id, d, alloc, produced = {}, useAllocated = false, o
             <input type="number" min="0" step="any" className={controlInset} value={rejected} onChange={e => setRejected(e.target.value)} placeholder="0" />
           </Field>
         </div>
+        {Number(rejected) > 0 && (
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Why was it rejected?" required>
+              <SelectField inset value={rejectReason} onChange={e => setRejectReason(e.target.value)}>
+                <option value="">Choose a reason…</option>
+                {SCRAP_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+              </SelectField>
+            </Field>
+            <Field label="Detail"><input className={controlInset} value={rejectNote} onChange={e => setRejectNote(e.target.value)} placeholder="Optional" /></Field>
+          </div>
+        )}
 
         <Section title="Good output this run">
           <div className="rounded-lg border border-stone-800 overflow-hidden">
@@ -1319,6 +1336,69 @@ function LotPicker({ line, m, editable, onBack, onSave, onSaveAndRun }: {
               )}
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Planned vs actual at a glance, plus the two plan facts that can change while
+ * an order is open (0115): the due date (every move is counted and the first
+ * date kept, so a slipping order can't read as on time) and why it is late.
+ */
+function SchedulePanel({ mo, onSaved }: { mo: any; onSaved: () => void }) {
+  const editable = mo.status !== "Completed" && mo.status !== "Cancelled";
+  const [due, setDue] = useState<string>(mo.dueDate ?? "");
+  const [reason, setReason] = useState<string>(mo.delayReason ?? "");
+  const [note, setNote] = useState<string>(mo.delayNote ?? "");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { setDue(mo.dueDate ?? ""); setReason(mo.delayReason ?? ""); setNote(mo.delayNote ?? ""); }, [mo.id, mo.dueDate, mo.delayReason, mo.delayNote]);
+  const today = localToday();
+  const late = !!mo.dueDate && (mo.completedAt ? ymd(new Date(mo.completedAt)) > mo.dueDate : today > mo.dueDate);
+  const dirty = due !== (mo.dueDate ?? "") || reason !== (mo.delayReason ?? "") || note !== (mo.delayNote ?? "");
+  async function save() {
+    setSaving(true); setMsg(null);
+    const r = await fetch(`/api/production/mos/${mo.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate: due || null, delayReason: reason || null, delayNote: note || null }) });
+    setSaving(false);
+    if (!r.ok) { setMsg((await r.json().catch(() => ({})))?.error || "Could not save."); return; }
+    onSaved();
+  }
+  const cellCls = "text-[12px] text-stone-300 tabular-nums";
+  return (
+    <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-3 space-y-3">
+      <div className="grid grid-cols-4 gap-3">
+        <div><div className="text-[10px] uppercase tracking-wider text-stone-500">Planned start</div><div className={cellCls}>{mo.scheduledDate ? formatDateShort(mo.scheduledDate) : "—"}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-stone-500">Actual start</div><div className={cellCls}>{mo.startedAt ? formatDateShort(ymd(new Date(mo.startedAt))) : "—"}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-stone-500">Due</div>
+          <div className={`text-[12px] tabular-nums ${late ? "text-rose-400" : "text-stone-300"}`}>{mo.dueDate ? formatDateShort(mo.dueDate) : "—"}</div>
+          {mo.rescheduleCount > 0 && <div className="text-[10px] text-amber-400">moved {mo.rescheduleCount}× · first {mo.originalDueDate ? formatDateShort(mo.originalDueDate) : "—"}</div>}
+        </div>
+        <div><div className="text-[10px] uppercase tracking-wider text-stone-500">Finished</div><div className={cellCls}>{mo.completedAt ? formatDateShort(ymd(new Date(mo.completedAt))) : "—"}</div></div>
+      </div>
+      {editable && (
+        <div className="grid grid-cols-3 gap-3 items-end">
+          <Field label="Due date" hint="Moving it is recorded as a reschedule.">
+            <input type="date" className={controlInset} value={due} onChange={e => setDue(e.target.value)} />
+          </Field>
+          <Field label={late ? "Why is it late?" : "Delay reason"}>
+            <SelectField inset value={reason} onChange={e => setReason(e.target.value)}>
+              <option value="">{late ? "Not recorded" : "None"}</option>
+              {DELAY_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+            </SelectField>
+          </Field>
+          <Field label="Detail"><input className={controlInset} value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" /></Field>
+        </div>
+      )}
+      {!editable && mo.delayReason && (
+        <div className="text-[12px] text-stone-400">Delay: <span className="text-stone-200">{DELAY_REASONS.find(r => r.code === mo.delayReason)?.label ?? mo.delayReason}</span>{mo.delayNote ? ` — ${mo.delayNote}` : ""}</div>
+      )}
+      {editable && dirty && (
+        <div className="flex items-center justify-end gap-3">
+          {msg && <span className="text-[12px] text-rose-400">{msg}</span>}
+          <button onClick={save} disabled={saving} className="h-8 px-3 rounded-md bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-[12px]">{saving ? "Saving…" : "Save schedule"}</button>
         </div>
       )}
     </div>

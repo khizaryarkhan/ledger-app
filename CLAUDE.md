@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0114` at `when`
-  `1792200000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0115` at `when`
+  `1792300000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1714,6 +1714,43 @@ network at all — that is what makes it ours rather than a proxy.
 - **Open decision: history cutoff.** Ingesting from a cutoff date needs an
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
+
+## Production data points — planned vs actual, delay, downtime, scrap reasons (2026-10-28)
+
+Same audit as the delivery work below, for Manufacturing Orders and job work.
+Migration `0115`, additive only. `lib/inventory/production-performance.ts`
+(pure, 19 tests) is the rule set; `/accounting/reports/production-performance`
+(`/api/production/performance`) is the report.
+
+- **Planned vs actual**: MO = `scheduledDate → dueDate` vs `startedAt →
+  completedAt` (both already existed); job work = `dispatchDate →
+  expectedReturnDate` vs close date. `classifyOrderTiming` scores an order
+  only when finished or open past due — same rule as OTIF lines.
+- **The first due date is kept** (`manufacturing_orders.original_due_date` /
+  `reschedule_count`, `job_work_orders.original_expected_return_date` /
+  `return_revisions`), via `applyReschedule`, which wraps the PO line's
+  `applyPromise`. An order that had a due date before 0115 treats it as the
+  original, so its first move still counts. Setting a first date is not a move.
+- **Reasons are fixed codes, never free text** — `DELAY_REASONS`,
+  `DOWNTIME_REASONS` (each flagged planned/unplanned), `SCRAP_REASONS`; a note
+  carries detail. Unrecorded reasons show as "Not recorded" in amber in the
+  Pareto, so the gap is visible rather than hidden.
+- **Required where it matters**: a completion run with a rejected quantity is
+  refused without `rejectReason` (`completeMoRun` only — NOT preview, which
+  runs while the user is still typing); closing a job work order with lost
+  material is refused without `wastageReason`. Delay reasons are optional
+  (set from the MO drawer's Schedule panel / job work "Dates…" drawer).
+- **Actual hours per operation** are now stored on each run
+  (`production_runs.operation_hours`, `[{operationId, name, hours}]`). Before,
+  only labour/overhead COST was kept, which can't be read back as time once
+  rates differ. Planned hours for a run = the operation's planned hours × the
+  run's share of the order; efficiency = planned ÷ actual.
+- **Downtime** is its own table (`production_downtime`): work centre and/or
+  MO, start/end instants (end null = still down), reason. Logged from the
+  report's Downtime tab ("Log downtime"); API `/api/production/downtime`.
+  Records time only — nothing posts.
+- Runs posted before 0115 have no hours or reject reason; they count toward
+  yield but show as "Not recorded".
 
 ## Delivery data points — confirmation, promised dates, OTIF (2026-10-28)
 

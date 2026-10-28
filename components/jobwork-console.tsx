@@ -21,8 +21,9 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
-import { controlInset, fieldLabel, Drawer } from "@/components/form-kit";
+import { controlInset, fieldLabel, Drawer, DrawerFooter } from "@/components/form-kit";
 import { Modal } from "@/components/ui";
+import { SCRAP_REASONS, DELAY_REASONS } from "@/lib/inventory/production-performance";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listMoneyCell, type ListColumn,
@@ -62,6 +63,7 @@ export function JobWorkConsole() {
   const [showNew, setShowNew] = useState(false);
   const [receiving, setReceiving] = useState<any | null>(null);
   const [closing, setClosing] = useState<any | null>(null);
+  const [planning, setPlanning] = useState<any | null>(null);
   const [voidErr, setVoidErr] = useState("");
 
   async function load() {
@@ -113,6 +115,7 @@ export function JobWorkConsole() {
 
       {showNew && <DispatchDrawer vendors={vendors} items={items} salesOrders={salesOrders} onClose={() => setShowNew(false)} onDone={() => { setShowNew(false); load(); }} />}
       {receiving && <ReceiveDrawer order={receiving} items={items} onClose={() => setReceiving(null)} onDone={() => { setReceiving(null); load(); }} />}
+      {planning && <PlanDrawer order={planning} onClose={() => setPlanning(null)} onDone={() => { setPlanning(null); load(); }} />}
       {closing && <CloseModal order={closing} onClose={() => setClosing(null)} onDone={() => { setClosing(null); load(); }} />}
 
       {orders === null ? (
@@ -136,6 +139,7 @@ export function JobWorkConsole() {
                 <td className="px-2 py-2">
                   <div className="flex items-center justify-end gap-3">
                     {o.status !== "Closed" && <button onClick={() => setReceiving(o)} className="text-[12px] font-medium text-emerald-400 hover:underline">Receive…</button>}
+                    {o.status !== "Closed" && <button onClick={() => setPlanning(o)} title="Expected return / delay reason" className="text-[12px] text-stone-400 hover:text-stone-200">Dates…</button>}
                     {o.status !== "Closed" && <button onClick={() => setClosing(o)} title="Close — no more receipts expected" className="text-stone-500 hover:text-amber-400"><PackageCheck size={14} /></button>}
                     {o.status === "Closed" && <button onClick={() => reopenOrder(o.id, o.docNumber)} title="Reopen" className="text-stone-500 hover:text-sky-400"><RotateCcw size={14} /></button>}
                     <button onClick={() => voidOrder(o.id, o.docNumber)} title="Void" className="text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>
@@ -376,11 +380,12 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
   const expected = order.expectedYieldPct != null ? Number(order.expectedYieldPct) : null;
   const actualYieldPct = sentQty > 0 ? (materialQtyReceived / sentQty) * 100 : 0;
 
+  const [wastageReason, setWastageReason] = useState("");
   async function submit() {
     setBusy(true); setErr("");
     const r = await fetch(`/api/inventory/jobwork/${order.id}/close`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirmGain: isGain }),
+      body: JSON.stringify({ confirmGain: isGain, wastageReason: wastageReason || null }),
     });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
@@ -414,6 +419,15 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
               <span className={`tabular-nums ${isGain ? "text-sky-400" : "text-amber-400"}`}>{qtyFmt(Math.abs(wastageQty))} ({Math.abs(pct).toFixed(2)}%) · {money(Math.abs(wastageAmount))}</span>
             </div>
           </div>
+          {wastageQty > 0.0001 && (
+            <div>
+              <label className={fieldLabel}>Why was material lost? <span className="text-emerald-500/80">*</span></label>
+              <select value={wastageReason} onChange={e => setWastageReason(e.target.value)} className={`${controlInset} bg-stone-950`}>
+                <option value="">Choose a reason…</option>
+                {SCRAP_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+              </select>
+            </div>
+          )}
           {isGain && (
             <div className="flex items-start gap-2 text-[12px] text-sky-300 bg-sky-950/30 border border-sky-900 rounded-lg px-3 py-2">
               <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
@@ -422,5 +436,53 @@ function CloseModal({ order, onClose, onDone }: { order: any; onClose: () => voi
           )}
         </div>
     </Modal>
+  );
+}
+
+/**
+ * Expected return date and delay reason on an open order (0115). Moving the
+ * date is counted and the first date kept, the same rule as a PO promise.
+ */
+function PlanDrawer({ order, onClose, onDone }: { order: any; onClose: () => void; onDone: () => void }) {
+  const [due, setDue] = useState<string>(order.expectedReturnDate ?? "");
+  const [reason, setReason] = useState<string>(order.delayReason ?? "");
+  const [note, setNote] = useState<string>(order.delayNote ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const late = !!order.expectedReturnDate && localToday() > order.expectedReturnDate;
+  async function save() {
+    setBusy(true); setErr("");
+    const r = await fetch(`/api/inventory/jobwork/${order.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedReturnDate: due || null, delayReason: reason || null, delayNote: note || null }) });
+    const d = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) { setErr(d.error || "Could not save"); return; }
+    onDone();
+  }
+  return (
+    <Drawer title={`${order.docNumber} · dates`} subtitle={`Dispatched ${order.dispatchDate}`} onClose={onClose}
+      footer={<DrawerFooter saving={busy} onClose={onClose} onSave={save} err={err || null} />}>
+      <div className="space-y-4">
+        {order.returnRevisions > 0 && (
+          <p className="text-[12px] text-amber-400">Moved {order.returnRevisions}× — first expected {order.originalExpectedReturnDate ?? "—"}.</p>
+        )}
+        <div>
+          <label className={fieldLabel}>Expected return</label>
+          <input type="date" value={due} min={order.dispatchDate} onChange={e => setDue(e.target.value)} className={controlInset} />
+          <p className="mt-1 text-[11px] text-stone-500">Moving it is recorded as a revision.</p>
+        </div>
+        <div>
+          <label className={fieldLabel}>{late ? "Why is it late?" : "Delay reason"}</label>
+          <select value={reason} onChange={e => setReason(e.target.value)} className={`${controlInset} bg-stone-950`}>
+            <option value="">{late ? "Not recorded" : "None"}</option>
+            {DELAY_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={fieldLabel}>Detail</label>
+          <input value={note} onChange={e => setNote(e.target.value)} className={controlInset} placeholder="Optional" />
+        </div>
+      </div>
+    </Drawer>
   );
 }

@@ -37,6 +37,7 @@ import { requiresApproval, stagePendingApproval } from "@/lib/inventory/approval
 import { round2, roundQty, QTY_EPSILON } from "@/lib/inventory/round";
 import { costCompletion, splitPackaging, proportionalHours, type CompletionCost } from "@/lib/inventory/mo-costing";
 
+import { isReason, SCRAP_REASONS } from "@/lib/inventory/production-performance";
 const err = (m: string): never => { throw new LedgerValidationError(m); };
 /**
  * Output key. A BOM with no output packs (the Quick-Build shape) produces the
@@ -56,6 +57,8 @@ export type CompletionInput = {
   final?: boolean;                                          // default: true when every pack is done
   outputLocationId?: string | null;
   notes?: string | null;
+  rejectReason?: string | null;                             // SCRAP_REASONS code; required when anything is rejected
+  rejectNote?: string | null;
 };
 
 type Planned = Awaited<ReturnType<typeof planCompletion>>;
@@ -187,6 +190,10 @@ export async function previewCompletion(orgId: string, moId: string, input: Comp
 export async function completeMoRun(orgId: string, moId: string, input: CompletionInput, actorId: string | null, opts?: { skipApprovalCheck?: boolean }) {
   const p: Planned = await planCompletion(orgId, moId, input);
   const { mo, cost, output } = p;
+  // A reject with no reason can be costed but never analysed — refuse it here
+  // (not in preview, which runs while the quantity is still being typed).
+  if (p.rejectedBase > 0 && !isReason(SCRAP_REASONS, input.rejectReason)) err("Choose why the rejected quantity was rejected.");
+  if (input.rejectReason && !isReason(SCRAP_REASONS, input.rejectReason)) err("Unknown scrap reason.");
 
   if (!opts?.skipApprovalCheck && await requiresApproval(orgId, "production_build", cost.total)) {
     const pending = await stagePendingApproval(orgId, "mo_completion", { moId, ...input }, cost.total, actorId);
@@ -231,6 +238,9 @@ export async function completeMoRun(orgId: string, moId: string, input: Completi
     totalInputCost: cost.total.toString(), labourCost: p.labourCost.toString(), overheadCost: p.overheadCost.toString(), scrapCost: cost.scrapCost.toString(),
     status: "Completed", entryId: entry.id, producedDate: p.date, notes: input.notes?.trim() || null, createdBy: actorId,
     outputLocationId,
+    rejectReason: p.rejectedBase > 0 ? input.rejectReason : null,
+    rejectNote: p.rejectedBase > 0 ? (input.rejectNote?.trim().slice(0, 2000) || null) : null,
+    operationHours: p.operations.map(o => ({ operationId: o.id, name: o.name, hours: o.hours })),
   } as any).returning({ id: productionRuns.id });
 
   // Stock side. Failures here are loud, not swallowed: the entry has posted,

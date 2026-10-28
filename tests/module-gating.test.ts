@@ -239,6 +239,7 @@ const UNOWNED_PAGES: readonly AllowEntry[] = [
   { path: "/accounting/reports", why: "the shared reports hub index — its individual reports are owned or allowlisted below", exact: true },
   { path: "/accounting/reports/[statement]", why: "dynamic report dispatcher — trial-balance/profit-loss/balance-sheet are owned concretely at runtime above" },
   { path: "/accounting/reports/awaiting-invoicing", why: "Supply Chain's Fulfilment report, hosted in the shared reports hub" },
+  { path: "/accounting/reports/production-performance", why: "Supply Chain's MO / job work planned-vs-actual report, hosted in the shared reports hub" },
   { path: "/accounting/reports/delivery-performance", why: "Supply Chain's supplier/customer OTIF report, hosted in the shared reports hub" },
   { path: "/accounting/reports/delivery-risk", why: "Supply Chain's order-tracking report, hosted in the shared reports hub" },
   { path: "/accounting/reports/expected-bills", why: "Supply Chain's Purchasing report, hosted in the shared reports hub" },
