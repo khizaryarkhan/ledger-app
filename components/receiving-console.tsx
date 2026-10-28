@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStockLocations, LocationField, defaultLocationId } from "@/components/location-picker";
 import { useData } from "@/components/data-provider";
-import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes, Pencil } from "lucide-react";
+import { Plus, RefreshCw, X, Loader, Check, Trash2, FileText, ChevronLeft, ChevronRight, Truck, Package, Boxes, Pencil, Search, Clock } from "lucide-react";
 import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
@@ -219,6 +219,38 @@ function packLadder(baseQty: number, opts: OrderOption[]): string | null {
 // Receiving page itself, per the product decision this drawer implements).
 const isStarted = (po: OpenPo) => po.lines.some(l => l.receivedQty > QTY_EPSILON);
 
+/**
+ * Whole calendar days from today to `dateStr` (negative = past). Both sides
+ * are literal YYYY-MM-DD strings read into Date.UTC purely as a calendar-day
+ * counter — never `new Date(dateStr)`, which parses as UTC midnight and then
+ * drifts a day in local rendering. See CLAUDE.md "a date is a date".
+ */
+function daysFromToday(dateStr: string): number {
+  const [y1, m1, d1] = localToday().split("-").map(Number);
+  const [y2, m2, d2] = dateStr.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+/** Overdue / due-soon badge for a PO's expected date — the colour coding a
+ *  buyer scanning a long list actually needs, not just a plain date string. */
+function poUrgency(po: OpenPo): "overdue" | "soon" | null {
+  if (!po.expiryDate) return null;
+  const d = daysFromToday(po.expiryDate);
+  if (d < 0) return "overdue";
+  if (d <= 2) return "soon";
+  return null;
+}
+
+/** Global PO search — supplier, PO number, or any item/SKU on it, so a
+ *  buyer who only remembers what they ordered can still find the PO. */
+function matchesPoSearch(po: OpenPo, q: string): boolean {
+  if (!q) return true;
+  const needle = q.toLowerCase();
+  if ((po.partyLabel || "").toLowerCase().includes(needle)) return true;
+  if ((po.docNumber || "").toLowerCase().includes(needle)) return true;
+  return po.lines.some(l => l.itemName.toLowerCase().includes(needle) || (l.skuLabel || "").toLowerCase().includes(needle));
+}
+
 type View = { v: "hub" } | { v: "items"; poId: string } | { v: "lots"; poId: string; lineId: string } | { v: "adhoc" };
 
 function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items: any[]; onClose: () => void }) {
@@ -332,13 +364,36 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
   onOpenPo: (po: OpenPo) => void; onAdhoc: () => void;
 }) {
   const list = tab === "expected" ? expected : inProgress;
+  // Global search across the whole list — a shop with 100+ open POs can't
+  // scroll to find one, so this is the real affordance, not the two tabs.
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => list.filter(po => matchesPoSearch(po, q)), [list, q]);
+  const overdueCount = useMemo(() => list.filter(po => poUrgency(po) === "overdue").length, [list]);
   return (
     <>
-      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-2.5">
         <div className="flex p-1 rounded-xl bg-stone-800/70 gap-1">
           <SegButton active={tab === "expected"} onClick={() => setTab("expected")} label="Expected" count={expected.length} />
           <SegButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
         </div>
+        <div className="relative">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
+          <input
+            value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Search supplier, PO number, or item…"
+            className="w-full h-9 rounded-full bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
+          />
+          {q && (
+            <button onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {overdueCount > 0 && (
+          <div className="flex items-center gap-1.5 text-[11.5px] text-rose-400 font-medium">
+            <Clock size={12} /> {overdueCount} overdue
+          </div>
+        )}
       </div>
       <div className="p-5">
         {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
@@ -348,23 +403,33 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
             {tab === "expected" ? "No open purchase orders are waiting to be received." : "Nothing is part-way through receiving right now."}
           </p>
         )}
-        {list.length > 0 && (
+        {loaded && list.length > 0 && filtered.length === 0 && (
+          <p className="text-[13px] text-stone-500 text-center py-10">No purchase orders match "{q}".</p>
+        )}
+        {filtered.length > 0 && (
           <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
-            {list.map(po => {
-              const overdue = po.expiryDate && po.expiryDate < localToday();
+            {filtered.map(po => {
+              const urgency = poUrgency(po);
               const linesLeft = po.lines.length;
+              const bubbleBg = urgency === "overdue" ? "bg-rose-500/15" : urgency === "soon" ? "bg-amber-500/15" : "bg-cyan-500/15";
+              const bubbleFg = urgency === "overdue" ? "text-rose-400" : urgency === "soon" ? "text-amber-400" : "text-cyan-400";
               return (
                 <button key={po.id} onClick={() => onOpenPo(po)}
                   className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
-                  <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0">
-                    <Truck size={17} className="text-cyan-400" />
+                  <div className={`w-10 h-10 rounded-full ${bubbleBg} flex items-center justify-center shrink-0`}>
+                    <Truck size={17} className={bubbleFg} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[14px] font-medium text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
                     <div className="text-[12px] text-stone-500 truncate mt-0.5 font-mono">{po.docNumber || po.id.slice(0, 8)}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className={`text-[11.5px] ${overdue ? "text-amber-400 font-medium" : "text-stone-500"}`}>
+                    {urgency && (
+                      <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full mb-0.5 ${urgency === "overdue" ? "bg-rose-500/15 text-rose-400" : "bg-amber-500/15 text-amber-400"}`}>
+                        {urgency === "overdue" ? "Overdue" : "Due soon"}
+                      </span>
+                    )}
+                    <div className={`text-[11.5px] ${urgency === "overdue" ? "text-rose-400 font-medium" : urgency === "soon" ? "text-amber-400 font-medium" : "text-stone-500"}`}>
                       {po.expiryDate ? fmt.shortDate(po.expiryDate) : "No date"}
                     </div>
                     <div className="text-[11px] text-stone-600 mt-0.5">{linesLeft} item{linesLeft > 1 ? "s" : ""}</div>
@@ -441,10 +506,16 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
     onClosed(`Closed the remaining quantity on ${l.itemName}.`);
   }
   const stagedCount = Object.keys(drafts).length;
+  const [q, setQ] = useState("");
+  const filteredLines = useMemo(() => {
+    if (!q) return po.lines;
+    const needle = q.toLowerCase();
+    return po.lines.filter(l => l.itemName.toLowerCase().includes(needle) || (l.skuLabel || "").toLowerCase().includes(needle));
+  }, [po.lines, q]);
   return (
     <>
-      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
-        <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1">
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-2.5">
+        <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 -ml-1">
           <ChevronLeft size={16} /> All open purchase orders
         </button>
         <div className="flex items-center gap-2.5">
@@ -454,6 +525,21 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
             <div className="text-[11.5px] text-stone-500 font-mono">{po.docNumber || po.id.slice(0, 8)}{po.expiryDate ? ` · expected ${fmt.shortDate(po.expiryDate)}` : ""}</div>
           </div>
         </div>
+        {po.lines.length > 6 && (
+          <div className="relative">
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
+            <input
+              value={q} onChange={e => setQ(e.target.value)}
+              placeholder={`Search ${po.lines.length} items…`}
+              className="w-full h-9 rounded-full bg-stone-800/70 border border-transparent pl-9 pr-8 text-[13px] text-stone-100 placeholder:text-stone-500 outline-none focus:border-stone-600 focus:bg-stone-800 transition-colors"
+            />
+            {q && (
+              <button onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="p-5">
         {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
@@ -462,16 +548,21 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
             {stagedCount} item{stagedCount > 1 ? "s" : ""} staged — click "Post receipt" below to save them as ONE receipt.
           </div>
         )}
+        {q && filteredLines.length === 0 && (
+          <p className="text-[13px] text-stone-500 text-center py-10">No items match "{q}".</p>
+        )}
         <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
-          {po.lines.map(l => {
+          {filteredLines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
             const staged = drafts[l.lineId];
+            const bubbleBg = staged ? "bg-emerald-500/15" : started ? "bg-amber-500/15" : "bg-stone-800";
+            const bubbleFg = staged ? "text-emerald-400" : started ? "text-amber-400" : "text-stone-400";
             return (
               <div key={l.lineId} className={staged ? "bg-emerald-500/5" : ""}>
                 <button onClick={() => onOpenLine(l.lineId)}
                   className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${staged ? "bg-emerald-500/15" : "bg-stone-800"}`}>
-                    {staged ? <Check size={16} className="text-emerald-400" /> : <Package size={16} className="text-stone-400" />}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${bubbleBg}`}>
+                    {staged ? <Check size={16} className={bubbleFg} /> : started ? <Clock size={16} className={bubbleFg} /> : <Package size={16} className={bubbleFg} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[14px] font-medium text-stone-100 truncate">{l.itemName}</div>
