@@ -268,6 +268,7 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   // DraftLine comment above. Cleared on leaving the PO (back to hub) or
   // once the combined receipt actually posts.
   const [drafts, setDrafts] = useState<Record<string, DraftLine>>({});
+  const [deliveryNote, setDeliveryNote] = useState("");   // supplier's delivery note / ASN no. (0114)
   const [posting, setPosting] = useState(false);
   const [postErr, setPostErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
@@ -285,8 +286,8 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
   const selectedPo = (view.v === "items" || view.v === "lots") ? (openPos ?? []).find(p => p.id === view.poId) ?? null : null;
   const selectedLine = view.v === "lots" ? selectedPo?.lines.find(l => l.lineId === view.lineId) ?? null : null;
 
-  function openPo(po: OpenPo) { setNotice(""); setDrafts({}); setPostErr(""); setPendingMsg(""); setView({ v: "items", poId: po.id }); }
-  function backToHub() { setNotice(""); setDrafts({}); setPostErr(""); setPendingMsg(""); setView({ v: "hub" }); }
+  function openPo(po: OpenPo) { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setView({ v: "items", poId: po.id }); }
+  function backToHub() { setNotice(""); setDrafts({}); setDeliveryNote(""); setPostErr(""); setPendingMsg(""); setView({ v: "hub" }); }
 
   function stageLine(lineId: string, draft: DraftLine) { setPostErr(""); setDrafts(d => ({ ...d, [lineId]: draft })); }
   function removeDraft(lineId: string) { setDrafts(d => { const n = { ...d }; delete n[lineId]; return n; }); }
@@ -299,6 +300,7 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
     const r = await fetch(`/api/inventory/receiving`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       supplierId: selectedPo.partyId, supplierLabel: selectedPo.partyLabel, receiptDate: date,
       currency: selectedPo.currency, exchangeRate: selectedPo.exchangeRate, locationId: locationId || null, lines: allLines,
+      deliveryNoteNo: deliveryNote.trim() || null,
     }) });
     const d = await r.json().catch(() => ({}));
     setPosting(false);
@@ -330,6 +332,7 @@ function ReceiveDrawer({ suppliers, items, onClose }: { suppliers: any[]; items:
           <ItemsHub po={selectedPo} notice={notice} onBack={backToHub}
             onOpenLine={(lineId) => setView({ v: "lots", poId: selectedPo.id, lineId })}
             drafts={drafts} onRemoveDraft={removeDraft}
+            deliveryNote={deliveryNote} setDeliveryNote={setDeliveryNote}
             posting={posting} postErr={postErr} pendingMsg={pendingMsg} onPost={postReceipt}
             onClosed={async (msg) => {
               const fresh = await fetchPos();
@@ -372,7 +375,7 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800 space-y-2.5">
-        <div className="flex p-1 rounded-xl bg-stone-800/70 gap-1">
+        <div className="flex p-1 rounded-lg bg-stone-800/70 gap-1">
           <SegButton active={tab === "expected"} onClick={() => setTab("expected")} label="Expected" count={expected.length} />
           <SegButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
         </div>
@@ -407,7 +410,7 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
           <p className="text-[13px] text-stone-500 text-center py-10">No purchase orders match "{q}".</p>
         )}
         {filtered.length > 0 && (
-          <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+          <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
             {filtered.map(po => {
               const urgency = poUrgency(po);
               const linesLeft = po.lines.length;
@@ -420,7 +423,7 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
                     <Truck size={17} className={bubbleFg} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-medium text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
+                    <div className="text-[13px] font-medium text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
                     <div className="text-[12px] text-stone-500 truncate mt-0.5 font-mono">{po.docNumber || po.id.slice(0, 8)}</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -488,9 +491,10 @@ function PillFooter({ saving, onClose, onSave, saveLabel = "Save", err, pendingM
 
 /* --------------------------- PO drilldown: items ------------------------- */
 
-function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, posting, postErr, pendingMsg, onPost }: {
+function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDraft, deliveryNote, setDeliveryNote, posting, postErr, pendingMsg, onPost }: {
   po: OpenPo; notice: string; onBack: () => void; onOpenLine: (lineId: string) => void; onClosed: (msg: string) => void;
   drafts: Record<string, DraftLine>; onRemoveDraft: (lineId: string) => void;
+  deliveryNote: string; setDeliveryNote: (v: string) => void;
   posting: boolean; postErr: string; pendingMsg: string; onPost: () => void;
 }) {
   const [closing, setClosing] = useState<string | null>(null);
@@ -521,7 +525,7 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Truck size={17} className="text-cyan-400" /></div>
           <div className="min-w-0">
-            <div className="text-[16px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
+            <div className="text-[15px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
             <div className="text-[11.5px] text-stone-500 font-mono">{po.docNumber || po.id.slice(0, 8)}{po.expiryDate ? ` · expected ${fmt.shortDate(po.expiryDate)}` : ""}</div>
           </div>
         </div>
@@ -546,12 +550,17 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
         {stagedCount > 0 && (
           <div className="mb-4 text-[12.5px] text-stone-300 bg-stone-800/60 border border-stone-700 rounded-lg px-3 py-2">
             {stagedCount} item{stagedCount > 1 ? "s" : ""} staged — click "Post receipt" below to save them as ONE receipt.
+            <div className="mt-2">
+              <Field label="Supplier delivery note / ASN no." hint="The paperwork the goods arrived with — the third leg of the match.">
+                <input value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} maxLength={64} className={controlInset} placeholder="e.g. DN-50421" />
+              </Field>
+            </div>
           </div>
         )}
         {q && filteredLines.length === 0 && (
           <p className="text-[13px] text-stone-500 text-center py-10">No items match "{q}".</p>
         )}
-        <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+        <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
           {filteredLines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
             const staged = drafts[l.lineId];
@@ -565,7 +574,7 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
                     {staged ? <Check size={16} className={bubbleFg} /> : started ? <Clock size={16} className={bubbleFg} /> : <Package size={16} className={bubbleFg} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-medium text-stone-100 truncate">{l.itemName}</div>
+                    <div className="text-[13px] font-medium text-stone-100 truncate">{l.itemName}</div>
                     <div className="text-[12px] text-stone-500 truncate mt-0.5">
                       {l.skuLabel ? `${l.skuLabel} · ` : ""}Expected <span className="text-stone-300">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
                       {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && ` (${packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})`}
@@ -704,7 +713,7 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Package size={17} className="text-cyan-400" /></div>
           <div className="min-w-0">
-            <div className="text-[16px] font-semibold text-stone-100 truncate">{line.itemName}</div>
+            <div className="text-[15px] font-semibold text-stone-100 truncate">{line.itemName}</div>
             <div className="text-[11.5px] text-stone-500">
               {line.skuLabel ? `${line.skuLabel} · ` : ""}Expecting {fmt.qty(line.remainingQty)} {line.baseUom || ""}
               {packLadder(line.remainingQty, unitOpts) && ` (${packLadder(line.remainingQty, unitOpts)})`}
@@ -850,7 +859,7 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
         <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1"><ChevronLeft size={16} /> All open purchase orders</button>
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Boxes size={17} className="text-cyan-400" /></div>
-          <div className="text-[16px] font-semibold text-stone-100">Receive without a PO</div>
+          <div className="text-[15px] font-semibold text-stone-100">Receive without a PO</div>
         </div>
       </div>
       <div className="p-5 space-y-5">
@@ -992,7 +1001,7 @@ function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; i
       ) : (
         <>
           <div className="p-5 space-y-5">
-            <div className="text-[12px] text-stone-400 bg-stone-800/40 border border-stone-800 rounded-2xl px-4 py-3">
+            <div className="text-[12px] text-stone-400 bg-stone-800/40 border border-stone-800 rounded-lg px-4 py-3">
               Saving voids the original receipt and posts the correction as a new one — any purchase order this
               receipt advanced is adjusted to match automatically.
             </div>
@@ -1010,7 +1019,7 @@ function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; i
               right={<button onClick={addLine} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add line</button>}>
               <div className="space-y-2.5">
                 {lines.map(l => (
-                  <div key={l.key} className="rounded-2xl border border-stone-800 bg-stone-900 p-3.5">
+                  <div key={l.key} className="rounded-lg border border-stone-800 bg-stone-900 p-3.5">
                     <div className="flex items-center gap-2.5 mb-3">
                       <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center shrink-0"><Package size={14} className="text-stone-400" /></div>
                       {l.poId ? (
@@ -1099,7 +1108,7 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
           </div>
         </Section>
         <Section title="Invoice prices" desc="Change a price only where the supplier's invoice differs from the receipt. The difference on stock still held goes into that lot's cost; on stock already used, to purchase price variance.">
-          <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+          <div className="rounded-lg border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
             {lines === null && <div className="px-4 py-4 text-center text-stone-500 text-[12.5px]">Loading…</div>}
             {(lines ?? []).map(l => (
               <div key={l.id} className="flex items-center gap-3 px-4 py-3">
@@ -1115,7 +1124,7 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
             ))}
           </div>
         </Section>
-        <div className="rounded-2xl bg-stone-800/50 border border-stone-700 px-4 py-3 text-[12px] text-stone-300">
+        <div className="rounded-lg bg-stone-800/50 border border-stone-700 px-4 py-3 text-[12px] text-stone-300">
           Clears GR/IR → <span className="font-semibold text-stone-100">{money(total)}</span>
           {Math.abs(diff) >= 0.005 && <> · price difference <span className={diff > 0 ? "text-amber-300" : "text-emerald-300"}>{diff > 0 ? "+" : ""}{money(diff)}</span> · bill total <span className="font-semibold text-stone-100">{money(total + diff)}</span></>}
         </div>

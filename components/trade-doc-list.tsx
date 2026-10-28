@@ -2,8 +2,8 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Download, Route } from "lucide-react";
-import { controlCompact, tableHead, Drawer } from "@/components/form-kit";
+import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Download, Route, CalendarCheck } from "lucide-react";
+import { controlCompact, controlInset, tableHead, Drawer, DrawerFooter, Field, SelectField } from "@/components/form-kit";
 import { fmt, formatDate } from "@/lib/format";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
@@ -46,15 +46,30 @@ interface DocRow {
   remainingNet: number;
   pct: number;
   salesOrderId: string | null;
+  partyRef: string | null;
+  promisedDate: string | null;
+  confirmation: "Unconfirmed" | "Sent" | "Confirmed";
 }
+
+// Literal class strings — never built at runtime (Tailwind only sees literals).
+const CONFIRM_CHIP: Record<DocRow["confirmation"], string> = {
+  Unconfirmed: "bg-amber-500/12 text-amber-400 border-amber-800/50",
+  Sent:        "bg-sky-500/12 text-sky-400 border-sky-800/50",
+  Confirmed:   "bg-emerald-500/12 text-emerald-400 border-emerald-800/50",
+};
 
 function buildColumns(kind: Kind): ListColumn<DocRow>[] {
   const meta = META[kind];
   const partyLabel = kind === "purchase-orders" ? "Supplier" : "Customer";
+  const confirmable: ListColumn<DocRow>[] = kind === "estimates" ? [] : [
+    { key: "confirmation", label: kind === "purchase-orders" ? "Supplier confirmation" : "Commitment",
+      sort: r => `${r.confirmation}${r.promisedDate ?? ""}`, filter: { kind: "multi", value: r => r.confirmation } },
+  ];
   return [
     { key: "docNumber", label: "Number", sort: r => r.docNumber ?? "" },
     { key: "party", label: partyLabel, sort: r => r.partyLabel ?? "", filter: { kind: "multi", value: r => r.partyLabel } },
     { key: "issueDate", label: "Date", sort: r => r.issueDate },
+    ...confirmable,
     { key: "total", label: "Total", sort: r => Number(r.total ?? 0), descFirst: true, align: "right",
       money: r => ({ amount: Number(r.total ?? 0), currency: r.currency }) },
     // The one visible column doubles as the status filter — Open/Partial/Closed
@@ -75,6 +90,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [links, setLinks] = useState<Record<string, any[]>>({});
   const [modal, setModal] = useState<any | null>(null);
+  const [confirming, setConfirming] = useState<DocRow | null>(null);
 
   async function load() {
     const r = await fetch(`/api/trade-documents/${kind}`).then(x => x.json()).catch(() => []);
@@ -158,6 +174,17 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                     </td>
                     <td className="px-2 py-2 text-stone-200">{r.partyLabel || "—"}</td>
                     <td className="px-2 py-2 text-stone-400">{formatDate(r.issueDate)}</td>
+                    {kind !== "estimates" && (
+                      <td className="px-2 py-2">
+                        <button onClick={() => setConfirming(r)} className="text-left group" title="Record the counterparty's confirmation and promised date">
+                          <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${CONFIRM_CHIP[r.confirmation]}`}>{r.confirmation}</span>
+                          <div className="text-[10px] text-stone-500 mt-0.5 group-hover:text-stone-300">
+                            {r.promisedDate ? `Promised ${formatDate(r.promisedDate)}` : r.expiryDate ? `Requested ${formatDate(r.expiryDate)}` : "No date yet"}
+                            {r.partyRef ? ` · ${r.partyRef}` : ""}
+                          </div>
+                        </button>
+                      </td>
+                    )}
                     <td className={listMoneyCell}><span className="text-stone-200 text-[13px] font-medium">{fmt.money(r.total, r.currency ?? undefined)}</span></td>
                     <td className="px-2 py-2">
                       <div className="flex items-center gap-2">
@@ -170,6 +197,9 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
+                        {kind !== "estimates" && (
+                          <button onClick={() => setConfirming(r)} className="text-[11px] font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1" title="Confirmation & promised dates"><CalendarCheck size={12} /> Confirm</button>
+                        )}
                         {kind === "sales-orders" && (
                           <Link href={`/accounting/trade/sales-orders/${r.id}`} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Track this order's progress"><Route size={12} /> Track</Link>
                         )}
@@ -222,6 +252,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         </ListScroll>
       )}
 
+      {confirming && <ConfirmDrawer kind={kind} doc={confirming} onClose={() => setConfirming(null)} onDone={(m: string) => { setConfirming(null); setMsg(m); load(); }} />}
       {modal && <ProgressModal kind={kind} meta={meta} doc={modal} onClose={() => setModal(null)} onDone={(m: string) => { setModal(null); setMsg(m); load(); if (expanded === modal.id) openLinks(modal.id, true); }} />}
     </ListPage>
   );
@@ -313,6 +344,110 @@ function ProgressModal({ kind, meta, doc, onClose, onDone }: any) {
               </tbody>
             </table>
           )}
+    </Drawer>
+  );
+}
+
+type ConfirmLine = {
+  id: string; description: string | null; orderedBaseQty: number; receivedQty: number; closed: boolean;
+  requestedDate: string | null; promisedDate: string | null; originalPromisedDate: string | null; promiseRevisions: number;
+};
+
+/**
+ * Record the counterparty's side of an order (0114): their reference (the
+ * supplier's confirmation no. / the customer's PO no.), whether it has been
+ * sent and confirmed, and the date they committed to — one date for every
+ * line, or per line when they split delivery. Delivery performance is
+ * measured against these promises, and a moved promise is counted, never
+ * silently overwritten.
+ */
+function ConfirmDrawer({ kind, doc, onClose, onDone }: { kind: Kind; doc: DocRow; onClose: () => void; onDone: (m: string) => void }) {
+  const isPo = kind === "purchase-orders";
+  const [lines, setLines] = useState<ConfirmLine[] | null>(null);
+  const [partyRef, setPartyRef] = useState(doc.partyRef ?? "");
+  const [status, setStatus] = useState<DocRow["confirmation"]>(doc.confirmation);
+  const [allDate, setAllDate] = useState(doc.promisedDate ?? "");
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/trade-documents/${kind}/${doc.id}/lines`).then(r => r.json()).then((ls: ConfirmLine[]) => {
+      setLines(Array.isArray(ls) ? ls : []);
+      setDates(Object.fromEntries((Array.isArray(ls) ? ls : []).map(l => [l.id, l.promisedDate ?? ""])));
+    }).catch(() => setLines([]));
+  }, [kind, doc.id]);
+
+  function applyAll(v: string) {
+    setAllDate(v);
+    if (v) setDates(d => Object.fromEntries(Object.keys(d).map(k => [k, v])));
+  }
+
+  async function save() {
+    setBusy(true); setErr("");
+    try {
+      const body = {
+        partyRef: partyRef.trim() || null,
+        promisedDate: allDate || null,
+        lines: (lines ?? []).map(l => ({ lineId: l.id, promisedDate: dates[l.id] || null })),
+        markSent: status !== "Unconfirmed",
+        confirmed: status === "Confirmed",
+      };
+      const res = await fetch(`/api/trade-documents/${kind}/${doc.id}/confirm`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(d.error || "Could not save."); return; }
+      onDone(`${doc.docNumber ?? ""} — ${d.status}${d.promiseChanges ? `, ${d.promiseChanges} promised date${d.promiseChanges === 1 ? "" : "s"} updated` : ""}.`);
+    } finally { setBusy(false); }
+  }
+
+  const dateInput = `${controlInset} h-8 text-[12px]`;
+  return (
+    <Drawer size="xl" onClose={onClose}
+      title={`${isPo ? "Supplier confirmation" : "Customer commitment"} · ${doc.docNumber ?? ""}`}
+      subtitle={isPo ? "What the supplier confirmed, and when they promised to deliver." : "The customer's PO reference, and the date we committed to ship."}
+      footer={<DrawerFooter saving={busy} onClose={onClose} onSave={save} saveLabel="Save" err={err} />}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        <Field label={isPo ? "Supplier's confirmation no." : "Customer's PO no."}>
+          <input value={partyRef} onChange={e => setPartyRef(e.target.value)} maxLength={64} className={controlInset} placeholder={isPo ? "e.g. SO-88231" : "e.g. PO-4471"} />
+        </Field>
+        <Field label="Status" hint={status === "Confirmed" ? "Delivery is measured against the promised dates." : "Unconfirmed orders show on the follow-up list."}>
+          <SelectField inset value={status} onChange={e => setStatus(e.target.value as DocRow["confirmation"])}>
+            <option value="Unconfirmed">Not sent</option>
+            <option value="Sent">Sent — awaiting confirmation</option>
+            <option value="Confirmed">Confirmed</option>
+          </SelectField>
+        </Field>
+        <Field label="Promised date (all lines)" hint="Set per line below when delivery is split.">
+          <input type="date" value={allDate} onChange={e => applyAll(e.target.value)} className={controlInset} />
+        </Field>
+      </div>
+      {!lines ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={12} className="animate-spin" /> Loading…</div> : (
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className={tableHead}>
+              <th className="text-left py-2">Line</th>
+              <th className="text-right py-2 w-24">{isPo ? "Received" : "Shipped"}</th>
+              <th className="text-left py-2 w-28 pl-3">Requested</th>
+              <th className="text-left py-2 w-40">Promised</th>
+              <th className="text-left py-2 w-32">First promise</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map(l => (
+              <tr key={l.id} className="border-b border-stone-800/50">
+                <td className="py-2 text-stone-200">{l.description || <span className="text-stone-600">(no description)</span>}{l.closed && <span className="ml-2 text-[10px] text-stone-500">closed</span>}</td>
+                <td className="py-2 text-right tabular-nums text-stone-400">{l.receivedQty} / {l.orderedBaseQty}</td>
+                <td className="py-2 pl-3 text-stone-400">{l.requestedDate ? formatDate(l.requestedDate) : "—"}</td>
+                <td className="py-2"><input type="date" value={dates[l.id] ?? ""} onChange={e => setDates(d => ({ ...d, [l.id]: e.target.value }))} className={dateInput} /></td>
+                <td className="py-2 text-[12px] text-stone-500">
+                  {l.originalPromisedDate ? formatDate(l.originalPromisedDate) : "—"}
+                  {l.promiseRevisions > 0 && <span className="ml-1 text-amber-400" title="Times the promised date has moved">· moved {l.promiseRevisions}×</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </Drawer>
   );
 }

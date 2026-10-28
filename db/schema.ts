@@ -825,6 +825,9 @@ export const parties = pgTable("parties", {
   source: varchar("source", { length: 16 }).notNull().default("native"), // 'native' | 'qbo' | 'xero' | 'sage'
   lastSyncedAt: timestamp("last_synced_at"),
   chaseByProject: boolean("chase_by_project").notNull().default(false), // customer-only concept
+  // Supplier-only (0114): default lead time when the item's supplier link has
+  // none. Not exposed through the ap_suppliers view — read parties directly.
+  leadTimeDays: integer("lead_time_days"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
@@ -2800,6 +2803,14 @@ export const tradeDocuments = pgTable("trade_documents", {
   // above — the PO form already labels it "Delivery date" (new-document-form
   // .tsx's `dateLabel2`), so a separate column would just duplicate it.
   salesOrderId:     uuid("sales_order_id"),
+  // Confirmation (0114). partyRef = the supplier's order confirmation no. on a
+  // PO, the customer's own PO no. on an SO. promisedDate = the date the
+  // counterparty committed to (expiryDate stays what WE asked for).
+  partyRef:         varchar("party_ref", { length: 64 }),
+  sentAt:           timestamp("sent_at"),
+  confirmedAt:      timestamp("confirmed_at"),
+  confirmedBy:      uuid("confirmed_by"),
+  promisedDate:     varchar("promised_date", { length: 16 }),
   createdBy:        uuid("created_by"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
@@ -2849,6 +2860,12 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   closed:            boolean("closed").notNull().default(false),
   closeReason:       text("close_reason"),
   closedAt:          timestamp("closed_at"),
+  // Delivery dates per line (0114) — what OTIF is measured against.
+  // originalPromisedDate is the FIRST promise; promiseRevisions counts moves.
+  requestedDate:        varchar("requested_date", { length: 16 }),
+  promisedDate:         varchar("promised_date", { length: 16 }),
+  originalPromisedDate: varchar("original_promised_date", { length: 16 }),
+  promiseRevisions:     integer("promise_revisions").notNull().default(0),
 }, (t) => ({
   trade_document_lines_doc_idx: index("trade_document_lines_doc_idx").on(t.documentId),
 }));
@@ -2875,6 +2892,7 @@ export const goodsReceipts = pgTable("goods_receipts", {
   locationId:    uuid("location_id").references(() => stockLocations.id, { onDelete: "set null" }),
   grirTotal:     numeric("grir_total", { precision: 18, scale: 4 }).notNull().default("0"),   // home accrued
   billedAmount:  numeric("billed_amount", { precision: 18, scale: 4 }).notNull().default("0"),// home billed to date
+  deliveryNoteNo: varchar("delivery_note_no", { length: 64 }),   // supplier's delivery note / ASN (0114)
   notes:         text("notes"),
   createdBy:     uuid("created_by"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
@@ -3072,6 +3090,9 @@ export const salesShipments = pgTable("sales_shipments", {
   cogsTotal:     numeric("cogs_total", { precision: 18, scale: 4 }).notNull().default("0"),   // home cost relieved
   saleTotal:     numeric("sale_total", { precision: 18, scale: 4 }).notNull().default("0"),   // sale value shipped (for invoicing)
   invoicedAmount: numeric("invoiced_amount", { precision: 18, scale: 4 }).notNull().default("0"), // sale value invoiced to date
+  carrier:       varchar("carrier", { length: 64 }),          // 0114
+  trackingNo:    varchar("tracking_no", { length: 128 }),     // 0114
+  deliveredDate: date("delivered_date"),                      // proof of delivery (0114)
   notes:         text("notes"),
   createdBy:     uuid("created_by"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),

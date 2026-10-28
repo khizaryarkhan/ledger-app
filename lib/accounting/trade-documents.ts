@@ -12,7 +12,7 @@
  */
 
 import { db } from "@/db";
-import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems } from "@/db/schema";
+import { tradeDocuments, tradeDocumentLines, apTaxRates, apItems, itemSupplierSkus, parties } from "@/db/schema";
 import { isTracked, itemCanBeSold } from "@/lib/inventory/item-kinds";
 import { and, eq, inArray, desc, sql } from "drizzle-orm";
 import { resolveDocNumber, type DocType } from "@/lib/accounting/numbering";
@@ -22,6 +22,7 @@ import { logEvent } from "@/lib/audit";
 import { LedgerValidationError } from "@/lib/ledger";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
+import { resolveLeadTimeDays, defaultRequestedDate, applyPromise, confirmationStatus, isIsoDate } from "@/lib/inventory/delivery-performance";
 
 export type TradeKind = "Estimate" | "PurchaseOrder" | "SalesOrder";
 
@@ -46,6 +47,9 @@ export type TradeDocInput = {
   // `expiryDate` field above (labeled "Delivery date" for POs) rather than a
   // separate expected-date column.
   salesOrderId?: string | null;
+  // The counterparty's own reference (0114): the customer's PO number on an
+  // SO, the supplier's order confirmation number on a PO.
+  partyRef?: string | null;
 };
 /** How much of the estimate/PO to invoice now. */
 export type InvoicePlan = { full?: boolean; percent?: number; lines?: { lineId: string; amount: number }[] };
@@ -115,6 +119,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   const taxTotal = round2(priced.reduce((s, l) => s + l.tax, 0));
   const total = round2(subtotal + taxTotal);
   const docNumber = await resolveDocNumber(orgId, kind as DocType, input.docNumber);
+  const requestedDates = await requestedDatesFor(orgId, kind, input, raw);
 
   const [doc] = await db.insert(tradeDocuments).values({
     orgId, kind, docNumber,
@@ -124,6 +129,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
     status: "Open", memo: input.memo?.trim() || null,
     subtotal: subtotal.toFixed(2), taxTotal: taxTotal.toFixed(2), total: total.toFixed(2),
     salesOrderId: kind === "PurchaseOrder" ? (input.salesOrderId || null) : null,
+    partyRef: input.partyRef?.trim() || null,
     createdBy: actorId,
   }).returning();
 
@@ -151,6 +157,7 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
         priceInput: l.priceInput != null && isFinite(Number(l.priceInput)) ? String(l.priceInput) : null,
         classId: l.classId ?? null, locationId: l.locationId ?? null,
         orderedBaseQty: String(orderedBase),
+        requestedDate: requestedDates[i],
       };
     }));
   } catch (e) {
@@ -161,6 +168,88 @@ export async function createTradeDoc(orgId: string, kind: TradeKind, input: Trad
   logEvent({ orgId, eventType: "document_created", docType: "trade", docId: doc.id, actorId, meta: { sourceType: kind, docNumber } })
     .catch(e => console.error("[audit] document_created (trade) failed:", e));
   return { id: doc.id, docNumber, total };
+}
+
+/**
+ * The date each new line is REQUESTED for (0114) — what delivery performance is
+ * later measured against when no promise is ever recorded. A header delivery
+ * date wins (the buyer named it); a purchase line without one falls back to
+ * order date + lead time, the item's supplier link first, then the supplier's
+ * own default. An Estimate commits to no delivery, so it gets none.
+ */
+async function requestedDatesFor(orgId: string, kind: TradeKind, input: TradeDocInput, lines: TradeLineInput[]): Promise<(string | null)[]> {
+  if (kind === "Estimate") return lines.map(() => null);
+  if (kind === "SalesOrder" || isIsoDate(input.expiryDate) || !input.partyId) {
+    return lines.map(() => defaultRequestedDate(input.issueDate, input.expiryDate, null));
+  }
+  const supplierId = input.partyId;
+  const [sup] = await db.select({ leadTimeDays: parties.leadTimeDays }).from(parties)
+    .where(and(eq(parties.orgId, orgId), eq(parties.id, supplierId))).limit(1);
+  const itemIds = [...new Set(lines.map(l => l.itemId).filter(Boolean) as string[])];
+  const links = itemIds.length
+    ? await db.select({ id: itemSupplierSkus.id, itemId: itemSupplierSkus.itemId, leadTimeDays: itemSupplierSkus.leadTimeDays, isPreferred: itemSupplierSkus.isPreferred })
+        .from(itemSupplierSkus)
+        .where(and(eq(itemSupplierSkus.orgId, orgId), eq(itemSupplierSkus.supplierId, supplierId), inArray(itemSupplierSkus.itemId, itemIds)))
+    : [];
+  return lines.map(l => {
+    const link = links.find(k => l.supplierSkuId && k.id === l.supplierSkuId)
+      ?? links.filter(k => k.itemId === l.itemId).sort((a, b) => Number(b.isPreferred) - Number(a.isPreferred))[0];
+    return defaultRequestedDate(input.issueDate, null, resolveLeadTimeDays(link?.leadTimeDays, sup?.leadTimeDays));
+  });
+}
+
+export type ConfirmInput = {
+  partyRef?: string | null;
+  promisedDate?: string | null;          // applied to every line without its own
+  lines?: { lineId: string; promisedDate: string | null }[];
+  markSent?: boolean;
+  confirmed?: boolean;                   // true = counterparty has confirmed
+};
+
+/**
+ * Record the counterparty's confirmation of a PO / SO (0114): their reference,
+ * the delivery date they committed to — per line, or one date for all — and
+ * whether it is merely sent or actually confirmed. A promise that moves is
+ * counted (applyPromise); the first promise is never overwritten. Allowed while
+ * the order is still open, because a promise usually moves AFTER delivery has
+ * started; nothing here touches quantities or money.
+ */
+export async function confirmTradeDoc(orgId: string, id: string, input: ConfirmInput, actorId: string | null) {
+  const [doc] = await db.select().from(tradeDocuments).where(and(eq(tradeDocuments.id, id), eq(tradeDocuments.orgId, orgId))).limit(1);
+  if (!doc) err("Document not found.");
+  if (doc.kind === "Estimate") err("An estimate commits to no delivery — confirm the order it becomes instead.");
+  if (input.promisedDate && !isIsoDate(input.promisedDate)) err("Promised date must be a valid date.");
+  const headerPromise = input.promisedDate || null;
+
+  const lines = await db.select().from(tradeDocumentLines)
+    .where(and(eq(tradeDocumentLines.documentId, id), eq(tradeDocumentLines.orgId, orgId)));
+  const perLine = new Map((input.lines ?? []).map(x => [x.lineId, x.promisedDate || null]));
+  for (const lineId of perLine.keys()) if (!lines.some(l => l.id === lineId)) err("A line does not belong to this order.");
+
+  // Validate every promise before writing any (neon-http has no transactions).
+  const updates = lines.map(l => {
+    const next = perLine.has(l.id) ? perLine.get(l.id)! : (input.promisedDate !== undefined ? headerPromise : l.promisedDate ?? null);
+    try { return { line: l, upd: applyPromise(l, next) }; }
+    catch (e: any) { return err(e.message); }
+  }).filter(x => x.upd.promisedDate !== (x.line.promisedDate ?? null));
+
+  for (const { line, upd } of updates) {
+    await db.update(tradeDocumentLines).set(upd).where(eq(tradeDocumentLines.id, line.id));
+  }
+  const now = new Date();
+  const header: Partial<typeof tradeDocuments.$inferInsert> = { updatedAt: now };
+  if (input.partyRef !== undefined) header.partyRef = input.partyRef?.trim() || null;
+  if (input.promisedDate !== undefined) header.promisedDate = headerPromise;
+  if (input.markSent && !doc.sentAt) header.sentAt = now;
+  if (input.confirmed === true && !doc.confirmedAt) { header.confirmedAt = now; header.confirmedBy = actorId; if (!doc.sentAt) header.sentAt = now; }
+  if (input.confirmed === false) { header.confirmedAt = null; header.confirmedBy = null; }
+  await db.update(tradeDocuments).set(header).where(eq(tradeDocuments.id, id));
+
+  logEvent({ orgId, eventType: "document_edited", docType: "trade", docId: id, actorId,
+    meta: { sourceType: doc.kind, docNumber: doc.docNumber, action: "confirmation", promiseChanges: updates.length } })
+    .catch(e => console.error("[audit] trade confirmation failed:", e));
+  const confirmedAt = "confirmedAt" in header ? header.confirmedAt : doc.confirmedAt;
+  return { id, status: confirmationStatus({ sentAt: header.sentAt ?? doc.sentAt, confirmedAt }), promiseChanges: updates.length };
 }
 
 /** Delete a trade doc — allowed until it has been fulfilled/converted. */
@@ -200,6 +289,8 @@ export async function listTradeDocs(orgId: string, kind: TradeKind) {
       invoicedNet: round2(a.invoiced), netTotal: round2(a.net), remainingNet: remaining,
       pct: a.net > 0 ? Math.round((a.invoiced / a.net) * 100) : 0,
       salesOrderId: r.salesOrderId ?? null,
+      partyRef: r.partyRef ?? null, promisedDate: r.promisedDate ?? null,
+      confirmation: confirmationStatus(r),
     };
   });
 }
@@ -213,6 +304,9 @@ export async function tradeDocLines(orgId: string, id: string) {
     id: l.id, description: l.description, amount: Number(l.amount),
     invoiced: Number(l.invoicedAmount), remaining: round2(Number(l.amount) - Number(l.invoicedAmount)),
     taxRateId: l.taxRateId,
+    orderedBaseQty: Number(l.orderedBaseQty), receivedQty: Number(l.receivedQty), closed: l.closed,
+    requestedDate: l.requestedDate, promisedDate: l.promisedDate,
+    originalPromisedDate: l.originalPromisedDate, promiseRevisions: l.promiseRevisions,
   }));
 }
 

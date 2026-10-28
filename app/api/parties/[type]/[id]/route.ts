@@ -7,11 +7,12 @@
  */
 
 import { db } from "@/db";
-import { customers, apSuppliers, employees } from "@/db/schema";
+import { customers, apSuppliers, employees, parties } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq } from "drizzle-orm";
 import { partyReferences, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
+import { leadTimeOf } from "@/lib/inventory/delivery-performance";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const valid = (t: string): t is PartyType => t === "customers" || t === "suppliers" || t === "employees";
@@ -27,7 +28,11 @@ export async function GET(_req: Request, { params }: { params: { type: string; i
   const table = params.type === "customers" ? customers : params.type === "suppliers" ? apSuppliers : employees;
   const [row] = await db.select().from(table as any).where(and(eq((table as any).id, params.id), eq((table as any).orgId, orgId!))).limit(1);
   if (!row) return bad("Not found", 404);
-  return ok({ ...row, name: (row as any).displayName || row.name });
+  // Lead time lives on parties, not the ap_suppliers view (0114).
+  const [lead] = params.type === "suppliers"
+    ? await db.select({ leadTimeDays: parties.leadTimeDays }).from(parties).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!))).limit(1)
+    : [];
+  return ok({ ...row, name: (row as any).displayName || row.name, leadTimeDays: lead?.leadTimeDays ?? null });
 }
 
 export async function PATCH(req: Request, { params }: { params: { type: string; id: string } }) {
@@ -57,6 +62,11 @@ export async function PATCH(req: Request, { params }: { params: { type: string; 
   } else {
     if (set.name !== undefined) set.displayName = set.name;
     await db.update(apSuppliers).set(set).where(and(eq(apSuppliers.id, params.id), eq(apSuppliers.orgId, orgId!)));
+    if (b.leadTimeDays !== undefined) {
+      const lead = leadTimeOf(b.leadTimeDays);
+      if (lead === "invalid") return bad("Lead time must be a whole number of days (0–3650).");
+      await db.update(parties).set({ leadTimeDays: lead }).where(and(eq(parties.id, params.id), eq(parties.orgId, orgId!)));
+    }
   }
   return ok({ id: params.id, updated: true });
 }

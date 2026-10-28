@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0112` at `when`
-  `1792000000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0114` at `when`
+  `1792200000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1714,6 +1714,68 @@ network at all — that is what makes it ours rather than a proxy.
 - **Open decision: history cutoff.** Ingesting from a cutoff date needs an
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
+
+## Delivery data points — confirmation, promised dates, OTIF (2026-10-28)
+
+Asked for directly: "real data points are missing... Statuses missing... if
+someone created the PO - someone has to confirm the status and put the
+expected time of delivery... I want to ensure that we have right data points in
+place so we can produce world class reporting." Migration `0114`, all
+additive (nullable or defaulted — no existing row changes meaning).
+
+- **Three dates per PO/SO line, kept apart on purpose** (`trade_document_lines`):
+  `requested_date` (what we / the customer asked for), `promised_date` (what the
+  counterparty committed to — may move), `original_promised_date` (the FIRST
+  promise, never overwritten) + `promise_revisions` (how many times it moved).
+  **"On time" against the current promise alone is gameable** — a supplier who
+  re-dates every order the day before it is due would score 100% — so Delivery
+  Performance shows "vs first promise" beside "on time". `applyPromise` owns
+  that rule (re-saving the same date is not a revision; clearing keeps history).
+- **Lead time: supplier SKU link first, supplier register default second**
+  (`resolveLeadTimeDays`) — SAP's order (info-record planned delivery time
+  before the vendor default). `item_supplier_skus.lead_time_days` already
+  existed; `parties.lead_time_days` is new, edited in `PartyDrawer` (suppliers
+  only). **It is on `parties`, NOT the `ap_suppliers` view** — the view was not
+  recreated, so read/write it on `parties` directly, as the parties routes do.
+- **`requested_date` is stamped at PO/SO creation** (`createTradeDoc` →
+  `requestedDatesFor`): an explicit header delivery date wins; otherwise a PO
+  line gets order date + resolved lead time; nothing is invented when neither
+  exists. Estimates get none — a quote commits to no delivery.
+- **Confirmation** (`trade_documents.party_ref/sent_at/confirmed_at/confirmed_by/
+  promised_date`): `party_ref` is the supplier's confirmation no. on a PO and
+  the customer's own PO no. on an SO. Recorded via `confirmTradeDoc` / `PATCH
+  /api/trade-documents/[kind]/[id]/confirm` from a Confirm drawer on the PO/SO
+  lists, which also gained a status column (Unconfirmed / Sent / Confirmed).
+  Any company user may record it — it moves no quantity or money, same as
+  receiving. Validated in full before any write (no transactions).
+- **The watchdog now measures PO lateness against the promise**
+  (`coalesce(promised_date, expiry_date)` in `supplyChainWatchdog`) — a
+  re-promised PO is not "late" until the new date passes; the slip is still
+  visible in Delivery Performance.
+- **Receipt / shipment paperwork**: `goods_receipts.delivery_note_no` (the
+  supplier's delivery note / ASN — captured on the staged-receipt banner),
+  `sales_shipments.carrier/tracking_no` (both ship forms) and
+  `delivered_date` (proof of delivery — inline date cell on the shipments list,
+  `PATCH /api/inventory/shipping/[id]`, refused before the ship date).
+- **Report**: `/accounting/reports/delivery-performance` (`?side=customer` for
+  customers) — OTIF, on time, vs first promise, in full, avg days late, actual
+  lead time, overdue, re-promised and unconfirmed-order counts per party, plus
+  an exceptions-first line list. API `GET /api/inventory/delivery-performance`;
+  pure rules in `lib/inventory/delivery-performance.ts`
+  (`tests/delivery-performance.test.ts`). A line scores only once complete
+  (fully delivered, or closed short — closed short is never "in full") or once
+  overdue. Lines without a stocked item are excluded.
+- **Also fixed in the same pass**: `receiving-console.tsx` (the 2026-10-27/28
+  iOS-style drawer commits already on main) violated two
+  `tests/architecture.test.ts` guards — off-scale text sizes (14px/16px) and
+  radii above the 8px ceiling (rounded-xl/2xl). CI on main was red; mapped to
+  13px/15px and rounded-lg.
+- **Not done, deliberately**: no line-level date entry on the New Document form
+  itself (the Confirm drawer is the one place promises are set — a second entry
+  point would need the same revision rule); no supplier e-mail/portal for the
+  supplier to confirm themselves; "sent" is not stamped automatically when a PO
+  is e-mailed (the Email/Send modal could call the confirm route with
+  `markSent: true` — small follow-up).
 
 ## Deleting a receipt-matched Bill never un-billed the GRN — permanently stuck (2026-10-26)
 

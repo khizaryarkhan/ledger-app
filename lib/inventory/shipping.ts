@@ -44,6 +44,9 @@ export type ShipmentInput = {
   currency?: string | null;
   exchangeRate?: number | null;
   notes?: string | null;
+  /** Carrier and tracking number (0114). */
+  carrier?: string | null;
+  trackingNo?: string | null;
   /**
    * Which location the goods ship FROM. Omitted means "wherever FIFO finds
    * them", which is the pre-locations behaviour and still the right default for
@@ -153,6 +156,8 @@ export async function postShipment(orgId: string, input: ShipmentInput, actorId:
     shipmentDate: date, currency, exchangeRate: rate.toString(), status: "Posted",
     entryId, cogsTotal: cogsTotal.toString(), saleTotal: saleTotal.toString(), invoicedAmount: "0",
     locationId: headerLocationId,
+    carrier: input.carrier?.trim().slice(0, 64) || null,
+    trackingNo: input.trackingNo?.trim().slice(0, 128) || null,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning({ id: salesShipments.id });
   const shipmentId = shipment.id;

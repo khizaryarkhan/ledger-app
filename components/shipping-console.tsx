@@ -59,11 +59,20 @@ export function ShippingConsole() {
     load();
   }
 
+  // Proof of delivery (0114) — logistics metadata only; nothing re-posts.
+  async function setDelivered(id: string, deliveredDate: string) {
+    setVoidErr("");
+    const r = await fetch(`/api/inventory/shipping/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deliveredDate: deliveredDate || null }) });
+    if (!r.ok) { setVoidErr((await r.json().catch(() => ({})))?.error || "Could not save the delivered date."); return; }
+    setRows(rs => (rs ?? []).map(x => (x.id === id ? { ...x, deliveredDate: deliveredDate || null } : x)));
+  }
+
   const listRows = rows ?? [];
   const SHIP_COLS = useMemo<ListColumn<any>[]>(() => [
     { key: "shipmentNo", label: "Shipment #", sort: r => r.shipmentNo, filter: { kind: "text", value: r => r.shipmentNo } },
     { key: "customer", label: "Customer", sort: r => r.customerLabel, filter: { kind: "multi", value: r => r.customerLabel } },
     { key: "date", label: "Date", sort: r => r.shipmentDate },
+    { key: "delivered", label: "Delivered", sort: r => r.deliveredDate ?? "", filter: { kind: "multi", value: r => (r.deliveredDate ? "Delivered" : "Not confirmed") } },
     { key: "cogs", label: "COGS", align: "right", sort: r => r.cogsTotal, descFirst: true, money: r => ({ amount: r.cogsTotal, currency: ccy }) },
     { key: "saleValue", label: "Sale value", align: "right", sort: r => r.saleTotal, descFirst: true, money: r => ({ amount: r.saleTotal, currency: ccy }) },
     { key: "invoiced", label: "Invoiced", align: "right", sort: r => r.invoicedAmount, descFirst: true, money: r => ({ amount: r.invoicedAmount, currency: ccy }) },
@@ -136,6 +145,11 @@ export function ShippingConsole() {
                       <td className="px-2 py-2 font-mono text-[12px] text-stone-200">{r.shipmentNo || r.id.slice(0, 8)}</td>
                       <td className="px-2 py-2 text-stone-200">{r.customerLabel || "—"}</td>
                       <td className="px-2 py-2 text-stone-400">{r.shipmentDate}</td>
+                      <td className="px-2 py-2">
+                        <input type="date" value={r.deliveredDate ?? ""} min={r.shipmentDate} onChange={e => setDelivered(r.id, e.target.value)}
+                          title={r.carrier || r.trackingNo ? `${r.carrier ?? ""} ${r.trackingNo ?? ""}`.trim() : "Proof-of-delivery date"}
+                          className={`${controlInset} !h-7 text-[12px] w-[130px] ${r.deliveredDate ? "text-emerald-400" : "text-stone-500"}`} />
+                      </td>
                       <td className={`${listNumCell} text-stone-400`}>{money(r.cogsTotal)}</td>
                       <td className={`${listNumCell} text-stone-300`}>{money(r.saleTotal)}</td>
                       <td className={`${listNumCell} text-stone-400`}>{money(r.invoicedAmount)}</td>
@@ -390,13 +404,16 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
     if (cur > 0) setV(String(Number((cur / per).toFixed(6))));
   }
 
+  const [carrier, setCarrier] = useState("");
+  const [trackingNo, setTrackingNo] = useState("");
+
   async function submit() {
     if (!(qtyBase > 0)) { setErr("Enter a quantity to ship."); return; }
     if (over) { setErr(`That's more than the ${qtyFmt(line.remainingQty)} ${baseUom || ""} still remaining — split it across a smaller quantity, or check the order.`); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/shipping`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       customerId: so.partyId, customerLabel: so.partyLabel, shipmentDate: date, currency: so.currency, exchangeRate: so.exchangeRate,
-      locationId: locationId || null,
+      locationId: locationId || null, carrier: carrier.trim() || null, trackingNo: trackingNo.trim() || null,
       lines: [{ itemId: line.itemId, skuId: line.skuId, soId: so.id, soLineId: line.lineId, description: line.itemName, qtyBase, saleRate: Number(saleRate) || 0, taxRateId: line.taxRateId }],
     }) });
     const d = await r.json().catch(() => ({}));
@@ -427,6 +444,7 @@ function ShipCapture({ so, line, date, setDate, locationId, setLocationId, locat
               be shippable — hiding it here means nobody discovers that only
               after pressing Post. */}
           <LocationField label="Ship from" value={locationId} onChange={setLocationId} locations={locations} issueOnly allowAny hint="Leave as Anywhere to let FIFO pick across locations" />
+          <CarrierFields carrier={carrier} setCarrier={setCarrier} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
         </div>
 
         <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
@@ -483,6 +501,8 @@ function AdhocShip({ customers, items, locationId, setLocationId, locations, onB
   const [lines, setLines] = useState<SLine[]>([newLine()]);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
   const [pendingMsg, setPendingMsg] = useState("");
+  const [carrier, setCarrier] = useState("");
+  const [trackingNo, setTrackingNo] = useState("");
   const customer = customers.find(c => c.id === customerId);
   // Unlike a SO-linked shipment (which inherits the SO's own currency), an
   // ad-hoc shipment has nothing to read a foreign currency off — same gap
@@ -509,7 +529,7 @@ function AdhocShip({ customers, items, locationId, setLocationId, locations, onB
     if (!payloadLines.length) { setErr("Add at least one line with an item and quantity."); return; }
     setSaving(true); setErr("");
     const r = await fetch(`/api/inventory/shipping`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, lines: payloadLines }) });
+      body: JSON.stringify({ customerId: customerId || null, customerLabel: customer?.name ?? null, shipmentDate: date, currency: currency || null, exchangeRate: Number(rate) || 1, locationId: locationId || null, carrier: carrier.trim() || null, trackingNo: trackingNo.trim() || null, lines: payloadLines }) });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
     if (!r.ok) { setErr(d?.error || "Could not post shipment."); return; }
@@ -537,6 +557,7 @@ function AdhocShip({ customers, items, locationId, setLocationId, locations, onB
             </Field>
             <Field label="Shipment date"><input type="date" className={controlInset} value={date} onChange={e => setDate(e.target.value)} /></Field>
             <LocationField label="Ship from" value={locationId} onChange={setLocationId} locations={locations} issueOnly allowAny hint="Leave as Anywhere to let FIFO pick across locations" />
+            <CarrierFields carrier={carrier} setCarrier={setCarrier} trackingNo={trackingNo} setTrackingNo={setTrackingNo} />
           </div>
           {orgSettings.multicurrencyEnabled && !showCcy && (
             <button onClick={() => { setForeignCcy(true); setCurrency(orgSettings.currency); }} className="mt-3 text-[11.5px] text-stone-500 hover:text-stone-300">
@@ -614,5 +635,17 @@ function InvoiceDrawer({ shipments, onClose, onDone }: { shipments: any[]; onClo
         {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
       </Drawer>
+  );
+}
+
+/** Who carried the shipment and its tracking number (0114) — two grid cells. */
+function CarrierFields({ carrier, setCarrier, trackingNo, setTrackingNo }: {
+  carrier: string; setCarrier: (v: string) => void; trackingNo: string; setTrackingNo: (v: string) => void;
+}) {
+  return (
+    <>
+      <Field label="Carrier"><input value={carrier} onChange={e => setCarrier(e.target.value)} maxLength={64} className={controlInset} placeholder="e.g. DHL, own van" /></Field>
+      <Field label="Tracking no."><input value={trackingNo} onChange={e => setTrackingNo(e.target.value)} maxLength={128} className={controlInset} placeholder="Optional" /></Field>
+    </>
   );
 }

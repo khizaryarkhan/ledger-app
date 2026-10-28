@@ -52,6 +52,8 @@ export type ReceiptInput = {
   currency?: string | null;
   exchangeRate?: number | null;    // 1 {currency} = {rate} {home}
   notes?: string | null;
+  /** The supplier's delivery note / ASN number the goods arrived with (0114). */
+  deliveryNoteNo?: string | null;
   /** Where the goods landed. Omitted resolves to the org's default location. */
   locationId?: string | null;
   lines: ReceiptLineInput[];
@@ -133,6 +135,7 @@ export async function postGoodsReceipt(orgId: string, input: ReceiptInput, actor
     receiptDate: date, currency, exchangeRate: rate.toString(), status: "Posted",
     entryId: entry?.id ?? null, grirTotal: grirTotal.toString(), billedAmount: "0",
     locationId: headerLocationId,
+    deliveryNoteNo: input.deliveryNoteNo?.trim().slice(0, 64) || null,
     notes: input.notes?.trim() || null, createdBy: actorId,
   } as any).returning({ id: goodsReceipts.id });
   const receiptId = receipt.id;

@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark } from "lucide-react";
+import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark, Timer } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { controlCompactIcon } from "@/components/form-kit";
@@ -53,6 +53,8 @@ const MANUFACTURING_GROUPS: Group[] = [
       { href: "/accounting/reports/stock-status", title: "Stock Status", sub: "On-hand & expected (on PO) vs minimum reorder level.", icon: ClipboardList },
       { href: "/accounting/reports/lot-traceability", title: "Lot Traceability", sub: "A lot's complete history — what it was made from and what it became.", icon: GitBranch },
       { href: "/accounting/reports/jobwork-yield", title: "Subcontractor Yield & Wastage", sub: "Actual material yield vs. sent, ranked per job-work vendor.", icon: Gauge },
+      { href: "/accounting/reports/delivery-performance", title: "Supplier Delivery Performance", sub: "On time / in full per supplier against requested and promised dates.", icon: Timer },
+      { href: "/accounting/reports/delivery-performance?side=customer", title: "Customer Delivery Performance", sub: "Did we ship what customers ordered, when we promised? OTIF per customer.", icon: Timer },
       { href: "/accounting/reports/delivery-risk", title: "Delivery Risk", sub: "Job Work, POs and MOs running past their expected date, grouped by Sales Order.", icon: AlertTriangle },
     ],
   },

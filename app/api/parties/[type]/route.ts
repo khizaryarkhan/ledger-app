@@ -8,7 +8,8 @@
  */
 
 import { db } from "@/db";
-import { customers, apSuppliers, employees, organisations } from "@/db/schema";
+import { customers, apSuppliers, employees, organisations, parties } from "@/db/schema";
+import { leadTimeOf } from "@/lib/inventory/delivery-performance";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { eq, and, isNull, desc } from "drizzle-orm";
 
@@ -118,10 +119,14 @@ export async function POST(req: Request, { params }: { params: { type: string } 
     return ok({ id: row.id, name: row.name, email: row.email ?? null, currency: row.currency, status: row.status, source: "native" });
   }
   if (params.type === "suppliers") {
+    const lead = leadTimeOf(body?.leadTimeDays);
+    if (lead === "invalid") return bad("Lead time must be a whole number of days (0–3650).");
     const [row] = await db.insert(apSuppliers).values({
       orgId: orgId!, name, displayName: name, email, currency: currency ?? undefined, source: "native",
       ...contact, ...(paymentTerms != null ? { paymentTerms } : {}),
     } as any).returning();
+    // ap_suppliers is a view over parties; the lead time is not in the view (0114).
+    if (lead != null) await db.update(parties).set({ leadTimeDays: lead }).where(and(eq(parties.id, row.id), eq(parties.orgId, orgId!)));
     return ok({ id: row.id, name: row.displayName || row.name, email: row.email ?? null, currency: row.currency, status: row.status, source: "native" });
   }
   const [row] = await db.insert(employees).values({ orgId: orgId!, name, email, phone: contact.phone, currency, source: "native" } as any).returning();

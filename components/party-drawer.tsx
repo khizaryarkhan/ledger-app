@@ -23,6 +23,7 @@ const empty = {
   email: "", phone: "", mobile: "", website: "",
   addressStreet: "", addressLine2: "", addressCity: "", addressState: "", addressPostcode: "", country: "",
   taxNumber: "", paymentTerms: "30", notes: "", currency: "",
+  leadTimeDays: "",   // suppliers only (0114) — default when an item's own link has none
 };
 
 export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { type: PartyType; editId?: string | null; onClose: () => void; onCreated: (row?: any) => void; elevated?: boolean }) {
@@ -54,6 +55,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
         addressState: d.addressState ?? "", addressPostcode: d.addressPostcode ?? "", country: d.country ?? "",
         taxNumber: d.taxNumber ?? "", paymentTerms: d.paymentTerms != null ? String(d.paymentTerms) : prev.paymentTerms,
         notes: d.notes ?? "", currency: d.currency ?? prev.currency,
+        leadTimeDays: d.leadTimeDays != null ? String(d.leadTimeDays) : "",
       }));
     }).catch(() => {});
   }, [editId, type]);
@@ -154,6 +156,13 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
                 <div><label className={label}>Payment terms (days)</label><input type="number" min="0" value={f.paymentTerms} onChange={e => set("paymentTerms", e.target.value)} className={input} /></div>
                 <div><label className={label}>Tax reg. no. (VAT/GST/NTN)</label><input value={f.taxNumber} onChange={e => set("taxNumber", e.target.value)} className={input} /></div>
               </div>
+              {type === "suppliers" && (
+                <div>
+                  <label className={label}>Default lead time (days)</label>
+                  <input type="number" min="0" max="3650" step="1" value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} placeholder="e.g. 14" className={input} />
+                  <p className="mt-1 text-[11px] text-stone-500">Used to set a PO line&apos;s requested date when the item&apos;s own supplier link has no lead time.</p>
+                </div>
+              )}
               <div><label className={label}>Notes</label><textarea value={f.notes} onChange={e => set("notes", e.target.value)} rows={2} className={input} /></div>
             </>
           )}

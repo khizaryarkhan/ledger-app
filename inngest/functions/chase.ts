@@ -27,7 +27,7 @@ import {
   jobWorkOrders, tradeDocuments, manufacturingOrders, supplyChainAlerts,
 } from "@/db/schema";
 import type { EmailTemplate } from "@/db/schema";
-import { eq, and, or, isNull, isNotNull, lte, lt, ne, notInArray, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, isNotNull, lte, lt, ne, notInArray, inArray, sql } from "drizzle-orm";
 import { sendEmail, hasEmailTransport } from "@/lib/mailer";
 import { requireActiveSubscription } from "@/lib/billing";
 import { fetchQboInvoicePdf, fetchQboInvoiceLink } from "@/lib/qbo-token";
@@ -329,15 +329,20 @@ export const supplyChainWatchdog = inngest.createFunction(
       )),
     );
 
+    // Late against the supplier's CONFIRMED date when there is one (0114), else
+    // the date we asked for — a PO the supplier has re-promised is not late
+    // until that promise passes; the slip itself is reported by Delivery
+    // Performance, which keeps the first promise.
+    const poDue = sql<string>`coalesce(${tradeDocuments.promisedDate}, ${tradeDocuments.expiryDate})`;
     const latePOs = await step.run("find-late-pos", () =>
       db.select({
         id: tradeDocuments.id, orgId: tradeDocuments.orgId, docNumber: tradeDocuments.docNumber,
-        salesOrderId: tradeDocuments.salesOrderId, expiryDate: tradeDocuments.expiryDate,
+        salesOrderId: tradeDocuments.salesOrderId, expiryDate: poDue,
       }).from(tradeDocuments).where(and(
         eq(tradeDocuments.kind, "PurchaseOrder"),
         notInArray(tradeDocuments.status, ["Converted", "Closed"]),
-        isNotNull(tradeDocuments.expiryDate),
-        lt(tradeDocuments.expiryDate, today),
+        isNotNull(poDue),
+        lt(poDue, today),
       )),
     );
 
