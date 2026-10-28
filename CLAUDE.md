@@ -1383,8 +1383,8 @@ than depend on it, **we stamp the button on ourselves**:
 - **Hand-written migrations** in `db/migrations/` need `--> statement-breakpoint`
   between statements, and the `meta/_journal.json` entry's `when` must be
   GREATER than the previous (drizzle skips entries with an older/equal `when` —
-  this silently dropped a table in prod once). Latest is `0115` at `when`
-  `1792300000000`; keep incrementing. (Keep this line current — it sat at
+  this silently dropped a table in prod once). Latest is `0116` at `when`
+  `1792400000000`; keep incrementing. (Keep this line current — it sat at
   "0025" for 50 migrations once already, which is worse than no note.)
   **Each chunk between breakpoints must be exactly ONE command** — neon-http
   sends each as a PREPARED statement and Postgres rejects two with
@@ -1714,6 +1714,37 @@ network at all — that is what makes it ours rather than a proxy.
 - **Open decision: history cutoff.** Ingesting from a cutoff date needs an
   opening-balance journal at that date or the TB will not tie; that is not
   built. Ingesting all history avoids it. Recommendation on record: all history.
+
+## Accounting data points — credit reasons, journal purpose, bill receipt, last edit (2026-10-28)
+
+Audit of the native ledger found it already records payment method, terms,
+due dates, reconciliation, dimensions and FX. Four gaps closed (migration
+`0116`, `journal_entries`, additive only; rules in
+`lib/accounting/entry-reasons.ts`, 13 tests):
+
+- **`reason_code`** — fixed codes, never free text. `CREDIT_REASONS` for
+  CreditNote / RefundReceipt / VendorCredit; `JOURNAL_REASONS` (accrual,
+  prepayment, depreciation, reclass, correction, …) for Manual journals. The
+  list is chosen by the document type, never by the caller.
+  - **Required only where a PERSON creates the document**: `POST
+    /api/documents/[type]` passes `requireReason: true` to `postDocument`, and
+    `POST /api/ledger/journal` requires a purpose. System callers that reach
+    `postDocument` directly — recurring templates, receipt/shipment matching —
+    are NOT forced, or a recurring credit-note template made before 0116 would
+    start failing. Edits never force it (a pre-0116 credit must stay
+    correctable); a given code is still validated.
+- **`received_date`** on Bill / Expense / VendorCredit — when the supplier's
+  document arrived. Not before the document's date, not in the future (the
+  server allows UTC-today + 1 so a user west of Greenwich is never refused).
+  Gives bill capture lag.
+- **`updated_at` / `updated_by`** — stamped by `updateDocument` on every
+  in-place edit. `audit_events` already logged edits; this makes "edited after
+  posting" queryable on the entry itself.
+- Report: **Credits & Adjustments** (`/accounting/reports/credits-adjustments`,
+  `/api/accounting/adjustments`): credits by reason (and as % of sales),
+  supplier credits by reason, journals by purpose, bill capture lag, edits
+  after posting. Excludes mirrored QBO/Xero entries (`external_id` set).
+  "Not recorded" shows in amber.
 
 ## Production data points — planned vs actual, delay, downtime, scrap reasons (2026-10-28)
 

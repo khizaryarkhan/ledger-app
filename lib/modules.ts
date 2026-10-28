@@ -80,7 +80,7 @@ function ownerOf(rules: readonly PathRule[], pathname: string): ModuleKey | null
 
 const ACCOUNTING_REPORTS = [
   "trial-balance", "profit-loss", "comprehensive-income", "balance-sheet", "changes-in-equity", "general-ledger", "cash-flow",
-  "tax-liability", "fx-exposure", "aged-receivables", "aged-payables",
+  "tax-liability", "fx-exposure", "aged-receivables", "aged-payables", "credits-adjustments",
 ];
 
 export const PAGE_OWNERS: readonly PathRule[] = [
@@ -158,6 +158,7 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/cash-flow", owner: "accounting" },
   { path: "/api/accounting/fx-exposure", owner: "accounting" },
   { path: "/api/accounting/tax-liability", owner: "accounting" },
+  { path: "/api/accounting/adjustments", owner: "accounting" },
   // Native tax engine admin (sales-document refactor, Phase 3c) — Accounting-
   // only, unlike posting-groups (no Supply Chain overlap: tax codes aren't
   // an inventory-accounting concept).

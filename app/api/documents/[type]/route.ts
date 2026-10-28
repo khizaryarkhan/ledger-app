@@ -24,7 +24,9 @@ export async function POST(req: Request, { params }: { params: { type: string } 
   const actorId = (session?.user as any)?.id ?? null;
 
   try {
-    const entry = await postDocument(orgId!, { ...body, type: params.type as DocType }, actorId);
+    // A credit raised by a person must say why (0116); system callers (recurring
+    // templates, receipt matching) go straight to postDocument and are not forced.
+    const entry = await postDocument(orgId!, { ...body, type: params.type as DocType }, actorId, { requireReason: true });
     return ok(entry);
   } catch (e: any) {
     if (e instanceof LedgerValidationError) return bad(e.message);

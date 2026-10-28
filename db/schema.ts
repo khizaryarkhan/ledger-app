@@ -2758,6 +2758,12 @@ export const journalEntries = pgTable("journal_entries", {
   reversedByEntryId: uuid("reversed_by_entry_id"),                         // set on the original when a reversal is posted
   reversesEntryId:   uuid("reverses_entry_id"),                            // set on the reversal, points at the original
   sourcePayload:     jsonb("source_payload"),                              // the document form input, for reopen-to-edit
+  // 0116: why a credit / manual journal was raised (lib/accounting/entry-reasons.ts),
+  // when a supplier's bill actually arrived (Bill/Expense), and the last in-place edit.
+  reasonCode:        varchar("reason_code", { length: 32 }),
+  receivedDate:      varchar("received_date", { length: 16 }),             // YYYY-MM-DD
+  updatedAt:         timestamp("updated_at"),
+  updatedBy:         uuid("updated_by"),
   createdBy:         uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt:         timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({

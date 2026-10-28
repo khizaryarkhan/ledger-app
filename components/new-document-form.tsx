@@ -27,6 +27,7 @@ import { calcLineTax, type TaxCodeRates } from "@/lib/accounting/tax-engine";
 // commit time — never a user-editable field here (see the "Receive to lot"
 // row below and lib/inventory/valuation.ts's resolveLotNo).
 const isFPWIP = (it: any) => ["FinishedProduct", "WorkInProgress"].includes(kindOf(it?.productType).kind);
+import { CREDIT_REASONS, CREDIT_TYPES, RECEIVED_DATE_TYPES } from "@/lib/accounting/entry-reasons";
 import { CalcInput, CellSelect, Field, QtyUnitField, Section, SelectField, cell, control, fieldLabel, tableHead, th as thCls } from "@/components/form-kit";
 import { localToday, ymd, fmt } from "@/lib/format";
 
@@ -214,6 +215,9 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
   const [termsKey, setTermsKey] = useState("net30");
   const [dueDate, setDueDate] = useState(addDays(todayStr(), 30));
   const [reference, setReference] = useState("");
+  // 0116: why a credit is given; when a supplier's bill arrived.
+  const [reasonCode, setReasonCode] = useState("");
+  const [receivedDate, setReceivedDate] = useState("");
   const [docNumber, setDocNumber] = useState("");
   const [memo, setMemo] = useState("");
   // Credit note / refund / vendor credit: did goods actually move? A credit can
@@ -329,6 +333,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
       if (p.exchangeRate) setRate(String(p.exchangeRate));
       if (p.dueDate) { setDueDate(p.dueDate); setTermsKey("custom"); }
       setReference(p.reference ?? "");
+      setReasonCode(p.reasonCode ?? "");
+      setReceivedDate(p.receivedDate ?? "");
       if (cfg.mode === "payment") {
         // Payment edit: reallocate / correct amount. Load the party's open items
         // and credits AS IF this payment weren't applied (excludeContext), then
@@ -1004,6 +1010,8 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
       if (cfg.terms) payload.dueDate = dueDate || undefined;
       if (cfg.tax) payload.pricing = pricing;
       if (cfg.refLabel && reference.trim()) payload.reference = reference.trim();
+      if (CREDIT_TYPES.has(type)) payload.reasonCode = reasonCode || null;
+      if (RECEIVED_DATE_TYPES.has(type)) payload.receivedDate = receivedDate || null;
       if (cfg.mode === "deposit" && sweptPaymentIds.length) payload.sweptPaymentIds = sweptPaymentIds;
       if (cfg.mode === "lineItems" || cfg.mode === "deposit") {
         payload.lines = lines
@@ -1197,6 +1205,19 @@ export function NewDocumentForm({ type, editId: editIdProp, readOnly, headerBadg
               {cfg.refLabel && (
                 <Field label={cfg.refLabel}>
                   <input value={reference} onChange={e => setReference(e.target.value)} placeholder="Optional" className={input} />
+                </Field>
+              )}
+              {CREDIT_TYPES.has(type) && (
+                <Field label="Reason" required>
+                  <SelectField value={reasonCode} onChange={e => setReasonCode(e.target.value)} disabled={readOnly}>
+                    <option value="">Choose why…</option>
+                    {CREDIT_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                  </SelectField>
+                </Field>
+              )}
+              {RECEIVED_DATE_TYPES.has(type) && (
+                <Field label="Received on" hint="When the supplier's document reached you">
+                  <input type="date" value={receivedDate} min={date} onChange={e => setReceivedDate(e.target.value)} className={input} />
                 </Field>
               )}
               {cfg.dateLabel2 && (

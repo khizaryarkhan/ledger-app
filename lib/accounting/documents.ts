@@ -39,6 +39,7 @@ import { resolveTaxCodes } from "@/lib/accounting/tax-engine-server";
 import { calcLineTax, aggregateDocumentTax, type TaxComponentAmount } from "@/lib/accounting/tax-engine";
 import { baseQtyOfLine } from "@/lib/inventory/order-options";
 import { roundQty } from "@/lib/inventory/round";
+import { checkReason, checkReceivedDate } from "@/lib/accounting/entry-reasons";
 
 export type DocLineInput = {
   accountId?: string;
@@ -90,6 +91,8 @@ export type PostDocInput = {
   docNumber?: string | null;
   memo?: string | null;
   paymentMethod?: string | null;  // Payment / BillPayment method (structured)
+  reasonCode?: string | null;     // 0116: credit reason (CreditNote / RefundReceipt / VendorCredit)
+  receivedDate?: string | null;   // 0116: when the supplier's bill arrived (Bill / Expense / VendorCredit)
   partyType?: "Customer" | "Vendor" | null;
   partyId?: string | null;
   partyLabel?: string | null;
@@ -132,6 +135,20 @@ export type PostDocInput = {
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const err = (m: string): never => { throw new LedgerValidationError(m); };
+/**
+ * Reason + received date for a document, validated (0116). "Today" is one day
+ * ahead of the server's UTC date so a user west of Greenwich entering their own
+ * today is never refused.
+ */
+function entryFacts(type: string, date: string, input: PostDocInput, opts: { requireReason?: boolean } = {}) {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  try {
+    return {
+      reasonCode: checkReason(type, input.reasonCode, { required: opts.requireReason }),
+      receivedDate: checkReceivedDate(type, input.receivedDate, date, tomorrow),
+    };
+  } catch (e: any) { return err(e.message); }
+}
 
 /** Add days to a YYYY-MM-DD date (UTC-safe). */
 function addDays(dateStr: string, days: number): string {
@@ -753,9 +770,10 @@ async function settlePayment(orgId: string, type: DocType, input: PostDocInput, 
  */
 export type DocRevaluation = { lotId: string; amount: number; assetAccountId: string; ppvAccountId: string; itemName: string };
 
-export async function postDocument(orgId: string, input: PostDocInput, actorId: string | null, opts?: { revaluations?: DocRevaluation[] }) {
+export async function postDocument(orgId: string, input: PostDocInput, actorId: string | null, opts?: { revaluations?: DocRevaluation[]; requireReason?: boolean }) {
   const { type, date } = input;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) err("A valid date is required.");
+  const facts = entryFacts(type, date, input, { requireReason: opts?.requireReason });
 
   const [org] = await db.select({ home: organisations.currency, mc: organisations.multicurrencyEnabled })
     .from(organisations).where(eq(organisations.id, orgId)).limit(1);
@@ -889,6 +907,8 @@ export async function postDocument(orgId: string, input: PostDocInput, actorId: 
       dueDate: DATED_TYPES.has(type) ? resolveDueDate(date, input) : null,
       reference: input.reference?.trim() || null,
       paymentMethod: PAYMENT_TYPES.has(type) ? (input.paymentMethod?.trim() || null) : null,
+      reasonCode: facts.reasonCode,
+      receivedDate: facts.receivedDate,
       sourcePayload: EDIT_PAYLOAD_TYPES.has(type) ? input : null,
       lines: homeLines,
     });
@@ -1054,12 +1074,18 @@ export async function updateDocument(orgId: string, entryId: string, input: Post
     }
   }
 
+  // A reason is not forced on edit: a credit raised before 0116 must stay
+  // correctable. One that is given is still validated.
+  const facts = entryFacts(type, date, input);
   await db.update(journalEntries).set({
     entryDate: date,
     memo: input.memo?.trim() || null,
     docNumber: input.docNumber?.trim() || entry.docNumber,
     dueDate: DATED_TYPES.has(type) ? resolveDueDate(date, input) : null,
     reference: input.reference?.trim() || null,
+    ...(input.reasonCode !== undefined ? { reasonCode: facts.reasonCode } : {}),
+    ...(input.receivedDate !== undefined ? { receivedDate: facts.receivedDate } : {}),
+    updatedAt: new Date(), updatedBy: actorId,
     sourcePayload: input,
   }).where(eq(journalEntries.id, entryId));
 

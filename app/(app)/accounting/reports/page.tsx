@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark, Timer } from "lucide-react";
+import { Search, BookOpen, ScrollText, TrendingUp, Scale, Boxes, ClipboardList, PackageSearch, ArrowRight, ShoppingCart, PackageCheck, FileText, Truck, Users, Building2, Receipt, Coins, GitBranch, Gauge, AlertTriangle, Landmark, Timer, Undo2 } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { ListPage, ListPageHeader } from "@/components/list-view";
 import { controlCompactIcon } from "@/components/form-kit";
@@ -35,6 +35,7 @@ const CORE_GROUPS: Group[] = [
     reports: [
       { href: "/accounting/reports/aged-receivables", title: "Aged Receivables", sub: "Open customer invoices bucketed by how overdue they are.", icon: Users },
       { href: "/accounting/reports/aged-payables", title: "Aged Payables", sub: "Open supplier bills bucketed by how overdue they are.", icon: Building2 },
+      { href: "/accounting/reports/credits-adjustments", title: "Credits & Adjustments", sub: "Credits by reason, manual journals by purpose, bill capture lag, edits after posting.", icon: Undo2 },
       { href: "/accounting/reports/tax-liability", title: "Sales Tax Liability", sub: "Output tax on sales less input tax on purchases, per period.", icon: Receipt },
       { href: "/accounting/reports/fx-exposure", title: "Currency Exposure", sub: "Foreign balances vs home carrying value — unrealised FX gain/loss.", icon: Coins },
     ],

@@ -52,6 +52,8 @@ export type PostEntryInput = {
   dueDate?: string | null;          // when payable (Invoice/Bill) — basis for aging
   reference?: string | null;        // supplier bill no. / customer PO / free ref
   paymentMethod?: string | null;    // Payment/BillPayment method (Cash | Card | …)
+  reasonCode?: string | null;       // 0116: why a credit / manual journal was raised (validated by the caller)
+  receivedDate?: string | null;     // 0116: when a supplier's bill arrived (validated by the caller)
   sourcePayload?: any;              // the document form input, for reopen-to-edit
   // When mirroring a transaction that originates in QBO/Xero, keep their id too.
   externalId?: string | null;
@@ -256,6 +258,8 @@ export async function postJournalEntry(input: PostEntryInput) {
         dueDate:           input.dueDate ?? null,
         reference:         input.reference ?? null,
         paymentMethod:     input.paymentMethod ?? null,
+        reasonCode:        input.reasonCode ?? null,
+        receivedDate:      input.receivedDate ?? null,
         sourcePayload:     input.sourcePayload ?? null,
         externalId:        input.externalId ?? null,
         externalSource:    input.externalSource ?? null,

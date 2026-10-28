@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Plus, X, RefreshCw, ChevronDown, ChevronUp, Trash2, Scale, BookOpen } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
+import { JOURNAL_REASONS } from "@/lib/accounting/entry-reasons";
 import { formatTxnId, txnTypeLabel } from "@/lib/accounting/doc-format";
 import { Drawer } from "@/components/form-kit";
 import { fmt } from "@/lib/format";
@@ -63,6 +64,7 @@ export default function JournalPage() {
   const [entryDate, setEntryDate] = useState(todayStr());
   const [docNumber, setDocNumber] = useState("");
   const [memo, setMemo] = useState("");
+  const [reasonCode, setReasonCode] = useState("");
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()]);
   const [homeCurrency, setHomeCurrency] = useState("");
   const [curr, setCurr] = useState("");     // entry currency
@@ -203,6 +205,7 @@ export default function JournalPage() {
 
       const payload = {
         entryDate, memo: memo.trim() || undefined, docNumber: docNumber.trim() || undefined,
+        reasonCode: reasonCode || null,
         lines: built.map(b => ({
           accountId: b.accountId,
           ...(b.homeDebit  > 0 ? { debit:  b.homeDebit }  : {}),
@@ -222,7 +225,7 @@ export default function JournalPage() {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setErrMsg(d.error || "Failed to post"); return; }
-      setShowNew(false); setMemo(""); setDocNumber(""); setLines([emptyLine(), emptyLine()]); setEntryDate(todayStr()); setCurr(homeCurrency); setRate("1");
+      setShowNew(false); setMemo(""); setReasonCode(""); setDocNumber(""); setLines([emptyLine(), emptyLine()]); setEntryDate(todayStr()); setCurr(homeCurrency); setRate("1");
       await load();
     } finally { setPosting(false); }
   }
@@ -436,6 +439,13 @@ export default function JournalPage() {
                 <div className="w-40">
                   <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Date *</label>
                   <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className={inputCls} />
+                </div>
+                <div className="w-44">
+                  <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Purpose *</label>
+                  <select value={reasonCode} onChange={e => setReasonCode(e.target.value)} className={`${inputCls} bg-stone-950`}>
+                    <option value="">Choose…</option>
+                    {JOURNAL_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                  </select>
                 </div>
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Memo</label>

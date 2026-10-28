@@ -10,6 +10,7 @@ import { db } from "@/db";
 import { journalEntries, journalLines, accounts } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { and, eq, desc, inArray } from "drizzle-orm";
+import { checkReason } from "@/lib/accounting/entry-reasons";
 import { z } from "zod";
 import { postJournalEntry, LedgerValidationError } from "@/lib/ledger";
 
@@ -36,6 +37,7 @@ const EntrySchema = z.object({
   entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   memo:      z.string().max(2000).optional(),
   docNumber: z.string().max(64).optional(),
+  reasonCode: z.string().max(32).nullable().optional(),   // JOURNAL_REASONS (0116)
   lines:     z.array(LineSchema).min(2).max(100),
 });
 
@@ -84,9 +86,14 @@ export async function POST(req: Request) {
     if (t === "Accounts Payable" && !(l.nameType === "Vendor" && named)) return bad("An Accounts Payable line needs a Vendor name.");
   }
 
+  let reasonCode: string | null;
+  try { reasonCode = checkReason("Manual", data.reasonCode, { required: true }); }
+  catch (e: any) { return bad(e.message); }
+
   try {
     const entry = await postJournalEntry({
       orgId: orgId!,
+      reasonCode,
       entryDate: data.entryDate,
       memo: data.memo ?? null,
       docNumber: data.docNumber ?? null,
