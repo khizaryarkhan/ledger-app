@@ -15,7 +15,7 @@ import { kindOf } from "@/lib/inventory/item-kinds";
 import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
 import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
-import { Field, Section, SelectField, controlInset, cell, th, Drawer, DrawerFooter, QtyUnitField } from "@/components/form-kit";
+import { Field, Section, SelectField, controlInset, Drawer, QtyUnitField } from "@/components/form-kit";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -334,9 +334,11 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
   const list = tab === "expected" ? expected : inProgress;
   return (
     <>
-      <div className="flex items-center gap-1 sticky top-0 z-10 bg-stone-900 px-5 pt-4 border-b border-stone-800">
-        <TabButton active={tab === "expected"} onClick={() => setTab("expected")} label="Expected receiving" count={expected.length} />
-        <TabButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
+      <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
+        <div className="flex p-1 rounded-xl bg-stone-800/70 gap-1">
+          <SegButton active={tab === "expected"} onClick={() => setTab("expected")} label="Expected" count={expected.length} />
+          <SegButton active={tab === "inprogress"} onClick={() => setTab("inprogress")} label="In progress" count={inProgress.length} />
+        </div>
       </div>
       <div className="p-5">
         {notice && <div className="mb-4 text-[12.5px] text-emerald-300 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2">{notice}</div>}
@@ -346,46 +348,76 @@ function ReceiveHub({ expected, inProgress, loaded, tab, setTab, notice, onOpenP
             {tab === "expected" ? "No open purchase orders are waiting to be received." : "Nothing is part-way through receiving right now."}
           </p>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          {list.map(po => {
-            const overdue = po.expiryDate && po.expiryDate < localToday();
-            const linesLeft = po.lines.length;
-            return (
-              <button key={po.id} onClick={() => onOpenPo(po)}
-                className="text-left rounded-lg border border-stone-800 bg-stone-900 hover:border-stone-700 hover:bg-stone-800/50 p-4 transition-colors">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="text-[13.5px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</span>
-                  <ChevronRight size={15} className="text-stone-600 shrink-0" />
-                </div>
-                <div className="flex items-center gap-1.5 text-[12px] text-stone-400 font-mono mb-1.5">
-                  <FileText size={12} className="text-cyan-500" /> {po.docNumber || po.id.slice(0, 8)}
-                </div>
-                <div className="flex items-center justify-between text-[11.5px]">
-                  <span className={overdue ? "text-amber-400 font-medium" : "text-stone-500"}>
-                    {po.expiryDate ? `Expected ${fmt.shortDate(po.expiryDate)}${overdue ? " · overdue" : ""}` : "No expected date"}
-                  </span>
-                  <span className="text-stone-500">{linesLeft} item{linesLeft > 1 ? "s" : ""} left</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        {list.length > 0 && (
+          <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+            {list.map(po => {
+              const overdue = po.expiryDate && po.expiryDate < localToday();
+              const linesLeft = po.lines.length;
+              return (
+                <button key={po.id} onClick={() => onOpenPo(po)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
+                  <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0">
+                    <Truck size={17} className="text-cyan-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
+                    <div className="text-[12px] text-stone-500 truncate mt-0.5 font-mono">{po.docNumber || po.id.slice(0, 8)}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={`text-[11.5px] ${overdue ? "text-amber-400 font-medium" : "text-stone-500"}`}>
+                      {po.expiryDate ? fmt.shortDate(po.expiryDate) : "No date"}
+                    </div>
+                    <div className="text-[11px] text-stone-600 mt-0.5">{linesLeft} item{linesLeft > 1 ? "s" : ""}</div>
+                  </div>
+                  <ChevronRight size={16} className="text-stone-600 shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3 flex items-center justify-between">
-        <button onClick={onAdhoc} className="flex items-center gap-1.5 text-[12.5px] font-medium text-emerald-400 hover:text-emerald-300">
-          <Plus size={14} /> Receive without a PO
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5 flex items-center justify-center">
+        <button onClick={onAdhoc} className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 rounded-full px-5 py-2.5 transition-colors">
+          <Plus size={15} /> Receive without a PO
         </button>
       </div>
     </>
   );
 }
 
-function TabButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+function SegButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
   return (
     <button onClick={onClick}
-      className={`px-3 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${active ? "border-emerald-500 text-stone-100" : "border-transparent text-stone-500 hover:text-stone-300"}`}>
-      {label} {count > 0 && <span className={`ml-1 text-[11px] ${active ? "text-emerald-400" : "text-stone-600"}`}>({count})</span>}
+      className={`flex-1 px-3 py-1.5 text-[12.5px] font-medium rounded-lg transition-colors ${active ? "bg-stone-700 text-stone-100 shadow-sm" : "text-stone-400 hover:text-stone-200"}`}>
+      {label} {count > 0 && <span className={active ? "text-stone-300" : "text-stone-600"}>({count})</span>}
     </button>
+  );
+}
+
+/** Pinned primary/cancel pair in the pill shape native iOS/Android bottom
+ *  action bars use — kept local to this drawer rather than changed on the
+ *  shared `DrawerFooter`, which every other screen's drawer still uses. */
+function PillFooter({ saving, onClose, onSave, saveLabel = "Save", err, pendingMsg, saveDisabled }: {
+  saving: boolean; onClose: () => void; onSave: () => void; saveLabel?: string;
+  err?: string | null; pendingMsg?: string; saveDisabled?: boolean;
+}) {
+  if (pendingMsg) {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-[12px] text-stone-400 leading-snug">{pendingMsg}</p>
+        <button onClick={onClose} className="text-[13px] font-semibold bg-stone-800 text-stone-200 rounded-full px-5 py-2.5 hover:bg-stone-700">Done</button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {err ? <p className="flex-1 text-[12px] text-rose-400 leading-snug">{err}</p> : <div className="flex-1" />}
+      <button onClick={onClose} className="text-[13px] font-medium text-stone-300 px-4 py-2.5 rounded-full hover:bg-stone-800">Cancel</button>
+      <button onClick={onSave} disabled={saving || saveDisabled}
+        className="flex items-center gap-1.5 text-[13px] font-semibold bg-emerald-600 text-white rounded-full px-5 py-2.5 hover:bg-emerald-700 disabled:opacity-60 shrink-0">
+        {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />} {saveLabel}
+      </button>
+    </div>
   );
 }
 
@@ -412,13 +444,13 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
-        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2">
-          <ChevronLeft size={13} /> All open purchase orders
+        <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1">
+          <ChevronLeft size={16} /> All open purchase orders
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0"><Truck size={15} className="text-cyan-400" /></div>
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Truck size={17} className="text-cyan-400" /></div>
           <div className="min-w-0">
-            <div className="text-[15px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
+            <div className="text-[16px] font-semibold text-stone-100 truncate">{po.partyLabel || "Unknown supplier"}</div>
             <div className="text-[11.5px] text-stone-500 font-mono">{po.docNumber || po.id.slice(0, 8)}{po.expiryDate ? ` · expected ${fmt.shortDate(po.expiryDate)}` : ""}</div>
           </div>
         </div>
@@ -430,40 +462,38 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
             {stagedCount} item{stagedCount > 1 ? "s" : ""} staged — click "Post receipt" below to save them as ONE receipt.
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
           {po.lines.map(l => {
             const started = l.receivedQty > QTY_EPSILON;
             const staged = drafts[l.lineId];
             return (
-              <div key={l.lineId} className={`rounded-lg border bg-stone-900 hover:bg-stone-800/50 transition-colors ${staged ? "border-emerald-700" : "border-stone-800 hover:border-stone-700"}`}>
-                <button onClick={() => onOpenLine(l.lineId)} className="w-full text-left p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <span className="text-[13px] font-semibold text-stone-100 truncate">{l.itemName}</span>
-                    <ChevronRight size={15} className="text-stone-600 shrink-0" />
+              <div key={l.lineId} className={staged ? "bg-emerald-500/5" : ""}>
+                <button onClick={() => onOpenLine(l.lineId)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-stone-800/70 hover:bg-stone-800/40 transition-colors text-left">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${staged ? "bg-emerald-500/15" : "bg-stone-800"}`}>
+                    {staged ? <Check size={16} className="text-emerald-400" /> : <Package size={16} className="text-stone-400" />}
                   </div>
-                  {l.skuLabel && <div className="text-[11.5px] text-stone-500 mb-1.5 truncate">{l.skuLabel}</div>}
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-stone-300">
-                      Expected <span className="font-semibold text-stone-100">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
-                      {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && (
-                        <span className="text-stone-500"> ({packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})</span>
-                      )}
-                    </span>
-                    {started && <span className="text-[10.5px] text-amber-400">{fmt.qty(l.receivedQty)} already in</span>}
-                  </div>
-                  {staged && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                      <Check size={11} /> Staged: {fmt.qty(staged.qty)} {staged.baseUom || ""}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-stone-100 truncate">{l.itemName}</div>
+                    <div className="text-[12px] text-stone-500 truncate mt-0.5">
+                      {l.skuLabel ? `${l.skuLabel} · ` : ""}Expected <span className="text-stone-300">{fmt.qty(l.remainingQty)}</span> {l.baseUom || ""}
+                      {packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit) && ` (${packEquivalent(l.remainingQty, l.orderUom, l.unitsPerOrderUnit)})`}
                     </div>
-                  )}
+                    {staged ? (
+                      <div className="mt-1 text-[11.5px] text-emerald-400 font-medium">Staged: {fmt.qty(staged.qty)} {staged.baseUom || ""}</div>
+                    ) : started ? (
+                      <div className="mt-1 text-[11px] text-amber-400">{fmt.qty(l.receivedQty)} already in</div>
+                    ) : null}
+                  </div>
+                  <ChevronRight size={16} className="text-stone-600 shrink-0" />
                 </button>
-                <div className="px-4 pb-2.5 -mt-1 flex items-center justify-between">
-                  <button onClick={e => { e.stopPropagation(); closeLine(l); }} disabled={closing === l.lineId}
+                <div className="pl-[3.75rem] pr-4 pb-2.5 -mt-0.5 flex items-center justify-between">
+                  <button onClick={() => closeLine(l)} disabled={closing === l.lineId}
                     className="text-[11px] text-stone-500 hover:text-rose-400 disabled:opacity-50">
                     {closing === l.lineId ? "Closing…" : "Close remaining"}
                   </button>
                   {staged && (
-                    <button onClick={e => { e.stopPropagation(); onRemoveDraft(l.lineId); }} className="text-[11px] text-stone-500 hover:text-rose-400">
+                    <button onClick={() => onRemoveDraft(l.lineId)} className="text-[11px] text-stone-500 hover:text-rose-400">
                       Remove staged
                     </button>
                   )}
@@ -473,8 +503,8 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
           })}
         </div>
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
-        <DrawerFooter
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
+        <PillFooter
           saving={posting} onClose={onBack} onSave={onPost}
           saveLabel={stagedCount > 0 ? `Post receipt (${stagedCount} item${stagedCount > 1 ? "s" : ""})` : "Post receipt"}
           saveDisabled={stagedCount === 0} err={postErr} pendingMsg={pendingMsg}
@@ -577,13 +607,13 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
-        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2">
-          <ChevronLeft size={13} /> {po.docNumber || "Purchase order"}
+        <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1">
+          <ChevronLeft size={16} /> {po.docNumber || "Purchase order"}
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0"><Package size={15} className="text-cyan-400" /></div>
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Package size={17} className="text-cyan-400" /></div>
           <div className="min-w-0">
-            <div className="text-[15px] font-semibold text-stone-100 truncate">{line.itemName}</div>
+            <div className="text-[16px] font-semibold text-stone-100 truncate">{line.itemName}</div>
             <div className="text-[11.5px] text-stone-500">
               {line.skuLabel ? `${line.skuLabel} · ` : ""}Expecting {fmt.qty(line.remainingQty)} {line.baseUom || ""}
               {packLadder(line.remainingQty, unitOpts) && ` (${packLadder(line.remainingQty, unitOpts)})`}
@@ -664,8 +694,8 @@ function LotCapture({ po, line, items, date, setDate, locationId, setLocationId,
           </div>
         </div>
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
-        <DrawerFooter saving={false} onClose={onBack} onSave={stage} saveLabel="Save lots" err={err} />
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
+        <PillFooter saving={false} onClose={onBack} onSave={stage} saveLabel="Save lots" err={err} />
       </div>
     </>
   );
@@ -726,10 +756,10 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
   return (
     <>
       <div className="sticky top-0 z-10 bg-stone-900 px-5 pt-4 pb-3 border-b border-stone-800">
-        <button onClick={onBack} className="flex items-center gap-1 text-[12px] text-stone-500 hover:text-stone-300 mb-2"><ChevronLeft size={13} /> All open purchase orders</button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0"><Boxes size={15} className="text-cyan-400" /></div>
-          <div className="text-[15px] font-semibold text-stone-100">Receive without a PO</div>
+        <button onClick={onBack} className="flex items-center gap-0.5 text-[13px] font-medium text-cyan-400 hover:text-cyan-300 mb-2 -ml-1"><ChevronLeft size={16} /> All open purchase orders</button>
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0"><Boxes size={17} className="text-cyan-400" /></div>
+          <div className="text-[16px] font-semibold text-stone-100">Receive without a PO</div>
         </div>
       </div>
       <div className="p-5 space-y-5">
@@ -791,8 +821,8 @@ function AdhocReceive({ suppliers, items, locationId, setLocationId, locations, 
 
         <div className="rounded-lg bg-cyan-500/8 border border-cyan-800/40 px-4 py-2.5 text-[12px] text-stone-300">Receipt value → <span className="font-semibold text-cyan-300">{money(total)}</span> {currency || ""} · posts Dr Inventory / Cr GR/IR</div>
       </div>
-      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
-        <DrawerFooter saving={saving} onClose={onBack} onSave={save} saveLabel="Post receipt" err={err} pendingMsg={pendingMsg} />
+      <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
+        <PillFooter saving={saving} onClose={onBack} onSave={save} saveLabel="Post receipt" err={err} pendingMsg={pendingMsg} />
       </div>
     </>
   );
@@ -871,7 +901,7 @@ function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; i
       ) : (
         <>
           <div className="p-5 space-y-5">
-            <div className="text-[12px] text-stone-400 bg-stone-800/40 border border-stone-800 rounded-lg px-3 py-2">
+            <div className="text-[12px] text-stone-400 bg-stone-800/40 border border-stone-800 rounded-2xl px-4 py-3">
               Saving voids the original receipt and posts the correction as a new one — any purchase order this
               receipt advanced is adjusted to match automatically.
             </div>
@@ -887,21 +917,22 @@ function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; i
 
             <Section title="Lines"
               right={<button onClick={addLine} className="flex items-center gap-1 text-[12px] font-medium text-emerald-400 hover:text-emerald-300"><Plus size={13} /> Add line</button>}>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {lines.map(l => (
-                  <div key={l.key} className="rounded-lg border border-stone-800 p-3">
-                    <div className="flex items-center gap-2 mb-3">
+                  <div key={l.key} className="rounded-2xl border border-stone-800 bg-stone-900 p-3.5">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center shrink-0"><Package size={14} className="text-stone-400" /></div>
                       {l.poId ? (
-                        <div className="flex-1 flex items-center gap-1.5 text-[12.5px] text-stone-300">
-                          <FileText size={12} className="text-cyan-500" /> {l.itemName}
-                          <span className="text-[10.5px] text-stone-600">linked to PO — item can't change here</span>
+                        <div className="flex-1 min-w-0 text-[13px] font-medium text-stone-200 truncate">
+                          {l.itemName}
+                          <span className="block text-[10.5px] font-normal text-stone-600">linked to PO — item can't change here</span>
                         </div>
                       ) : (
                         <SelectField inset className="!h-8" value={l.itemId} onChange={e => onItem(l.key, e.target.value)}>
                           <option value="">Select item…</option>{items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                         </SelectField>
                       )}
-                      {lines.length > 1 && <button onClick={() => removeLine(l.key)} className="ml-auto text-stone-600 hover:text-rose-400"><Trash2 size={13} /></button>}
+                      {lines.length > 1 && <button onClick={() => removeLine(l.key)} className="ml-auto text-stone-600 hover:text-rose-400 shrink-0"><Trash2 size={13} /></button>}
                     </div>
                     <div className="grid grid-cols-4 gap-x-4 gap-y-4">
                       <Field label={`Qty (${l.baseUom || "base"})`}><input type="number" className={`${controlInset} !h-8`} value={l.qtyBase} onChange={e => setLine(l.key, { qtyBase: e.target.value })} /></Field>
@@ -923,8 +954,8 @@ function EditReceiptDrawer({ receiptId, items, onClose }: { receiptId: string; i
               </div>
             </Section>
           </div>
-          <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3">
-            <DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Save correction" err={err} />
+          <div className="sticky bottom-0 z-10 bg-stone-900 border-t border-stone-800 px-5 py-3.5">
+            <PillFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Save correction" err={err} />
           </div>
         </>
       )}
@@ -960,7 +991,7 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
   }
 
   return (
-    <Drawer title="Create bill from receipts" onClose={onClose} footer={<DrawerFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create bill" />}>
+    <Drawer title="Create bill from receipts" onClose={onClose} footer={<PillFooter saving={saving} onClose={onClose} onSave={save} saveLabel="Create bill" err={err} />}>
       <p className="text-[12px] text-stone-400 mb-4">Billing {receipts.length} receipt{receipts.length > 1 ? "s" : ""} for <span className="text-stone-200">{receipts[0]?.supplierLabel || "supplier"}</span>. Posts Dr GR/IR clearing / Cr Accounts Payable.</p>
       <div className="space-y-5">
         <Section title="Bill details">
@@ -977,28 +1008,26 @@ function BillDrawer({ receipts, taxes, onClose, onDone }: { receipts: any[]; tax
           </div>
         </Section>
         <Section title="Invoice prices" desc="Change a price only where the supplier's invoice differs from the receipt. The difference on stock still held goes into that lot's cost; on stock already used, to purchase price variance.">
-          <div className="rounded-lg border border-stone-800 overflow-hidden">
-            <table className="w-full text-[12px]">
-              <thead><tr className="border-b border-stone-800"><th className={th}>Item</th><th className={`${th} text-right`}>To bill</th><th className={`${th} text-right`}>Receipt price</th><th className={`${th} text-right w-32`}>Invoice price</th></tr></thead>
-              <tbody>
-                {lines === null && <tr><td colSpan={4} className="px-3 py-3 text-center text-stone-500">Loading…</td></tr>}
-                {(lines ?? []).map(l => (
-                  <tr key={l.id} className="border-b border-stone-800/50">
-                    <td className="px-3 py-1.5 text-stone-200">{l.itemName ?? "—"} <span className="text-stone-500 font-mono text-[11px]">{l.receiptNo}</span></td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-300">{fmt.qty(l.open)} {l.baseUom || ""}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-stone-400">{fmt.num2(l.unitCost)}</td>
-                    <td className="px-3 py-1"><input type="number" min="0" step="any" className={`${cell} text-right tabular-nums`} value={price[l.id] ?? ""} onChange={e => setPrice(p => ({ ...p, [l.id]: e.target.value }))} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="rounded-2xl border border-stone-800 divide-y divide-stone-800/80 overflow-hidden bg-stone-900">
+            {lines === null && <div className="px-4 py-4 text-center text-stone-500 text-[12.5px]">Loading…</div>}
+            {(lines ?? []).map(l => (
+              <div key={l.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="w-9 h-9 rounded-full bg-stone-800 flex items-center justify-center shrink-0"><Package size={15} className="text-stone-400" /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium text-stone-100 truncate">{l.itemName ?? "—"}</div>
+                  <div className="text-[11.5px] text-stone-500 truncate mt-0.5">
+                    {l.receiptNo} · {fmt.qty(l.open)} {l.baseUom || ""} to bill · receipt {fmt.num2(l.unitCost)}
+                  </div>
+                </div>
+                <input type="number" min="0" step="any" className={`${controlInset} !h-9 !w-28 text-right tabular-nums shrink-0`} value={price[l.id] ?? ""} onChange={e => setPrice(p => ({ ...p, [l.id]: e.target.value }))} />
+              </div>
+            ))}
           </div>
         </Section>
-        <div className="rounded-lg bg-stone-800/50 border border-stone-700 px-4 py-2.5 text-[12px] text-stone-300">
+        <div className="rounded-2xl bg-stone-800/50 border border-stone-700 px-4 py-3 text-[12px] text-stone-300">
           Clears GR/IR → <span className="font-semibold text-stone-100">{money(total)}</span>
           {Math.abs(diff) >= 0.005 && <> · price difference <span className={diff > 0 ? "text-amber-300" : "text-emerald-300"}>{diff > 0 ? "+" : ""}{money(diff)}</span> · bill total <span className="font-semibold text-stone-100">{money(total + diff)}</span></>}
         </div>
-        {err && <p className="text-[12px] text-rose-400">{err}</p>}
       </div>
       </Drawer>
   );
