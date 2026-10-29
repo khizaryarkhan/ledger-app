@@ -7,9 +7,10 @@
  */
 
 import { db } from "@/db";
-import { customers, apSuppliers, employees, parties } from "@/db/schema";
-import { requireOrg, ok, bad } from "@/lib/api";
-import { and, eq } from "drizzle-orm";
+import { customers, apSuppliers, employees, parties, countries } from "@/db/schema";
+import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
+import { customerExtras } from "@/lib/party-customer-fields";
+import { and, eq, ne } from "drizzle-orm";
 import { partyReferences, blockerMessage } from "@/lib/inventory/references";
 import { NextResponse } from "next/server";
 import { leadTimeOf } from "@/lib/inventory/delivery-performance";
@@ -38,15 +39,22 @@ export async function GET(_req: Request, { params }: { params: { type: string; i
 export async function PATCH(req: Request, { params }: { params: { type: string; id: string } }) {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
-  if (!["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
   if (!valid(params.type)) return bad("Unknown list", 404);
+  // Customers are edited by whoever works the ledger; suppliers and employees
+  // stay an admin decision (same split as POST).
+  if (params.type !== "customers" && !["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
   const b = await req.json().catch(() => ({}));
 
   const set: Record<string, any> = { updatedAt: new Date() };
   if (b.name !== undefined) { const n = s(b.name); if (!n) return bad("Name is required"); set.name = n; }
   if (b.email !== undefined) set.email = s(b.email);
-  if (b.currency !== undefined) set.currency = b.currency ? String(b.currency).trim().toUpperCase().slice(0, 8) : null;
-  if (b.status !== undefined) set.status = b.status === "Inactive" ? "Inactive" : "Active";
+  if (b.currency !== undefined) {
+    // customers.currency is NOT NULL and "" means "not yet set" (locks on the
+    // first transaction), so a blank customer value leaves the column alone.
+    if (params.type !== "customers") set.currency = b.currency ? String(b.currency).trim().toUpperCase().slice(0, 8) : null;
+    else if (String(b.currency).trim()) set.currency = String(b.currency).trim().toUpperCase().slice(0, 8);
+  }
+  if (b.status !== undefined && params.type !== "customers") set.status = b.status === "Inactive" ? "Inactive" : "Active";
   if (b.paymentTerms !== undefined && Number.isFinite(Number(b.paymentTerms))) set.paymentTerms = Math.max(0, Math.trunc(Number(b.paymentTerms)));
 
   if (params.type === "employees") {
@@ -58,7 +66,16 @@ export async function PATCH(req: Request, { params }: { params: { type: string; 
   for (const k of CONTACT) if (b[k] !== undefined) set[k] = s(b[k], k === "notes" ? 4000 : 255);
   if (b.companyName !== undefined) set.companyName = s(b.companyName);
   if (params.type === "customers") {
-    await db.update(customers).set(set).where(and(eq(customers.id, params.id), eq(customers.orgId, orgId!)));
+    const extras = customerExtras(b);
+    if ("error" in extras) return bad(extras.error);
+    if (extras.values.countryId && !(await ownsInOrg(countries, extras.values.countryId, orgId!))) return bad("Country not found in this organisation", 404);
+    const code = b.code !== undefined ? s(b.code, 64) : null;
+    if (code) {
+      const [dup] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.orgId, orgId!), eq(customers.code, code), ne(customers.id, params.id))).limit(1);
+      if (dup) return bad(`Customer code "${code}" already exists`, 409);
+      set.code = code;
+    }
+    await db.update(customers).set({ ...set, ...extras.values }).where(and(eq(customers.id, params.id), eq(customers.orgId, orgId!)));
   } else {
     if (set.name !== undefined) set.displayName = set.name;
     await db.update(apSuppliers).set(set).where(and(eq(apSuppliers.id, params.id), eq(apSuppliers.orgId, orgId!)));

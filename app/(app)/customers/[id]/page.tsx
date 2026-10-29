@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button, EmptyState, stageBadge, dueStatusBadge } from "@/components/ui";
-import { CustomerModal, ProjectModal } from "@/components/forms";
+import { ProjectModal } from "@/components/forms";
+import { PartyDrawer } from "@/components/party-drawer";
 import { Timeline, AuditTimeline, TasksList, EmailComposer, AddContactModal } from "@/components/feature";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { TransactionsTab } from "@/components/transactions-tab";
@@ -344,7 +345,8 @@ export default function CustomerDetailPage() {
         />
       )}
       {showAddContact && <AddContactModal customerId={id} onClose={() => setShowAddContact(false)} />}
-      {showEditCustomer && <CustomerModal customer={customer} onClose={() => setShowEditCustomer(false)} />}
+      {showEditCustomer && <PartyDrawer type="customers" editId={id} onClose={() => setShowEditCustomer(false)}
+        onCreated={() => { setShowEditCustomer(false); toast("Customer updated"); refresh(); }} />}
       {showAddProject && <ProjectModal preCustomerId={id} onClose={() => setShowAddProject(false)} />}
       {showCompose && (() => {
         // If triggered from Transactions tab with a specific selection, use those invoices.

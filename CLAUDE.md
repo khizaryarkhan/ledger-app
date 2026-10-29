@@ -622,6 +622,53 @@ as an integrity question, not a cosmetic one.
   real downstream consequences (collections, inventory valuation). Revisit
   if the same complaint is raised about any of these four.
 
+## One creation path per record — invoices and customers (2026-10-29)
+
+Reported: the Invoices page's "New invoice" opened a different form from
+Create → Invoice, and the same shape turned up for customers. A second form is
+never just a cosmetic duplicate: it carries its own fields, its own endpoint and
+its own bugs.
+
+- **Invoice**: `/accounting/new/Invoice` → `postDocument` is the only path. The
+  legacy `InvoiceModal` inserted straight into `invoices` via `POST /api/invoices`
+  with no journal entry — an off-ledger receivable. Modal, `addInvoice` and the
+  POST handler are deleted; `/api/invoices` is read-only. The Invoices page
+  button just navigates.
+- **Customer**: `components/party-drawer.tsx` → `/api/parties/customers` is the
+  only form, opened from the Customers list, the customer's Edit, Accounting and
+  quick-add. `CustomerModal`, `addCustomer`/`updateCustomer` and
+  `POST /api/customers` are deleted (`GET`/`PATCH /api/customers/[id]` stay — the
+  detail page's inline edits and Automations use them).
+  - Customer-only fields (code, risk rating, status incl. **On Hold**, credit
+    limit, payment method, country) live in `lib/party-customer-fields.ts`
+    (pure, shared by POST and PATCH) and in the drawer's separate `x` state, so a
+    supplier edit can never carry a `status` that re-activates it.
+  - **Country is stored as `countryId` (the org's list — what regions and rep
+    books group by) AND its name in `country` (what the detail page and printed
+    documents read).** The old modal sent `countryId` to a POST schema and a PATCH
+    allowlist that both ignored it, so the dropdown never saved. If the org has
+    no country list the drawer falls back to free text.
+  - **A customer's currency is left blank until chosen.** The server then
+    defaults it to home, or — under multi-currency — leaves it to lock on the
+    first transaction. Pre-filling home in the browser locked it before the
+    customer had transacted. PATCH ignores a blank customer currency
+    (`customers.currency` is NOT NULL).
+  - **Any org user may create or edit a customer** (collectors add them);
+    suppliers and employees stay admin-only, as does DELETE.
+- **Project**: one form already (`ProjectModal`), but it offered start / end /
+  projected-end dates that the table has no columns for and POST/PATCH discard.
+  Removed. Add them back only together with columns and route support.
+- `tests/single-invoice-creation-path.test.ts` and
+  `tests/single-customer-creation-path.test.ts` pin all of this, each proven to
+  fail on the old code. **Do not "fix" the other `InvoiceDrawer`/`CreateInvoice`**:
+  shipping-console's is invoice-from-shipments (posts via `invoiceFromShipments`)
+  and admin's is a Stripe billing invoice for our own customers.
+- **Still open, found not fixed**: `quick-add.tsx` still has thinner Chart of
+  Accounts / tax rate / class / location forms (see its own section); and
+  customers created from Accounting or the New Document quick-add go through
+  `PartyDrawer` without calling `data-provider`'s `refresh()`, so the Customers
+  list may not show them until its next load (not verified in a browser).
+
 ## Invoice/SalesReceipt/CreditNote/RefundReceipt can now carry a Project (2026-10-21)
 
 Reported alongside the quick-add issue above: the party picker on these

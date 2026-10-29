@@ -43,11 +43,8 @@ type DataContextType = {
   sendEmail: (data: any) => Promise<any>;
   addTask: (data: any) => Promise<any>;
   toggleTask: (id: string, completed: boolean) => Promise<any>;
-  addCustomer: (data: any) => Promise<any>;
-  updateCustomer: (id: string, data: any) => Promise<any>;
   addProject: (data: any) => Promise<any>;
   updateProject: (id: string, data: any) => Promise<any>;
-  addInvoice: (data: any) => Promise<any>;
   bulkDeleteInvoices: (ids: string[]) => Promise<any>;
   bulkDeleteCustomers: (ids: string[]) => Promise<any>;
   bulkDeleteProjects: (ids: string[]) => Promise<any>;
@@ -146,20 +143,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const toast = (message: string, type = "success") => setToastState({ message, type });
   const clearToast = () => setToastState(null);
 
-  const addCustomer = async (data: any) => {
-    const created = await postJSON("/api/customers", data);
-    setCustomers(prev => [created, ...prev]);
-    toast("Customer created");
-    return created;
-  };
-
-  const updateCustomer = async (id: string, data: any) => {
-    const updated = await patchJSON(`/api/customers/${id}`, data);
-    setCustomers(prev => prev.map(c => c.id === id ? updated : c));
-    toast("Customer updated");
-    return updated;
-  };
-
   const addProject = async (data: any) => {
     const created = await postJSON("/api/projects", data);
     setProjects(prev => [created, ...prev]);
@@ -172,13 +155,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setProjects(prev => prev.map(p => p.id === id ? updated : p));
     toast("Project updated");
     return updated;
-  };
-
-  const addInvoice = async (data: any) => {
-    const created = await postJSON("/api/invoices", data);
-    setInvoices(prev => [created, ...prev]);
-    toast("Invoice created");
-    return created;
   };
 
   const updateInvoice = async (id: string, patch: any) => {
@@ -339,7 +315,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       loaded, customers, contacts, projects, invoices, communications, tasks, reps, regions, countries, orgSettings,
       refresh, toast, toastState, clearToast,
       updateInvoice, recordPayment, addContact, addNote, sendEmail, addTask, toggleTask,
-      addCustomer, updateCustomer, addProject, updateProject, addInvoice, bulkDeleteInvoices, bulkDeleteCustomers, bulkDeleteProjects,
+      addProject, updateProject, bulkDeleteInvoices, bulkDeleteCustomers, bulkDeleteProjects,
       reclassifyCustomers, reclassifyProjects, addRep, updateRepTier, updateRepManager, deleteRep, addRegion, deleteRegion, addCountry, deleteCountry, updateOrgSettings,
     }}>
       {children}

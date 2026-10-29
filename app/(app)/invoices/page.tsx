@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useData } from "@/components/data-provider";
 import { Badge, Button, dueStatusBadge } from "@/components/ui";
-import { InvoiceModal } from "@/components/forms";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, matchesDueFilter, DUE_FILTERS, sourceLabel, sourceBadgeVariant, localToday } from "@/lib/format";
 import { Search, Plus, Trash2, X, Download, Send } from "lucide-react";
@@ -44,6 +44,7 @@ function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
 }
 
 export default function InvoicesPage() {
+  const router = useRouter();
   const { invoices, customers, projects, contacts, regions, reps, bulkDeleteInvoices, orgSettings, refresh, toast } = useData() as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -51,7 +52,6 @@ export default function InvoicesPage() {
   // Customer / region / stage used to be header selects too; they are column
   // filters now (funnel on each header), so the header keeps only the filters
   // a column can't express.
-  const [showCreate, setShowCreate] = useState(false);
 
   // Date period filter — defaults to last month
   // Local dates, never toISOString(): that is UTC and shifts the day either
@@ -320,7 +320,7 @@ export default function InvoicesPage() {
           </>
         )}
         <ListDivider />
-        <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New invoice</Button>
+        <Button icon={Plus} size="sm" onClick={() => router.push("/accounting/new/Invoice")}>New invoice</Button>
       </ListPageHeader>
 
       {/* Selection bar — board layout: count + per-currency total, actions right */}
@@ -431,7 +431,6 @@ export default function InvoicesPage() {
         </table>
       </ListScroll>
 
-      {showCreate && <InvoiceModal onClose={() => setShowCreate(false)} />}
       {showBatchEmail && (() => {
         const sendRows = Array.from(selected)
           .map((sid) => invoices.find((i: any) => i.id === sid))

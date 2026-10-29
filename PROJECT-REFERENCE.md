@@ -510,7 +510,7 @@ Event types: `email_sent, email_manual, note_added, stage_changed, payment_recor
 | `transactions-tab.tsx` | Payment transactions history |
 | `chat-widget.tsx` | AI-powered email composer (Groq/OpenAI) |
 | `data-table.tsx` | Generic sortable/filterable/selectable table |
-| `forms.tsx` | InvoiceModal, CustomerModal, ContactModal, ProjectModal, StageModal, etc. |
+| `forms.tsx` | ProjectModal, AddContactModal, etc. (invoices are created at `/accounting/new/Invoice`, customers in `party-drawer.tsx` — see CLAUDE.md "One creation path") |
 | `mfa-card.tsx` | TOTP MFA setup/management (QR code, recovery codes) |
 | `subscription-gate.tsx` | Subscription access control (shows upsell if past-due/inactive) |
 | `currency-pills.tsx` | Multi-currency display helper |

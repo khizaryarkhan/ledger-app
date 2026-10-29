@@ -8,9 +8,10 @@
  */
 
 import { db } from "@/db";
-import { customers, apSuppliers, employees, organisations, parties } from "@/db/schema";
+import { customers, apSuppliers, employees, organisations, parties, countries } from "@/db/schema";
 import { leadTimeOf } from "@/lib/inventory/delivery-performance";
-import { requireOrg, ok, bad } from "@/lib/api";
+import { requireOrg, ok, bad, ownsInOrg } from "@/lib/api";
+import { customerExtras } from "@/lib/party-customer-fields";
 import { eq, and, isNull, desc } from "drizzle-orm";
 
 /**
@@ -82,8 +83,10 @@ export async function GET(req: Request, { params }: { params: { type: string } }
 export async function POST(req: Request, { params }: { params: { type: string } }) {
   const { error, orgId, role } = await requireOrg();
   if (error) return error;
-  if (!["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
   if (!valid(params.type)) return bad("Unknown list", 404);
+  // Customers are created by whoever works the ledger (collectors add them
+  // too); suppliers and employees stay an admin decision.
+  if (params.type !== "customers" && !["company_admin", "super_admin"].includes(role!)) return bad("Admins only", 403);
 
   const body = await req.json().catch(() => ({}));
   const name = String(body?.name ?? "").trim();
@@ -110,10 +113,18 @@ export async function POST(req: Request, { params }: { params: { type: string } 
   };
 
   if (params.type === "customers") {
-    const code = s(body?.code, 64) || `NAT-${Date.now().toString(36).toUpperCase()}`;
+    const typedCode = s(body?.code, 64);
+    if (typedCode) {
+      const [dup] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.orgId, orgId!), eq(customers.code, typedCode))).limit(1);
+      if (dup) return bad(`Customer code "${typedCode}" already exists`, 409);
+    }
+    const extras = customerExtras(body);
+    if ("error" in extras) return bad(extras.error);
+    if (extras.values.countryId && !(await ownsInOrg(countries, extras.values.countryId, orgId!))) return bad("Country not found in this organisation", 404);
+    const code = typedCode || `NAT-${Date.now().toString(36).toUpperCase()}`;
     const [row] = await db.insert(customers).values({
       orgId: orgId!, name, code, email, currency: currency ?? undefined,
-      companyName: s(body?.companyName), ...contact,
+      companyName: s(body?.companyName), ...contact, ...extras.values,
       ...(paymentTerms != null ? { paymentTerms } : {}),
     } as any).returning();
     return ok({ id: row.id, name: row.name, email: row.email ?? null, currency: row.currency, status: row.status, source: "native" });

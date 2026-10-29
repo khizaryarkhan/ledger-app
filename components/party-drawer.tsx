@@ -9,7 +9,8 @@
 import { useEffect, useState } from "react";
 import { X, Loader, Check, AlertTriangle, Users, Building2, Contact } from "lucide-react";
 import { CURRENCIES } from "@/lib/accounting/currencies";
-import { controlInset, Drawer } from "@/components/form-kit";
+import { controlInset, Drawer, SelectField } from "@/components/form-kit";
+import { useData } from "@/components/data-provider";
 
 type PartyType = "customers" | "suppliers" | "employees";
 const META: Record<PartyType, { title: string; noun: string; icon: any }> = {
@@ -26,22 +27,39 @@ const empty = {
   leadTimeDays: "",   // suppliers only (0114) — default when an item's own link has none
 };
 
+// Customers only — collections and credit settings. Kept apart from `empty` so
+// they are only ever sent for a customer (a supplier edit must not carry a
+// "status" that would silently re-activate it).
+const customerEmpty = { code: "", riskRating: "Low", status: "Active", creditLimit: "", paymentMethod: "", countryId: "" };
+const PAYMENT_METHODS = ["Bank Transfer", "Credit Card", "Direct Debit", "Cheque", "Other"];
+
 export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { type: PartyType; editId?: string | null; onClose: () => void; onCreated: (row?: any) => void; elevated?: boolean }) {
   const meta = META[type];
   const isPerson = type === "employees";
+  const isCustomer = type === "customers";
   const editing = !!editId;
+  const { countries } = useData() as any;
+  const orgCountries: any[] = isCustomer ? (countries ?? []) : [];
   const [f, setF] = useState({ ...empty });
+  const [x, setX] = useState({ ...customerEmpty });
+  const [loadedBlankCurrency, setLoadedBlankCurrency] = useState(false);
   const [home, setHome] = useState("");
   const [mc, setMc] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
+  // A customer's currency is left blank until it is chosen: the server then
+  // defaults it to the home currency, or — under multi-currency — leaves it to
+  // lock to the customer's first transaction. Pre-filling home here would
+  // lock it before the customer has transacted in anything.
+  const canLeaveCurrencyUnset = isCustomer && (!editing || loadedBlankCurrency);
+
   useEffect(() => {
     fetch("/api/org/settings").then(r => r.json()).then(o => {
       const h = o?.currency || ""; setHome(h); setMc(!!o?.multicurrencyEnabled);
-      setF(prev => ({ ...prev, currency: prev.currency || h }));
+      if (!isCustomer) setF(prev => ({ ...prev, currency: prev.currency || h }));
     }).catch(() => {});
-  }, []);
+  }, [isCustomer]);
   // Edit mode: prefill from the existing record.
   useEffect(() => {
     if (!editId) return;
@@ -57,6 +75,14 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
         notes: d.notes ?? "", currency: d.currency ?? prev.currency,
         leadTimeDays: d.leadTimeDays != null ? String(d.leadTimeDays) : "",
       }));
+      if (type === "customers") {
+        setLoadedBlankCurrency(!d.currency);
+        setX({
+          code: d.code ?? "", riskRating: d.riskRating ?? "Low", status: d.status ?? "Active",
+          creditLimit: d.creditLimit != null ? String(d.creditLimit) : "",
+          paymentMethod: d.paymentMethod ?? "", countryId: d.countryId ?? "",
+        });
+      }
     }).catch(() => {});
   }, [editId, type]);
   // Close on Escape.
@@ -66,13 +92,21 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
   }, [onClose]);
 
   const set = (k: keyof typeof empty, v: string) => setF(prev => ({ ...prev, [k]: v }));
+  const setExtra = (k: keyof typeof customerEmpty, v: string) => setX(prev => ({ ...prev, [k]: v }));
+  // The org's country list is what regions and rep books group by, so the pick
+  // is stored as an id AND its name goes into the display text the detail page
+  // and printed documents read.
+  const pickCountry = (id: string) => {
+    setExtra("countryId", id);
+    set("country", orgCountries.find((c: any) => c.id === id)?.name ?? "");
+  };
 
   async function save() {
     if (!f.name.trim()) { setErr(isPerson ? "Employee name is required." : "Display name is required."); return; }
     setSaving(true); setErr("");
     try {
       const res = await fetch(editing ? `/api/parties/${type}/${editId}` : `/api/parties/${type}`, {
-        method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f),
+        method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isCustomer ? { ...f, ...x } : f),
       });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || "Failed to save"); return; }
@@ -102,6 +136,7 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
             <div>
               <label className={label}>Currency</label>
               <select value={f.currency} onChange={e => set("currency", e.target.value)} className={input}>
+                {canLeaveCurrencyUnset && <option value="">Set by first transaction</option>}
                 {home && !CURRENCIES.some(c => c.code === home) && <option value={home}>{home} (home)</option>}
                 {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}{c.code === home ? " (home)" : ""}</option>)}
               </select>
@@ -148,7 +183,17 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={label}>Postal / ZIP code</label><input value={f.addressPostcode} onChange={e => set("addressPostcode", e.target.value)} className={input} /></div>
-                <div><label className={label}>Country</label><input value={f.country} onChange={e => set("country", e.target.value)} placeholder="e.g. Pakistan" className={input} /></div>
+                <div>
+                  <label className={label}>Country</label>
+                  {orgCountries.length > 0 ? (
+                    <SelectField inset value={x.countryId} onChange={e => pickCountry(e.target.value)}>
+                      <option value="">—</option>
+                      {orgCountries.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </SelectField>
+                  ) : (
+                    <input value={f.country} onChange={e => set("country", e.target.value)} placeholder="e.g. Pakistan" className={input} />
+                  )}
+                </div>
               </div>
 
               <div className={section}>Terms &amp; tax</div>
@@ -162,6 +207,40 @@ export function PartyDrawer({ type, editId, onClose, onCreated, elevated }: { ty
                   <input type="number" min="0" max="3650" step="1" value={f.leadTimeDays} onChange={e => set("leadTimeDays", e.target.value)} placeholder="e.g. 14" className={input} />
                   <p className="mt-1 text-[11px] text-stone-500">Used to set a PO line&apos;s requested date when the item&apos;s own supplier link has no lead time.</p>
                 </div>
+              )}
+              {isCustomer && (
+                <>
+                  <div className={section}>Collections &amp; credit</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={label}>Customer code</label>
+                      <input value={x.code} onChange={e => setExtra("code", e.target.value)} placeholder="Auto-generated if blank" className={input} />
+                    </div>
+                    <div>
+                      <label className={label}>Credit limit</label>
+                      <input type="number" min="0" value={x.creditLimit} onChange={e => setExtra("creditLimit", e.target.value)} className={input} />
+                    </div>
+                    <div>
+                      <label className={label}>Risk rating</label>
+                      <SelectField inset value={x.riskRating} onChange={e => setExtra("riskRating", e.target.value)}>
+                        {["Low", "Medium", "High"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </SelectField>
+                    </div>
+                    <div>
+                      <label className={label}>Status</label>
+                      <SelectField inset value={x.status} onChange={e => setExtra("status", e.target.value)}>
+                        {["Active", "On Hold", "Inactive"].map(s => <option key={s} value={s}>{s}</option>)}
+                      </SelectField>
+                    </div>
+                    <div>
+                      <label className={label}>Payment method</label>
+                      <SelectField inset value={x.paymentMethod} onChange={e => setExtra("paymentMethod", e.target.value)}>
+                        <option value="">—</option>
+                        {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </SelectField>
+                    </div>
+                  </div>
+                </>
               )}
               <div><label className={label}>Notes</label><textarea value={f.notes} onChange={e => set("notes", e.target.value)} rows={2} className={input} /></div>
             </>

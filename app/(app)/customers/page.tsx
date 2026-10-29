@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/components/data-provider";
 import { Card, Badge, Button } from "@/components/ui";
-import { CustomerModal } from "@/components/forms";
+import { PartyDrawer } from "@/components/party-drawer";
 import { daysOverdue } from "@/lib/format";
 import { Search, Plus, Trash2, X, RefreshCw, LayoutGrid, List } from "lucide-react";
 import { SelectField, control } from "@/components/form-kit";
@@ -74,7 +74,7 @@ const CustomerCard = memo(function CustomerCard({ c, isSelected, onToggle, repGr
 });
 
 export default function CustomersPage() {
-  const { customers, invoices, reps, regions, countries, bulkDeleteCustomers, reclassifyCustomers } = useData() as any;
+  const { customers, invoices, reps, regions, countries, bulkDeleteCustomers, reclassifyCustomers, refresh, toast } = useData() as any;
 
   // Assignable people for inline Rep editing (reps/EDs + admins, incl. multi-org).
   const [assignableReps, setAssignableReps] = useState<{ id: string; name: string; tier: string }[]>([]);
@@ -363,7 +363,8 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {showCreate && <CustomerModal onClose={() => setShowCreate(false)} />}
+      {showCreate && <PartyDrawer type="customers" onClose={() => setShowCreate(false)}
+        onCreated={() => { setShowCreate(false); toast("Customer created"); refresh(); }} />}
       {showReclassify && (
         <ReclassifyDrawer
           entityType="customer"

@@ -1,45 +1,11 @@
 import { db } from "@/db";
-import { customers, organisations } from "@/db/schema";
-import { requireOrg, requireReadScope, ok, bad } from "@/lib/api";
+import { customers } from "@/db/schema";
+import { requireReadScope, ok } from "@/lib/api";
 import { getRepScope } from "@/lib/rep-scope";
-import { z } from "zod";
-import { desc, eq, and, inArray } from "drizzle-orm";
+import { desc, inArray } from "drizzle-orm";
 
-// A blank currency defaults to the org's home currency — EXCEPT when
-// multi-currency is on, where it's left "" (customers.currency is NOT NULL,
-// so "" is the "unset" sentinel) so the customer's currency locks to
-// whatever its first real invoice/transaction uses instead of presuming
-// home currency up front (see lib/accounting/documents.ts's postDocument).
-async function defaultCurrency(orgId: string): Promise<string> {
-  const [org] = await db.select({ currency: organisations.currency, mc: organisations.multicurrencyEnabled }).from(organisations).where(eq(organisations.id, orgId)).limit(1);
-  if (org?.mc) return "";
-  return org?.currency ?? "EUR";
-}
-
-const Schema = z.object({
-  name: z.string().min(1).max(255),
-  code: z.string().min(1).max(64),
-  country: z.string().optional(),
-  // No hardcoded fallback — an omitted/blank currency defaults to the org's
-  // own home currency, resolved server-side in POST.
-  currency: z.string().optional(),
-  paymentTerms: z.number().int().default(30),
-  taxNumber: z.string().optional(),
-  riskRating: z.enum(["Low", "Medium", "High"]).default("Low"),
-  status: z.enum(["Active", "On Hold", "Inactive"]).default("Active"),
-  creditLimit: z.number().nullable().optional(),
-  accountOwnerId: z.string().uuid().nullable().optional(),
-  collectionOwnerId: z.string().uuid().nullable().optional(),
-  notes: z.string().optional(),
-  companyName: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  addressStreet: z.string().optional(),
-  addressCity: z.string().optional(),
-  addressPostcode: z.string().optional(),
-  paymentMethod: z.string().optional(),
-});
-
+// Read-only on purpose. A customer is created and edited through PartyDrawer
+// (/api/parties/customers) — one form, one set of fields, wherever it is opened.
 export async function GET() {
   const { error, orgId, orgIds, role, repId } = await requireReadScope();
   if (error) return error;
@@ -50,44 +16,4 @@ export async function GET() {
   const scope = await getRepScope(orgId!, role, repId);
   if (scope) return ok(rows.filter((c) => scope.customerIds.has(c.id)));
   return ok(rows);
-}
-
-export async function POST(req: Request) {
-  const { error, orgId } = await requireOrg();
-  if (error) return error;
-  try {
-    const body = await req.json();
-    const data = Schema.parse(body);
-    const [existing] = await db.select().from(customers).where(and(eq(customers.code, data.code), eq(customers.orgId, orgId!))).limit(1);
-    if (existing) return bad(`Customer code "${data.code}" already exists`, 409);
-    const [created] = await db.insert(customers).values({
-      orgId: orgId!,
-      name: data.name,
-      code: data.code,
-      country: data.country,
-      currency: data.currency?.trim() ? data.currency.trim().toUpperCase() : await defaultCurrency(orgId!),
-      paymentTerms: data.paymentTerms ?? 30,
-      taxNumber: data.taxNumber,
-      riskRating: data.riskRating ?? "Low",
-      status: data.status ?? "Active",
-      creditLimit: data.creditLimit ?? null,
-      accountOwnerId: data.accountOwnerId ?? null,
-      collectionOwnerId: data.collectionOwnerId ?? null,
-      notes: data.notes,
-      // Contact + address were validated but silently dropped from the insert
-      // before this fix — persist them so the create path matches the edit path.
-      companyName: data.companyName,
-      phone: data.phone,
-      email: data.email,
-      addressStreet: data.addressStreet,
-      addressCity: data.addressCity,
-      addressPostcode: data.addressPostcode,
-      paymentMethod: data.paymentMethod,
-    }).returning();
-    return ok(created);
-  } catch (e: any) {
-    if (e?.issues) return bad(e.issues[0].message);
-    console.error(e);
-    return bad("Failed to create customer", 500);
-  }
 }
