@@ -12,7 +12,11 @@ import {
 } from "lucide-react";
 import { Badge, Button, Input, Select, Modal } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
-import { SelectField, control } from "@/components/form-kit";
+import { inWindow } from "@/lib/list-period";
+import {
+  ListSearch, ListPeriodFilter, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listNumCell, type ListColumn,
@@ -23,7 +27,6 @@ import {
 type POStatus = "Draft" | "Pending Approval" | "Approved" | "Cancelled" | "Closed";
 type POApprovalStatus = "Not Required" | "Pending" | "Approved" | "Rejected";
 type POPushStatus = "Not Pushed" | "Pending" | "Pushed" | "Failed";
-type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
 
 interface PurchaseOrder {
   id: string;
@@ -43,30 +46,6 @@ interface Supplier {
   id: string;
   name: string;
   currency?: string | null;
-}
-
-// ── Period helpers ─────────────────────────────────────────────────────────────
-
-const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "this-month", label: "This Month" },
-  { id: "last-month", label: "Last Month" },
-  { id: "last-3m",    label: "Last 3M" },
-  { id: "last-6m",    label: "Last 6M" },
-  { id: "all",        label: "All Time" },
-  { id: "custom",     label: "Custom" },
-];
-
-function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
-  const now = new Date();
-  if (id === "this-month")
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
-  if (id === "last-month")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-  if (id === "last-3m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
-  if (id === "last-6m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
-  return { from: new Date(2000, 0, 1), to: now };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -300,6 +279,18 @@ const PO_COLS: ListColumn<PurchaseOrder>[] = [
   { key: "createdAt",      label: "Created",   sort: r => r.createdAt },
 ];
 
+const PO_EXPORT: ExportColumn<any>[] = [
+  { header: "PO #", value: (r) => r.poNumber, width: 14 },
+  { header: "Supplier", value: (r) => r.supplierName, width: 28 },
+  { header: "PO Date", value: (r) => r.poDate, width: 12 },
+  { header: "Currency", value: (r) => r.currency, width: 9 },
+  { header: "Total", value: (r) => Number(r.total ?? 0), width: 14 },
+  { header: "Status", value: (r) => r.status, width: 16 },
+  { header: "Approval", value: (r) => r.approvalStatus, width: 14 },
+  { header: "Push", value: (r) => r.pushStatus, width: 12 },
+  { header: "Created", value: (r) => r.createdAt, width: 22 },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function PurchaseOrdersPage() {
@@ -309,13 +300,8 @@ export default function PurchaseOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
-  const [period, setPeriod] = useState<PeriodId>("all");
-  const [customFrom, setCustomFrom] = useState(lastMonthStart);
-  const [customTo, setCustomTo]   = useState(todayStr);
+  const period = usePeriodFilter("all");
 
   async function load() {
     setLoading(true);
@@ -333,21 +319,12 @@ export default function PurchaseOrdersPage() {
   }
 
   useEffect(() => { load(); }, []);
-  const { from: periodFrom, to: periodTo } = useMemo(() => {
-    if (period === "custom") return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
-    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
-    return getPeriodRange(period);
-  }, [period, customFrom, customTo]);
 
   const baseFiltered = useMemo(() => {
     let rows = orders;
 
     // Date filter on PO date
-    rows = rows.filter((o) => {
-      if (!o.poDate) return true;
-      const d = new Date(o.poDate + "T00:00:00");
-      return d >= periodFrom && d <= periodTo;
-    });
+    rows = rows.filter((o) => inWindow(o.poDate, period.range));
 
     if (search) {
       const s = search.toLowerCase();
@@ -358,15 +335,11 @@ export default function PurchaseOrdersPage() {
       );
     }
     return rows;
-  }, [orders, search, periodFrom, periodTo]);
+  }, [orders, search, period.range]);
 
   const lv = useListView(baseFiltered, PO_COLS, { storageKey: "payables-purchase-orders", defaultSort: "poDate", defaultDir: "desc", summary: "total" });
 
-  // Prune the selection when filters hide rows (board rule).
-  useEffect(() => {
-    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
-    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
-  }, [lv.rows]);
+  const { selected, count, isSelected, toggleOne, selection } = useRowSelection<any>(lv.rows);
 
   const stats = useMemo(() => ({
     draft: orders.filter((o) => o.status === "Draft").length,
@@ -375,41 +348,14 @@ export default function PurchaseOrdersPage() {
     pushedToAccounting: orders.filter((o) => o.pushStatus === "Pushed").length,
   }), [orders]);
 
-  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
-  const toggleAll = () => {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(lv.rows.map((r: any) => r.id)));
-  };
-  const toggleOne = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
   const pageFiltered = !!search;
 
   return (
     <ListPage>
       <ListPageHeader title="Purchase Orders"
-        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} order${lv.rows.length !== 1 ? "s" : ""}`} · PO date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO # or supplier…"
-            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
-        </div>
-        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="PO date period" className="w-auto h-8 text-xs">
-          {PERIODS.map(p => <option key={p.id} value={p.id}>PO date: {p.label}</option>)}
-        </SelectField>
-        {period === "custom" && (
-          <>
-            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
-              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
-            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
-              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
-          </>
-        )}
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} order${lv.rows.length !== 1 ? "s" : ""}`} · PO date: {period.label}</>}>
+        <ListSearch value={search} onChange={setSearch} placeholder="Search PO # or supplier…" />
+        <ListPeriodFilter state={period} label="PO date" capAtToday />
         <ListDivider />
         <Button icon={Plus} size="sm" onClick={() => setShowCreate(true)}>New PO</Button>
       </ListPageHeader>
@@ -429,7 +375,12 @@ export default function PurchaseOrdersPage() {
         </div>
       )}
 
-      <ListToolbar lv={lv} noun="order" plural="orders" filtered={pageFiltered} />
+      <ListToolbar lv={lv} noun="order" plural="orders" selected={count} filtered={pageFiltered}>
+        <ListExportButton onClick={() => exportRowsToExcel({
+          rows: count > 0 ? lv.rows.filter((r: any) => selected.has(r.id)) : lv.rows,
+          columns: PO_EXPORT, sheet: "Purchase Orders", filename: "purchase-orders.xlsx",
+        })} disabled={lv.rows.length === 0} />
+      </ListToolbar>
       <ListChips lv={lv} />
 
       {loading ? (
@@ -439,10 +390,10 @@ export default function PurchaseOrdersPage() {
       ) : (
         <ListScroll lv={lv} empty={orders.length === 0 ? "No purchase orders yet — create one to get started." : "No purchase orders match the current filters."}>
           <table className={listTable}>
-            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <ListHead lv={lv} selection={selection} />
             <tbody>
               {lv.rows.map((po: any) => {
-                const isSel = selected.has(po.id);
+                const isSel = isSelected(po.id);
                 return (
                   <tr key={po.id} onClick={() => router.push(`/payables/purchase-orders/${po.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
                     <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>

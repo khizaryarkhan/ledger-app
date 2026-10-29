@@ -641,11 +641,13 @@ Invoices had was the chrome around it. That is now shared too:
   with bulk Delete, and Export Excel, and **kept every row action** (Confirm,
   Partial, Convert, Track, PDF, Print, Delete). Its period opens on **All Time**,
   not Invoices' last month: a default must never hide an open order.
-- **Still to move onto the shared period module** (each carries its own
-  `getPeriodRange`; `tests/list-chrome.test.ts` pins the list and fails if a file
-  is migrated but its entry is left, or a new copy appears): Payables Bills,
-  Payment Runs, Purchase Orders, Supplier Queries; Receivables `/reports` is a
-  different shape (also returns the prior period).
+- **Payables lists moved too (2026-10-29)**: Bills, Payment Runs, Purchase Orders
+  and Supplier Queries use the shared search, period, selection and Export Excel;
+  their private `getPeriodRange` copies are gone. Bills keeps its bulk status
+  change. Dates compare as `YYYY-MM-DD` strings; Supplier Queries' `createdAt` is
+  a real timestamp, so it is read as the viewer's local day (`ymd(new Date(..))`).
+  Still carrying its own copy: Receivables `/reports` (different shape — also
+  returns the prior period). `tests/list-chrome.test.ts` pins the list.
 - **Not yet given the chrome**: Customers, Projects, Suppliers, the Receiving /
   Shipping / Job Work consoles, Journal. Customers, Projects and Suppliers
   already have selection; none of those has Export or a date period.

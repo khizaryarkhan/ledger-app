@@ -22,7 +22,14 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 describe("lists share the Invoices page chrome", () => {
-  for (const file of ["app/(app)/invoices/page.tsx", "components/trade-doc-list.tsx"]) {
+  for (const file of [
+    "app/(app)/invoices/page.tsx",
+    "components/trade-doc-list.tsx",
+    "app/(app)/payables/bills/page.tsx",
+    "app/(app)/payables/payment-runs/page.tsx",
+    "app/(app)/payables/purchase-orders/page.tsx",
+    "app/(app)/payables/supplier-queries/page.tsx",
+  ]) {
     it(`${file} uses the shared search, period, selection and export`, () => {
       const src = read(file);
       for (const piece of ["ListSearch", "ListPeriodFilter", "useRowSelection", "ListExportButton", "usePeriodFilter"]) {
@@ -41,13 +48,9 @@ describe("lists share the Invoices page chrome", () => {
 
 describe("no new private copy of the period helpers", () => {
   // Each of these still has its own copy and is waiting to be moved onto
-  // lib/list-period.ts. Remove an entry when its file is migrated; an entry that
+  // lib/list-period.ts (the Payables lists have all been moved). Remove an entry when its file is migrated; an entry that
   // no longer matches fails, so the list cannot go stale.
   const KNOWN_COPIES = [
-    "app/(app)/payables/bills/page.tsx",
-    "app/(app)/payables/payment-runs/page.tsx",
-    "app/(app)/payables/purchase-orders/page.tsx",
-    "app/(app)/payables/supplier-queries/page.tsx",
     "app/(app)/reports/page.tsx", // different shape: also returns the prior period for comparison
   ];
   const copies = [...sourceFiles("app"), ...sourceFiles("components")].filter((f) => /function getPeriodRange\s*\(/.test(read(f)));

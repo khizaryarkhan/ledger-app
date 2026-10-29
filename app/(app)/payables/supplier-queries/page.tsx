@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  Search,
   AlertCircle,
   Plus,
   X,
@@ -19,8 +18,12 @@ import {
   Select,
   Modal,
 } from "@/components/ui";
-import { formatDate } from "@/lib/format";
-import { SelectField, control } from "@/components/form-kit";
+import { formatDate, ymd } from "@/lib/format";
+import { inWindow } from "@/lib/list-period";
+import {
+  ListSearch, ListPeriodFilter, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead,
   listTable, listRow, listCheckCell, listCheckbox, type ListColumn,
@@ -462,28 +465,6 @@ function DetailDrawer({ query, onClose, onResolve }: DetailDrawerProps) {
   );
 }
 
-// ── Period helpers ─────────────────────────────────────────────────────────────
-
-type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
-
-const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "this-month", label: "This Month" },
-  { id: "last-month", label: "Last Month" },
-  { id: "last-3m",    label: "Last 3M" },
-  { id: "last-6m",    label: "Last 6M" },
-  { id: "all",        label: "All Time" },
-  { id: "custom",     label: "Custom" },
-];
-
-function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
-  const now = new Date();
-  if (id === "this-month") return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
-  if (id === "last-month") return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-  if (id === "last-3m")   return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
-  if (id === "last-6m")   return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
-  return { from: new Date(2000, 0, 1), to: now };
-}
-
 // ── Column definitions — sort + funnel filter per column, board-style ─────────
 // Status/Category/Supplier used to be header selects; there is no card view
 // here, so (as on invoices/page.tsx) they move to column filters only. The
@@ -499,6 +480,17 @@ const QUERY_COLS: ListColumn<SupplierQuery>[] = [
   { key: "resolvedAt",     label: "Resolved",          sort: r => r.resolvedAt },
 ];
 
+const QUERY_EXPORT: ExportColumn<any>[] = [
+  { header: "Category", value: (q) => q.category, width: 16 },
+  { header: "Supplier", value: (q) => q.supplierName, width: 28 },
+  { header: "Related Bill / PO", value: (q) => q.relatedBillNumber ?? q.relatedPoNumber, width: 18 },
+  { header: "Reason", value: (q) => q.reason, width: 40 },
+  { header: "Assigned To", value: (q) => q.assignedToName, width: 20 },
+  { header: "Status", value: (q) => q.status, width: 14 },
+  { header: "Created", value: (q) => q.createdAt, width: 22 },
+  { header: "Resolved", value: (q) => q.resolvedAt, width: 22 },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SupplierQueriesPage() {
@@ -510,13 +502,8 @@ export default function SupplierQueriesPage() {
   const [search, setSearch] = useState("");
   const [raiseOpen, setRaiseOpen] = useState(false);
   const [selectedQuery, setSelectedQuery] = useState<SupplierQuery | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
-  const [period, setPeriod] = useState<PeriodId>("all");
-  const [customFrom, setCustomFrom] = useState(lastMonthStart);
-  const [customTo, setCustomTo]   = useState(todayStr);
+  const period = usePeriodFilter("all");
 
   async function load() {
     setLoading(true);
@@ -552,20 +539,11 @@ export default function SupplierQueriesPage() {
     load();
   }, []);
 
-  const { from: periodFrom, to: periodTo } = useMemo(() => {
-    if (period === "custom") return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
-    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
-    return getPeriodRange(period);
-  }, [period, customFrom, customTo]);
-
   const filtered = useMemo(() => {
     let rows = queries;
 
-    rows = rows.filter((q) => {
-      if (!q.createdAt) return true;
-      const d = new Date(q.createdAt);
-      return d >= periodFrom && d <= periodTo;
-    });
+    // createdAt is a real timestamp, so it is read as the viewer's local calendar day.
+    rows = rows.filter((q) => inWindow(q.createdAt ? ymd(new Date(q.createdAt)) : null, period.range));
 
     if (search) {
       const s = search.toLowerCase();
@@ -577,15 +555,11 @@ export default function SupplierQueriesPage() {
       );
     }
     return rows;
-  }, [queries, search, periodFrom, periodTo]);
+  }, [queries, search, period.range]);
 
   const lv = useListView(filtered, QUERY_COLS, { storageKey: "payables-supplier-queries", defaultSort: "createdAt", defaultDir: "desc" });
 
-  // Prune the selection when filters hide rows (board rule).
-  useEffect(() => {
-    const visibleIds = new Set(lv.rows.map((q: any) => q.id));
-    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
-  }, [lv.rows]);
+  const { selected, count, isSelected, toggleOne, selection } = useRowSelection<any>(lv.rows);
 
   const stats = useMemo(
     () => ({
@@ -623,36 +597,14 @@ export default function SupplierQueriesPage() {
     await load();
   }
 
-  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
-  const toggleAll = () => { setSelected(allSelected ? new Set() : new Set(lv.rows.map((r: any) => r.id))); };
-  const toggleOne = (id: string) => setSelected((prev) => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
-
   const pageFiltered = !!search;
 
   return (
     <ListPage>
       <ListPageHeader title="Supplier Queries"
-        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} quer${lv.rows.length !== 1 ? "ies" : "y"}`} · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</>}>
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search queries…"
-            className={`${control} h-8 w-56 pl-7 pr-2 text-xs`} />
-        </div>
-        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Created date period" className="w-auto h-8 text-xs">
-          {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </SelectField>
-        {period === "custom" && (
-          <>
-            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
-              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
-            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
-              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
-          </>
-        )}
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} quer${lv.rows.length !== 1 ? "ies" : "y"}`} · Created: {period.label}</>}>
+        <ListSearch value={search} onChange={setSearch} placeholder="Search queries…" />
+        <ListPeriodFilter state={period} label="Created" capAtToday />
         <ListDivider />
         <Button icon={Plus} size="sm" onClick={() => setRaiseOpen(true)}>Raise Query</Button>
       </ListPageHeader>
@@ -672,7 +624,12 @@ export default function SupplierQueriesPage() {
         </div>
       )}
 
-      <ListToolbar lv={lv} noun="query" plural="queries" filtered={pageFiltered} />
+      <ListToolbar lv={lv} noun="query" plural="queries" selected={count} filtered={pageFiltered}>
+        <ListExportButton onClick={() => exportRowsToExcel({
+          rows: count > 0 ? lv.rows.filter((q: any) => selected.has(q.id)) : lv.rows,
+          columns: QUERY_EXPORT, sheet: "Supplier Queries", filename: "supplier-queries.xlsx",
+        })} disabled={lv.rows.length === 0} />
+      </ListToolbar>
       <ListChips lv={lv} />
 
       {loading ? (
@@ -682,10 +639,10 @@ export default function SupplierQueriesPage() {
       ) : (
         <ListScroll lv={lv} empty={queries.length === 0 ? "No supplier queries have been raised yet." : "No queries match the current filters."}>
           <table className={listTable}>
-            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <ListHead lv={lv} selection={selection} />
             <tbody>
               {lv.rows.map((q: any) => {
-                const isSel = selected.has(q.id);
+                const isSel = isSelected(q.id);
                 return (
                   <tr key={q.id} onClick={() => setSelectedQuery(q)} className={`${listRow(isSel)} cursor-pointer`}>
                     <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>

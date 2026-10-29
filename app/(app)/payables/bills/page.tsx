@@ -4,8 +4,13 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui";
 import { fmt, formatDate, sourceLabel, sourceBadgeVariant } from "@/lib/format";
-import { Search, AlertCircle, X } from "lucide-react";
-import { SelectField, control } from "@/components/form-kit";
+import { AlertCircle } from "lucide-react";
+import { SelectField } from "@/components/form-kit";
+import { inWindow } from "@/lib/list-period";
+import {
+  ListSearch, ListPeriodFilter, ListSelectionBar, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, type ListColumn,
@@ -19,31 +24,6 @@ const WORKFLOW_STATUSES = [
   "Ready for Payment",
   "Rejected",
 ];
-
-// ── Date period helpers ────────────────────────────────────────────────────────
-type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
-
-const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "this-month", label: "This Month" },
-  { id: "last-month", label: "Last Month" },
-  { id: "last-3m",    label: "Last 3M"    },
-  { id: "last-6m",    label: "Last 6M"    },
-  { id: "all",        label: "All Time"   },
-  { id: "custom",     label: "Custom"     },
-];
-
-function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
-  const now = new Date();
-  if (id === "this-month")
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
-  if (id === "last-month")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-  if (id === "last-3m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
-  if (id === "last-6m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
-  return { from: new Date(2000, 0, 1), to: now };
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type AccountingStatus = "Unpaid" | "Partially Paid" | "Paid" | "Voided";
@@ -135,6 +115,19 @@ const BILL_COLS: ListColumn<any>[] = [
     money: r => ({ amount: Number(r.balance ?? 0), currency: r.currency }) },
 ];
 
+const BILL_EXPORT: ExportColumn<any>[] = [
+  { header: "Bill #", value: (b) => b.billNumber, width: 16 },
+  { header: "Supplier", value: (b) => b.supplierName, width: 28 },
+  { header: "Bill Date", value: (b) => b.billDate, width: 12 },
+  { header: "Due Date", value: (b) => b.dueDate, width: 12 },
+  { header: "Accounting", value: (b) => b.accountingStatus, width: 14 },
+  { header: "Workflow", value: (b) => b.workflowStatus, width: 18 },
+  { header: "Currency", value: (b) => b.currency, width: 9 },
+  { header: "Total", value: (b) => Number(b.total ?? 0), width: 14 },
+  { header: "Paid", value: (b) => Number(b.amountPaid ?? 0), width: 14 },
+  { header: "Balance", value: (b) => Number(b.balance ?? 0), width: 14 },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BillsPage() {
   const router = useRouter();
@@ -142,14 +135,9 @@ export default function BillsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkChanging, setBulkChanging] = useState(false);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
-  const [period, setPeriod] = useState<PeriodId>("all");
-  const [customFrom, setCustomFrom] = useState(lastMonthStart);
-  const [customTo, setCustomTo] = useState(todayStr);
+  const period = usePeriodFilter("all");
 
   async function load() {
     setLoading(true);
@@ -167,7 +155,7 @@ export default function BillsPage() {
   }
 
   async function handleBulkStatusChange(status: string) {
-    if (!status || selected.size === 0) return;
+    if (!status || count === 0) return;
     setBulkChanging(true);
     try {
       await Promise.all(
@@ -180,7 +168,7 @@ export default function BillsPage() {
         )
       );
       await load();
-      setSelected(new Set());
+      clearSelection();
     } catch (err: any) {
       setError(err.message || "Failed to update bills");
     } finally {
@@ -189,14 +177,6 @@ export default function BillsPage() {
   }
 
   useEffect(() => { load(); }, []);
-
-  const { from: periodFrom, to: periodTo } = useMemo(() => {
-    if (period === "custom")
-      return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
-    if (period === "all")
-      return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
-    return getPeriodRange(period);
-  }, [period, customFrom, customTo]);
 
   const enriched = useMemo(() => bills.map(b => ({
     ...b,
@@ -208,11 +188,7 @@ export default function BillsPage() {
     let rows = enriched;
 
     // Date filter on billDate
-    rows = rows.filter(b => {
-      if (!b.billDate) return true;
-      const d = new Date(b.billDate + "T00:00:00");
-      return d >= periodFrom && d <= periodTo;
-    });
+    rows = rows.filter(b => inWindow(b.billDate, period.range));
 
     if (search) {
       const s = search.toLowerCase();
@@ -222,47 +198,21 @@ export default function BillsPage() {
       );
     }
     return rows;
-  }, [enriched, periodFrom, periodTo, search]);
+  }, [enriched, period.range, search]);
 
   const lv = useListView(filtered, BILL_COLS, { storageKey: "payables-bills", defaultSort: "dueDate", defaultDir: "asc", summary: "balance" });
 
-  // Prune the selection when filters hide rows (board rule).
-  useEffect(() => {
-    const visibleIds = new Set(lv.rows.map((b: any) => b.id));
-    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
-  }, [lv.rows]);
-
-  const allSelected = lv.rows.length > 0 && lv.rows.every((b: any) => selected.has(b.id));
-  const someSelected = selected.size > 0;
-  const toggleAll = () => allSelected ? setSelected(new Set()) : setSelected(new Set(lv.rows.map((b: any) => b.id)));
-  const toggleOne = (id: string) => setSelected(prev => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
+  const { selected, count, isSelected, toggleOne, clear: clearSelection, selection } = useRowSelection<any>(lv.rows);
+  const someSelected = count > 0;
 
   const pageFiltered = !!search;
 
   return (
     <ListPage>
       <ListPageHeader title="Bills"
-        subtitle={<>{lv.rows.length} bill{lv.rows.length !== 1 ? "s" : ""} · Bill date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search bill #, supplier…"
-            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
-        </div>
-        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Bill date period" className="w-auto h-8 text-xs">
-          {PERIODS.map(p => <option key={p.id} value={p.id}>Bill date: {p.label}</option>)}
-        </SelectField>
-        {period === "custom" && (
-          <>
-            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
-              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
-            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
-              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
-          </>
-        )}
+        subtitle={<>{lv.rows.length} bill{lv.rows.length !== 1 ? "s" : ""} · Bill date: {period.label}</>}>
+        <ListSearch value={search} onChange={setSearch} placeholder="Search bill #, supplier…" />
+        <ListPeriodFilter state={period} label="Bill date" capAtToday />
       </ListPageHeader>
 
       {error && (
@@ -275,20 +225,22 @@ export default function BillsPage() {
 
       {/* Bulk action bar */}
       {someSelected && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
-          <span className="text-[13px] font-medium">{selected.size} selected</span>
-          <div className="flex-1" />
+        <ListSelectionBar summary={`${count} selected`} onClear={clearSelection}>
           <SelectField value="" disabled={bulkChanging} aria-label="Change status of the selected bills"
             onChange={(e) => { const s = e.target.value; handleBulkStatusChange(s); }}
             className="w-auto min-w-[150px] h-8 text-[12px]">
             <option value="" disabled>{bulkChanging ? "Updating…" : "Change status…"}</option>
             {WORKFLOW_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </SelectField>
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
-        </div>
+        </ListSelectionBar>
       )}
 
-      <ListToolbar lv={lv} noun="bill" selected={selected.size} filtered={pageFiltered} />
+      <ListToolbar lv={lv} noun="bill" selected={count} filtered={pageFiltered}>
+        <ListExportButton onClick={() => exportRowsToExcel({
+          rows: someSelected ? lv.rows.filter((b: any) => selected.has(b.id)) : lv.rows,
+          columns: BILL_EXPORT, sheet: "Bills", filename: "bills.xlsx",
+        })} disabled={lv.rows.length === 0} />
+      </ListToolbar>
       <ListChips lv={lv} />
 
       {loading ? (
@@ -300,10 +252,10 @@ export default function BillsPage() {
       ) : (
         <ListScroll lv={lv} empty={bills.length === 0 ? "Use the Sync button in the top bar (or Settings → Integrations) to import bills." : "No bills match the current filters."}>
           <table className={listTable}>
-            <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} />
+            <ListHead lv={lv} selection={selection} />
             <tbody>
               {lv.rows.map((bill: any) => {
-                const isSel = selected.has(bill.id);
+                const isSel = isSelected(bill.id);
                 return (
                   <tr key={bill.id} onClick={() => router.push(`/payables/bills/${bill.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
                     <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>

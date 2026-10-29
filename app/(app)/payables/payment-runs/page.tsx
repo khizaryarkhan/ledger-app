@@ -7,11 +7,14 @@ import {
   AlertCircle,
   Loader2,
   RefreshCw,
-  Search,
 } from "lucide-react";
 import { Badge, Button } from "@/components/ui";
 import { fmt, formatDate } from "@/lib/format";
-import { SelectField, control } from "@/components/form-kit";
+import { inWindow } from "@/lib/list-period";
+import {
+  ListSearch, ListPeriodFilter, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -89,23 +92,17 @@ const RUN_COLS: ListColumn<PaymentRun>[] = [
   { key: "createdAt",      label: "Created",        sort: r => r.createdAt },
 ];
 
-type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
-const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "this-month", label: "This Month" },
-  { id: "last-month", label: "Last Month" },
-  { id: "last-3m",    label: "Last 3M" },
-  { id: "last-6m",    label: "Last 6M" },
-  { id: "all",        label: "All Time" },
-  { id: "custom",     label: "Custom" },
+const RUN_EXPORT: ExportColumn<any>[] = [
+  { header: "Run #", value: (r) => r.runNumber, width: 14 },
+  { header: "Currency", value: (r) => r.currency, width: 9 },
+  { header: "Scheduled Date", value: (r) => r.scheduledDate, width: 14 },
+  { header: "Bills", value: (r) => r.billCount ?? 0, width: 8 },
+  { header: "Total Amount", value: (r) => Number(r.totalAmount ?? 0), width: 14 },
+  { header: "Status", value: (r) => r.status, width: 16 },
+  { header: "Created By", value: (r) => r.createdByName, width: 20 },
+  { header: "Approved By", value: (r) => r.approvedByName, width: 20 },
+  { header: "Created", value: (r) => r.createdAt, width: 22 },
 ];
-function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
-  const now = new Date();
-  if (id === "this-month") return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
-  if (id === "last-month") return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-  if (id === "last-3m")    return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
-  if (id === "last-6m")    return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
-  return { from: new Date(2000, 0, 1), to: now };
-}
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
@@ -116,13 +113,8 @@ export default function PaymentRunsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); })();
-  const [period, setPeriod] = useState<PeriodId>("all");
-  const [customFrom, setCustomFrom] = useState(lastMonthStart);
-  const [customTo, setCustomTo]   = useState(todayStr);
+  const period = usePeriodFilter("all");
 
   async function load() {
     setLoading(true);
@@ -168,20 +160,10 @@ export default function PaymentRunsPage() {
     }
   }
 
-  const { from: periodFrom, to: periodTo } = useMemo(() => {
-    if (period === "custom") return { from: new Date(customFrom + "T00:00:00"), to: new Date(customTo + "T23:59:59") };
-    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
-    return getPeriodRange(period);
-  }, [period, customFrom, customTo]);
-
   const baseFiltered = useMemo(() => {
     let rows = runs;
 
-    rows = rows.filter((r) => {
-      if (!r.scheduledDate) return true;
-      const d = new Date(r.scheduledDate + "T00:00:00");
-      return d >= periodFrom && d <= periodTo;
-    });
+    rows = rows.filter((r) => inWindow(r.scheduledDate, period.range));
 
     if (search) {
       const s = search.toLowerCase();
@@ -192,15 +174,11 @@ export default function PaymentRunsPage() {
       );
     }
     return rows;
-  }, [runs, search, periodFrom, periodTo]);
+  }, [runs, search, period.range]);
 
   const lv = useListView(baseFiltered, RUN_COLS, { storageKey: "payables-payment-runs", defaultSort: "createdAt", defaultDir: "desc", summary: "totalAmount" });
 
-  // Prune the selection when filters hide rows (board rule).
-  useEffect(() => {
-    const visibleIds = new Set(lv.rows.map((r: any) => r.id));
-    setSelected(prev => [...prev].some(id => !visibleIds.has(id)) ? new Set([...prev].filter(id => visibleIds.has(id))) : prev);
-  }, [lv.rows]);
+  const { selected, count, isSelected, toggleOne, selection } = useRowSelection<any>(lv.rows);
 
   const stats = useMemo(() => {
     const defaultCurrency = runs[0]?.currency ?? "USD";
@@ -213,36 +191,14 @@ export default function PaymentRunsPage() {
     };
   }, [runs]);
 
-  const allSelected = lv.rows.length > 0 && lv.rows.every((r: any) => selected.has(r.id));
-  const toggleAll = () => { setSelected(allSelected ? new Set() : new Set(lv.rows.map((r: any) => r.id))); };
-  const toggleOne = (id: string) => setSelected((prev) => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
-
   const pageFiltered = !!search;
 
   return (
     <ListPage>
       <ListPageHeader title="Payment Runs"
-        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} run${lv.rows.length !== 1 ? "s" : ""}`} · {PERIODS.find((p) => p.id === period)?.label ?? "Custom"}</>}>
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search run # or creator…"
-            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
-        </div>
-        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Scheduled date period" className="w-auto h-8 text-xs">
-          {PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </SelectField>
-        {period === "custom" && (
-          <>
-            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
-              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
-            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
-              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
-          </>
-        )}
+        subtitle={<>{loading ? "Loading…" : `${lv.rows.length} run${lv.rows.length !== 1 ? "s" : ""}`} · Scheduled date: {period.label}</>}>
+        <ListSearch value={search} onChange={setSearch} placeholder="Search run # or creator…" />
+        <ListPeriodFilter state={period} label="Scheduled date" capAtToday />
         <ListDivider />
         <Button variant="secondary" size="sm" icon={loading ? Loader2 : RefreshCw} onClick={load} disabled={loading}>Refresh</Button>
         <Button icon={creating ? Loader2 : Plus} size="sm" onClick={handleNewRun} disabled={creating}>New Payment Run</Button>
@@ -263,7 +219,12 @@ export default function PaymentRunsPage() {
         </div>
       )}
 
-      <ListToolbar lv={lv} noun="run" plural="runs" filtered={pageFiltered} />
+      <ListToolbar lv={lv} noun="run" plural="runs" selected={count} filtered={pageFiltered}>
+        <ListExportButton onClick={() => exportRowsToExcel({
+          rows: count > 0 ? lv.rows.filter((r: any) => selected.has(r.id)) : lv.rows,
+          columns: RUN_EXPORT, sheet: "Payment Runs", filename: "payment-runs.xlsx",
+        })} disabled={lv.rows.length === 0} />
+      </ListToolbar>
       <ListChips lv={lv} />
 
       {loading ? (
@@ -273,10 +234,10 @@ export default function PaymentRunsPage() {
       ) : (
         <ListScroll lv={lv} empty={runs.length === 0 ? "Create a payment run to batch bill payments." : "No payment runs match the current filters."}>
           <table className={listTable}>
-            <ListHead lv={lv} selection={{ all: allSelected, some: selected.size > 0, onToggle: toggleAll }} />
+            <ListHead lv={lv} selection={selection} />
             <tbody>
               {lv.rows.map((run: any) => {
-                const isSel = selected.has(run.id);
+                const isSel = isSelected(run.id);
                 return (
                   <tr key={run.id} onClick={() => router.push(`/payables/payment-runs/${run.id}`)} className={`${listRow(isSel)} cursor-pointer`}>
                     <td className={listCheckCell} onClick={(e) => e.stopPropagation()}>
