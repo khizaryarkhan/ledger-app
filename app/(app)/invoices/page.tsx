@@ -1,47 +1,44 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useData } from "@/components/data-provider";
 import { Badge, Button, dueStatusBadge } from "@/components/ui";
 import { SendInvoicesModal } from "@/components/send-invoices-modal";
 import { fmt, formatDate, daysOverdue, getDueStatus, matchesDueFilter, DUE_FILTERS, sourceLabel, sourceBadgeVariant, localToday } from "@/lib/format";
-import { Search, Plus, Trash2, X, Download, Send } from "lucide-react";
+import { Plus, Trash2, Download, Send } from "lucide-react";
 import { DEFAULT_STAGES, resolveStageLabel, type Stage } from "@/lib/stages";
-import { SelectField, control } from "@/components/form-kit";
+import { SelectField } from "@/components/form-kit";
 import { StageLabel } from "@/components/stage-label";
 import { isPaidOrClosed } from "@/lib/receivable-composition";
 import {
   useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   sumByCurrency, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
 } from "@/components/list-view";
+import {
+  ListSearch, ListPeriodFilter, ListSelectionBar, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
+import { inWindow } from "@/lib/list-period";
 
-// ── Date period helpers ────────────────────────────────────────────────────────
-type PeriodId = "this-month" | "last-month" | "last-3m" | "last-6m" | "all" | "custom";
-
-const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "this-month",  label: "This Month"  },
-  { id: "last-month",  label: "Last Month"  },
-  { id: "last-3m",     label: "Last 3M"     },
-  { id: "last-6m",     label: "Last 6M"     },
-  { id: "all",         label: "All Time"    },
-  { id: "custom",      label: "Custom"      },
+/** What Export Excel writes — more than the table shows (paid, currency, email). */
+const INVOICE_EXPORT: ExportColumn<any>[] = [
+  { header: "Invoice #",     value: inv => inv.invoiceNumber, width: 14 },
+  { header: "Customer",      value: inv => inv.customer?.name, width: 28 },
+  { header: "Project",       value: inv => inv.project?.name, width: 22 },
+  { header: "Rep",           value: inv => inv.rep?.name, width: 18 },
+  { header: "Region",        value: inv => inv.region?.name, width: 16 },
+  { header: "Invoice Date",  value: inv => inv.invoiceDate, width: 14 },
+  { header: "Due Date",      value: inv => inv.dueDate, width: 14 },
+  { header: "Status",        value: inv => inv.dueStatus, width: 14 },
+  { header: "Stage",         value: inv => inv.stageLabel, width: 18 },
+  { header: "Billing Email", value: inv => inv.resolvedEmail, width: 32 },
+  { header: "Currency",      value: inv => inv.currency, width: 8 },
+  { header: "Value",         value: inv => inv.total ?? 0, width: 12 },
+  { header: "Paid",          value: inv => inv.paid ?? 0, width: 12 },
+  { header: "Outstanding",   value: inv => inv.outstanding ?? 0, width: 12 },
 ];
-
-function getPeriodRange(id: PeriodId): { from: Date; to: Date } {
-  const now = new Date();
-  if (id === "this-month")
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) };
-  if (id === "last-month")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-  if (id === "last-3m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: now };
-  if (id === "last-6m")
-    return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: now };
-  // "all" and "custom" handled at call site
-  return { from: new Date(2000, 0, 1), to: now };
-}
 
 export default function InvoicesPage() {
   const router = useRouter();
@@ -53,15 +50,11 @@ export default function InvoicesPage() {
   // filters now (funnel on each header), so the header keeps only the filters
   // a column can't express.
 
-  // Date period filter — defaults to last month
-  // Local dates, never toISOString(): that is UTC and shifts the day either
-  // side of Greenwich (CLAUDE.md, "A date is a date").
+  // Date period filter — defaults to last month. Shared with every other list
+  // (components/list-chrome.tsx); local dates, never toISOString() (CLAUDE.md,
+  // "A date is a date").
   const todayStr = localToday();
-  const lastMonthStart = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })();
-  const [period, setPeriod] = useState<PeriodId>("last-month");
-  const [customFrom, setCustomFrom] = useState(lastMonthStart);
-  const [customTo, setCustomTo]   = useState(todayStr);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const period = usePeriodFilter("last-month");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -116,45 +109,12 @@ export default function InvoicesPage() {
     }
   };
 
-  // Resolve active date range
-  const { from: periodFrom, to: periodTo } = useMemo(() => {
-    if (period === "custom") {
-      return {
-        from: new Date(customFrom + "T00:00:00"),
-        to:   new Date(customTo   + "T23:59:59"),
-      };
-    }
-    if (period === "all") return { from: new Date(2000, 0, 1), to: new Date(9999, 11, 31) };
-    return getPeriodRange(period);
-  }, [period, customFrom, customTo]);
-
-  const handleExportExcel = () => {
-    import("xlsx").then((XLSX) => {
-      const rows = lv.rows.map((inv: any) => ({
-        "Invoice #":      inv.invoiceNumber,
-        "Customer":       inv.customer?.name ?? "",
-        "Project":        inv.project?.name ?? "",
-        "Rep":            inv.rep?.name ?? "",
-        "Region":         inv.region?.name ?? "",
-        "Invoice Date":   inv.invoiceDate ?? "",
-        "Due Date":       inv.dueDate ?? "",
-        "Status":         inv.dueStatus ?? "",
-        "Stage":          inv.stageLabel ?? "",
-        "Billing Email":  inv.resolvedEmail ?? "",
-        "Currency":       inv.currency ?? "",
-        "Value":          inv.total ?? 0,
-        "Paid":           inv.paid ?? 0,
-        "Outstanding":    inv.outstanding ?? 0,
-      }));
-      const ws = XLSX.utils.json_to_sheet(rows);
-      // Column widths
-      ws["!cols"] = [14,28,22,18,16,14,14,14,18,32,8,12,12,12].map(w => ({ wch: w }));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Invoices");
-      const period_label = PERIODS.find(p => p.id === period)?.label ?? "Custom";
-      XLSX.writeFile(wb, `Invoices_${period_label.replace(/\s+/g, "_")}_${localToday()}.xlsx`);
-    });
-  };
+  const handleExportExcel = () => exportRowsToExcel({
+    rows: lv.rows,
+    columns: INVOICE_EXPORT,
+    sheet: "Invoices",
+    filename: `Invoices_${period.label.replace(/\s+/g, "_")}_${localToday()}.xlsx`,
+  });
 
   const filtered = useMemo(() => {
     let res = invoices.map((i: any) => {
@@ -177,14 +137,9 @@ export default function InvoicesPage() {
       };
     });
 
-    // Date filter on invoice date
-    // Use T00:00:00 to force local-time parsing — bare "YYYY-MM-DD" is interpreted
-    // as UTC midnight, which causes off-by-one errors for users outside UTC.
-    res = res.filter((i: any) => {
-      if (!i.invoiceDate) return true;
-      const d = new Date(i.invoiceDate + "T00:00:00");
-      return d >= periodFrom && d <= periodTo;
-    });
+    // Date filter on invoice date — string comparison on the calendar date
+    // (lib/list-period.ts); a document with no date is kept.
+    res = res.filter((i: any) => inWindow(i.invoiceDate, period.range));
 
     if (search) {
       const s = search.toLowerCase();
@@ -202,7 +157,7 @@ export default function InvoicesPage() {
     if (responseFilter === "dispute") res = res.filter((i: any) => i.hasOpenDispute);
     if (responseFilter === "promise") res = res.filter((i: any) => !!i.promiseDate);
     return res;
-  }, [invoices, customers, projects, contacts, reps, regions, stages, search, statusFilter, responseFilter, periodFrom, periodTo]);
+  }, [invoices, customers, projects, contacts, reps, regions, stages, search, statusFilter, responseFilter, period.range]);
 
   // Column definitions — sort + funnel filter per column, board-style.
   const INV_COLS = useMemo<ListColumn<any>[]>(() => [
@@ -224,32 +179,15 @@ export default function InvoicesPage() {
   const lv = useListView(filtered, INV_COLS, { storageKey: "invoices", defaultSort: "dueDate", defaultDir: "asc", summary: "outstanding" });
 
   // Batch actions must never silently operate on invoices the user can no
-  // longer see — prune the selection when filters hide rows (board rule).
-  useEffect(() => {
-    const visible = new Set(lv.rows.map((r: any) => r.id));
-    setSelected(prev => [...prev].some(id => !visible.has(id)) ? new Set([...prev].filter(id => visible.has(id))) : prev);
-  }, [lv.rows]);
-
-  const allSelected = lv.rows.length > 0 && lv.rows.every((i: any) => selected.has(i.id));
-  const someSelected = selected.size > 0;
+  // longer see — the shared selection prunes itself when filters hide rows
+  // (components/list-chrome.tsx, the board's rule).
+  const sel = useRowSelection<any>(lv.rows);
+  const { selected, toggleOne, clear: clearSelection } = sel;
+  const someSelected = sel.selection.some;
   const selectedTotals = useMemo(
     () => sumByCurrency(lv.rows.filter((r: any) => selected.has(r.id)), (r: any) => ({ amount: r.outstanding, currency: r.currency })),
     [lv.rows, selected],
   );
-
-  const toggleAll = () => {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(lv.rows.map((i: any) => i.id)));
-  };
-
-  const toggleOne = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const handleBulkStageChange = async (stage: string) => {
     if (!stage) return;
@@ -266,7 +204,7 @@ export default function InvoicesPage() {
       );
       await refresh();
       toast?.(`Stage updated for ${selected.size} invoice${selected.size > 1 ? "s" : ""}`);
-      setSelected(new Set());
+      clearSelection();
     } finally {
       setBulkStageChanging(false);
     }
@@ -276,7 +214,7 @@ export default function InvoicesPage() {
     setDeleting(true);
     try {
       await bulkDeleteInvoices(Array.from(selected));
-      setSelected(new Set());
+      clearSelection();
       setConfirmDelete(false);
     } finally {
       setDeleting(false);
@@ -289,14 +227,8 @@ export default function InvoicesPage() {
   return (
     <ListPage>
       <ListPageHeader title="Invoices"
-        subtitle={<>{filtered.length} invoice{filtered.length !== 1 ? "s" : ""} · Invoice date: {PERIODS.find(p => p.id === period)?.label ?? "Custom"}</>}>
-        {/* Search */}
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search invoice #, customer, email, PO…"
-            className={`${control} h-8 w-60 pl-7 pr-2 text-xs`} />
-        </div>
+        subtitle={<>{filtered.length} invoice{filtered.length !== 1 ? "s" : ""} · Invoice date: {period.label}</>}>
+        <ListSearch value={search} onChange={setSearch} placeholder="Search invoice #, customer, email, PO…" />
         {/* Status stays a header filter: its calendar windows ("Due This Week")
             overlap the single buckets, so it can't be a one-value column pick. */}
         <SelectField value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="w-auto h-8 text-xs">
@@ -308,28 +240,15 @@ export default function InvoicesPage() {
           <option value="dispute">Open dispute</option>
           <option value="promise">Has commitment</option>
         </SelectField>
-        <SelectField value={period} onChange={(e) => setPeriod(e.target.value as PeriodId)} aria-label="Invoice date period" className="w-auto h-8 text-xs">
-          {PERIODS.map(p => <option key={p.id} value={p.id}>Invoice date: {p.label}</option>)}
-        </SelectField>
-        {period === "custom" && (
-          <>
-            <input type="date" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)}
-              aria-label="From" className={`${control} h-8 w-auto text-xs`} />
-            <input type="date" value={customTo} min={customFrom} max={todayStr} onChange={e => setCustomTo(e.target.value)}
-              aria-label="To" className={`${control} h-8 w-auto text-xs`} />
-          </>
-        )}
+        <ListPeriodFilter state={period} label="Invoice date" capAtToday />
         <ListDivider />
         <Button icon={Plus} size="sm" onClick={() => router.push("/accounting/new/Invoice")}>New invoice</Button>
       </ListPageHeader>
 
       {/* Selection bar — board layout: count + per-currency total, actions right */}
       {someSelected && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-stone-900 text-white border-b border-stone-800 flex-wrap shrink-0">
-          <span className="text-[13px] font-medium">
-            {selected.size} selected · {Object.entries(selectedTotals).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || fmt.money(0)}
-          </span>
-          <div className="flex-1" />
+        <ListSelectionBar onClear={clearSelection}
+          summary={<>{selected.size} selected · {Object.entries(selectedTotals).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || fmt.money(0)}</>}>
           <SelectField value="" disabled={bulkStageChanging} aria-label="Change stage of the selected invoices"
             onChange={(e) => handleBulkStageChange(e.target.value)}
             className="w-auto min-w-[150px] h-8 text-[12px]">
@@ -350,21 +269,17 @@ export default function InvoicesPage() {
               </Button>
             </div>
           )}
-          <button onClick={() => setSelected(new Set())} className="text-stone-400 hover:text-white p-1" aria-label="Clear selection"><X size={15} /></button>
-        </div>
+        </ListSelectionBar>
       )}
 
       <ListToolbar lv={lv} noun="invoice" selected={selected.size} filtered={pageFiltered}>
-        <button onClick={handleExportExcel}
-          className="flex items-center gap-1.5 text-[12px] font-medium rounded-md px-2.5 py-1.5 border text-stone-400 border-stone-700 hover:bg-stone-800 transition-colors">
-          <Download size={13} /> Export Excel
-        </button>
+        <ListExportButton onClick={handleExportExcel} />
       </ListToolbar>
       <ListChips lv={lv} />
 
       <ListScroll lv={lv} empty={invoices.length === 0 ? "No invoices yet — create one or import from CSV." : "No invoices match the current filters."}>
         <table className={listTable}>
-          <ListHead lv={lv} selection={{ all: allSelected, some: someSelected, onToggle: toggleAll }} trailing={1} />
+          <ListHead lv={lv} selection={sel.selection} trailing={1} />
           <tbody>
             {lv.rows.map((inv: any) => {
               const isSel = selected.has(inv.id);
@@ -453,7 +368,7 @@ export default function InvoicesPage() {
             orgName={orgSettings?.displayName ?? orgSettings?.name}
             logoUrl={orgSettings?.logoUrl}
             onClose={() => setShowBatchEmail(false)}
-            onSent={() => { setShowBatchEmail(false); setSelected(new Set()); refresh(); }}
+            onSent={() => { setShowBatchEmail(false); clearSelection(); refresh(); }}
             toast={toast}
           />
         );

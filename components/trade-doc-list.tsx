@@ -1,14 +1,20 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Download, Route, CalendarCheck } from "lucide-react";
 import { controlCompact, controlInset, tableHead, Drawer, DrawerFooter, Field, SelectField } from "@/components/form-kit";
-import { fmt, formatDate } from "@/lib/format";
+import { fmt, formatDate, localToday } from "@/lib/format";
 import {
-  useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
-  listTable, listRow, listMoneyCell, type ListColumn,
+  useListView, ListPage, ListPageHeader, ListDivider, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
+  sumByCurrency, listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, type ListColumn,
 } from "@/components/list-view";
+import {
+  ListSearch, ListPeriodFilter, ListSelectionBar, ListExportButton, usePeriodFilter, useRowSelection,
+  exportRowsToExcel, type ExportColumn,
+} from "@/components/list-chrome";
+import { inWindow } from "@/lib/list-period";
+import { Button } from "@/components/ui";
 
 type Kind = "estimates" | "purchase-orders" | "sales-orders";
 // `icon` was dropped: the shared ListPageHeader (unlike this file's old
@@ -82,6 +88,33 @@ function buildColumns(kind: Kind): ListColumn<DocRow>[] {
   ];
 }
 
+/** What Export Excel writes — more than the table shows (the delivery date, the
+ *  counterparty's reference, what has been invoiced and what remains). */
+function exportColumns(kind: Kind): ExportColumn<DocRow>[] {
+  const meta = META[kind];
+  const partyLabel = kind === "purchase-orders" ? "Supplier" : "Customer";
+  const confirmable: ExportColumn<DocRow>[] = kind === "estimates" ? [] : [
+    { header: kind === "purchase-orders" ? "Supplier confirmation" : "Commitment", value: r => r.confirmation, width: 20 },
+    { header: "Promised date", value: r => r.promisedDate, width: 14 },
+    { header: kind === "purchase-orders" ? "Supplier ref" : "Customer PO no.", value: r => r.partyRef, width: 18 },
+  ];
+  return [
+    { header: "Number", value: r => r.docNumber, width: 14 },
+    { header: partyLabel, value: r => r.partyLabel, width: 30 },
+    { header: "Date", value: r => r.issueDate, width: 12 },
+    { header: kind === "estimates" ? "Expires" : "Requested date", value: r => r.expiryDate, width: 14 },
+    ...confirmable,
+    { header: "Currency", value: r => r.currency, width: 9 },
+    { header: "Total", value: r => Number(r.total ?? 0), width: 14 },
+    ...(meta.fulfil ? [] : [
+      { header: `${meta.invoiceVerb}d (net)`, value: (r: DocRow) => r.invoicedNet, width: 14 },
+      { header: "Remaining (net)", value: (r: DocRow) => r.remainingNet, width: 14 },
+    ]),
+    { header: meta.fulfil ? "Fulfilled %" : `${meta.invoiceVerb}d %`, value: r => r.pct, width: 12 },
+    { header: "Status", value: r => r.status, width: 10 },
+  ];
+}
+
 export function TradeDocList({ kind }: { kind: Kind }) {
   const meta = META[kind];
   const [rows, setRows] = useState<DocRow[] | null>(null);
@@ -127,14 +160,73 @@ export function TradeDocList({ kind }: { kind: Kind }) {
     setLinks(m => ({ ...m, [id]: Array.isArray(l) ? l : [] }));
   }
 
+  // The same page chrome as Invoices: search, status, date period, row
+  // selection and Export Excel (components/list-chrome.tsx). The period opens
+  // on "All Time" — Invoices opens on last month, but an open order from last
+  // quarter must never be hidden by a default.
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const period = usePeriodFilter("all");
+
+  const scoped = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (rows ?? []).filter(r =>
+      inWindow(r.issueDate, period.range) &&
+      (!statusFilter || r.status === statusFilter) &&
+      (!q || [r.docNumber, r.partyLabel, r.partyRef].some(v => (v ?? "").toLowerCase().includes(q))));
+  }, [rows, period.range, statusFilter, search]);
+
   const columns = buildColumns(kind);
-  const lv = useListView(rows ?? [], columns, { storageKey: `trade-docs-${kind}`, summary: "total" });
+  const lv = useListView(scoped, columns, { storageKey: `trade-docs-${kind}`, summary: "total" });
+  const sel = useRowSelection(lv.rows);
+  const pageFiltered = !!(search || statusFilter || period.period !== "all");
+  const selectedRows = lv.rows.filter(r => sel.isSelected(r.id));
+  const selectedTotals = sumByCurrency(selectedRows, r => ({ amount: Number(r.total ?? 0), currency: r.currency }));
+  const plural = `${meta.singular}s`;
+
+  async function delSelected() {
+    const n = selectedRows.length;
+    if (!confirm(`Delete ${n} ${n === 1 ? meta.singular : plural}? This can't be undone.`)) return;
+    setBusyId("bulk"); setMsg("");
+    try {
+      let failed = 0; let firstError = "";
+      for (const r of selectedRows) {
+        const res = await fetch(`/api/trade-documents/${kind}/${r.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          failed++;
+          if (!firstError) firstError = (await res.json().catch(() => ({})))?.error || "";
+        }
+      }
+      sel.clear();
+      await load();
+      setMsg(failed
+        ? `Deleted ${n - failed} of ${n}. ${failed} could not be deleted${firstError ? ` — ${firstError}` : ""}.`
+        : `Deleted ${n} ${n === 1 ? meta.singular : plural}.`);
+    } finally { setBusyId(null); }
+  }
+
+  const exportExcel = () => exportRowsToExcel({
+    rows: selectedRows.length ? selectedRows : lv.rows,
+    columns: exportColumns(kind),
+    sheet: meta.title,
+    filename: `${meta.title.replace(/\s+/g, "_")}_${period.label.replace(/\s+/g, "_")}_${localToday()}.xlsx`,
+  });
 
   const titleLower = meta.title.toLowerCase();
   return (
     <ListPage>
       <ListPageHeader title={meta.title}
-        subtitle={rows === null ? "Loading…" : `${lv.rows.length} ${lv.rows.length === 1 ? meta.singular : `${meta.singular}s`}`}>
+        subtitle={rows === null ? "Loading…" : `${lv.rows.length} ${lv.rows.length === 1 ? meta.singular : plural} · Date: ${period.label}`}>
+        <ListSearch value={search} onChange={setSearch}
+          placeholder={`Search ${meta.singular} #, ${kind === "purchase-orders" ? "supplier" : "customer"}, ref…`} />
+        <SelectField value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter by status" className="w-auto h-8 text-[12px]">
+          <option value="">All statuses</option>
+          <option value="Open">Open</option>
+          <option value="Partial">Partial</option>
+          <option value="Closed">Closed</option>
+        </SelectField>
+        <ListPeriodFilter state={period} label="Date" />
+        <ListDivider />
         <button onClick={load} className="p-2 rounded-lg hover:bg-stone-800 text-stone-500" title="Refresh">
           <RefreshCw size={15} className={rows === null ? "animate-spin" : ""} />
         </button>
@@ -143,13 +235,24 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         </Link>
       </ListPageHeader>
 
+      {sel.count > 0 && (
+        <ListSelectionBar onClear={sel.clear}
+          summary={<>{sel.count} selected · {Object.entries(selectedTotals).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || fmt.money(0)}</>}>
+          <Button variant="danger" size="sm" icon={Trash2} onClick={delSelected} disabled={busyId === "bulk"}>
+            {busyId === "bulk" ? "Deleting…" : `Delete ${sel.count}`}
+          </Button>
+        </ListSelectionBar>
+      )}
+
       {msg && (
         <div className="mx-4 mt-3 text-[12px] text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-900 rounded-lg px-3 py-2 w-fit shrink-0">
           <Check size={13} /> {msg}
         </div>
       )}
 
-      <ListToolbar lv={lv} noun={meta.singular} />
+      <ListToolbar lv={lv} noun={meta.singular} selected={sel.count} filtered={pageFiltered}>
+        <ListExportButton onClick={exportExcel} />
+      </ListToolbar>
       <ListChips lv={lv} />
 
       {rows === null ? (
@@ -161,11 +264,15 @@ export function TradeDocList({ kind }: { kind: Kind }) {
           ? `No ${titleLower} yet — create one with the New button.`
           : `No ${titleLower} match the current filters.`}>
           <table className={listTable}>
-            <ListHead lv={lv} trailing={1} />
+            <ListHead lv={lv} selection={sel.selection} trailing={1} />
             <tbody>
               {lv.rows.map(r => (
                 <Fragment key={r.id}>
-                  <tr className={listRow(false)}>
+                  <tr className={listRow(sel.isSelected(r.id))}>
+                    <td className={listCheckCell}>
+                      <input type="checkbox" checked={sel.isSelected(r.id)} onChange={() => sel.toggleOne(r.id)}
+                        className={listCheckbox} aria-label={`Select ${r.docNumber ?? meta.singular}`} />
+                    </td>
                     <td className="px-2 py-2">
                       <button onClick={() => openLinks(r.id)} className="inline-flex items-center gap-1.5 text-stone-300 hover:text-white">
                         {expanded === r.id ? <ChevronDown size={13} className="text-stone-600 shrink-0" /> : <ChevronRight size={13} className="text-stone-600 shrink-0" />}
@@ -223,7 +330,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                   </tr>
                   {expanded === r.id && (
                     <tr className="bg-stone-950/40 border-b border-stone-800/60">
-                      <td colSpan={lv.columns.length + 1} className="px-3 py-2">
+                      <td colSpan={lv.columns.length + 2} className="px-3 py-2">
                         <div className="text-[11px] uppercase tracking-wider text-stone-600 mb-1">Related transactions</div>
                         {!links[r.id] ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={11} className="animate-spin" /> Loading…</div>
                           : links[r.id].length === 0 ? <div className="text-[12px] text-stone-600">No linked documents yet.</div>
@@ -247,7 +354,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                 </Fragment>
               ))}
             </tbody>
-            {lv.rows.length > 0 && <ListFoot lv={lv} noun={meta.singular} trailing={1} />}
+            {lv.rows.length > 0 && <ListFoot lv={lv} noun={meta.singular} selectable trailing={1} />}
           </table>
         </ListScroll>
       )}

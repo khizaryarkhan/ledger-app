@@ -622,6 +622,41 @@ as an integrity question, not a cosmetic one.
   real downstream consequences (collections, inventory valuation). Revisit
   if the same complaint is raised about any of these four.
 
+## List pages match the Invoices page (started 2026-10-29)
+
+The Invoices page is the reference list. The TABLE (sort, column filters, chips,
+footer totals) was already shared (`components/list-view.tsx`); what only
+Invoices had was the chrome around it. That is now shared too:
+
+- **`components/list-chrome.tsx`** — `ListSearch`, `usePeriodFilter` +
+  `ListPeriodFilter`, `useRowSelection` + `ListSelectionBar`, `ListExportButton`
+  and `exportRowsToExcel`. The export names its own columns, so it can carry
+  fields the table does not show.
+- **`lib/list-period.ts`** (pure) — the period presets. It was copy-pasted into
+  six pages. It compares `YYYY-MM-DD` strings and never builds a `Date` from a
+  document's own date ("A date is a date"); an undated row is always kept.
+- **Done**: Invoices (refactored onto the shared pieces, same behaviour) and
+  `components/trade-doc-list.tsx`, which serves Estimates, Purchase Orders and
+  Sales Orders. It gained search, a status filter, a date period, row selection
+  with bulk Delete, and Export Excel, and **kept every row action** (Confirm,
+  Partial, Convert, Track, PDF, Print, Delete). Its period opens on **All Time**,
+  not Invoices' last month: a default must never hide an open order.
+- **Still to move onto the shared period module** (each carries its own
+  `getPeriodRange`; `tests/list-chrome.test.ts` pins the list and fails if a file
+  is migrated but its entry is left, or a new copy appears): Payables Bills,
+  Payment Runs, Purchase Orders, Supplier Queries; Receivables `/reports` is a
+  different shape (also returns the prior period).
+- **Not yet given the chrome**: Customers, Projects, Suppliers, the Receiving /
+  Shipping / Job Work consoles, Journal. Customers, Projects and Suppliers
+  already have selection; none of those has Export or a date period.
+- Bulk actions are per page, not generic: Invoices has stage change and send
+  email; trade documents have Delete. Do not add a bulk action a page's rows do
+  not already support one at a time.
+- **`app/(app)/estimates/page.tsx` is a legacy list of QuickBooks-synced
+  estimates** with no inbound link in code. It is not the same data as the native
+  Estimates in Accounting, so it is NOT safe to delete as a duplicate until it is
+  known whether any synced org relies on it.
+
 ## Accounting sidebar: one workspace for the trade cycle (2026-10-29)
 
 Product owner's layout for the Accounting workspace (`components/sidebar.tsx`'s
