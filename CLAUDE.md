@@ -622,6 +622,36 @@ as an integrity question, not a cosmetic one.
   real downstream consequences (collections, inventory valuation). Revisit
   if the same complaint is raised about any of these four.
 
+## Accounting sidebar: one workspace for the trade cycle (2026-10-29)
+
+Product owner's layout for the Accounting workspace (`components/sidebar.tsx`'s
+`accountingSections`): **Dashboard** first, ungrouped; **Sales** — Customers,
+Projects, Estimates, Sales Orders, Shipping, Invoices; **Purchases** — Suppliers,
+Purchase Orders, Goods Receipts, Bills, Job Work; **Others** (was "Ledger") —
+Journal, Reconcile, Approvals, Accounting Reports; **Setup** (collapsible) now
+also holds Opening Balances. "Trial Balance (our ledger)" is no longer a
+top-level link — it is one of the statements in Accounting Reports.
+
+- **Module keys, gates and routes are unchanged.** This is navigation only: the
+  Supply Chain workspace still exists untouched. Merging the *navigation* does not
+  merge the *modules* — `manufacturing` stays the unit that is sold per org and
+  gated in `lib/modules.ts`, which is what a future per-user "allowed areas"
+  list would intersect with.
+- **Each cross-module link shows only when its owner module is on**: Sales Orders,
+  Shipping, Purchase Orders, Goods Receipts and Job Work need `manufacturing`;
+  Invoices needs `receivables`; Bills needs `payables`. Otherwise the link would
+  land on ModuleGate's notice. Sales/Purchase Orders were previously reachable
+  only from the Supply Chain nav, so they are not newly shown to orgs without it.
+- **Every Accounting link to another module's URL must be in `isSharedEntity`**,
+  or clicking it snaps the whole sidebar into the owning workspace (the third
+  time this bit: Customers, Stock Status, now `/invoices`, `/payables/bills`,
+  `/supply-chain/shipping`, `/supply-chain/receiving`). `tests/accounting-nav.test.ts`
+  enforces it and was shown failing on exactly those four before the carve-out.
+- **Not verified**: Bills rows open `/payables/bills/[id]`; whether that screen
+  opens a native (ledger-posted) bill cleanly was not checked in a browser. The
+  Supplier transactions feed once had to link native bills to
+  `/accounting/transactions/[id]` for this reason.
+
 ## One creation path per record — invoices and customers (2026-10-29)
 
 Reported: the Invoices page's "New invoice" opened a different form from
@@ -809,7 +839,7 @@ in Accounting because a quote commits nothing; Purchase Orders and Sales
 Orders moved OUT to Supply Chain because they're a commitment to move goods,
 even though no money has moved yet.
 
-**No sidebar or Create-menu group may be named "Other", "More" or "Misc".**
+**No sidebar or Create-menu group may be named "Other", "More" or "Misc"** (one deliberate exception: the Accounting sidebar's "Others" group, set at the product owner's explicit request on 2026-10-29 — see "Accounting sidebar: one workspace for the trade cycle").
 If something doesn't obviously belong in a named group, that's a signal a
 named group is missing from the design — say so and ask, don't invent a bin
 to dump it in. (The Create menu's old "Other" group — Journal entry, Bank

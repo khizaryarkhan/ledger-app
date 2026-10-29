@@ -81,7 +81,14 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
     pathname.startsWith("/accounting/trade/purchase-orders") ||
     pathname.startsWith("/accounting/trade/sales-orders") ||
     pathname === "/accounting/reports" || pathname.startsWith("/accounting/reports/") ||
-    pathname === "/accounting/products";
+    pathname === "/accounting/products" ||
+    // The Accounting sidebar now also links to Invoices (Receivables), Bills
+    // (Payables) and Shipping / Goods Receipts (Supply Chain). Same rule: reach
+    // them from any workspace and you stay in that workspace.
+    pathname === "/invoices" || pathname.startsWith("/invoices/") ||
+    pathname === "/payables/bills" || pathname.startsWith("/payables/bills/") ||
+    pathname === "/supply-chain/shipping" || pathname.startsWith("/supply-chain/shipping/") ||
+    pathname === "/supply-chain/receiving" || pathname.startsWith("/supply-chain/receiving/");
   // isChrome/isSharedEntity must be checked FIRST. Every one of the shared
   // paths above (the Supply Chain links included) starts with /accounting or
   // /batch, so isAccounting/isBatch were matching — and winning — before this
@@ -268,30 +275,51 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
   // (Estimates quote, they don't commit stock).
   const accountingSections: { label?: string; items: NavItem[]; collapsible?: boolean; icon?: any }[] = [
     {
+      items: [
+        { href: "/accounting/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      ],
+    },
+    // One workspace for the whole trade cycle (2026-10-29): the documents that
+    // move goods sit beside the ones that move money, so a user follows
+    // quote → order → shipment → invoice (and PO → receipt → bill) without
+    // switching workspaces. Each link is shown only when the module that owns
+    // its screen is on — otherwise it would land on ModuleGate's notice.
+    {
       label: "Sales",
       items: [
         { href: "/customers",  label: "Customers", icon: Users },
         { href: "/projects",   label: "Projects", icon: Briefcase },
         { href: "/accounting/trade/estimates",    label: "Estimates", icon: FileText },
+        ...(manufacturingEnabled ? [
+          { href: "/accounting/trade/sales-orders", label: "Sales Orders", icon: ShoppingCart },
+          { href: "/supply-chain/shipping",         label: "Shipping", icon: Truck },
+        ] : []),
+        ...(on("receivables") ? [{ href: "/invoices", label: "Invoices", icon: FileText }] : []),
       ],
     },
     {
       label: "Purchases",
       items: [
         { href: "/payables/suppliers", label: "Suppliers", icon: Building2 },
+        ...(manufacturingEnabled ? [
+          { href: "/accounting/trade/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+          { href: "/supply-chain/receiving",           label: "Goods Receipts", icon: PackageCheck },
+        ] : []),
+        ...(on("payables") ? [{ href: "/payables/bills", label: "Bills", icon: Receipt }] : []),
+        ...(manufacturingEnabled ? [{ href: "/accounting/jobwork", label: "Job Work", icon: Factory }] : []),
       ],
     },
+    // "Others", at the product owner's explicit request (2026-10-29) — this
+    // reverses the earlier "no group named Other/More/Misc" rule for this one
+    // sidebar. Trial Balance (our ledger) is no longer a top-level link; it is
+    // one of the statements in Accounting Reports.
     {
-      label: "Ledger",
+      label: "Others",
       items: [
-        { href: "/accounting/dashboard",              label: "Dashboard",        icon: LayoutDashboard },
-        { href: "/accounting/journal",                label: "Journal",          icon: FileText },
-        { href: "/accounting/opening-balances",       label: "Opening Balances", icon: Scale },
-        // Qualified because Reporting carries a second "Trial Balance" that is
-        // QuickBooks'/Xero's own and can show different numbers. Naming both
-        // tells the user which book they are reading instead of leaving them
-        // to discover the discrepancy and distrust everything.
-        { href: "/accounting/reports/trial-balance",  label: "Trial Balance (our ledger)",    icon: ScrollText },
+        { href: "/accounting/journal",   label: "Journal", icon: FileText },
+        { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
+        { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
+        { href: "/accounting/reports",   label: "Accounting Reports", icon: BarChart3 },
       ],
     },
     {
@@ -300,6 +328,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
       icon: Database,
       items: [
         { href: "/accounting/accounts",          label: "Chart of Accounts",   icon: BookOpen },
+        { href: "/accounting/opening-balances",  label: "Opening Balances",    icon: Scale },
         { href: "/accounting/tax-rates",         label: "Tax Rates",           icon: Receipt },
         // Native tax engine (sales-document refactor, Phase 3c): agencies,
         // dated rates and the codes built from them — what Invoices/Estimates/
@@ -318,21 +347,6 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/accounting/custom-fields",     label: "Custom Fields",       icon: ListTree },
         { href: "/accounting/parties/employees", label: "Employees",           icon: Contact },
         { href: "/accounting/products",          label: "Products & Services", icon: Package },
-      ],
-    },
-    // Job Work stays here (not a Supply Chain section per the PRD) — it's a
-    // manufacturing-only feature but wasn't named in the approved nav rebuild,
-    // so it's left in place rather than relocated on a guess.
-    ...(manufacturingEnabled ? [{
-      items: [
-        { href: "/accounting/jobwork", label: "Job Work", icon: Factory },
-      ],
-    }] : []),
-    {
-      items: [
-        { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
-        { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
-        { href: "/accounting/reports", label: "Accounting Reports", icon: BarChart3 },
       ],
     },
   ];
