@@ -1897,6 +1897,49 @@ Migration `0115`, additive only. `lib/inventory/production-performance.ts`
 - Runs posted before 0115 have no hours or reject reason; they count toward
   yield but show as "Not recorded".
 
+## Purchase-order workflow — stages, send to supplier, supplier portal (2026-10-30)
+
+Approved from a five-artboard mockup. Rules are pure in `lib/accounting/po-workflow.ts`
+(30 tests); the db halves are `po-workflow-server.ts` (stages, items view, close/reopen
+line, reject/reopen) and `po-supplier-server.ts` (send, portal, proposals). Migration `0117`.
+
+- **One Stage column, the richest true state**: Rejected > Revision proposed > a manual
+  stage > fulfilment (Late / Partly received / Received) > Confirmed > Sent > Created.
+  Fulfilment is DERIVED from receipts and never configured; the rest are commitments.
+  **Colour is for exceptions only** (Revision proposed, Rejected, Late, On hold), the
+  Collections Board's rule, drawn by `components/po-stage-chip.tsx` from `lib/stages.ts`.
+- **System stages are code, not rows**; `po_stages` holds only the org's own stages and
+  label renames. Keys are immutable. A user cannot hand-pick an action-driven stage
+  (`isManuallySettable`) — Created/Sent/Confirmed/Rejected/Revision proposed each have
+  their own action. Sales Orders show their customer-commitment status (Created / Sent /
+  Confirmed) on the same chip, NOT a derived fulfilment stage; only POs get send, reject,
+  manual stages and the derived Late / Partly received / Received. Every line closed with
+  nothing received reads **Cancelled**, never Received. A rejected PO leaves Receiving.
+- **Send** (`POST /api/trade-documents/purchase-orders/send`) emails from the user's own
+  mailbox: PO PDF attached + a private portal button per PO, several POs for one supplier
+  in one email, `{ref}` resolved server-side (the Send Invoices rule). Sending stamps
+  `sent_at`. One live `supplier_portal_tokens` row per PO — a resend keeps the link and
+  extends its 30 days.
+- **Supplier portal** (`/supplier-portal/[token]`, public, listed in `middleware.ts` and
+  the module-gating allowlist) shows ONE PO and nothing else of the org. Confirm and
+  Decline apply at once (decline is reopenable); **a revision is only stored**
+  (`po_supplier_responses` + `po_line_revisions`) and the PO reads "Revision proposed"
+  until a user decides. The supplier changes quantity and date, never price. Rate-limited
+  per IP and per token; a newer proposal supersedes an unanswered one.
+- **Accepting** re-prices the line at the same rate (`repriceLine`), recomputes the
+  header, moves the PO to Confirmed, keeps `original_qty/original_date` on the revision
+  row and counts a date move through `applyPromise`. Refused if the line already received
+  more, or was billed beyond, the proposed amount.
+- **Stop expecting an item** now takes a fixed reason code (`CLOSE_REASONS`) and is
+  reversible (`DELETE .../po-lines/[id]/close`). Receiving and the PO list share ONE
+  drawer, `components/po-workflow-drawers.tsx`.
+- **Not built**: editing a PO after confirmation does not drop it back to Sent (there is
+  no PO edit path yet); search does not match item names; "Sent" is stamped only by this
+  email, not by a manual email elsewhere; the buyer is told of a supplier answer by email
+  to the PO's creator only, not the alert bell.
+- **Not verified in a browser**: the dev server could not reach Neon from the sandbox (TLS),
+  so the list, drawers and portal were typechecked and unit-tested but not clicked through.
+
 ## Delivery data points — confirmation, promised dates, OTIF (2026-10-28)
 
 Asked for directly: "real data points are missing... Statuses missing... if

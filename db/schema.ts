@@ -2847,6 +2847,13 @@ export const tradeDocuments = pgTable("trade_documents", {
   confirmedAt:      timestamp("confirmed_at"),
   confirmedBy:      uuid("confirmed_by"),
   promisedDate:     varchar("promised_date", { length: 16 }),
+  // Stage (0117). `stage` is a MANUAL stage key the user picked (OnHold,
+  // Cancelled, or an org-defined one); null = derive from sent/confirmed/
+  // receipts (lib/accounting/po-workflow.ts). Rejection is its own fact.
+  stage:            varchar("stage", { length: 40 }),
+  rejectedAt:       timestamp("rejected_at"),
+  rejectedBy:       uuid("rejected_by"),
+  rejectReason:     text("reject_reason"),
   createdBy:        uuid("created_by"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
@@ -2896,6 +2903,8 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   closed:            boolean("closed").notNull().default(false),
   closeReason:       text("close_reason"),
   closedAt:          timestamp("closed_at"),
+  closeCode:         varchar("close_code", { length: 32 }),  // fixed reason code (0117); closeReason keeps the note
+  closedBy:          uuid("closed_by"),
   // Delivery dates per line (0114) — what OTIF is measured against.
   // originalPromisedDate is the FIRST promise; promiseRevisions counts moves.
   requestedDate:        varchar("requested_date", { length: 16 }),
@@ -2906,6 +2915,77 @@ export const tradeDocumentLines = pgTable("trade_document_lines", {
   trade_document_lines_doc_idx: index("trade_document_lines_doc_idx").on(t.documentId),
 }));
 export type TradeDocumentLine = typeof tradeDocumentLines.$inferSelect;
+
+// =========================================================================
+// PURCHASE ORDER WORKFLOW (0117) — custom stages, the supplier portal and the
+// supplier's response. Rules live in lib/accounting/po-workflow.ts.
+// =========================================================================
+
+// Org-defined manual stages ("In transit", "Awaiting customs"). The system
+// stages (Created, Sent, …) are code, not rows, so a rename of a label can
+// never break the logic that keys on them.
+export const poStages = pgTable("po_stages", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  key:       varchar("key", { length: 40 }).notNull(),     // immutable
+  label:     varchar("label", { length: 60 }).notNull(),   // renameable
+  color:     varchar("color", { length: 16 }).notNull().default("stone"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  po_stages_org_key_uq: uniqueIndex("po_stages_org_key_uq").on(t.orgId, t.key),
+}));
+
+// One token = one emailed PO. Scoped to that PO only; the link stays live until
+// it expires so the supplier can answer again after a "keep original" reply.
+export const supplierPortalTokens = pgTable("supplier_portal_tokens", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  documentId:   uuid("document_id").notNull().references(() => tradeDocuments.id, { onDelete: "cascade" }),
+  token:        varchar("token", { length: 80 }).notNull().unique(),
+  status:       varchar("status", { length: 16 }).notNull().default("Active"), // Active | Revoked
+  createdBy:    uuid("created_by"),
+  expiresAt:    timestamp("expires_at").notNull(),
+  lastViewedAt: timestamp("last_viewed_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  supplier_portal_tokens_doc_idx: index("supplier_portal_tokens_doc_idx").on(t.documentId),
+}));
+
+// What the supplier said. kind: confirm | revise | decline. A revision NEVER
+// touches the order until a user accepts it (status pending → accepted/declined).
+export const poSupplierResponses = pgTable("po_supplier_responses", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  orgId:      uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id").notNull().references(() => tradeDocuments.id, { onDelete: "cascade" }),
+  tokenId:    uuid("token_id"),
+  kind:       varchar("kind", { length: 12 }).notNull(),
+  status:     varchar("status", { length: 12 }).notNull().default("pending"), // pending | accepted | declined | applied
+  message:    text("message"),
+  reply:      text("reply"),
+  decidedBy:  uuid("decided_by"),
+  decidedAt:  timestamp("decided_at"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  po_supplier_responses_doc_idx: index("po_supplier_responses_doc_idx").on(t.documentId, t.status),
+}));
+
+// Per-line proposal. Quantity is in the ORDER unit (what the supplier saw);
+// originalQty/originalDate keep what was agreed before, so ordered-vs-agreed
+// stays reportable after an accept.
+export const poLineRevisions = pgTable("po_line_revisions", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  orgId:        uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  responseId:   uuid("response_id").notNull().references(() => poSupplierResponses.id, { onDelete: "cascade" }),
+  lineId:       uuid("line_id").notNull().references(() => tradeDocumentLines.id, { onDelete: "cascade" }),
+  originalQty:  numeric("original_qty", { precision: 16, scale: 6 }).notNull(),
+  originalDate: varchar("original_date", { length: 16 }),
+  proposedQty:  numeric("proposed_qty", { precision: 16, scale: 6 }).notNull(),
+  proposedDate: varchar("proposed_date", { length: 16 }),
+  decision:     varchar("decision", { length: 12 }),   // accepted | declined (null while pending)
+}, (t) => ({
+  po_line_revisions_resp_idx: index("po_line_revisions_resp_idx").on(t.responseId),
+}));
 
 // =========================================================================
 // GOODS RECEIPTS — the receiving step between a PO and a Bill (three-way match)

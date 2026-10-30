@@ -2,7 +2,11 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Download, Route, CalendarCheck } from "lucide-react";
+import { Plus, RefreshCw, Check, ChevronDown, ChevronRight, Layers, Loader, Trash2, Printer, Download, Route, CalendarCheck, Send, Settings2 } from "lucide-react";
+import { PoStageChip, usePoStages, findStage, type PoStageSet } from "@/components/po-stage-chip";
+import { PoItemsPanel } from "@/components/po-items-panel";
+import { SendPoDrawer, ReviewProposalDrawer, RejectPoDrawer, ManageStagesDrawer } from "@/components/po-workflow-drawers";
+import { isManuallySettable } from "@/lib/accounting/po-workflow";
 import { controlCompact, controlInset, tableHead, Drawer, DrawerFooter, Field, SelectField } from "@/components/form-kit";
 import { fmt, formatDate, localToday } from "@/lib/format";
 import {
@@ -55,21 +59,23 @@ interface DocRow {
   partyRef: string | null;
   promisedDate: string | null;
   confirmation: "Unconfirmed" | "Sent" | "Confirmed";
+  stage: string | null;          // derived stage key (lib/accounting/po-workflow.ts); null for estimates
+  manualStage: string | null;
+  rejectReason: string | null;
+  sentAt: string | null;
+  lineCount: number;
 }
 
-// Literal class strings — never built at runtime (Tailwind only sees literals).
-const CONFIRM_CHIP: Record<DocRow["confirmation"], string> = {
-  Unconfirmed: "bg-amber-500/12 text-amber-400 border-amber-800/50",
-  Sent:        "bg-sky-500/12 text-sky-400 border-sky-800/50",
-  Confirmed:   "bg-emerald-500/12 text-emerald-400 border-emerald-800/50",
-};
+// Purchase orders carry a derived stage; a sales order shows its commitment status on the same chip.
+const stageKeyOf = (r: DocRow) =>
+  r.stage ?? (r.confirmation === "Confirmed" ? "Confirmed" : r.confirmation === "Sent" ? "Sent" : "Created");
 
-function buildColumns(kind: Kind): ListColumn<DocRow>[] {
+function buildColumns(kind: Kind, stages: PoStageSet): ListColumn<DocRow>[] {
   const meta = META[kind];
   const partyLabel = kind === "purchase-orders" ? "Supplier" : "Customer";
   const confirmable: ListColumn<DocRow>[] = kind === "estimates" ? [] : [
-    { key: "confirmation", label: kind === "purchase-orders" ? "Supplier confirmation" : "Commitment",
-      sort: r => `${r.confirmation}${r.promisedDate ?? ""}`, filter: { kind: "multi", value: r => r.confirmation } },
+    { key: "stage", label: "Stage",
+      sort: r => findStage(stages, stageKeyOf(r)).label, filter: { kind: "multi", value: r => findStage(stages, stageKeyOf(r)).label } },
   ];
   return [
     { key: "docNumber", label: "Number", sort: r => r.docNumber ?? "" },
@@ -90,10 +96,11 @@ function buildColumns(kind: Kind): ListColumn<DocRow>[] {
 
 /** What Export Excel writes — more than the table shows (the delivery date, the
  *  counterparty's reference, what has been invoiced and what remains). */
-function exportColumns(kind: Kind): ExportColumn<DocRow>[] {
+function exportColumns(kind: Kind, stages: PoStageSet): ExportColumn<DocRow>[] {
   const meta = META[kind];
   const partyLabel = kind === "purchase-orders" ? "Supplier" : "Customer";
   const confirmable: ExportColumn<DocRow>[] = kind === "estimates" ? [] : [
+    { header: "Stage", value: r => findStage(stages, stageKeyOf(r)).label, width: 20 },
     { header: kind === "purchase-orders" ? "Supplier confirmation" : "Commitment", value: r => r.confirmation, width: 20 },
     { header: "Promised date", value: r => r.promisedDate, width: 14 },
     { header: kind === "purchase-orders" ? "Supplier ref" : "Customer PO no.", value: r => r.partyRef, width: 18 },
@@ -124,10 +131,35 @@ export function TradeDocList({ kind }: { kind: Kind }) {
   const [links, setLinks] = useState<Record<string, any[]>>({});
   const [modal, setModal] = useState<any | null>(null);
   const [confirming, setConfirming] = useState<DocRow | null>(null);
+  const { stages, reload: reloadStages } = usePoStages();
+  const [sending, setSending] = useState<string[] | null>(null);
+  const [reviewing, setReviewing] = useState<DocRow | null>(null);
+  const [rejecting, setRejecting] = useState<DocRow | null>(null);
+  const [managing, setManaging] = useState(false);
+  const [stageMenu, setStageMenu] = useState<string | null>(null);
+  const isPo = kind === "purchase-orders";
 
   async function load() {
-    const r = await fetch(`/api/trade-documents/${kind}`).then(x => x.json()).catch(() => []);
+    // The viewer's own calendar day decides what is late.
+    const r = await fetch(`/api/trade-documents/${kind}?today=${localToday()}`).then(x => x.json()).catch(() => []);
     setRows(Array.isArray(r) ? r : []);
+  }
+
+  async function setStage(r: DocRow, stage: string | null) {
+    setStageMenu(null); setMsg("");
+    const res = await fetch(`/api/trade-documents/purchase-orders/${r.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "stage", stage }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { setMsg(d?.error || "Could not change the stage."); return; }
+    setMsg(stage ? `${r.docNumber ?? "Order"} → ${findStage(stages, stage).label}.` : `${r.docNumber ?? "Order"} stage is automatic again.`);
+    load();
+  }
+
+  async function reopenOrder(r: DocRow) {
+    setMsg("");
+    const res = await fetch(`/api/trade-documents/purchase-orders/${r.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reopen" }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { setMsg(d?.error || "Could not reopen the order."); return; }
+    setMsg(`${r.docNumber ?? "Order"} reopened.`); load();
   }
   useEffect(() => { setRows(null); setMsg(""); setExpanded(null); setLinks({}); load(); }, [kind]);
 
@@ -176,7 +208,7 @@ export function TradeDocList({ kind }: { kind: Kind }) {
       (!q || [r.docNumber, r.partyLabel, r.partyRef].some(v => (v ?? "").toLowerCase().includes(q))));
   }, [rows, period.range, statusFilter, search]);
 
-  const columns = buildColumns(kind);
+  const columns = buildColumns(kind, stages);
   const lv = useListView(scoped, columns, { storageKey: `trade-docs-${kind}`, summary: "total" });
   const sel = useRowSelection(lv.rows);
   const pageFiltered = !!(search || statusFilter || period.period !== "all");
@@ -205,9 +237,16 @@ export function TradeDocList({ kind }: { kind: Kind }) {
     } finally { setBusyId(null); }
   }
 
+  // Several orders for ONE supplier go out in a single email; mixing suppliers is refused.
+  function sendSelected() {
+    const suppliers = new Set(selectedRows.map(r => r.partyLabel ?? ""));
+    if (suppliers.size > 1) { setMsg("Select orders for one supplier at a time to send them together."); return; }
+    setSending(selectedRows.map(r => r.id));
+  }
+
   const exportExcel = () => exportRowsToExcel({
     rows: selectedRows.length ? selectedRows : lv.rows,
-    columns: exportColumns(kind),
+    columns: exportColumns(kind, stages),
     sheet: meta.title,
     filename: `${meta.title.replace(/\s+/g, "_")}_${period.label.replace(/\s+/g, "_")}_${localToday()}.xlsx`,
   });
@@ -238,6 +277,11 @@ export function TradeDocList({ kind }: { kind: Kind }) {
       {sel.count > 0 && (
         <ListSelectionBar onClear={sel.clear}
           summary={<>{sel.count} selected · {Object.entries(selectedTotals).sort((a, b) => b[1] - a[1]).map(([c, v]) => fmt.money(v, c)).join(" · ") || fmt.money(0)}</>}>
+          {isPo && (
+            <Button variant="secondary" size="sm" icon={Send} onClick={sendSelected}>
+              Send to supplier
+            </Button>
+          )}
           <Button variant="danger" size="sm" icon={Trash2} onClick={delSelected} disabled={busyId === "bulk"}>
             {busyId === "bulk" ? "Deleting…" : `Delete ${sel.count}`}
           </Button>
@@ -282,14 +326,40 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                     <td className="px-2 py-2 text-stone-200">{r.partyLabel || "—"}</td>
                     <td className="px-2 py-2 text-stone-400">{formatDate(r.issueDate)}</td>
                     {kind !== "estimates" && (
-                      <td className="px-2 py-2">
-                        <button onClick={() => setConfirming(r)} className="text-left group" title="Record the counterparty's confirmation and promised date">
-                          <span className={`text-[10px] font-medium border rounded-full px-2 py-0.5 ${CONFIRM_CHIP[r.confirmation]}`}>{r.confirmation}</span>
+                      <td className="px-2 py-2 relative">
+                        <button onClick={() => isPo ? setStageMenu(stageMenu === r.id ? null : r.id) : setConfirming(r)} className="text-left group"
+                          title={isPo ? "Change stage" : "Record the customer's commitment and promised date"}>
+                          <PoStageChip stageKey={stageKeyOf(r)} stages={stages} />
                           <div className="text-[10px] text-stone-500 mt-0.5 group-hover:text-stone-300">
-                            {r.promisedDate ? `Promised ${formatDate(r.promisedDate)}` : r.expiryDate ? `Requested ${formatDate(r.expiryDate)}` : "No date yet"}
-                            {r.partyRef ? ` · ${r.partyRef}` : ""}
+                            {stageKeyOf(r) === "Rejected" && r.rejectReason ? r.rejectReason
+                              : r.promisedDate ? `Promised ${formatDate(r.promisedDate)}` : r.expiryDate ? `Requested ${formatDate(r.expiryDate)}` : "No date yet"}
+                            {r.partyRef && stageKeyOf(r) !== "Rejected" ? ` · ${r.partyRef}` : ""}
                           </div>
                         </button>
+                        {isPo && stageMenu === r.id && (
+                          <>
+                            <div className="fixed inset-0 z-30" onClick={() => setStageMenu(null)} />
+                            <div className="absolute left-2 top-full z-40 mt-1 w-56 rounded-lg border border-stone-700 bg-stone-900 py-1 shadow-xl text-[12px]">
+                              {stageKeyOf(r) === "Rejected" ? (
+                                <button onClick={() => { setStageMenu(null); reopenOrder(r); }} className="block w-full px-3 py-1.5 text-left text-stone-200 hover:bg-stone-800">Reopen order</button>
+                              ) : (
+                                <>
+                                  <button onClick={() => { setStageMenu(null); setConfirming(r); }} className="block w-full px-3 py-1.5 text-left text-stone-200 hover:bg-stone-800">Confirmed… <span className="text-stone-500">needs supplier ref &amp; date</span></button>
+                                  <button onClick={() => { setStageMenu(null); setRejecting(r); }} className="block w-full px-3 py-1.5 text-left text-stone-200 hover:bg-stone-800">Rejected… <span className="text-stone-500">needs a reason</span></button>
+                                  <div className="my-1 border-t border-stone-800" />
+                                  {[...stages.system.filter(s => isManuallySettable(s.key)), ...stages.custom].map(s => (
+                                    <button key={s.key} onClick={() => setStage(r, s.key)} className="flex w-full items-center justify-between px-3 py-1.5 text-left text-stone-200 hover:bg-stone-800">
+                                      {s.label}{r.manualStage === s.key && <Check size={12} className="text-emerald-400" />}
+                                    </button>
+                                  ))}
+                                  {r.manualStage && <button onClick={() => setStage(r, null)} className="block w-full px-3 py-1.5 text-left text-stone-400 hover:bg-stone-800">Back to automatic</button>}
+                                </>
+                              )}
+                              <div className="my-1 border-t border-stone-800" />
+                              <button onClick={() => { setStageMenu(null); setManaging(true); }} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-stone-400 hover:bg-stone-800"><Settings2 size={12} /> Manage stages…</button>
+                            </div>
+                          </>
+                        )}
                       </td>
                     )}
                     <td className={listMoneyCell}><span className="text-stone-200 text-[13px] font-medium">{fmt.money(r.total, r.currency ?? undefined)}</span></td>
@@ -304,8 +374,20 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
-                        {kind !== "estimates" && (
-                          <button onClick={() => setConfirming(r)} className="text-[11px] font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1" title="Confirmation & promised dates"><CalendarCheck size={12} /> Confirm</button>
+                        {kind === "sales-orders" && (
+                          <button onClick={() => setConfirming(r)} className="text-[11px] font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1" title="Commitment & promised dates"><CalendarCheck size={12} /> Confirm</button>
+                        )}
+                        {isPo && stageKeyOf(r) === "Created" && (
+                          <button onClick={() => setSending([r.id])} className="text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1 inline-flex items-center gap-1"><Send size={11} /> Send to supplier</button>
+                        )}
+                        {isPo && stageKeyOf(r) === "Sent" && (
+                          <button onClick={() => setSending([r.id])} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Email it again"><Send size={11} /> Resend</button>
+                        )}
+                        {isPo && stageKeyOf(r) === "RevisionProposed" && (
+                          <button onClick={() => setReviewing(r)} className="text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded px-2 py-1">Review changes</button>
+                        )}
+                        {isPo && stageKeyOf(r) === "Rejected" && (
+                          <button onClick={() => reopenOrder(r)} className="text-[11px] font-medium text-stone-300 hover:text-white">Reopen</button>
                         )}
                         {kind === "sales-orders" && (
                           <Link href={`/accounting/trade/sales-orders/${r.id}`} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 inline-flex items-center gap-1" title="Track this order's progress"><Route size={12} /> Track</Link>
@@ -331,6 +413,13 @@ export function TradeDocList({ kind }: { kind: Kind }) {
                   {expanded === r.id && (
                     <tr className="bg-stone-950/40 border-b border-stone-800/60">
                       <td colSpan={lv.columns.length + 2} className="px-3 py-2">
+                        {kind !== "estimates" && (
+                          <div className="mb-3">
+                            <div className="text-[11px] uppercase tracking-wider text-stone-600 mb-1">Items</div>
+                            <PoItemsPanel docId={r.id} kind={kind} currency={r.currency} canClose={isPo}
+                              onChanged={m => { if (m) setMsg(m); load(); }} />
+                          </div>
+                        )}
                         <div className="text-[11px] uppercase tracking-wider text-stone-600 mb-1">Related transactions</div>
                         {!links[r.id] ? <div className="text-[12px] text-stone-500 inline-flex items-center gap-1"><Loader size={11} className="animate-spin" /> Loading…</div>
                           : links[r.id].length === 0 ? <div className="text-[12px] text-stone-600">No linked documents yet.</div>
@@ -359,6 +448,10 @@ export function TradeDocList({ kind }: { kind: Kind }) {
         </ListScroll>
       )}
 
+      {sending && <SendPoDrawer ids={sending} onClose={() => setSending(null)} onDone={m => { setSending(null); sel.clear(); setMsg(m); load(); }} />}
+      {reviewing && <ReviewProposalDrawer docId={reviewing.id} onClose={() => setReviewing(null)} onDone={m => { setReviewing(null); setMsg(m); load(); }} />}
+      {rejecting && <RejectPoDrawer docId={rejecting.id} docNumber={rejecting.docNumber} onClose={() => setRejecting(null)} onDone={m => { setRejecting(null); setMsg(m); load(); }} />}
+      {managing && <ManageStagesDrawer stages={stages} onClose={() => setManaging(false)} onChanged={() => { reloadStages(); load(); }} />}
       {confirming && <ConfirmDrawer kind={kind} doc={confirming} onClose={() => setConfirming(null)} onDone={(m: string) => { setConfirming(null); setMsg(m); load(); }} />}
       {modal && <ProgressModal kind={kind} meta={meta} doc={modal} onClose={() => setModal(null)} onDone={(m: string) => { setModal(null); setMsg(m); load(); if (expanded === modal.id) openLinks(modal.id, true); }} />}
     </ListPage>

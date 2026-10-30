@@ -16,6 +16,7 @@ import { fmt, localToday } from "@/lib/format";
 import { QTY_EPSILON, roundQty } from "@/lib/inventory/round";
 import { orderOptions, type OrderOption } from "@/lib/inventory/order-options";
 import { Field, Section, SelectField, controlInset, Drawer, QtyUnitField } from "@/components/form-kit";
+import { ClosePoLineDrawer } from "@/components/po-workflow-drawers";
 import {
   useListView, ListPage, ListPageHeader, ListToolbar, ListChips, ListScroll, ListHead, ListFoot,
   listTable, listRow, listCheckCell, listCheckbox, listMoneyCell, listNumCell, type ListColumn,
@@ -497,18 +498,10 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
   deliveryNote: string; setDeliveryNote: (v: string) => void;
   posting: boolean; postErr: string; pendingMsg: string; onPost: () => void;
 }) {
-  const [closing, setClosing] = useState<string | null>(null);
-  async function closeLine(l: PoLine) {
-    const reason = window.prompt(`Close the remaining ${fmt.qty(l.remainingQty)} ${l.baseUom || ""} of "${l.itemName}"? This stops it being offered for receiving.\n\nWhy — e.g. supplier short-shipped, order cancelled:`);
-    if (reason === null) return;
-    if (!reason.trim()) { alert("A reason is required to close a line."); return; }
-    setClosing(l.lineId);
-    const r = await fetch(`/api/inventory/po-lines/${l.lineId}/close`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: reason.trim() }) });
-    const d = await r.json().catch(() => ({}));
-    setClosing(null);
-    if (!r.ok) { alert(d?.error || "Could not close the line."); return; }
-    onClosed(`Closed the remaining quantity on ${l.itemName}.`);
-  }
+  // The same "Stop expecting this item" drawer the Purchase Orders list uses —
+  // one reason list, one set of consequences, whichever screen you close from.
+  const [closingLine, setClosingLine] = useState<PoLine | null>(null);
+  const closeLine = (l: PoLine) => setClosingLine(l);
   const stagedCount = Object.keys(drafts).length;
   const [q, setQ] = useState("");
   const filteredLines = useMemo(() => {
@@ -588,9 +581,8 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
                   <ChevronRight size={16} className="text-stone-600 shrink-0" />
                 </button>
                 <div className="pl-[3.75rem] pr-4 pb-2.5 -mt-0.5 flex items-center justify-between">
-                  <button onClick={() => closeLine(l)} disabled={closing === l.lineId}
-                    className="text-[11px] text-stone-500 hover:text-rose-400 disabled:opacity-50">
-                    {closing === l.lineId ? "Closing…" : "Close remaining"}
+                  <button onClick={() => closeLine(l)} className="text-[11px] text-stone-500 hover:text-rose-400">
+                    Stop expecting…
                   </button>
                   {staged && (
                     <button onClick={() => onRemoveDraft(l.lineId)} className="text-[11px] text-stone-500 hover:text-rose-400">
@@ -610,6 +602,15 @@ function ItemsHub({ po, notice, onBack, onOpenLine, onClosed, drafts, onRemoveDr
           saveDisabled={stagedCount === 0} err={postErr} pendingMsg={pendingMsg}
         />
       </div>
+      {closingLine && (
+        <ClosePoLineDrawer currency={po.currency} onClose={() => setClosingLine(null)}
+          line={{
+            id: closingLine.lineId, name: closingLine.itemName, orderUom: closingLine.baseUom, baseUom: closingLine.baseUom,
+            qty: closingLine.orderedBaseQty, receivedOrder: closingLine.receivedQty, balanceOrder: closingLine.remainingQty,
+            balanceBase: closingLine.remainingQty, rate: closingLine.unitCostBase,
+          }}
+          onDone={m => { setClosingLine(null); onClosed(m); }} />
+      )}
     </>
   );
 }

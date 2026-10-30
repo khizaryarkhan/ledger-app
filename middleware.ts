@@ -64,6 +64,7 @@ export default auth((req) => {
   // Public token-authenticated portals — no login required
   const isPortal = path.startsWith("/portal/") || path.startsWith("/api/portal/")
     || path.startsWith("/owner-portal/") || path.startsWith("/api/owner-portal/")
+    || path.startsWith("/supplier-portal/") || path.startsWith("/api/supplier-portal/")
     || path.startsWith("/approver/") || path.startsWith("/api/approver/");
   const isLegal = path === "/privacy" || path === "/terms";
   const isHome = path === "/"; // public marketing landing (Google verification needs this)

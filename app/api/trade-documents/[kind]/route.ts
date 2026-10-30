@@ -14,12 +14,14 @@ function kindOf(slug: string): TradeKind | null {
   return null;
 }
 
-export async function GET(_req: Request, { params }: { params: { kind: string } }) {
+export async function GET(req: Request, { params }: { params: { kind: string } }) {
   const { error, orgId } = await requireOrg();
   if (error) return error;
   const kind = kindOf(params.kind);
   if (!kind) return bad("Unknown document kind", 404);
-  return ok(await listTradeDocs(orgId!, kind));
+  // The viewer's own calendar day decides "late" — the server has no viewer.
+  const day = new URL(req.url).searchParams.get("today");
+  return ok(await listTradeDocs(orgId!, kind, day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined));
 }
 
 export async function POST(req: Request, { params }: { params: { kind: string } }) {

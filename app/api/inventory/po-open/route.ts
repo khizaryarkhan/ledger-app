@@ -23,7 +23,8 @@ export async function GET(req: Request) {
     .where(and(eq(tradeDocuments.orgId, orgId!), eq(tradeDocuments.kind, "PurchaseOrder")))
     .orderBy(asc(tradeDocuments.issueDate));
   const CLOSED = new Set(["Closed", "Cancelled", "Converted"]);
-  const live = pos.filter(p => !CLOSED.has(p.status));
+  // A rejected order (supplier declined / buyer withdrew it) is not expected any more.
+  const live = pos.filter(p => !CLOSED.has(p.status) && !p.rejectedAt);
   const wanted = supplierId ? live.filter(p => p.partyId === supplierId) : live;
   if (!wanted.length) return ok([]);
 

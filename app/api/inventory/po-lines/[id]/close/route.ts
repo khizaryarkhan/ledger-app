@@ -1,40 +1,50 @@
 /**
- * POST /api/inventory/po-lines/[id]/close
+ * POST   /api/inventory/po-lines/[id]/close   { code, note? }
+ * DELETE /api/inventory/po-lines/[id]/close   → reopen
  *
  * Manually closes a Purchase Order line's remaining-to-receive quantity — for
- * when a supplier will never deliver the rest of what was ordered. A reason
- * is required: this is a buyer giving up on part of an order, not a routine
- * action, and it's worth a record on the PO.
+ * when a supplier will never deliver the rest of what was ordered. A fixed
+ * reason code is required (a free-text note may add detail): this is a buyer
+ * giving up on part of an order, and the reason is what later reports group by.
  *
  * Does not touch orderedBaseQty/receivedQty — po-open treats a closed line's
  * remainingQty as 0, but what was actually ordered and received stays true.
+ * Closing is reversible: reopening restores the balance.
  */
-import { db } from "@/db";
-import { tradeDocumentLines, tradeDocuments } from "@/db/schema";
 import { requireOrg, ok, bad } from "@/lib/api";
 import { requireModule } from "@/lib/modules-server";
-import { and, eq } from "drizzle-orm";
+import { LedgerValidationError } from "@/lib/ledger";
+import { closePoLine, reopenPoLine } from "@/lib/accounting/po-workflow-server";
+
+async function guard() {
+  const r = await requireOrg();
+  if (r.error) return { res: r.error };
+  const { error: modErr } = await requireModule(r.orgId!, "manufacturing");
+  if (modErr) return { res: modErr };
+  return { orgId: r.orgId!, actor: (r.session?.user as any)?.id ?? null };
+}
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { error, orgId } = await requireOrg();
-  if (error) return error;
-  const { error: modErr } = await requireModule(orgId!, "manufacturing");
-  if (modErr) return modErr;
-
+  const g = await guard();
+  if (g.res) return g.res;
   const b = await req.json().catch(() => ({}));
-  const reason = String(b?.reason ?? "").trim();
-  if (!reason) return bad("A reason is required to close a line with quantity still outstanding.");
+  try {
+    return ok(await closePoLine(g.orgId!, params.id, String(b?.code ?? b?.reason ?? ""), typeof b?.note === "string" ? b.note : null, g.actor));
+  } catch (e: any) {
+    if (e instanceof LedgerValidationError) return bad(e.message);
+    console.error("[po-lines] close failed:", e);
+    return bad("Could not close the line", 500);
+  }
+}
 
-  const [line] = await db.select().from(tradeDocumentLines)
-    .where(and(eq(tradeDocumentLines.id, params.id), eq(tradeDocumentLines.orgId, orgId!))).limit(1);
-  if (!line) return bad("Line not found", 404);
-  if (line.closed) return bad("This line is already closed.");
-
-  const [doc] = await db.select({ kind: tradeDocuments.kind }).from(tradeDocuments)
-    .where(and(eq(tradeDocuments.id, line.documentId), eq(tradeDocuments.orgId, orgId!))).limit(1);
-  if (!doc || doc.kind !== "PurchaseOrder") return bad("Only purchase order lines can be closed this way.");
-
-  await db.update(tradeDocumentLines).set({ closed: true, closeReason: reason, closedAt: new Date() })
-    .where(eq(tradeDocumentLines.id, params.id));
-  return ok({ closed: true });
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+  const g = await guard();
+  if (g.res) return g.res;
+  try {
+    return ok(await reopenPoLine(g.orgId!, params.id, g.actor));
+  } catch (e: any) {
+    if (e instanceof LedgerValidationError) return bad(e.message);
+    console.error("[po-lines] reopen failed:", e);
+    return bad("Could not reopen the line", 500);
+  }
 }

@@ -23,6 +23,9 @@ import { LedgerValidationError } from "@/lib/ledger";
 import { sourcingErrorMessage } from "@/lib/inventory/sourcing-server";
 import { roundQty } from "@/lib/inventory/round";
 import { resolveLeadTimeDays, defaultRequestedDate, applyPromise, confirmationStatus, isIsoDate } from "@/lib/inventory/delivery-performance";
+import { derivePoStage, type PoLineFacts } from "@/lib/accounting/po-workflow";
+import { pendingResponseDocIds } from "@/lib/accounting/po-workflow-server";
+import { today as localDay } from "@/lib/format";
 
 export type TradeKind = "Estimate" | "PurchaseOrder" | "SalesOrder";
 
@@ -266,11 +269,29 @@ export async function deleteTradeDoc(orgId: string, id: string, actorId: string 
   return { id, deleted: true };
 }
 
-export async function listTradeDocs(orgId: string, kind: TradeKind) {
+export async function listTradeDocs(orgId: string, kind: TradeKind, today: string = localDay()) {
   const rows = await db.select().from(tradeDocuments)
     .where(and(eq(tradeDocuments.orgId, orgId), eq(tradeDocuments.kind, kind)))
     .orderBy(desc(tradeDocuments.createdAt));
   const ids = rows.map(r => r.id);
+  // Stage (0117) is derived per row from the lines' receipts plus the commitment
+  // facts — see lib/accounting/po-workflow.ts. Estimates have no delivery to track.
+  // Purchase orders only: a sales order keeps its customer-commitment status (the list maps it
+  // onto the same chip), because "received" wording and receipts do not describe a shipment.
+  const staged = kind === "PurchaseOrder" && ids.length > 0;
+  const stageLines = staged
+    ? await db.select({
+        documentId: tradeDocumentLines.documentId, orderedBaseQty: tradeDocumentLines.orderedBaseQty, receivedQty: tradeDocumentLines.receivedQty,
+        closed: tradeDocumentLines.closed, requestedDate: tradeDocumentLines.requestedDate, promisedDate: tradeDocumentLines.promisedDate,
+      }).from(tradeDocumentLines).where(inArray(tradeDocumentLines.documentId, ids))
+    : [];
+  const pending = staged ? await pendingResponseDocIds(orgId, ids) : new Set<string>();
+  const linesByDoc = new Map<string, PoLineFacts[]>();
+  for (const l of stageLines) {
+    const arr = linesByDoc.get(l.documentId) ?? [];
+    arr.push({ orderedBaseQty: Number(l.orderedBaseQty), receivedQty: Number(l.receivedQty), closed: l.closed, requestedDate: l.requestedDate, promisedDate: l.promisedDate });
+    linesByDoc.set(l.documentId, arr);
+  }
   const agg = ids.length
     ? await db.select({
         documentId: tradeDocumentLines.documentId,
@@ -291,6 +312,14 @@ export async function listTradeDocs(orgId: string, kind: TradeKind) {
       salesOrderId: r.salesOrderId ?? null,
       partyRef: r.partyRef ?? null, promisedDate: r.promisedDate ?? null,
       confirmation: confirmationStatus(r),
+      stage: staged ? derivePoStage({
+        manualStage: r.stage, sentAt: r.sentAt, confirmedAt: r.confirmedAt, rejectedAt: r.rejectedAt,
+        hasPendingResponse: pending.has(r.id), lines: linesByDoc.get(r.id) ?? [],
+      }, today) : null,
+      manualStage: r.stage ?? null,
+      rejectReason: r.rejectReason ?? null,
+      sentAt: r.sentAt ? r.sentAt.toISOString() : null,
+      lineCount: (linesByDoc.get(r.id) ?? []).length,
     };
   });
 }

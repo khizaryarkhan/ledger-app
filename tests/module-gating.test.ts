@@ -220,6 +220,7 @@ const UNOWNED_API: readonly AllowEntry[] = [
   { path: "/api/search", why: "global cross-module search" },
   { path: "/api/seed", why: "one-off dev seeding utility" },
   { path: "/api/settings", why: "shared org settings (approval thresholds)" },
+  { path: "/api/supplier-portal", why: "public, unauthenticated token portal scoped to one purchase order (supplier confirms or proposes changes)" },
   { path: "/api/sync", why: "generic sync trigger, not module scoped" },
   { path: "/api/tasks", why: "loaded by the app-wide data provider on every page" },
   { path: "/api/trade-documents", why: "shared trade documents (PO/SO/Estimates) used by Payables, Accounting and Supply Chain" },
