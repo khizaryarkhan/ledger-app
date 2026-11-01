@@ -89,7 +89,7 @@ export default function TransactionDetailPage() {
     (LINE_EDITABLE.has(e.sourceType) && !hasSettlementLink) ||          // line-item doc (payload stored or reconstructed)
     (PAYMENT_EDITABLE.has(e.sourceType) && e.hasPayload)               // payments (reallocate / correct)
   );
-  const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && !hasSettlementLink;
+  const canDelete = e && !reversed && !isReversal && e.sourceType !== "Closing" && e.sourceType !== "Depreciation" && !hasSettlementLink;
   // Payment/BillPayment print as a receipt/remittance built from what they
   // settled (lib/accounting/document-print.ts), not from their journal lines
   // — so they're printable even without a stored payload, unlike canEdit.

@@ -4058,3 +4058,62 @@ export const timesheetBatches = pgTable("timesheet_batches", {
 export type TimesheetBatch = typeof timesheetBatches.$inferSelect;
 
 export type CrmFieldValue = typeof crmFieldValues.$inferSelect;
+
+// ── Budgets (2026-11-01) ─────────────────────────────────────────────────────
+// One budget = a named plan for a fiscal year. Lines are per account per month
+// (month 1..12 of the budget's own year, calendar months — the report maps them
+// onto the org's fiscal year). Amounts are in home currency, natural sign:
+// income positive, expense positive (the report compares like with like).
+export const budgets = pgTable("budgets", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  name:      varchar("name", { length: 120 }).notNull(),
+  year:      integer("year").notNull(),
+  status:    varchar("status", { length: 16 }).notNull().default("active"), // active | archived
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ orgYearIdx: index("budgets_org_year_idx").on(t.orgId, t.year) }));
+
+export const budgetLines = pgTable("budget_lines", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  orgId:     uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  budgetId:  uuid("budget_id").notNull().references(() => budgets.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  month:     integer("month").notNull(), // 1..12 calendar month of budgets.year
+  amount:    numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+}, (t) => ({
+  budgetIdx: index("budget_lines_budget_idx").on(t.budgetId),
+  uniq:      uniqueIndex("budget_lines_budget_account_month_uq").on(t.budgetId, t.accountId, t.month),
+}));
+
+// ── Fixed assets (2026-11-01) ────────────────────────────────────────────────
+// Straight-line only. Each depreciation run posts ONE journal entry per asset
+// month (Dr expense / Cr accumulated depreciation) and records it in
+// fixed_asset_depreciation so a month is never depreciated twice.
+export const fixedAssets = pgTable("fixed_assets", {
+  id:                      uuid("id").defaultRandom().primaryKey(),
+  orgId:                   uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  code:                    varchar("code", { length: 32 }),
+  name:                    varchar("name", { length: 160 }).notNull(),
+  purchaseDate:            varchar("purchase_date", { length: 16 }).notNull(), // YYYY-MM-DD
+  cost:                    numeric("cost", { precision: 14, scale: 2 }).notNull(),
+  salvageValue:            numeric("salvage_value", { precision: 14, scale: 2 }).notNull().default("0"),
+  usefulLifeMonths:        integer("useful_life_months").notNull(),
+  assetAccountId:          uuid("asset_account_id").notNull().references(() => accounts.id),
+  accumDepAccountId:       uuid("accum_dep_account_id").notNull().references(() => accounts.id),
+  depreciationExpenseAccountId: uuid("depreciation_expense_account_id").notNull().references(() => accounts.id),
+  status:                  varchar("status", { length: 16 }).notNull().default("active"), // active | disposed
+  disposedDate:            varchar("disposed_date", { length: 16 }),
+  notes:                   text("notes"),
+  createdAt:               timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ orgStatusIdx: index("fixed_assets_org_status_idx").on(t.orgId, t.status) }));
+
+export const fixedAssetDepreciation = pgTable("fixed_asset_depreciation", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  orgId:          uuid("org_id").notNull().references(() => organisations.id, { onDelete: "cascade" }),
+  assetId:        uuid("asset_id").notNull().references(() => fixedAssets.id, { onDelete: "cascade" }),
+  period:         varchar("period", { length: 7 }).notNull(), // YYYY-MM
+  amount:         numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  journalEntryId: uuid("journal_entry_id"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ uniq: uniqueIndex("fixed_asset_dep_asset_period_uq").on(t.assetId, t.period) }));

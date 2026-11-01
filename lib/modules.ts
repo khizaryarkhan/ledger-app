@@ -80,7 +80,7 @@ function ownerOf(rules: readonly PathRule[], pathname: string): ModuleKey | null
 
 const ACCOUNTING_REPORTS = [
   "trial-balance", "profit-loss", "comprehensive-income", "balance-sheet", "changes-in-equity", "general-ledger", "cash-flow",
-  "tax-liability", "fx-exposure", "aged-receivables", "aged-payables", "credits-adjustments",
+  "tax-liability", "fx-exposure", "aged-receivables", "aged-payables", "credits-adjustments", "budget-vs-actual",
 ];
 
 export const PAGE_OWNERS: readonly PathRule[] = [
@@ -109,6 +109,8 @@ export const PAGE_OWNERS: readonly PathRule[] = [
   { path: "/accounting/trade/estimates", owner: "accounting" }, // estimates commit nothing — Accounting's (CLAUDE.md IA rule)
   { path: "/accounting/tax-codes", owner: "accounting" },       // native tax engine admin (sales-document refactor, Phase 3c)
   { path: "/accounting/recurring", owner: "accounting" },       // recurring document templates (QBO form-parity, Phase 6)
+  { path: "/accounting/budgets", owner: "accounting" },         // budgets + budget vs actual
+  { path: "/accounting/fixed-assets", owner: "accounting" },    // fixed-asset register + depreciation
   ...ACCOUNTING_REPORTS.map((r) => ({ path: `/accounting/reports/${r}`, owner: "accounting" as const })),
 
   // Receivables
@@ -166,6 +168,9 @@ export const API_OWNERS: readonly PathRule[] = [
   { path: "/api/accounting/tax-components", owner: "accounting" },
   { path: "/api/accounting/tax-codes", owner: "accounting" },
   { path: "/api/accounting/bill-suggestions", owner: "accounting" },
+  { path: "/api/accounting/budgets", owner: "accounting" },
+  { path: "/api/accounting/budget-vs-actual", owner: "accounting" },
+  { path: "/api/accounting/fixed-assets", owner: "accounting" },
   // QBO form-parity, Phase 6 "Make Recurring" — scoped to native ledger
   // document types only (Invoice/Bill/Expense/SalesReceipt/CreditNote/
   // RefundReceipt/VendorCredit), so Accounting, not shared.

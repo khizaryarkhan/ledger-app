@@ -36,6 +36,7 @@ const CORE_GROUPS: Group[] = [
       { href: "/accounting/reports/aged-receivables", title: "Aged Receivables", sub: "Open customer invoices bucketed by how overdue they are.", icon: Users },
       { href: "/accounting/reports/aged-payables", title: "Aged Payables", sub: "Open supplier bills bucketed by how overdue they are.", icon: Building2 },
       { href: "/accounting/reports/credits-adjustments", title: "Credits & Adjustments", sub: "Credits by reason, manual journals by purpose, bill capture lag, edits after posting.", icon: Undo2 },
+      { href: "/accounting/reports/budget-vs-actual", title: "Budget vs Actual", sub: "Budgeted vs actual income and expense by account, with variance and variance %.", icon: Gauge },
       { href: "/accounting/reports/tax-liability", title: "Sales Tax Liability", sub: "Output tax on sales less input tax on purchases, per period.", icon: Receipt },
       { href: "/accounting/reports/fx-exposure", title: "Currency Exposure", sub: "Foreign balances vs home carrying value — unrealised FX gain/loss.", icon: Coins },
     ],

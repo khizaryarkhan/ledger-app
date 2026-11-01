@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { useData } from "@/components/data-provider";
+import { fmt } from "@/lib/format";
 
 const ASSIGNABLE_LABEL: Record<string, string> = { project: "Project", manufacturing_order: "Manufacturing Order", job_work_order: "Job Work Order" };
 
@@ -23,6 +24,16 @@ export function AssignedResourcesPanel({ assignableType, assignableId }: { assig
     if (!enabled || !assignableId) return;
     fetch(`/api/resources/assignments?assignableType=${assignableType}&assignableId=${assignableId}`)
       .then(r => r.json()).then(d => setRows(Array.isArray(d) ? d : [])).catch(() => setRows([]));
+  }, [enabled, assignableType, assignableId]);
+
+  // Committed (approved + posted) cost booked to this document, all time.
+  const [cost, setCost] = useState<{ cost: number; unratedHours: number } | null>(null);
+  useEffect(() => {
+    if (!enabled || !assignableId) return;
+    fetch(`/api/resources/cost-report?from=0000-01-01&to=9999-12-31&groupBy=month&assignableType=${assignableType}&assignableId=${assignableId}`)
+      .then(r => r.json())
+      .then(d => setCost(d?.totals ? { cost: (Number(d.totals.approvedCost) || 0) + (Number(d.totals.postedCost) || 0), unratedHours: Number(d.unratedHours) || 0 } : null))
+      .catch(() => setCost(null));
   }, [enabled, assignableType, assignableId]);
 
   if (!enabled) return null;
@@ -45,6 +56,15 @@ export function AssignedResourcesPanel({ assignableType, assignableId }: { assig
               <span className="text-stone-500 tabular-nums">{a.allocationPercent}% · {a.startDate}{a.endDate ? ` – ${a.endDate}` : " →"}</span>
             </div>
           ))}
+        </div>
+      )}
+      {cost && (
+        <div className="mt-3 pt-3 border-t border-stone-800 flex items-center justify-between text-[12.5px]">
+          <span className="text-stone-400">Resource cost (approved + posted)</span>
+          <span className="text-stone-100 tabular-nums font-medium">
+            {fmt.num2(cost.cost)}
+            {cost.unratedHours > 0 && <span className="ml-2 text-[11px] text-amber-400">+ {cost.unratedHours}h no rate</span>}
+          </span>
         </div>
       )}
     </div>

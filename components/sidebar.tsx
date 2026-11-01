@@ -319,6 +319,8 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/accounting/journal",   label: "Journal", icon: FileText },
         { href: "/accounting/reconcile", label: "Reconcile", icon: Landmark },
         { href: "/accounting/approvals", label: "Approvals", icon: ShieldCheck },
+        { href: "/accounting/budgets",   label: "Budgets", icon: Scale },
+        { href: "/accounting/fixed-assets", label: "Fixed Assets", icon: Building2 },
         { href: "/accounting/reports",   label: "Accounting Reports", icon: BarChart3 },
       ],
     },
@@ -426,6 +428,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         // & Materials is master data about what it is, and a transfer moves
         // stock without leaving Inventory's remit. A separate Setup group here
         // would hold two entries and split one idea across two places.
+        { href: "/supply-chain/reorder", label: "Reorder Suggestions", icon: ClipboardList },
         { href: "/supply-chain/transfers", label: "Stock Transfers", icon: ArrowLeftRight },
         { href: "/supply-chain/adjustments", label: "Stock Adjustments", icon: ClipboardList },
         // "Stock Locations", not "Locations": Accounting > Setup already has a
@@ -452,6 +455,7 @@ export function Sidebar({ isOpen = false, onClose, collapsed = false }: SidebarP
         { href: "/resources/board", label: "Resource Board", icon: CalendarClock },
         { href: "/resources/timesheets", label: "Timesheets", icon: Clock },
         { href: "/resources/utilization", label: "Utilization", icon: Gauge },
+        { href: "/resources/cost", label: "Resource Cost", icon: Scale },
       ],
     },
     {

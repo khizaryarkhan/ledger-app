@@ -1346,7 +1346,7 @@ export async function deleteDocument(orgId: string, entryId: string, actorId: st
   const [entry] = await db.select().from(journalEntries)
     .where(and(eq(journalEntries.id, entryId), eq(journalEntries.orgId, orgId))).limit(1);
   if (!entry) err("Transaction not found.");
-  if (entry.sourceType === "Reversal" || entry.sourceType === "Closing") err("System entries can't be deleted.");
+  if (entry.sourceType === "Reversal" || entry.sourceType === "Closing" || entry.sourceType === "Depreciation") err("System entries can't be deleted.");
   if (entry.status === "Reversed") err("This transaction has been reversed — it can't be deleted.");
 
   const [org] = await db.select({ lock: organisations.bookCloseDate }).from(organisations).where(eq(organisations.id, orgId)).limit(1);

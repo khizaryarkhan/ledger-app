@@ -4691,3 +4691,12 @@ once proven impossible; read this before trying again.
   able to reconstruct recent work from `git log`.
 - Branch off `main` for anything non-trivial; `main` auto-deploys.
 - End commit messages with the Co-Authored-By trailer.
+
+## Budgets, fixed assets, reorder suggestions, resource cost (2026-11-01)
+
+Audit of Resources / Supply Chain / Accounting found four missing pieces; migration `0118` (additive).
+
+- **Budgets** (`budgets`, `budget_lines`: account × calendar month): `/accounting/budgets` editor, `/accounting/reports/budget-vs-actual`. Actuals reuse `profitAndLoss` per month — no new GL aggregation. Income over budget is favourable, expense over is not.
+- **Fixed assets** (straight-line): `/accounting/fixed-assets`. A run posts one `Depreciation` entry per asset-month (Dr expense / Cr accumulated), recorded in `fixed_asset_depreciation` AFTER the journal posts; re-runs find the entry by `reference` (`FA:<id>:<period>`), so a month is never posted twice. Whole run refused if any month is in a closed period. Depreciation entries cannot be deleted (it would strand the month). Disposal posts no gain/loss — that stays a manual journal. **Not yet run against a real database or clicked through in a browser.**
+- **Reorder suggestions**: `/supply-chain/reorder`, from `ap_items.min_oh_qty` vs on-hand + expected − committed, quantities rounded up to supplier MOQ. "Create PO" just opens an empty PO — the document form has no query prefill.
+- **Resource cost**: `/resources/cost`, hours × `resources.cost_rate_per_hour`; hours with no rate are flagged, never costed at zero.

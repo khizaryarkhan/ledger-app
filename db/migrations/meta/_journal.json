@@ -820,6 +820,13 @@
       "when": 1792500000000,
       "tag": "0117_po_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "6",
+      "when": 1792600000000,
+      "tag": "0118_budgets_fixed_assets",
+      "breakpoints": true
     }
   ]
 }
